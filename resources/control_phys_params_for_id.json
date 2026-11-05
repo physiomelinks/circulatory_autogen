@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["global/q_lv_init"], "min": 5e-4, "max": 28e-4, "name_for_plotting": "q_{sbv}"},
+  {"targets": ["global/E_lv_A"], "min": 2e8, "max": 5e8, "name_for_plotting": "E_{lvA}"},
+  {"targets": ["global/E_rv_A"], "min": 2e7, "max": 9e7, "name_for_plotting": "E_{rvA}"},
+  {"targets": ["par/R"], "min": 1e5, "max": 1.2e7, "name_for_plotting": "R_{par}"},
+  {"targets": ["leg_L_T/R_T", "leg_R_T/R_T"], "min": 4e8, "max": 4e9, "name_for_plotting": "R_{LE_T}"},
+  {"targets": ["arm_L_T/R_T", "arm_R_T/R_T"], "min": 6e8, "max": 1e10, "name_for_plotting": "R_{BR_T}"},
+  {"targets": ["anterior_cerebral_L_T/R_T", "anterior_cerebral_R_T/R_T"], "min": 6e8, "max": 1e10, "name_for_plotting": "R_{AC_T}"},
+  {"targets": ["external_carotid_L_T/R_T", "external_carotid_R_T/R_T"], "min": 6e8, "max": 1e10, "name_for_plotting": "R_{EC_T}"},
+  {"targets": ["middle_cerebral_L_T/R_T", "middle_cerebral_R_T/R_T"], "min": 6e8, "max": 1e10, "name_for_plotting": "R_{MC_T}"},
+  {"targets": ["posterior_cerebral_L_T/R_T", "posterior_cerebral_R_T/R_T"], "min": 1e9, "max": 5e10, "name_for_plotting": "R_{PC_T}"},
+  {"targets": ["trunk_C_T/R_T"], "min": 5e7, "max": 1e9, "name_for_plotting": "R_{TR_T}"},
+  {"targets": ["venous_lb/C", "venous_ub/C", "venous_ivc/C", "venous_svc/C"], "min": 4e-8, "max": 4e-6, "name_for_plotting": "C_{VE}"}
+ ]
+}

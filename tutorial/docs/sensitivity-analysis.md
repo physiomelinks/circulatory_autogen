@@ -19,11 +19,11 @@ This comprehensive approach allows modelers to understand not only which paramet
 ## Prerequisites
 
 - A generated model and `obs_data.json` file (see [Parameter Identification](parameter-identification.md)).
-- A `params_for_id.csv` file defining parameter ranges.
-- OpenCOR Python environment with MPI if running in parallel.
+- A `params_for_id.json` file defining parameter ranges.
+- `pip install "libcuflynx[mpi]"` (and a system MPI toolchain) if running in parallel.
 
 ## SA in Circulatory_Autogen
-Since Sensitivity Analysis (SA) is intertwined with parameter identification, you will need the same input files as required for parameter identification. This includes both the **`params_for_id.csv`** and the **`obs_data.json`** files. However, the exact values of the data terms in the observation file are not critical for SA itself, as you are simply exploring parameter space and variance, not matching the simulation output to observed data.
+Since Sensitivity Analysis (SA) is intertwined with parameter identification, you will need the same input files as required for parameter identification. This includes both the **`params_for_id.json`** and the **`obs_data.json`** files. However, the exact values of the data terms in the observation file are not critical for SA itself, as you are simply exploring parameter space and variance, not matching the simulation output to observed data.
 
 Crucially, each data item defined in your `obs_data.json` file is treated as a feature for SA, meaning you will receive a separate set of plots (one for first and total order indices, and one for second order indices) for **each** data item.
 
@@ -50,7 +50,58 @@ If `sa_options` is omitted, defaults are applied:
 - `method: sobol`
 - `num_samples: 32`
 - `sample_type: saltelli`
-- `output_dir: sensitivity_outputs/<file_prefix>_SA_results`
+- `output_dir: <param_id_output_dir>/sensitivity`, in the study's working dir (see
+  [The study working dir](parameter-identification.md#the-study-working-dir)). A relative
+  `output_dir` is taken under that folder and an absolute one is used as given. With
+  `cuflynx_study_copy_inputs: false` (or `write_cuflynx_study: false`) the default is
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative `output_dir` is taken under
+  `sensitivity_outputs/`.
+
+### Prediction items as extra outputs
+
+Set `include_prediction_items: true` in `sa_options` to also report the sensitivity of the
+`prediction_items` in `obs_data.json` that have an `operation` (see
+[Prediction items as scalar features](parameter-identification.md#prediction-items-as-scalar-features)).
+They are not in the cost, so they are useful for asking which parameters drive a quantity you
+predict rather than fit.
+
+```
+sa_options:
+    method: sobol
+    num_samples: 1024
+    include_prediction_items: true
+```
+
+- **Only scalar prediction items with an operation are included**: `data_type: constant`, or
+  no data and a reducing operation such as `max`. Items without an operation, and series, are
+  skipped with a warning that names them. An operation that returns more than one number is an
+  error.
+- They come **after** the data_item outputs. They are labelled by their `data_item_name`, as
+  `<data_item_name> (Exp<e>, Sub<s>)`, in the Sobol CSVs
+  (`all_outputs_n<N>_Sobol_indices.csv` columns `S1_...`/`ST_...`, and
+  `all_outputs_n<N>_Sobol_2nd_order_indices.csv`), the per-output plots and the heatmaps. The
+  sub-experiment is the item's `subexperiment_idx` (by default its experiment's last), which is
+  the one the operation is applied to. A feature measured in an experiment that has no
+  data_items (a validation-only experiment) makes the SA simulate that experiment too. Without
+  the option, such an experiment is not simulated.
+- The run also writes `sobol_output_features.json`, which lists every output column with its
+  `kind` (`data_item`, `prediction_item` or `cost`), `data_item_name`, `experiment_idx` and
+  `subexperiment_idx`.
+- With `method: local` they are extra rows of `local_sensitivity_absolute.csv` and
+  `local_sensitivity_relative.csv`, named by `data_item_name`. `get_local_sensitivities()`
+  lists them under `prediction_feature_names`. They are computed the same way as the
+  data_item rows: by the analytic arm (CasADi, or Myokit CVODES sensitivities), or by central
+  finite differences with `fd_rel_step` (2M more simulations) when `gradient_method: FD` or over
+  an emulator. Myokit's arm needs every prediction feature in one and the same
+  sub-experiment; otherwise (features in two experiments, or in an experiment with several
+  sub-experiments) they fall back to finite differences, with a warning.
+- `choose_most_impactful_params_sobol` ranks over every column in the CSV, prediction features
+  included.
+- With `use_emulator: true` the emulator must have been trained with
+  `emulator_settings.include_prediction_items: true`. If it was not, the run stops and says to
+  retrain.
+
+Without the option, nothing changes: the outputs and files are exactly the data_item ones.
 
 ## How to run SA script
 
@@ -64,51 +115,18 @@ To run the script, use the following command (which utilizes **MPI for paralleli
 
 After successful execution, you will find the SA plots—including the first, second, and total order indices—in the directory specified by `output_dir`.
 
+## Deriving an observable from other observables
+
+Sensitivity analysis uses the same `data_items` as calibration, so a feature built from other
+features -- the difference between two observables, say -- is available here too, and is defined
+the same way. See
+[Building an observable from other observables](parameter-identification.md#building-an-observable-from-other-observables).
+
 ## Expected outcome
 
 You should have Sobol index plots saved to `sa_options.output_dir`.
 
 ## Troubleshooting
 
-- If you see errors about `params_for_id_path`, confirm your `params_for_id.csv` filename and `resources_dir`.
-- If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the OpenCOR Python environment.
-
-## Introduction to Extracting New Features from Known Ground Truth
-
-This new feature used to calculate multiple previous (sequence in JSON file) predict results (extracted from previous experiments predict results) error and make it fitting the expectation ground truth (GT) value, to observe delta_input and delta_output relationship when GT numbers are limited. This new feature also could be used in model calibration progress.
-
-- If your ground truth is not sufficient for performing sensitivity analysis, or if you want to extract the difference between two ground truths as a new ground truth to assess a specific feature, please use this feature. For example, if there is a ground truth max_V and another ground truth min_V, you can extract delta_V = (max_V − min_V) as the new ground truth.
-
-Below figure is an example of a JSON file.
-
-![Example of JSON file](images/SensitivityAnalysis_JSONexample.png)
-
-important notice: this experimental unit must be placed after the unit from which the experimental prediction results are extracted, ensuring that the predicted outputs are available before this unit is executed.
-
-"name_for_plotting": "v_{ARdelta}", this string is important, you need to set a different name for different experiments, otherwise cannot use this new feature, but even if you set the same name, do not report error when running calibration progress.
-
-"operation": "calculate_delta_predict3", must select this operation function, make it receive specific index predict results and subtract subtract with specific index predict results.
-
-"operands": "", current experimental unit calculate results by extracted predicted results, so could be set as empty.
-
-"operation_kwargs", this data used to point which experiment predicted results need to be added, then convey the value to participate in the cost function calculation.
-
-"v_{ARmean}" and "v_{ARmax}", important strings, specifies which experiment predicts results will be conveyed to the current experiment.
-
-"pred1" and "pred2": in fact, these parameter saved "v_{ARmean}" and "v_{ARmax}" experiments corresponding to predicted results. (The progress reads the JSON file and retrieves the prediction results for each experiment sequentially now)
-
-- If you extract more than 2 experimental predict results, and calculate new features by specific ways, you need to modify corresponding "operation" name, such as change "calculate_delta_predict3" to "our_new_expect_calculate_results", then need to modify './circulatory_autogen/funcs_user/operation_funcs_user.py' to added your own calculate function, be careful about the function style, the example "calculate_delta_predict3" as shown in below figure.
-
-![Example of operation file](images/SensitivityAnalysis_Operationexample.png)
-
--Notice: sometimes will report an error similar to the following:
-
-```
-obs_series_array_all[JJ] = self.operation_funcs_dict[
-                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-TypeError: operation_funcs.mean() argument after ** must be a mapping, not float
-```
-
-please just change `**self.obs_info["operation_kwargs"][JJ]` to `**kwargs`.
-
-If there is any other issue, please contact Changqing Dong, email: cdon822@aucklanduni.ac.nz. 
+- If you see errors about `params_for_id_path`, confirm your `params_for_id.json` filename and `resources_dir`.
+- If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the environment you are running from — it is the `[mpi]` extra, not part of a plain `pip install libcuflynx`.

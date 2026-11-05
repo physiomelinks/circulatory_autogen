@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "CI shards: `pytest --ci-shard <suite>:<group>[,<group>...]` keeps only the tests of those groups.",
+    "An entry is a test file (all its tests) or file::function (all its parametrizations).",
+    "<suite>:rest is every test the command collected that no group of that suite names, so a new",
+    "test file runs in the rest shard without being listed here. Each shard should stay under ~8",
+    "minutes of tests, leaving ~2 for checkout and installs inside the ~10-minute target.",
+    "Checked by tests/test_ci_shards.py."
+  ],
+  "main": {
+    "autogeneration": [
+      "tests/test_autogeneration.py"
+    ],
+    "module-arrays": [
+      "tests/test_json_module_arrays.py",
+      "tests/test_console_entry_points.py",
+      "tests/test_parameterisations.py"
+    ],
+    "simulation": [
+      "tests/test_calibration_workflow.py",
+      "tests/test_solvers.py",
+      "tests/test_sensitivity_analysis.py"
+    ],
+    "cpp": [
+      "tests/test_cpp_template_generator.py",
+      "tests/test_external_coupling.py",
+      "tests/test_batched_c_solver.py",
+      "tests/test_cvodes_batched_c_solver.py"
+    ],
+    "misc": [
+      "tests/test_generated_parameters_file.py",
+      "tests/test_multiport_per_variable.py",
+      "tests/test_config_schemas.py",
+      "tests/test_reporting.py",
+      "tests/test_modifier_backend_equivalence.py",
+      "tests/test_fsa_analytic_accuracy.py",
+      "tests/test_import_races.py",
+      "tests/test_param_id.py",
+      "tests/test_dependency_extras.py"
+    ]
+  },
+  "param-id": {
+    "heavy": [
+      "tests/test_param_id.py::test_laplace_approximation_hessian_validation",
+      "tests/test_param_id.py::test_param_id_3compartment_succeeds",
+      "tests/test_param_id.py::test_param_id_3compartment_extra_ops_succeeds",
+      "tests/test_param_id.py::test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimize",
+      "tests/test_sensitivity_analysis.py"
+    ]
+  }
+}

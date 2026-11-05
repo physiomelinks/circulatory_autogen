@@ -1,0 +1,3 @@
+name,                    module_subtype,      module_type,        inp_instances,          out_instances
+inlet,                   nn_fourier_8, inlet_flow,         ,                     vessel_1                  
+vessel_1,                vp,           arterial,           inlet,

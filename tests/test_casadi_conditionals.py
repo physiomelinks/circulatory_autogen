@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 CASADI_TRUTH_VALUE_ERROR = (
     "Cannot compute the truth value of a CasADi SXElem symbolic expression"
@@ -19,7 +19,7 @@ CASADI_TRUTH_VALUE_ERROR = (
 def _pid_control_generation_config(model_type, temp_generated_models_dir):
     config = {
         "file_prefix": "pid_control",
-        "input_param_file": "pid_control_parameters.csv",
+        "input_param_file": "pid_control_parameters.json",
         "model_type": model_type,
         "generated_models_dir": temp_generated_models_dir,
     }
@@ -165,7 +165,7 @@ def test_casadi_solver_uses_full_variables_model_array(
     CasADi helper keeps a full-length variables_model for model callbacks while
     self.variables remains the constants-only parameter vector for the integrator.
     """
-    from solver_wrappers.casadi_python_solver_helper import SimulationHelper
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import SimulationHelper
 
     config = base_user_inputs.copy()
     config.update(_pid_control_generation_config("casadi_python", temp_generated_models_dir))

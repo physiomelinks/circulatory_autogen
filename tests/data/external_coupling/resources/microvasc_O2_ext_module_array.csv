@@ -1,0 +1,6 @@
+name,module_type,module_subtype,inp_instances,out_instances
+cap_0,capillary,pp,,capillary_GE_0
+cap_1,capillary,pp,,capillary_GE_1
+capillary_GE_0,GE_capillary,nn,cap_0,tissue
+capillary_GE_1,GE_capillary,nn,cap_1,tissue
+tissue,well_mixed_tissue,nn,capillary_GE_0 capillary_GE_1,

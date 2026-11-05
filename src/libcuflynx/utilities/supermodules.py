@@ -1,0 +1,635 @@
+'''
+Expands supermodule instances in a module array into their submodules.
+
+A supermodule is a module config entry with ``"module_format": "supermodule"`` and the
+``submodule_versions`` it is built from; its instances are its own module array, which
+``config_schemas.load_supermodule_registry`` reads into the entry's ``submodules``. An instance of
+it in a module array, e.g.::
+
+    {"name": "heart", "module_type": "heart", "module_subtype": "supermodule",
+     "per_submodule_inputs": {"ra": ["venous_svc"], "la": ["pvn"]},
+     "per_submodule_outputs": {"aov": ["aortic_root"], "puv": ["par"]}}
+
+is replaced, at its position in the array, by one record per submodule, in the
+supermodule's order:
+
+* each submodule ``sub`` becomes ``<instance>__<sub>`` (levels are joined with ``__``,
+  ``parameter_names.LEVEL_SEPARATOR``), and its (sibling) inp/out names are prefixed the same
+  way;
+* the hosts in ``per_submodule_inputs[sub]`` are prepended to that submodule's inputs, and
+  the hosts in ``per_submodule_outputs[sub]`` appended to its outputs, in order;
+* in each host, the instance name in its out list is replaced, at the same position, by
+  every ``<instance>__<sub>`` whose ``per_submodule_inputs`` lists that host; the instance
+  name in its inp list by every ``<instance>__<sub>`` whose ``per_submodule_outputs`` lists
+  it (in the order of the ``per_submodule_*`` object).
+
+A host may instead name a submodule by its path, ``heart/ra`` (``neuron/soma/membrane`` two
+levels down), in its own inp/out list. The reference becomes ``heart__ra`` where it stands,
+so each host keeps its own order, and the submodule takes the host as it would from
+``per_submodule_*``. A ``per_submodule_*`` key may be a path too, ``{"soma/membrane": [...]}``:
+it is passed down to the nested instance ``soma``. A path is allowed only there and in a
+host's lists, not in an instance's own lists or a supermodule's submodule records; a path left
+over once everything is expanded names nothing and is an error.
+
+A supermodule entry may declare an ordered ``interface``,
+``[{"name", "submodule": <path>, "port_type", "label"}]``. A host that lists the instance with
+no ``per_submodule_*`` entry for it is linked to the first interface entry whose
+``port_type`` is one of the host's own ports facing it (its exit and general ports when it
+feeds the instance, its entrance and general ports when it is fed); with none, it is an error
+as before.
+
+A submodule may itself be a supermodule instance (with ``per_submodule_*`` naming its
+siblings); it is expanded in turn, and a supermodule that contains itself, directly or not,
+is an error. Links between a host and a nested supermodule go through that nested
+supermodule's own ``per_submodule_*`` (or a path), so an instance's ``per_submodule_*`` may not
+name a submodule that is itself a supermodule instance, except by a path into it.
+
+A supermodule instance's values are in the model's parameters file, under its name
+(``heart/lv/E_A``, ``SN/soma/i_M/rho_M`` for a nested one), as the host's own rows; its
+parameter ``<var>`` of submodule ``sub`` is ``{var}_{instance}__{sub}`` in the model. They are
+copied once, when the instance is made, from its version's template -- its default
+parameterisation, or the parameterisation the record names in its place, which must then set
+every instance value the default sets -- with the templates of the supermodules nested in it under them (``write_instance_parameters``; ``cuflynx-upgrade supermodule-instances``). Generation
+refuses a supermodule instance the model's parameters file has no entry for
+(``check_model_instances``). Of the supermodule's parameterisation it reads only the globals; a
+parameter neither sets comes from the submodule version's ``default_parameterisation``
+(``parameterisations.component_parameterisation_rows``, read after the supermodule's, so the
+supermodule's globals win).
+
+After expansion no record is a supermodule instance.
+'''
+
+import copy
+
+import os
+
+from libcuflynx.utilities.config_schemas import (PER_SUBMODULE_KEYS, SUPERMODULE_FORMAT,
+                                                 model_parameters_path,
+                                                 read_module_array_records)
+from libcuflynx.utilities.parameterisations import (first_rows_win, is_global_row,
+                                                    parameterisation_rows,
+                                                    parameterisation_parameters_path,
+                                                    warn_conflicting_globals,
+                                                    record_parameterisation)
+from libcuflynx.utilities.parameter_names import SEPARATOR, flat_name, supermodule_row_name
+from libcuflynx.utilities import parameters_file
+
+#: the command that writes a model's supermodule instances' values into its parameters file
+INSTANCES_COMMAND = 'cuflynx-upgrade supermodule-instances'
+
+# a supermodule nested deeper than this is taken to be a cycle the ancestry check missed
+_MAX_DEPTH = 64
+
+
+def _key(record):
+    return (record['module_type'], record['module_subtype'])
+
+
+def _is_instance(record, registry, source):
+    '''Whether ``record`` is a supermodule instance; errors for an unknown supermodule.'''
+    if _key(record) in registry:
+        return True
+    looks_like_one = (record['module_subtype'] == SUPERMODULE_FORMAT
+                      or any(k in record for k in PER_SUBMODULE_KEYS))
+    if looks_like_one:
+        known = sorted(registry) or 'none'
+        raise ValueError(
+            f'{source}: "{record["name"]}" is a supermodule instance of type '
+            f'({record["module_type"]}, {record["module_subtype"]}), but no supermodule entry of that '
+            f'type was found in the module configs (known supermodules: {known}). Add it to a '
+            f'*_modules_config.json in module_library_dirs or external_modules_dir.')
+    return False
+
+
+def _splice(names, target, replacement):
+    '''``names`` with every ``target`` replaced, in place, by the names in ``replacement``.'''
+    out = []
+    for name in names:
+        if name == target:
+            out += replacement
+        else:
+            out.append(name)
+    return out
+
+
+def _rename_rows(rows, instance, path_parts, source):
+    '''``rows`` of a supermodule's parameters file (``source``) renamed for the record
+    ``instance``.'''
+    return [dict(row, variable_name=supermodule_row_name(row['variable_name'], instance,
+                                                         path_parts, where=f'{source}: '))
+            for row in rows]
+
+
+def submodule_path_parts(supermodule, registry=None, _depth=0):
+    '''Every submodule of ``supermodule`` as a tuple of names: ``('sub',)``, and for a
+    submodule that is itself a supermodule ``('sub', 'subsub')`` ... (its expansion names a
+    nested submodule ``<instance>__<sub>__<subsub>``).'''
+    paths = []
+    for sub in supermodule['submodules']:
+        paths.append((sub['name'],))
+        nested = (registry or {}).get(_key(sub))
+        if nested is not None and _depth < _MAX_DEPTH:
+            paths += [(sub['name'],) + p
+                      for p in submodule_path_parts(nested, registry, _depth + 1)]
+    return paths
+
+
+def submodule_paths(supermodule, registry=None):
+    '''``submodule_path_parts`` as the names an expanded vessel carries after the instance:
+    ``sub``, ``sub__subsub`` ...'''
+    return [flat_name(p) for p in submodule_path_parts(supermodule, registry)]
+
+
+def read_supermodule_parameters(supermodule, record, where, registry=None):
+    '''
+    The globals of the parameterisation of the supermodule instance ``record`` (the record's, or
+    the entry's default), named as the model names them. Its sub-instances' values are the
+    template of a new instance (``instance_values_from_version``) and are not read here.
+    '''
+    name = record['name']
+    parameterisation, own_rows = parameterisation_rows(
+        supermodule, record_parameterisation(record, where), where)
+    source = (parameterisation_parameters_path(supermodule['config_path'], parameterisation)
+              if parameterisation else where)
+    paths = submodule_path_parts(supermodule, registry)
+    instances = {s['name'] for s in supermodule['submodules']}
+    for row in own_rows:
+        if not is_global_row(row) and SEPARATOR not in row['variable_name']:
+            # an older {var}_{sub} name is refused naming its converter; another top-level
+            # parameter has no instance to go to
+            supermodule_row_name(row['variable_name'], name, paths, where=f'{source}: ')
+            raise ValueError(
+                f'{source}: "{row["variable_name"]}" is a parameter at its top, which is not one '
+                f'of the supermodule\'s instances ({sorted(instances)}); its instances\' values '
+                f'are nested under their names, and its globals under '
+                f'"{parameters_file.GLOBAL}".')
+    return _rename_rows([r for r in own_rows if is_global_row(r)], name, paths, source)
+
+
+def _template(supermodule, parameterisation, where, registry=None):
+    '''The sub-instance values (``{sub: {...}}``, no globals) of the parameterisation
+    ``parameterisation`` of the supermodule version ``supermodule`` (None: its default).'''
+    used, _ = parameterisation_rows(supermodule, parameterisation, where)
+    if used is None:
+        return {}
+    doc = parameters_file.read_parameters_file(
+        parameterisation_parameters_path(supermodule['config_path'], used), f'{where}: ',
+        parameters_file.MODULE)
+    names = {s['name'] for s in supermodule['submodules']}
+    out = {}
+    for key, value in doc.items():
+        if key in (parameters_file.GLOBAL, parameters_file.SCHEMA_VERSION_KEY):
+            continue
+        if key not in names or parameters_file.is_leaf(value):
+            if parameters_file.is_leaf(value):
+                # an older {var}_{sub} name is refused naming its converter
+                supermodule_row_name(key, supermodule.get('module_type', ''),
+                                     submodule_path_parts(supermodule, registry),
+                                     where=f'{where}: parameterisation "{used}": ')
+            raise ValueError(
+                f'{where}: parameterisation "{used}" has "{key}" at its top, which is not one of '
+                f'the supermodule\'s instances ({sorted(names)}); a supermodule\'s parameters '
+                f'are its instances\' values, nested by instance, and its globals under '
+                f'"{parameters_file.GLOBAL}".')
+        out[key] = value
+    return out
+
+
+def _merge(under, over):
+    '''``over`` deep-merged onto a copy of ``under`` (nested parameters documents).'''
+    out = copy.deepcopy(under)
+    for key, value in over.items():
+        if (key in out and not parameters_file.is_leaf(value) and isinstance(out[key], dict)
+                and not parameters_file.is_leaf(out[key])):
+            out[key] = _merge(out[key], value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def parameterisation_missing(supermodule, parameterisation, where=''):
+    '''The instance values the default parameterisation of the supermodule version
+    ``supermodule`` sets and its parameterisation ``parameterisation`` does not, named as they are
+    written in a parameterisation (``lv/E_A``), in the default's order. Globals are not instance
+    values: generation reads them from the parameterisation an instance's record names.'''
+    names = []
+    for name in (supermodule.get('default_parameterisation'), parameterisation):
+        used, rows = parameterisation_rows(supermodule, name, where)
+        names.append([r['variable_name'] for r in rows if not is_global_row(r)] if used else [])
+    default, named = names
+    return [n for n in default if n not in set(named)]
+
+
+def instance_values_from_version(supermodule, registry=None, parameterisation=None, where='',
+                                 _depth=0):
+    '''A new instance's values, ``{sub: {var: parameter}, nested sub: {its sub: ...}}``, of the
+    supermodule version ``supermodule`` (a registry entry): its template, the values of its
+    ``default_parameterisation`` or, when another is named, of the parameterisation
+    ``parameterisation`` alone, with each nested supermodule instance's own version's template
+    under the values the template gives it. Every instance of the version has an entry, ``{}``
+    when nothing sets its values.
+
+    A named parameterisation replaces the default, so it must set every instance value the
+    default sets: ValueError naming those it lacks.'''
+    where = where or f'supermodule {_key(supermodule)}'
+    default = supermodule.get('default_parameterisation')
+    if parameterisation is not None and parameterisation != default:
+        missing = parameterisation_missing(supermodule, parameterisation, where)
+        if missing:
+            raise ValueError(
+                f'{where}: parameterisation "{parameterisation}" of supermodule '
+                f'{_key(supermodule)[0]} {_key(supermodule)[1]} does not set {missing}, which its '
+                f'default parameterisation "{default}" sets. A named supermodule parameterisation '
+                f'replaces the default as a new instance\'s values, so it must set every one of '
+                f'them: add them to '
+                f'{parameterisation_parameters_path(supermodule["config_path"], parameterisation)}.')
+        template = _template(supermodule, parameterisation, where, registry)
+    else:
+        template = _template(supermodule, None, where, registry)
+    values = {}
+    for sub in supermodule['submodules']:
+        nested = (registry or {}).get(_key(sub))
+        inner = {}
+        if nested is not None and _depth < _MAX_DEPTH:
+            inner = instance_values_from_version(nested, registry, None,
+                                                 f'{where}, instance "{sub["name"]}"', _depth + 1)
+        own = template.get(sub['name']) or {}
+        if nested is not None:
+            leaves = [k for k, v in own.items() if parameters_file.is_leaf(v)]
+            if leaves:
+                raise ValueError(
+                    f'{where}: its template gives instance "{sub["name"]}", a supermodule '
+                    f'instance, the parameters {leaves}; its values are paths into it '
+                    f'({{"{sub["name"]}": {{"<its instance>": {{"<variable>": ...}}}}}}), and '
+                    f'a global is set under "{parameters_file.GLOBAL}".')
+        values[sub['name']] = _merge(inner, own)
+    return values
+
+
+def _model_document(parameters, where):
+    '''``(doc, path)`` of a model's parameters: ``parameters`` is its file (None when it does
+    not exist) or its document.'''
+    if isinstance(parameters, dict):
+        return parameters, None
+    if not os.path.isfile(str(parameters)):
+        return None, parameters
+    return parameters_file.read_parameters_file(parameters, where), parameters
+
+
+def check_model_instances(records, registry, array_path, parameters):
+    '''ValueError for a supermodule instance among the module array ``records`` (read from
+    ``array_path``) that the model's ``parameters`` (its file or document) has no entry for,
+    naming the command that writes it.'''
+    supers = [r['name'] for r in records if _key(r) in registry]
+    if not supers:
+        return
+    doc, path = _model_document(parameters, f'{array_path}: ')
+    missing = [n for n in supers if doc is None or n not in doc]
+    if missing:
+        where = (f'the model\'s parameters file {path}' if path is not None
+                 else 'the model\'s parameters')
+        state = ' does not exist' if doc is None and path is not None else \
+            f' has no entry for {missing}'
+        raise ValueError(
+            f'{array_path}: the supermodule instances {missing} have no values: {where}{state}. '
+            f'A supermodule instance\'s values are in the model\'s parameters file, under its '
+            f'name; write them once from its version with: {INSTANCES_COMMAND} {array_path} '
+            f'--module-library-dir <library> (the module sources the model is generated with).')
+
+
+def write_instance_parameters(array_path, registry, instances=None, replace=False, dry_run=False,
+                              parameters=None):
+    '''
+    Write the values of each supermodule instance of the model whose module array is
+    ``array_path`` (those named in ``instances``, default all) into the model's parameters file
+    (``parameters``, default ``config_schemas.model_parameters_path``, made when it does not
+    exist), under the instance's name: a copy of its version's template
+    (``instance_values_from_version``: the version's default parameterisation, or the one the
+    record names in its place).
+
+    An instance the file has an entry for keeps it unless ``replace``. Returns ``[(name, path,
+    action)]``, ``action`` "written", "replaced" or "kept". ``registry`` is the supermodule
+    registry (``ModuleSources.supermodule_registry``). Raises ValueError for a name in
+    ``instances`` that is not a supermodule instance of the array.
+    '''
+    path = parameters or model_parameters_path(array_path)
+    records = read_module_array_records(array_path)
+    supers = [r for r in records if _key(r) in registry]
+    if instances is not None:
+        unknown = sorted(set(instances) - {r['name'] for r in supers})
+        if unknown:
+            raise ValueError(f'{array_path}: {unknown} are not supermodule instances there (its '
+                             f'supermodule instances: {[r["name"] for r in supers] or "none"}).')
+        supers = [r for r in supers if r['name'] in instances]
+    doc = (parameters_file.read_parameters_file(path, f'{array_path}: ')
+           if os.path.isfile(path) else parameters_file.new_document())
+    done = []
+    for record in supers:
+        exists = record['name'] in doc
+        if exists and not replace:
+            done.append((record['name'], path, 'kept'))
+            continue
+        where = f'{array_path}: supermodule instance "{record["name"]}"'
+        doc[record['name']] = instance_values_from_version(
+            registry[_key(record)], registry, record_parameterisation(record, where), where)
+        done.append((record['name'], path, 'replaced' if exists else 'written'))
+    if not dry_run and any(action != 'kept' for _, _, action in done):
+        parameters_file.write_parameters_file(path, doc)
+    return done
+
+
+def _head(key):
+    """``('soma', 'membrane')`` for the per_submodule_* key or path ``soma/membrane``."""
+    head, _, tail = key.partition(SEPARATOR)
+    return head, tail
+
+
+def _unique(names):
+    return list(dict.fromkeys(names))
+
+
+def check_interface(supermodule, registry, where):
+    """ValueError unless ``supermodule``'s ``interface`` has unique names and existing paths."""
+    interface = supermodule.get('interface')
+    if interface is None:
+        return []
+    if not isinstance(interface, list):
+        raise ValueError(f'{where}: "interface" must be a list of '
+                         f'{{"name", "submodule", "port_type", "label"}} objects.')
+    paths = {SEPARATOR.join(p) for p in submodule_path_parts(supermodule, registry)}
+    names = []
+    for i, entry in enumerate(interface):
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(k), str) and entry[k]
+                                                  for k in ('name', 'submodule', 'port_type')):
+            raise ValueError(f'{where}: interface[{i}] needs the strings "name", "submodule" '
+                             f'and "port_type" (got {entry!r}).')
+        if entry['name'] in names:
+            raise ValueError(f'{where}: interface name "{entry["name"]}" is used twice.')
+        names.append(entry['name'])
+        if entry['submodule'] not in paths:
+            raise ValueError(f'{where}: interface "{entry["name"]}" names submodule '
+                             f'"{entry["submodule"]}", which is not one of {sorted(paths)}.')
+    return interface
+
+
+def _host_port_types(host, components, facing_out):
+    """The port types of ``host``'s module facing an instance it feeds (``facing_out``) or is
+    fed by; empty for a host whose component is unknown."""
+    entry = (components or {}).get((host['module_type'], host['module_subtype']))
+    if entry is None:
+        return set()
+    keys = ('exit_ports', 'general_ports') if facing_out else ('entrance_ports', 'general_ports')
+    return {port.get('port_type') for key in keys for port in (entry.get(key) or [])
+            if isinstance(port, dict)}
+
+
+def _bind_to_interface(name, interface, by_name, per_inputs, per_outputs, components):
+    """``per_inputs``/``per_outputs`` with every host that lists ``name`` without a
+    per_submodule_* entry bound to the first interface entry matching one of its ports."""
+    per_inputs = {k: list(v) for k, v in per_inputs.items()}
+    per_outputs = {k: list(v) for k, v in per_outputs.items()}
+    for other in by_name.values():
+        for list_key, per, facing_out in (('out_instances', per_inputs, True),
+                                          ('inp_instances', per_outputs, False)):
+            if name not in other[list_key] or any(other['name'] in h for h in per.values()):
+                continue
+            ports = _host_port_types(other, components, facing_out)
+            entry = next((e for e in interface if e['port_type'] in ports), None)
+            if entry is not None:
+                per.setdefault(entry['submodule'], []).append(other['name'])
+    return per_inputs, per_outputs
+
+
+def _expand_one(records, index, registry, source, ancestry, components=None):
+    instance = records[index]
+    name = instance['name']
+    key = _key(instance)
+    supermodule = registry[key]
+    where = f'{source}: supermodule instance "{name}" {key}'
+
+    chain = ancestry.get(name, ())
+    if key in chain or len(chain) >= _MAX_DEPTH:
+        path = ' -> '.join(f'{k[0]}/{k[1]}' for k in chain + (key,))
+        raise ValueError(f'{where}: supermodules nest in a cycle ({path}).')
+
+    submodules = supermodule['submodules']
+    sub_names = [s['name'] for s in submodules]
+    nested = {s['name'] for s in submodules if _key(s) in registry}
+    interface = check_interface(supermodule, registry, where)
+    for list_key in ('inp_instances', 'out_instances'):
+        paths = [n for n in instance[list_key] if SEPARATOR in n]
+        if paths:
+            raise ValueError(f'{where}: its own {list_key} names the paths {paths}; an '
+                             f'instance links to its hosts through per_submodule_*, and a path '
+                             f'may only be written in a host\'s list.')
+    by_name = {r['name']: r for i, r in enumerate(records) if i != index}
+    per_inputs, per_outputs = _bind_to_interface(
+        name, interface, by_name, instance.get('per_submodule_inputs', {}),
+        instance.get('per_submodule_outputs', {}), components)
+    for per_key, per in (('per_submodule_inputs', per_inputs),
+                         ('per_submodule_outputs', per_outputs)):
+        unknown = [s for s in per if _head(s)[0] not in sub_names]
+        if unknown:
+            raise ValueError(f'{where}: {per_key} names {unknown}, which are not submodules '
+                             f'of {key}; its submodules are {sub_names}.')
+        inner = [s for s in per if s in nested]
+        if inner:
+            raise ValueError(f'{where}: {per_key} names {inner}, which are themselves '
+                             f'supermodule instances; connect the host to one of their '
+                             f'submodules by a path (<submodule>/<its submodule>) or through '
+                             f'that supermodule\'s own per_submodule_*.')
+        flat = [s for s in per if _head(s)[1] and _head(s)[0] not in nested]
+        if flat:
+            raise ValueError(f'{where}: {per_key} names the paths {flat}, but their first '
+                             f'submodule is not a supermodule instance.')
+
+    # hosts that name a submodule by path: heart/ra, or heart/soma/membrane two levels down
+    path_inputs, path_outputs, renamed = {}, {}, {}
+    for other in by_name.values():
+        for list_key, links in (('out_instances', path_inputs), ('inp_instances', path_outputs)):
+            for entry in other[list_key]:
+                if not entry.startswith(name + SEPARATOR):
+                    continue
+                head, tail = _head(entry[len(name) + 1:])
+                if head not in sub_names:
+                    raise ValueError(f'{where}: "{other["name"]}" names "{entry}", but "{head}" '
+                                     f'is not a submodule of {key} ({sub_names}).')
+                if head in nested and not tail:
+                    raise ValueError(f'{where}: "{other["name"]}" names "{entry}", which is a '
+                                     f'supermodule instance; name one of its submodules '
+                                     f'("{entry}/<submodule>").')
+                if tail and head not in nested:
+                    raise ValueError(f'{where}: "{other["name"]}" names "{entry}", but "{head}" '
+                                     f'is not a supermodule instance.')
+                renamed[entry] = flat_name((name, head)) + (SEPARATOR + tail if tail else '')
+                if not tail:
+                    links.setdefault(head, []).append(other['name'])
+
+    for per_key, per in (('per_submodule_inputs', per_inputs),
+                         ('per_submodule_outputs', per_outputs)):
+        for sub, hosts in per.items():
+            repeated = sorted({h for h in hosts if hosts.count(h) > 1})
+            if repeated:
+                raise ValueError(f'{where}: {per_key}["{sub}"] names {repeated} more than once; '
+                                 f'each host is linked once per submodule.')
+    for other in by_name.values():
+        for list_key in ('out_instances', 'inp_instances'):
+            if other[list_key].count(name) > 1:
+                raise ValueError(f'{where}: "{other["name"]}" lists "{name}" more than once in its '
+                                 f'{list_key.split("_")[0]} list. List it once; the instance\'s '
+                                 f'per_submodule_* entries say which of its submodules it links to.')
+    for per_key, per, host_key, host_list in (
+            ('per_submodule_inputs', per_inputs, 'out', 'out_instances'),
+            ('per_submodule_outputs', per_outputs, 'inp', 'inp_instances')):
+        for sub, hosts in per.items():
+            for host in hosts:
+                if host not in by_name:
+                    raise ValueError(f'{where}: {per_key}["{sub}"] names host "{host}", which '
+                                     f'is not in the module array.')
+                if name not in by_name[host][host_list]:
+                    raise ValueError(
+                        f'{where}: {per_key}["{sub}"] names host "{host}", but "{host}" does '
+                        f'not list "{name}" in its {host_key} list '
+                        f'({host_list}/{host_key}_instances).')
+
+    input_hosts = {h for hosts in per_inputs.values() for h in hosts}
+    output_hosts = {h for hosts in per_outputs.values() for h in hosts}
+    for other in by_name.values():
+        if name in other['out_instances'] and other['name'] not in input_hosts:
+            raise ValueError(
+                f'{where}: "{other["name"]}" lists "{name}" in its out list, but no '
+                f'per_submodule_inputs entry of "{name}" names "{other["name"]}"'
+                + (' and none of its interface entries matches its ports' if interface else '')
+                + ', so it is not known which submodule it feeds.')
+        if name in other['inp_instances'] and other['name'] not in output_hosts:
+            raise ValueError(
+                f'{where}: "{other["name"]}" lists "{name}" in its inp list, but no '
+                f'per_submodule_outputs entry of "{name}" names "{other["name"]}"'
+                + (' and none of its interface entries matches its ports' if interface else '')
+                + ', so it is not known which submodule feeds it.')
+    for list_key, hosts, per_key in (('inp_instances', input_hosts, 'per_submodule_inputs'),
+                                     ('out_instances', output_hosts, 'per_submodule_outputs')):
+        stray = [h for h in instance[list_key] if h not in hosts]
+        if stray:
+            raise ValueError(f'{where}: its {list_key.split("_")[0]} list names {stray}, which '
+                             f'no {per_key} entry names.')
+
+    def prefixed(sub):
+        return flat_name((name, sub))
+
+    # per_submodule_* keys that are paths go down to the nested instance they start with
+    pushed = {}
+    for per_key, per in (('per_submodule_inputs', per_inputs),
+                         ('per_submodule_outputs', per_outputs)):
+        for sub, hosts in per.items():
+            head, tail = _head(sub)
+            if tail:
+                pushed.setdefault(head, {}).setdefault(per_key, {})[tail] = list(hosts)
+
+    new_records = []
+    for sub in submodules:
+        record = copy.deepcopy(sub)
+        record['name'] = prefixed(sub['name'])
+        record['inp_instances'] = (list(per_inputs.get(sub['name'], []))
+                                   + path_inputs.get(sub['name'], [])
+                                   + [prefixed(n) for n in sub['inp_instances']])
+        record['out_instances'] = ([prefixed(n) for n in sub['out_instances']]
+                                   + list(per_outputs.get(sub['name'], []))
+                                   + path_outputs.get(sub['name'], []))
+        for per_key in PER_SUBMODULE_KEYS:
+            if per_key in record:
+                record[per_key] = {s: [prefixed(h) for h in hosts]
+                                   for s, hosts in record[per_key].items()}
+            for s, hosts in pushed.get(sub['name'], {}).get(per_key, {}).items():
+                record.setdefault(per_key, {})
+                record[per_key][s] = record[per_key].get(s, []) + hosts
+        new_records.append(record)
+
+    clashes = [r['name'] for r in new_records if r['name'] in by_name]
+    if clashes:
+        raise ValueError(f'{where}: expanding it gives the names {clashes}, which are already '
+                         f'in the module array. Rename the instance or the clashing records.')
+
+    for other in by_name.values():
+        for list_key in ('out_instances', 'inp_instances'):
+            other[list_key] = [renamed.get(n, n) for n in other[list_key]]
+        if name in other['out_instances']:
+            other['out_instances'] = _splice(
+                other['out_instances'], name,
+                _unique(prefixed(_head(s)[0]) for s, hosts in per_inputs.items()
+                        if other['name'] in hosts))
+        if name in other['inp_instances']:
+            other['inp_instances'] = _splice(
+                other['inp_instances'], name,
+                _unique(prefixed(_head(s)[0]) for s, hosts in per_outputs.items()
+                        if other['name'] in hosts))
+        # another instance not expanded yet that names this one as a host: its per_submodule_*
+        # lists now name the submodules that link to it (whichever of the two expands first)
+        for per_key, links in (('per_submodule_inputs', per_outputs),
+                               ('per_submodule_outputs', per_inputs)):
+            if per_key in other:
+                replacement = _unique(prefixed(_head(s)[0]) for s, hosts in links.items()
+                                      if other['name'] in hosts)
+                other[per_key] = {s: _splice(hosts, name, replacement)
+                                  for s, hosts in other[per_key].items()}
+
+    for record in new_records:
+        ancestry[record['name']] = chain + (key,)
+    param_rows = read_supermodule_parameters(supermodule, instance, where, registry)
+    return records[:index] + new_records + records[index + 1:], param_rows, \
+        _global_settings(param_rows, instance, supermodule, registry)
+
+
+def _global_settings(rows, instance, supermodule, registry):
+    '''The rows of ``instance``'s parameters that set a global (those the renaming left
+    alone), as ``warn_conflicting_globals`` settings.'''
+    name = instance['name']
+    local = tuple(f'_{flat_name((name, path))}' for path in submodule_paths(supermodule, registry))
+    used = record_parameterisation(instance, name) or supermodule.get('default_parameterisation')
+    who = f'supermodule "{name}"' + (f' (parameterisation "{used}")' if used else '')
+    return [(row['variable_name'], row['value'], row['units'], who, name) for row in rows
+            if not row['variable_name'].endswith(local)]
+
+
+
+def expand_supermodules(records, registry, source=None, settings=None, components=None):
+    '''
+    ``(records, extra_param_rows)``: ``records`` (normalised vessel records, see
+    ``config_schemas.normalise_vessel_record``) with every supermodule instance -- a record
+    whose (module_type, module_subtype) is in ``registry`` -- replaced by its prefixed submodules,
+    recursively, and the globals of the instances' parameterisations, renamed, each name once,
+    the first occurrence kept (so an outer supermodule's values win over a nested one's). The
+    instances' values are the model's parameters file's (``check_model_instances``).
+    ``records`` is not modified.
+
+    Raises ValueError, naming ``source`` and the instance, for an unknown supermodule type,
+    an unknown submodule in per_submodule_*, a host that does not exist or does not name the
+    instance back, a record that names the instance without a per_submodule_* entry linking
+    them, an expanded name that clashes with an existing record, nesting in a cycle, or a
+    path that names nothing. ``components`` (the component registry) lets a host bind to an
+    ``interface`` entry by its ports.
+
+    '''
+    source = source or 'module array'
+    records = copy.deepcopy(list(records))
+    ancestry = {}
+    extra_param_rows = []
+    check_here = settings is None
+    settings = [] if check_here else settings
+    while True:
+        index = next((i for i, r in enumerate(records) if _is_instance(r, registry, source)), None)
+        if index is None:
+            break
+        records, rows, sets = _expand_one(records, index, registry, source, ancestry, components)
+        extra_param_rows += rows
+        settings += sets
+    for record in records:
+        for list_key in ('inp_instances', 'out_instances'):
+            paths = [n for n in record[list_key] if SEPARATOR in n]
+            if paths:
+                raise ValueError(f'{source}: "{record["name"]}" names {paths} in its '
+                                 f'{list_key}, which are not submodules of a supermodule '
+                                 f'instance in the module array.')
+    if check_here:
+        warn_conflicting_globals(settings, source)
+    return records, first_rows_win(extra_param_rows)

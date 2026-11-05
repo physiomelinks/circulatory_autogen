@@ -1,0 +1,11 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["global/q_lv_init"], "min": 400e-6, "max": 1800e-6},
+  {"targets": ["aortic_root/R"], "min": 1.0e5, "max": 1.0e7},
+  {"targets": ["aortic_root/C"], "min": 5.0e-10, "max": 5.0e-8},
+  {"targets": ["systemic_T/R_T"], "min": 5.0e6, "max": 5.0e9},
+  {"targets": ["venous_svc/R"], "min": 5.0e3, "max": 5.0e6},
+  {"targets": ["venous_svc/C"], "min": 1.0e-11, "max": 5.0e-8}
+ ]
+}

@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["global/q_lv_init"], "min": 0.0014, "max": 0.004}
+ ]
+}

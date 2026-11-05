@@ -1,0 +1,7 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["oscillator/c"], "min": 0.05, "max": 2.0, "param_type": "const", "name_for_plotting": "c"},
+  {"targets": ["oscillator/k"], "min": 1.0, "max": 10.0, "param_type": "const", "name_for_plotting": "k"}
+ ]
+}

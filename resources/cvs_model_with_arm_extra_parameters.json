@@ -1,0 +1,21 @@
+{
+ "schema_version": 1,
+ "A_subclavian_L": {
+  "l": {"value": 0.0906065, "units": "metre", "data_reference": "ADAN"},
+  "r_0": {"value": 0.003598315, "units": "metre", "data_reference": "ADAN"}
+ },
+ "A_brachial_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.3431402, "units": "metre", "data_reference": "ADAN"},
+  "r_0": {"value": 0.0020708175, "units": "metre", "data_reference": "ADAN"},
+  "u_0": {"value": 10600, "units": "J_per_m3", "data_reference": "assumedRefOf80mmHg"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "defined_by_user"}
+ },
+ "K_tube_A_brachial_L": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ }
+}

@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "global": {
+  "T": {"value": 1.1, "units": "second", "data_reference": "user_defined"},
+  "rho": {"value": 1040, "units": "Js2_per_m5", "data_reference": "known"},
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "known"},
+  "nu": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "SMvolfrac_art": {"value": 0.1, "units": "dimensionless", "data_reference": "Toro_2021"},
+  "beta_g": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "g": {"value": 9.81, "units": "m_per_s2", "data_reference": "known"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "Avolio_1980"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "Avolio_1980"},
+  "R_flag": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "terminal_1": {
+  "R_T": {"value": 3169423000, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 3.6664E-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined"},
+  "q_init": {"value": 3.421692218224E-06, "units": "m3", "data_reference": "computed_from_u_0_C_T"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "terminal_2": {
+  "R_T": {"value": 3169423000, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 3.6664E-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined"},
+  "q_init": {"value": 3.421692218224E-06, "units": "m3", "data_reference": "computed_from_u_0_C_T"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "K_tube_parent": {
+  "E": {"value": 500000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "parent": {
+  "l": {"value": 0.086, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0086, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 9332.5666, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "K_tube_daughter_1": {
+  "E": {"value": 700000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "daughter_1": {
+  "l": {"value": 0.085, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.006, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 9332.5666, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "K_tube_daughter_2": {
+  "E": {"value": 700000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "daughter_2": {
+  "l": {"value": 0.085, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.006, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 9332.5666, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ }
+}

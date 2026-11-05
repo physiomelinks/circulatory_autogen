@@ -1,0 +1,11 @@
+{
+ "schema_version": 1,
+ "Lotka_Volterra": {
+  "x_init": {"value": 20, "units": "dimensionless", "data_reference": "None"},
+  "y_init": {"value": 10, "units": "dimensionless", "data_reference": "None"},
+  "alpha": {"value": 5, "units": "dimensionless", "data_reference": "None"},
+  "beta": {"value": 0.2, "units": "dimensionless", "data_reference": "None"},
+  "delta": {"value": 0.2, "units": "dimensionless", "data_reference": "None"},
+  "gamma": {"value": 3, "units": "dimensionless", "data_reference": "None"}
+ }
+}

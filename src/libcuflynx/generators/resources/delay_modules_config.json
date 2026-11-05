@@ -1,0 +1,29 @@
+[
+    {
+        "module_type":"delay_test",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"delay_modules.cellml",
+        "component_type":"delay_test",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["V", "dimensionless", "access", "variable"],
+          ["V_delay", "dimensionless", "access", "variable"],
+          ["delay", "second", "access", "constant"],
+          ["k_e", "per_s", "access", "constant"]
+        ],
+        "delay_info":
+        {
+          "variables_to_delay":["V"],
+          "delayed_variables":["V_delay"],
+          "delay_amounts":["delay"]
+        }
+    } 
+]

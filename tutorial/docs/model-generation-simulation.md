@@ -4,26 +4,26 @@
 
 - OpenCOR Python environment set up (see [Getting Started](getting-started.md)).
 - A `user_inputs.yaml` file configured with `file_prefix`, `resources_dir`, and `generated_models_dir`.
-- `*_vessel_array.csv` and `*_parameters.csv` files in your resources directory.
+- `*_module_array.json` (or `.csv`) and `*_parameters.json` files in your resources directory.
 
 ## Software Outline
 
 The Circulatory_Autogen project (`[project_dir]`) contains five folders as presented below:       
 
-- **resources**: Contains example config csv files that define models (`[file_prefix]_vessel_array.csv`), parameters (`[file_prefix]_parameters.csv`), parameters to calibrate (`[file_prefix]_params_for_id.csv`), and ground truth data to calibrate towards (`[file_prefix]_obs_data.json`) for generating and calibrating models.
+- **resources**: Contains example files that define models (`[file_prefix]_module_array.csv`), parameter values (`[file_prefix]_parameters.json`), parameters to calibrate (`[file_prefix]_params_for_id.json`), and ground truth data to calibrate towards (`[file_prefix]_obs_data.json`) for generating and calibrating models.
 - **src**: Containts the source code for autogeneration, parameter id, and other utilities.
 - **user_run_files**: Includes bash run files for the user and the `user_inputs.yaml` file, which is the main config file for the run settings.
-- **funcs_user**: Contains user defined functions for calculating ouput features from model outputs, for fitting to ground truths. The corresponding src file, which contains other available functions to use in the parameter id is `[project_dir]/src/param_id/operation_funcs.py`. This directory also contains functions for user defined cost functions.
-- **module_config_user**: Contains user defined units, CellML modules, and configuration files for those modules. This allows the user to create their own modules and specify how they can be coupled with other modules. The corresponding source directory, which contains all built-in modules and configs, is `[project_dir]/src/generators/resources/`.  
+- **funcs_user**: Where *you* put your own functions for calculating output features from model outputs (operations), your own cost functions, and your own modifier functions. Name the file in `user_inputs.yaml` with `operation_funcs_external_path` / `cost_funcs_external_path` / `modifier_funcs_external_path`; copy one of the `*_funcs_example.py` templates to start, and see `funcs_user/README.md`. The built-in operations and costs ship inside the package, at `[project_dir]/src/libcuflynx/param_id/operation_funcs.py` and `[project_dir]/src/libcuflynx/funcs/`.
+- **module_config_user**: Contains user defined units, CellML modules, and configuration files for those modules. This allows the user to create their own modules and specify how they can be coupled with other modules. The corresponding source directory, which contains all built-in modules and configs, is `[project_dir]/src/libcuflynx/generators/resources/` in a checkout, and ships inside the installed package as `libcuflynx/generators/resources/`.  
 
 !!! Note 
     For recommended use, the user should create a separate `[CA_user_dir]` for the specific model they are creating. In this dir there should be the following:
 
     - **[file_prefix]_user_inputs.yaml**
-    - **resources**: Contains the config csv files that defines model connection network ([file_prefix]_vessel_array.csv) and parameters ([file_prefix]_parameters.csv) that will be generated and config files to prescribe the parameters to calibrate ([file_prefix]_params_for_id.csv) and the ground truth to calibrate towards ([file_prefix]_obs_data.json).
+    - **resources**: Contains the files that define the model connection network ([file_prefix]_module_array.csv) and parameter values ([file_prefix]_parameters.json) that will be generated and config files to prescribe the parameters to calibrate ([file_prefix]_params_for_id.json) and the ground truth to calibrate towards ([file_prefix]_obs_data.json).
 
 !!! Note 
-    Set `external_modules_dir` to a directory where you store additional `*_modules.cellml` and `*_modules_config.json` files if you want modules external to the repo. This path can be relative to your `user_inputs.yaml` location.
+    Set `external_modules_dir` to a directory where you store additional `*_modules.cellml` and `*_modules_config.json` files if you want modules external to the repo. This path can be relative to your `user_inputs.yaml` location. To load a whole module library (one module per subdirectory), use `module_library_dirs`, and set `use_builtin_modules: false` to use it instead of the built-in modules; see [Designing a model](design-model.md).
 
 The following folders will be generated in `[CA_user_dir]` (or `[project_dir]` if `user_inputs_path_override` isn't defined) after running model autogeneration and parameter identification.
 
@@ -36,7 +36,7 @@ This section shows how to generate your desired model. There are several example
 
 The following are the steps for model autogeneration.
 
-1. Create the **vessel_array** and **parameters** files in CSV format for the intended model. Standard names of vessel and parameters files are **[model name]_vessel_array.csv** and **[model name]_parameters.csv**, respectively. 
+1. Create the **module_array** and **parameters** files for the intended model. Standard names are **[model name]_module_array.csv** and **[model name]_parameters.json** (nested JSON; see [Designing a model](design-model.md#creating-module_array-and-parameter-files)), respectively. The module array may also be a JSON file, **[model name]_module_array.json** (see [Designing a model](design-model.md#json-module-arrays)). 
 
     Those files should be added to your `resources` directory which is set with `resources_dir` in your `[CA_user_dir]/[file_prefix]_user_inputs.yaml` (or `[project_dir]/user_run_files/user_inputs.yaml` if `user_inputs_path_override` isn't defined). 
 
@@ -46,13 +46,13 @@ The following are the steps for model autogeneration.
 !!! info
     If the name of your model is *3compartment*, the user files needed for generation are:
 
-    - `3compartment_vessel_array.csv`
-    - `3compartment_parameters.csv`
+    - `3compartment_module_array.csv`
+    - `3compartment_parameters.json`
 
 !!! Note
-    You can refer to the section [Designing a new model](design-model.md) for more details on creating vessel_array and parameters files.
+    You can refer to the section [Designing a new model](design-model.md) for more details on creating module_array and parameters files.
 
-2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.csv` as shown below. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml_only` (default), `python`, or `cpp` depending on the output you want.
+2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.json`. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml` (default), `python`, or `cpp` depending on the output you want.
 
     ![user_inputs.yaml file](images/user-inputs.png)
 
@@ -64,20 +64,32 @@ The following are the steps for model autogeneration.
     As shown below, this will create CellML files for the generated model and test that the simulation runs. Consequently, If there are no errors, it shows the *"Model generation has been successful."* message at the end.
 
     !!! Note 
-    Alternatively, use an IDE, set the Python interpreter to `python_path` (see [Getting Started](getting-started.md)), and run `script_generate_with_new_architecture.py` from `[project_dir]/src/scripts`.
+    Alternatively, use an IDE, set the Python interpreter to `python_path` (see [Getting Started](getting-started.md)), and run `python -m libcuflynx.scripts.script_generate_with_new_architecture` (the module lives at `[project_dir]/src/libcuflynx/scripts/` in a checkout).
 
     ![Run autogeneration output](images/run-autogeneration.png)
 
 4. Generated files are located in `[generated_models_dir]/[file_prefix]`. (`generated_models_dir` defaults to `[project_dir]/generated_models` unless you set it in `user_inputs.yaml`.) 
 
-    For `model_type: cellml_only`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
+    For `model_type: cellml`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
 
-    For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings.
+    For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, the model equations are generated by libCellML as C code (`model0d_core.c/.h`) and wrapped by a C++ `Model0d` class, a `main0d` driver and a `CMakeLists.txt`. These files are written to `cpp_generated_models_dir`, or to the model folder when that is not set. Build them with `cmake -S <dir> -B <dir>/build && cmake --build <dir>/build`, adding `-DSUNDIALS_DIR=<prefix>` for the CVODE solver if CMake can't find SUNDIALS (versions 5-7 are supported). The solvers are `CVODE` and the fixed-step `RK4`, `Heun`, `midpoint` and `explEul`. PETSC is not supported by the current generator. The generated C names every index, e.g. `rates[S_heart_module_q_lv]` and `variables[V_parameters_r_pvn]`. The names match the generated Python's (`var.parameters_r_pvn`), and `model0d_core.h` lists them with their units.
 
     ![Generated files](images/generated-files.png)
 
     !!! info
-        For a typical autogeneration, the parameters.csv file will be the same as the parameters.csv file in `[project_dir]/resources` directory. However, when the parameter identification is run, it will contain the identified parameter values.
+        The generated `[file_prefix]_parameters.json`, beside the generated model, holds every value the model uses, in the form of a model's parameters file (`aortic_root/C`, `heart/lv/E_A`, globals under `global`), each with its units and data_reference: the values from your `[file_prefix]_parameters.json` in the resources directory and the parameterisations. A model generated with identified parameters has the identified values there. It is the only parameters file generation writes beside the model; the generated model itself names a parameter `C_aortic_root` (`<variable>_<vessel>`, a nested vessel's levels joined with `__`: `E_A_heart__lv`).
+
+        A value your `[file_prefix]_parameters.json` does not set (a supermodule instance written `"heart": {}`, or a module's default parameterisation) names where it came from at the start of its data_reference, `from <module_type>/<module_subtype> parameterisation <name>: <its own data_reference>`:
+
+        ```json
+        "heart": {
+         "lv": {
+          "E_A": {"value": 366636512, "units": "J_per_m6", "data_reference": "from chamber/Liang2009NoVisco_v02 parameterisation lv: liang2009multi; Table 2 (p. 748), ..."}
+         }
+        }
+        ```
+
+        It is the run's complete record: generating again with it as the model's parameters file, and the same module array, gives the same model (a data_reference already starting `from ` is not prefixed again), without needing the module library's parameterisations to say the same.
 
 !!! Note
     There is a test for the autogeneration running. To run the test, navigate to `user_run_files` and run the below command.

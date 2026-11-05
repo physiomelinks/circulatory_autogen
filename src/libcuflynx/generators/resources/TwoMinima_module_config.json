@@ -1,0 +1,38 @@
+[
+  {
+    "module_type": "TwoMinima",
+    "module_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "TwoMinima_modules.cellml",
+    "component_type": "TwoMinima_main_type",
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "x_init",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "a",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "c",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "x",
+        "dimensionless",
+        "access",
+        "variable"
+      ]
+    ]
+  }
+]

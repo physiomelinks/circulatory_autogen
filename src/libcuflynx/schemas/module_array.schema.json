@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_array.schema.json",
+  "title": "libcuflynx module array (<prefix>_module_array.json)",
+  "description": "A list of module instance records. Each record has name, module_type, module_subtype, and optional inp_instances and out_instances. Other keys are allowed. A record may name its parameterisation (\"parameterisation\"). A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/record"
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^\\s*\\S+\\s*$",
+      "description": "A name with no whitespace inside it (surrounding whitespace is stripped): names become CellML component and variable names."
+    },
+    "nameList": {
+      "description": "instance names: a list, or one space-separated string (null: none). A name may be a path to a submodule of a supermodule instance, \"heart/ra\" (\"neuron/soma/membrane\" two levels down)",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "perSubmodule": {
+      "description": "{submodule: [host, ...]}, or a list of one-key objects. A submodule may appear once (the loader checks this; JSON Schema cannot). A key may be a path into a nested supermodule instance (\"soma/membrane\").",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nameList"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/nameList"
+            }
+          }
+        }
+      ]
+    },
+    "phlynxRecord": {
+      "title": "instance record",
+      "type": "object",
+      "required": [
+        "name",
+        "module_type",
+        "module_subtype"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/instanceName",
+          "description": "Required. The instance name, unique in the array; a module's parameters and variables are named <variable>_<name>."
+        },
+        "module_type": {
+          "$ref": "#/$defs/name",
+          "description": "Required. The module type: the module_type of a module config entry."
+        },
+        "module_subtype": {
+          "$ref": "#/$defs/name",
+          "description": "Required. The module version: the module_subtype of that entry."
+        },
+        "inp_instances": {
+          "$ref": "#/$defs/nameList",
+          "description": "The instances feeding this one (connected to its entrance ports). Default: none."
+        },
+        "out_instances": {
+          "$ref": "#/$defs/nameList",
+          "description": "The instances this one feeds (connected to its exit ports). Default: none."
+        },
+        "per_submodule_inputs": {
+          "$ref": "#/$defs/perSubmodule",
+          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances feeding each submodule. Each host must list this instance in its out list. Default: none."
+        },
+        "per_submodule_outputs": {
+          "$ref": "#/$defs/perSubmodule",
+          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances each submodule feeds. Each host must list this instance in its inp list. Default: none."
+        },
+        "parameterisation": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.json (default: the config entry's default_parameterisation, if that file exists)"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "inp_vessels"
+            ]
+          },
+          {
+            "required": [
+              "out_vessels"
+            ]
+          }
+        ]
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "instance"
+            ]
+          },
+          "description": "\"instance\" is not a record key: a record names its parameter set with \"parameterisation\"."
+        }
+      ],
+      "patternProperties": {
+        "^phlynx_": {
+          "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
+        }
+      }
+    },
+    "record": {
+      "$ref": "#/$defs/phlynxRecord"
+    },
+    "instanceName": {
+      "type": "string",
+      "pattern": "^\\s*(?!_)(?![^\\s/]*__)[^\\s/]*[^\\s/_]\\s*$",
+      "description": "an instance name (surrounding whitespace is dropped): no whitespace inside, no \"/\", no \"__\", and no \"_\" at either end (nested levels are joined with \"__\": heart/lv is heart__lv)"
+    }
+  }
+}

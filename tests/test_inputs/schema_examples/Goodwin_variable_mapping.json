@@ -1,0 +1,76 @@
+{
+  "variables": [
+    {
+      "variable_name": "environment/time",
+      "latex": "t",
+      "kind": "time",
+      "component": "environment",
+      "units": "s",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Xi/Xi",
+      "latex": "\\Xi_{\\mathrm{Xi}}",
+      "kind": "state",
+      "component": "Xi",
+      "units": "mM (1e-06)",
+      "bondgraph": "q_Xi"
+    },
+    {
+      "variable_name": "Xi/ai",
+      "latex": "\\mathrm{ai}_{\\mathrm{Xi}}",
+      "kind": "constant",
+      "component": "Xi",
+      "units": "mol/m^3/s (1e-06)",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Xi/bi",
+      "latex": "\\mathrm{bi}_{\\mathrm{Xi}}",
+      "kind": "constant",
+      "component": "Xi",
+      "units": "mol/m^3/s (1e-06)",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Xi/Ai",
+      "latex": "\\mathrm{Ai}_{\\mathrm{Xi}}",
+      "kind": "constant",
+      "component": "Xi",
+      "units": "dimensionless",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Xi/ki",
+      "latex": "\\mathrm{ki}_{\\mathrm{Xi}}",
+      "kind": "constant",
+      "component": "Xi",
+      "units": "m^3/mol (1e+06)",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Yi/Yi",
+      "latex": "\\mathrm{Yi}_{\\mathrm{Yi}}",
+      "kind": "state",
+      "component": "Yi",
+      "units": "mM (1e-06)",
+      "bondgraph": "q_Yi"
+    },
+    {
+      "variable_name": "Yi/beta_i",
+      "latex": "\\beta_{i,\\mathrm{Yi}}",
+      "kind": "constant",
+      "component": "Yi",
+      "units": "mol/m^3/s (1e-06)",
+      "bondgraph": ""
+    },
+    {
+      "variable_name": "Yi/alpha_i",
+      "latex": "\\alpha_{i,\\mathrm{Yi}}",
+      "kind": "constant",
+      "component": "Yi",
+      "units": "S/F",
+      "bondgraph": ""
+    }
+  ]
+}

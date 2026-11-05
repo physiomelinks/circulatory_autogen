@@ -1,0 +1,519 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_config.schema.json",
+  "title": "libcuflynx module config (*_modules_config.json)",
+  "description": "A list of module config entries: component entries (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with the submodule versions it is built from; its instances are in its own module array file). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_parameterisation: a directory under parameterisations/ next to the config file holding <name>_parameters.csv.",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/entry"
+  },
+  "$defs": {
+    "port": {
+      "type": "object",
+      "required": [
+        "port_type",
+        "variables"
+      ],
+      "properties": {
+        "port_type": {
+          "type": "string",
+          "description": "Required. The kind of port; ports connect to ports of the same port_type (e.g. vessel_port, flow_port, pressure_port, volume_port, or any name of your own)."
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Required. The module variables the port maps, in order, onto the same positions of the connected port. An empty string or null maps nothing in that position."
+        },
+        "multi_port": {
+          "description": "Whether the port takes several connections, and how (libcuflynx/generators/multi_port.py). \"True\" (or true): every connected module's variables are mapped to this module's (one source, many sinks). \"Sum\" (any case): each of the port's variables is the sum over every connected module, the same as a list with \"sum\" for every variable. \"Multiply\" (any case): the port's one variable, times multiply_factor, sets each connected module's variable. A list gives one \"sum\", \"True\" or \"multiply\" (any case) per variable. Default (absent, null or false): one connection.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": "True"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^([Ss][Uu][Mm]|[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy])$"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^([Tt][Rr][Uu][Ee]|[Ss][Uu][Mm]|[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy])$"
+            }
+          ]
+        },
+        "multiply_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "The factor of the port's Multiply variables (a number, or a string holding one), or a list with one entry per variable: a number for each \"multiply\" variable, null for the others. Default: 1."
+        },
+        "only_one_port": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "True",
+                "False"
+              ]
+            }
+          ],
+          "description": "On an entrance or general port: when a connection is made through it, no other port pair of the same two modules is connected. Default: false."
+        }
+      },
+      "description": "A port: a named group of variables that connect to the matching port of a connected module (by port_type).",
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "multiply_factor"
+            ]
+          },
+          "then": {
+            "required": [
+              "multi_port"
+            ],
+            "properties": {
+              "multi_port": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy]$"
+                  },
+                  {
+                    "type": "array",
+                    "contains": {
+                      "type": "string",
+                      "pattern": "^[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy]$"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "description": "multiply_factor needs a \"Multiply\" multi_port, or a list with a \"multiply\" entry."
+        }
+      ]
+    },
+    "phlynxComponent": {
+      "title": "component entry",
+      "type": "object",
+      "required": [
+        "module_type",
+        "module_subtype",
+        "component_file",
+        "component_type"
+      ],
+      "properties": {
+        "module_type": {
+          "type": "string",
+          "description": "Required. The module type an instance names."
+        },
+        "module_subtype": {
+          "type": "string",
+          "description": "Required. The version of the module type (libcuflynx BC_type, PhLynx module_subtype). (type, version) is unique across the module configs in use."
+        },
+        "component_file": {
+          "type": "string",
+          "description": "Required. The CellML (or C++) file holding the component, relative to this config file's directory."
+        },
+        "component_type": {
+          "type": "string",
+          "description": "Required. The component's name in that file."
+        },
+        "module_format": {
+          "type": "string",
+          "not": {
+            "const": "supermodule"
+          },
+          "description": "The format of the module's file: \"cellml\" (written into the generated CellML model), \"external_api\" (not CellML: coupled to the generated C++ through its api block) or another value such as \"cpp\" (a module the CellML model leaves out). Default: none, treated as not \"cellml\". \"supermodule\" is a supermodule entry."
+        },
+        "entrance_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          },
+          "description": "The ports a module listed in an instance's inp list connects to. Default: none."
+        },
+        "exit_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          },
+          "description": "The ports a module listed in an instance's out list connects to. Default: none."
+        },
+        "general_ports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/port"
+          },
+          "description": "Ports that connect in either direction. Default: none (null is none)."
+        },
+        "variables_and_units": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string",
+                "description": "the variable name in the CellML component"
+              },
+              {
+                "type": "string",
+                "description": "its CellML units"
+              },
+              {
+                "enum": [
+                  "access",
+                  "no_access"
+                ],
+                "description": "\"access\": the variable is exposed (public) to the generated model; \"no_access\": it is not"
+              },
+              {
+                "type": "string",
+                "description": "\"constant\" (a parameter written <instance>/<variable> in the parameters file), \"global_constant\" (a parameter shared by every instance, under \"global\"), \"boundary_condition\" (a parameter written <instance>/<variable> that a connection can replace), or \"variable\" (computed by the model, not a parameter)",
+                "enum": [
+                  "constant",
+                  "global_constant",
+                  "boundary_condition",
+                  "variable"
+                ]
+              }
+            ],
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "description": "The component's variables: [name, units, \"access\" | \"no_access\", kind] each. The kind decides which parameters the parameters file must set. Default: none."
+        },
+        "default_parameterisation": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.json does not exist"
+        },
+        "api": {
+          "type": "object",
+          "required": [
+            "name",
+            "role",
+            "transport"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Required. The api's name."
+            },
+            "description": {
+              "type": "string",
+              "description": "Free text."
+            },
+            "role": {
+              "enum": [
+                "consumer",
+                "provider",
+                "process"
+              ],
+              "description": "Required. \"consumer\": the generated model calls out to the other model (calls); \"provider\": the other model calls the generated model (functions, or a Python class); \"process\": a program run alongside the generated model (program, coordinator, channels)."
+            },
+            "transport": {
+              "enum": [
+                "named_pipe",
+                "cpp_class",
+                "python"
+              ],
+              "description": "Required. How the models talk: named pipes, a C++ class, or a Python class (python: {file, class}, file relative to this config)."
+            },
+            "exchange": {
+              "enum": [
+                "per_rhs",
+                "per_time_step"
+              ],
+              "description": "When values are exchanged. Default: \"per_time_step\"."
+            }
+          },
+          "description": "module_format \"external_api\" (or any entry with an api block): how the generated model is coupled to a model outside it; the other keys depend on role and transport (calls, functions, channels, process, python, variables, ...). Checked by libcuflynx/generators/cpp/api.py (validate_api_block)."
+        },
+        "delay_info": {
+          "type": "object",
+          "properties": {
+            "variables_to_delay": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "the variables whose delayed value is needed"
+            },
+            "delayed_variables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "the variables that receive them, one per variables_to_delay entry"
+            },
+            "delay_amounts": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              },
+              "description": "the delay of each, a number or a parameter name"
+            }
+          },
+          "required": [
+            "variables_to_delay",
+            "delayed_variables",
+            "delay_amounts"
+          ],
+          "description": "model_type cpp only: delayed copies of variables (generators/cpp). Default: none."
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "module_file"
+            ]
+          },
+          {
+            "required": [
+              "default_instance"
+            ]
+          },
+          {
+            "required": [
+              "submodules"
+            ]
+          }
+        ]
+      },
+      "patternProperties": {
+        "^phlynx_": {
+          "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
+        }
+      },
+      "description": "A module that lives in a CellML (or C++) file. Other keys (licence, creator, notes, ...) are allowed and not read."
+    },
+    "supermodule": {
+      "title": "supermodule entry",
+      "type": "object",
+      "required": [
+        "module_type",
+        "module_subtype",
+        "submodule_versions"
+      ],
+      "properties": {
+        "module_type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The supermodule's type (PhLynx keys). Required with module_subtype, unless vessel_type/BC_type are given."
+        },
+        "module_subtype": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Its version (PhLynx keys), conventionally \"supermodule\"."
+        },
+        "module_format": {
+          "const": "supermodule",
+          "description": "Must be \"supermodule\" when given. Default: \"supermodule\" (a submodules list makes the entry a supermodule)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Free text. Not read."
+        },
+        "submodule_versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "module_type",
+              "module_subtype"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "module_type": {
+                "$ref": "#/$defs/name",
+                "description": "the submodule version's module type"
+              },
+              "module_subtype": {
+                "$ref": "#/$defs/name",
+                "description": "the submodule version's module subtype"
+              }
+            }
+          },
+          "description": "Required. The module versions the supermodule is built from. Its instances and their connections are in <module_type>_<module_subtype>_module_array.json beside this config, whose records each use one of these versions."
+        },
+        "default_parameterisation": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.json does not exist"
+        },
+        "interface": {
+          "type": "array",
+          "description": "optional, ordered: a host that lists the instance with no per_submodule_* entry for it is linked to the first entry whose port_type is one of its own ports facing the instance (libcuflynx/utilities/supermodules.py)",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "submodule",
+              "port_type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "unique within the interface"
+              },
+              "submodule": {
+                "type": "string",
+                "description": "a submodule, or a path to a nested one (soma/membrane)"
+              },
+              "port_type": {
+                "type": "string",
+                "description": "the submodule port's port_type"
+              },
+              "label": {
+                "type": "string",
+                "description": "how PhLynx labels the port (shown only)"
+              }
+            }
+          }
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "component_file"
+            ]
+          },
+          {
+            "required": [
+              "component_type"
+            ]
+          },
+          {
+            "required": [
+              "module_file"
+            ]
+          },
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "default_instance"
+            ]
+          },
+          {
+            "required": [
+              "default_parameters"
+            ]
+          },
+          {
+            "required": [
+              "submodules"
+            ]
+          }
+        ]
+      },
+      "patternProperties": {
+        "^phlynx_": {
+          "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
+        }
+      },
+      "description": "A named group of modules (submodules) that an instance names like any module; it is expanded into its submodules (<instance>__<submodule>) before the model is built (libcuflynx/utilities/supermodules.py). Recognised by module_format \"supermodule\" or a submodule_versions list. Its instances are in its own module array file. It has no component of its own. Other keys are allowed and not read."
+    },
+    "entry": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/phlynxComponent"
+        },
+        {
+          "$ref": "#/$defs/supermodule"
+        }
+      ]
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^\\s*\\S+\\s*$",
+      "description": "A name with no whitespace inside it (surrounding whitespace is stripped): names become CellML component and variable names."
+    }
+  }
+}

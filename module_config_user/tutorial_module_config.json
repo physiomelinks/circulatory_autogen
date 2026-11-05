@@ -1,10 +1,10 @@
 [
   {
-    "vessel_type":"i_piezo_Na_tutorial",
-    "BC_type":"nn",
-    "module_format":"cellml",
-    "module_file":"tutorial_modules.cellml",
     "module_type":"i_piezo_Na_tutorial",
+    "module_subtype":"nn",
+    "module_format":"cellml",
+    "component_file":"tutorial_modules.cellml",
+    "component_type":"i_piezo_Na_tutorial",
     "entrance_ports":
     [
     ],
@@ -37,11 +37,11 @@
     ]
   },
   {
-    "vessel_type": "smc_hernandez_with_piezo",
-    "BC_type": "nn",
-    "module_format": "cellml",
-    "module_file": "tutorial_modules.cellml",
     "module_type": "smc_hernandez_with_piezo",
+    "module_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "tutorial_modules.cellml",
+    "component_type": "smc_hernandez_with_piezo",
     "entrance_ports": [],
     "exit_ports": [],
     "general_ports": 
@@ -197,11 +197,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_visco_myogenic",
-    "BC_type":"nn",
+    "module_type":"material_prop_visco_myogenic",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"tutorial_modules.cellml",
-    "module_type":"material_prop_visco_myogenic_type",
+    "component_file":"tutorial_modules.cellml",
+    "component_type":"material_prop_visco_myogenic_type",
     "entrance_ports":
     [
     ],

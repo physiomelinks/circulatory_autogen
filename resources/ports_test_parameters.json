@@ -1,0 +1,14 @@
+{
+ "schema_version": 1,
+ "test_vessel1": {
+  "a": {"value": 0, "units": "dimensionless", "data_reference": "SampleReference"},
+  "b": {"value": 4, "units": "dimensionless", "data_reference": "SampleReference"},
+  "c": {"value": 1, "units": "dimensionless", "data_reference": "SampleReference"},
+  "d": {"value": 2, "units": "dimensionless", "data_reference": "SampleReference"},
+  "y_init": {"value": 0.7, "units": "dimensionless", "data_reference": "SampleReference"}
+ },
+ "test_vessel2": {
+  "z": {"value": 2, "units": "dimensionless", "data_reference": "SampleReference"},
+  "x_init": {"value": 1.5, "units": "dimensionless", "data_reference": "SampleReference"}
+ }
+}

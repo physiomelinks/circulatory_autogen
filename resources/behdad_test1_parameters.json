@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "inlet": {
+  "v": {"value": 83333e-09, "units": "m3_per_s", "data_reference": "user_defined"}
+ },
+ "par": {
+  "R": {"value": 10.664e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "C": {"value": 0.0309077e-8, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"}
+ },
+ "pvn": {
+  "R": {"value": 1.333e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "C": {"value": 0.60015e-8, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"}
+ },
+ "outlet": {
+  "P": {"value": 666.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ }
+}

@@ -1,0 +1,224 @@
+{
+ "schema_version": 1,
+ "global": {
+  "rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "Safaei"},
+  "T": {"value": 0.4, "units": "second", "data_reference": "literature"},
+  "q_ra_us": {"value": 0.00000024, "units": "m3", "data_reference": "literature"},
+  "q_rv_us": {"value": 0.0000008, "units": "m3", "data_reference": "literature"},
+  "q_la_us": {"value": 0.00000016, "units": "m3", "data_reference": "literature"},
+  "q_lv_us": {"value": 0.00000053, "units": "m3", "data_reference": "literature"},
+  "q_ra_init": {"value": 0.00000024, "units": "m3", "data_reference": "literature"},
+  "q_rv_init": {"value": 0.0000008, "units": "m3", "data_reference": "literature"},
+  "q_la_init": {"value": 0.00000016, "units": "m3", "data_reference": "literature"},
+  "q_lv_init": {"value": 0.000053, "units": "m3", "data_reference": "to_be_identified"},
+  "T_ac": {"value": 0.07, "units": "second", "data_reference": "literature"},
+  "T_ar": {"value": 0.07, "units": "second", "data_reference": "literature"},
+  "t_astart": {"value": 0.32, "units": "second", "data_reference": "guessed"},
+  "T_vc": {"value": 0.14, "units": "second", "data_reference": "literature"},
+  "T_vr": {"value": 0.06, "units": "second", "data_reference": "literature"},
+  "t_vstart": {"value": 0, "units": "second", "data_reference": "copied_simple_physiological"},
+  "E_lv_A": {"value": 103000000, "units": "J_per_m6", "data_reference": "to_be_identified"},
+  "E_lv_B": {"value": 9330000, "units": "J_per_m6", "data_reference": "to_be_identified"},
+  "K_vo_trv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vo_puv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vo_miv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vo_aov": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vc_trv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vc_puv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vc_miv": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "K_vc_aov": {"value": 2, "units": "m3_per_Js", "data_reference": "try_ideal_valve"},
+  "M_rg_trv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_puv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_miv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_aov": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_trv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_puv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_miv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_aov": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "l_eff": {"value": 0.001, "units": "metre", "data_reference": "guessed"},
+  "A_nn_trv": {"value": 0.00028, "units": "m2", "data_reference": "Abushaban2018doubled"},
+  "A_nn_puv": {"value": 0.000088, "units": "m2", "data_reference": "Abushaban2018doubled"},
+  "A_nn_miv": {"value": 0.000316, "units": "m2", "data_reference": "Abushaban2018doubled"},
+  "A_nn_aov": {"value": 0.0000946, "units": "m2", "data_reference": "Abushaban2018doubled"},
+  "beta_g": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "known"},
+  "g": {"value": 9.81, "units": "m_per_s2", "data_reference": "known"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "TODO_reference"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "TODO_reference"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "TODO_reference"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "TODO_reference"}
+ },
+ "aortic_root": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "to_be_identified"},
+  "l": {"value": 0.004, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.00513, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "ascending_aorta": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.009, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.00465, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "brachiocephalic": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.012, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.0023, "units": "metre", "data_reference": "Machii1997"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "subclavian_R": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.039, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.0018, "units": "metre", "data_reference": "Machii1997"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"}
+ },
+ "common_carotid_R": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.063, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.00175, "units": "metre", "data_reference": "Machii1997"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"}
+ },
+ "aortic_arch_I": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.004, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.00363, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_carotid_L": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.075, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.0017, "units": "metre", "data_reference": "Machii1997"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"}
+ },
+ "aortic_arch_II": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.008, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.00305, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "subclavian_L": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.039, "units": "metre", "data_reference": "Mynard2011"},
+  "r_0": {"value": 0.0017, "units": "metre", "data_reference": "Machii1997"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"}
+ },
+ "descending_aorta": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.056, "units": "metre", "data_reference": "estimated"},
+  "r_0": {"value": 0.00296, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "Meeting_23Jun2022"},
+  "l": {"value": 0.069, "units": "metre", "data_reference": "estimated"},
+  "r_0": {"value": 0.00262, "units": "metre", "data_reference": "Cantinotti2014"},
+  "u_0": {"value": 10640, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "abdomen_T": {
+  "R_T": {"value": 4530000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "head_L_T": {
+  "R_T": {"value": 1630000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "head_R_T": {
+  "R_T": {"value": 1630000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "arm_L_T": {
+  "R_T": {"value": 42800000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "arm_R_T": {
+  "R_T": {"value": 42800000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "leg_L_T": {
+  "R_T": {"value": 4530000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "leg_R_T": {
+  "R_T": {"value": 4530000000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C_T": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "venous_ivc": {
+  "R": {"value": 100000, "units": "Js_per_m6", "data_reference": "try_tiny_venous_resistance"},
+  "C": {"value": 0.000000001, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "I": {"value": 113000, "units": "Js2_per_m6", "data_reference": "03_05_2022_identified"},
+  "q_us_0": {"value": 0, "units": "m3", "data_reference": "user_defined"},
+  "Delta_q_us": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "Delta_C": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "q_C_init": {"value": 0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "venous_svc": {
+  "R": {"value": 100000, "units": "Js_per_m6", "data_reference": "try_tiny_venous_resistance"},
+  "C": {"value": 0.000000001, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "I": {"value": 113000, "units": "Js2_per_m6", "data_reference": "03_05_2022_identified"},
+  "q_us_0": {"value": 0, "units": "m3", "data_reference": "user_defined"},
+  "Delta_q_us": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "Delta_C": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "q_C_init": {"value": 0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "par": {
+  "R": {"value": 99100000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C": {"value": 1e-12, "units": "m6_per_J", "data_reference": "try_tiny_terminal_compliances"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "I": {"value": 0.000001, "units": "Js2_per_m6", "data_reference": "Safaei"},
+  "u_0": {"value": 0, "units": "J_per_m3", "data_reference": "TO_DO_for_baby"},
+  "q_0": {"value": 0, "units": "m3", "data_reference": "TO_DO_for_baby"}
+ },
+ "pvn": {
+  "R": {"value": 24900000, "units": "Js_per_m6", "data_reference": "to_be_identified"},
+  "C": {"value": 0.0000000021, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "I": {"value": 0.000001, "units": "Js2_per_m6", "data_reference": "Safaei"},
+  "u_0": {"value": 0, "units": "J_per_m3", "data_reference": "TO_DO_for_baby"},
+  "q_0": {"value": 0, "units": "m3", "data_reference": "TO_DO_for_baby"}
+ }
+}

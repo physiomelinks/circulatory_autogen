@@ -34,13 +34,16 @@ For developers adapting the tutorial locally, check that the formatting renders 
 ## Documenting the API
 
 The **API Reference** section is generated automatically from the docstrings in
-`src/` via `mkdocstrings`. There is a single source of truth — the docstrings —
+`src/libcuflynx/` via `mkdocstrings` (`paths: [../src]` in `mkdocs.yml`, so every
+identifier is spelled from the top of the package: `libcuflynx.<subpackage>.<module>`). There is a single source of truth — the docstrings —
 so keep them up to date when you change a public function or class.
 
 - Use **Google-style** docstrings (`Args:` / `Returns:` / `Raises:`), matching
-  the existing style in `src/utilities/obs_data_helpers.py`.
+  the existing style in `src/libcuflynx/utilities/obs_data_helpers.py`.
 - The reference pages live under `tutorial/docs/api/` and are mostly
-  `::: module.path.Symbol` directives plus a short intro. To document a new
+  `::: libcuflynx.module.path.Symbol` directives plus a short intro. The
+  `libcuflynx.` prefix is required — an unprefixed identifier is not resolvable
+  and `mkdocs build --strict` fails on it. To document a new
   public class/function, add a `:::` line on the appropriate page (and a nav
   entry in `mkdocs.yml` if you add a new page).
 - `mkdocstrings` reads the source statically (it does not import it), so heavy

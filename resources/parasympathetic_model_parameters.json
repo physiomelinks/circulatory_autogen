@@ -1,0 +1,138 @@
+{
+ "schema_version": 1,
+ "global": {
+  "f_es_min": {"value": 2.66, "units": "per_s", "data_reference": "Gee2023"}
+ },
+ "lung_stretch": {
+  "tau_lung": {"value": 2.0, "units": "second", "data_reference": "Gee2023"},
+  "q_str": {"value": 0.0, "units": "m3", "data_reference": "0.0"},
+  "G_al": {"value": 23.291e6, "units": "per_m3_s", "data_reference": "Gee2023"}
+ },
+ "baroreceptor": {
+  "P_baro_init": {"value": 39990, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "P_nom": {"value": 12263.6, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "tau_zb": {"value": 6.37, "units": "second", "data_reference": "Gee2023"},
+  "tau_pb": {"value": 2.076, "units": "second", "data_reference": "Gee2023"},
+  "f_ab_min": {"value": 2.52, "units": "per_s", "data_reference": "Gee2023"},
+  "f_ab_max": {"value": 47.78, "units": "per_s", "data_reference": "Gee2023"},
+  "k_ab": {"value": 1567.3414, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "P_sys": {"value": 16662, "units": "J_per_m3", "data_reference": "TEMPORARY_BC"},
+  "dP_sys_dt": {"value": 26.66, "units": "J_per_m3s", "data_reference": "TEMPORARY_BC"}
+ },
+ "cardiopulm_receptor": {
+  "tau_cp": {"value": 2, "units": "second", "data_reference": "Gee2023"},
+  "P_l_init": {"value": 0.0, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "f_maxl": {"value": 20, "units": "Hz", "data_reference": "Gee2023"},
+  "P_tn": {"value": 1440, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "k_l": {"value": 190.47809, "units": "J_per_m3", "data_reference": "Gee2023"},
+  "P_pvn": {"value": 500, "units": "J_per_m3", "data_reference": "user_defined_BC"},
+  "P_mus": {"value": 500, "units": "J_per_m3", "data_reference": "TO_BE_SET_THIS_IS_WRONG"}
+ },
+ "sympathetic_afferent": {
+  "G_abh": {"value": 1.0, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_alh": {"value": 1.541, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_ach": {"value": 2.0, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_abp": {"value": 1.0, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_alp": {"value": 0.33, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_acp": {"value": 2.5, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_abv": {"value": 1.0, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_alv": {"value": 0.0, "units": "dimensionless", "data_reference": "Gee2023"},
+  "G_acv": {"value": 0.0, "units": "dimensionless", "data_reference": "Gee2023"}
+ },
+ "sympathetic_efferent": {
+  "f_esinf": {"value": 2.1, "units": "Hz", "data_reference": "Gee2023"},
+  "f_es0": {"value": 16.11, "units": "Hz", "data_reference": "Gee2023"},
+  "k_es": {"value": 0.0675, "units": "second", "data_reference": "Gee2023"}
+ },
+ "NTS": {
+  "f_min_br": {"value": 0.304, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_br": {"value": 21.499, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_br": {"value": 44.125, "units": "Hz", "data_reference": "Gee2023"},
+  "f_min_ls": {"value": 2.75, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_ls": {"value": 31.569, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_ls": {"value": 11.126, "units": "Hz", "data_reference": "Gee2023"},
+  "f_min_cp": {"value": 0.451, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_cp": {"value": 28.327, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_cp": {"value": 10.2, "units": "Hz", "data_reference": "Gee2023"},
+  "f_min_ch": {"value": 2.2343941, "units": "Hz", "data_reference": "identified-11-6-24"},
+  "f_max_ch": {"value": 25, "units": "Hz", "data_reference": "Hand tuned"},
+  "f_mid_ch": {"value": 0.05, "units": "Hz", "data_reference": "Hand tuned"},
+  "k_NTS_br": {"value": 21, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_NTS_ls": {"value": 2, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_NTS_cp": {"value": 7, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_NTS_ch": {"value": 1.0, "units": "dimensionless", "data_reference": "hand_tuned"},
+  "f_apc": {"value": 3.7, "units": "Hz", "data_reference": "Magosso2001_changed_from_3.7"}
+ },
+ "DMV": {
+  "f_min_DMV": {"value": 2.59, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_DMV": {"value": 6.66, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_DMV": {"value": 42.91, "units": "Hz", "data_reference": "Gee2023"},
+  "k_DMV": {"value": 33.5, "units": "dimensionless", "data_reference": "Gee2023"}
+ },
+ "NA": {
+  "f_min_NA": {"value": 4.88, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_NA": {"value": 15.78, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_NA": {"value": 59.83, "units": "Hz", "data_reference": "Gee2023"},
+  "k_RSA": {"value": 0.5, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_NA": {"value": 23, "units": "dimensionless", "data_reference": "Gee2023"},
+  "s_floor": {"value": 0.0, "units": "dimensionless", "data_reference": "NEEDS_TO_BE_COUPLED_TO_LUNG"}
+ },
+ "NActr": {
+  "f_min_NActr": {"value": 0.61, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_NActr": {"value": 11, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_NActr": {"value": 12.81, "units": "Hz", "data_reference": "Gee2023"},
+  "k_NActr": {"value": 23, "units": "dimensionless", "data_reference": "Gee2023"}
+ },
+ "LCN": {
+  "f_min_LCN": {"value": 1.9886, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_LCN": {"value": 18.3757, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_LCN": {"value": 521.2172, "units": "Hz", "data_reference": "Gee2023"},
+  "k_evEmax_gainLCN": {"value": 3.3299, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_br_gainLCN": {"value": 2.6617, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_esh_gainLCN": {"value": 0.0668, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_cp_gainLCN": {"value": 5.643, "units": "dimensionless", "data_reference": "Gee2023"},
+  "k_LCN": {"value": 2.8473, "units": "dimensionless", "data_reference": "Gee2023"}
+ },
+ "PNNA": {
+  "f_min_PNNA": {"value": 0.857242, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_PNNA": {"value": 12.624676, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_PNNA": {"value": 13.811104, "units": "Hz", "data_reference": "Gee2023"},
+  "k_PNNA": {"value": 3.230162, "units": "dimensionless", "data_reference": "Gee2023"},
+  "f_vagal_stim": {"value": 0.0, "units": "Hz", "data_reference": "NEEDS_TO_BE_COUPLED"}
+ },
+ "PNDMV": {
+  "f_min_PNDMV": {"value": 2.4152, "units": "Hz", "data_reference": "Gee2023"},
+  "f_max_PNDMV": {"value": 17.719, "units": "Hz", "data_reference": "Gee2023"},
+  "f_mid_PNDMV": {"value": 14.1838, "units": "Hz", "data_reference": "Gee2023"},
+  "k_PNDMV": {"value": 13.3561, "units": "dimensionless", "data_reference": "Gee2023"},
+  "tau_PNDMV": {"value": 3.333, "units": "second", "data_reference": "Gee2023"}
+ },
+ "heart_effector_T": {
+  "G_Ts": {"value": -0.13, "units": "second", "data_reference": "Gee2023"},
+  "G_Tv": {"value": 0.09, "units": "s2", "data_reference": "Gee2023"},
+  "tau_Ts": {"value": 2, "units": "second", "data_reference": "Gee2023"},
+  "tau_Tv": {"value": 1.5, "units": "second", "data_reference": "Gee2023"}
+ },
+ "heart_effector_Elv": {
+  "G_Es": {"value": 1.0e7, "units": "J_per_m6", "data_reference": ""},
+  "tau_Es": {"value": 2, "units": "second", "data_reference": "Gee2023"},
+  "G_Ev": {"value": -0.5e7, "units": "Js_per_m6", "data_reference": ""},
+  "tau_Ev": {"value": 0.2, "units": "second", "data_reference": "Gee2023"},
+  "scale": {"value": 1.0, "units": "dimensionless", "data_reference": "Keep_as_1"}
+ },
+ "heart_effector_Erv": {
+  "G_Es": {"value": 0.5e7, "units": "J_per_m6", "data_reference": ""},
+  "tau_Es": {"value": 2, "units": "second", "data_reference": "Gee2023"},
+  "G_Ev": {"value": -0.5e7, "units": "Js_per_m6", "data_reference": ""},
+  "tau_Ev": {"value": 0.2, "units": "second", "data_reference": "Gee2023"},
+  "scale": {"value": 0.5903, "units": "dimensionless", "data_reference": "Gee2023"}
+ },
+ "peripheral_effector_arms": {
+  "tau_Rsp": {"value": 2.0, "units": "second", "data_reference": "Gee2023"},
+  "G_Rsp": {"value": 92.6574e6, "units": "Js_per_m6", "data_reference": "Gee2023"}
+ },
+ "venous_volume_effector_lb": {
+  "tau_Vusv": {"value": 5.0, "units": "second", "data_reference": "Gee2023"},
+  "G_Vusv": {"value": -265.4e-6, "units": "m3", "data_reference": "Gee2023"}
+ }
+}

@@ -1,0 +1,5 @@
+[
+ {"name": "soma_SN", "module_type": "soma", "module_subtype": "sympathetic_monolithic_v01", "parameterisation": "default", "inp_instances": [], "out_instances": ["axon_SN"]},
+ {"name": "axon_SN", "module_type": "axon", "module_subtype": "sympathetic_monolithic_v01", "parameterisation": "default", "inp_instances": ["soma_SN"], "out_instances": ["var_SN"]},
+ {"name": "var_SN", "module_type": "varicosity", "module_subtype": "sympathetic_monolithic_v01", "parameterisation": "default", "inp_instances": ["axon_SN"], "out_instances": []}
+]

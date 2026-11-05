@@ -1,0 +1,373 @@
+[
+    {
+        "module_type":"coupler",
+        "module_subtype":"pv_0D_1D",
+        "module_format":"cellml",
+        "component_file":"coupling_modules.cellml",
+        "component_type":"pv_0D_1D_coupler_type",
+    
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+    
+            "variables":["q_star","P_s_0D"]
+    
+          }
+        ],
+        "exit_ports":
+        [
+          {
+    
+            "port_type":"0D_1D_port",
+            "variables":["P_t_star","A_star", "flux"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["rho", "Js2_per_m5", "access", "global_constant"],
+          ["I", "Js2_per_m6", "access", "constant"],
+          ["P_t_star", "J_per_m3", "access", "variable"],
+          ["P_s_0D", "J_per_m3", "access", "variable"],
+          ["P_s_star", "J_per_m3", "access", "variable"],
+          ["A_star", "m3", "access", "variable"],
+          ["q_star", "m3_per_s", "access", "variable"],
+          ["flux", "m3_per_s", "access", "variable"]
+        ]
+    },
+    {
+        "module_type":"imposter_1D",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"coupling_modules.cellml",
+        "component_type":"imposter_1D",
+        "entrance_ports":
+        [
+          {
+            "port_type":"0D_1D_port",
+            "variables":["P_t_star","A_star", "flux"]
+          }
+        ],
+        "exit_ports":
+        [
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["P_t_star", "J_per_m3", "access", "constant"],
+          ["A_star", "m3", "access", "constant"],
+          ["flux", "m3_per_s", "access", "variable"]
+        ]
+    },
+    {
+      "module_type":"FV1D_vessel",
+      "module_subtype":"vp",
+      "module_format":"external_api",
+      "component_file":"",
+      "component_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "process":"FV1D_solver",
+        "exchange":"per_rhs",
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
+      "entrance_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":["",""]
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":["",""]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+      ]
+    },
+    {
+      "module_type":"FV1D_vessel",
+      "module_subtype":"pv",
+      "module_format":"external_api",
+      "component_file":"",
+      "component_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "process":"FV1D_solver",
+        "exchange":"per_rhs",
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
+      "entrance_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":["",""]
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":["",""]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+      ]
+    },
+    {
+      "module_type":"FV1D_vessel",
+      "module_subtype":"vv",
+      "module_format":"external_api",
+      "component_file":"",
+      "component_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "process":"FV1D_solver",
+        "exchange":"per_rhs",
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
+      "entrance_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":[]
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":[]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+      ]
+    },
+    {
+      "module_type":"FV1D_vessel",
+      "module_subtype":"nn",
+      "module_format":"external_api",
+      "component_file":"",
+      "component_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "process":"FV1D_solver",
+        "exchange":"per_rhs",
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
+      "entrance_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":[]
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"vessel_port",
+          "variables":[]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+      ]
+    },
+
+    {
+      "module_type":"FV1D_solver",
+      "module_subtype":"nn",
+      "module_format":"external_api",
+      "component_file":"",
+      "component_type":"FV_1d_solver",
+      "api":
+      {
+        "name":"FV_1d_solver",
+        "description":"The FV 1D solver (libcuflynx/solver1d) run alongside the 0D model. The coupler (libcuflynx/coupler) launches both programs and relays their messages over named pipes; the FV1D_vessel and FV1D_volume_sum entries say what each connection exchanges over these pipes. From this entry the C++ generator writes coupler_config.json. The coupler and the 1D solver are run for whole cycles of the global period T.",
+        "role":"process",
+        "transport":"named_pipe",
+        "coordinator":"coupler",
+        "program":{"interpreter":"python", "package":"libcuflynx.solver1d", "script":"main1D.py"},
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        }
+      },
+      "entrance_ports":[],
+      "exit_ports":[],
+      "general_ports":[],
+      "variables_and_units":
+      [
+        ["T", "second", "access", "global_constant"]
+      ]
+    },
+    {
+      "module_type":"volume_sum",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "module_type":"volume_sum",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum",
+      "entrance_ports":
+      [
+        {
+          "port_type":"volume_port",
+          "variables":["q"],
+          "multi_port":"sum"
+        }
+      ],
+      "exit_ports":
+      [],
+      "general_ports":[],
+      "variables_and_units":
+      [
+        ["q", "m3", "access", "boundary_condition"]
+      ]
+    },
+    {
+      "module_type":"volume_sum_2",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum_2",
+      "entrance_ports":
+      [
+        {
+          "port_type":"volume_port",
+          "variables":["q"],
+          "multi_port":"sum"
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"volume_port",
+          "variables":["q_sum"]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+        ["q", "m3", "access", "boundary_condition"],
+        ["q_sum", "m3", "access", "variable"]
+      ]
+    },
+
+    {
+      "module_type":"FV1D_volume_sum",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum_1D",
+      "api":
+      {
+        "name":"FV_1d_volume_sum",
+        "description":"Blood volume held in the 1D vessels, received from the FV 1D solver at initialisation and after every 0D step.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "process":"FV1D_solver",
+        "exchange":"per_time_step",
+        "calls":
+        [
+          {"name":"recv_volume", "kind":"recv", "when":["init", "step_end"], "channel":"volume",
+           "recv":["q_sum", "$ignore"]}
+        ]
+      },
+      "entrance_ports":
+      [
+        {
+          "port_type":"volume_port",
+          "variables":[]
+        }
+      ],
+      "exit_ports":
+      [
+        {
+          "port_type":"volume_port",
+          "variables":["q_sum"]
+        }
+      ],
+      "general_ports":[],
+      "variables_and_units":
+      [
+        ["q_sum", "m3", "access", "boundary_condition"]
+      ]
+    } 
+]

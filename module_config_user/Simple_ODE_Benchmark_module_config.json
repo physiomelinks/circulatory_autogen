@@ -1,10 +1,10 @@
 [
   {
-    "vessel_type": "Simple_ODE_Benchmark",
-    "BC_type": "nn",
+    "module_type": "Simple_ODE_Benchmark",
+    "module_subtype": "nn",
     "module_format": "cellml",
-    "module_file": "Simple_ODE_Benchmark_modules.cellml",
-    "module_type": "Simple_ODE_Benchmark_main_type",
+    "component_file": "Simple_ODE_Benchmark_modules.cellml",
+    "component_type": "Simple_ODE_Benchmark_main_type",
     "entrance_ports": [],
     "exit_ports": [],
     "general_ports": [],

@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["twomin/a"], "min": -5.0, "max": 5.0, "name_for_plotting": "a", "prior": "uniform"}
+ ]
+}

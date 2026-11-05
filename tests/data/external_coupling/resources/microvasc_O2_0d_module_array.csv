@@ -1,0 +1,7 @@
+name,module_type,module_subtype,inp_instances,out_instances
+cap_0,capillary,pp,,capillary_GE_0
+cap_1,capillary,pp,,capillary_GE_1
+capillary_GE_0,GE_capillary,nn,cap_0,volume_0
+capillary_GE_1,GE_capillary,nn,cap_1,volume_1
+volume_0,well_mixed_volume,nn,capillary_GE_0,
+volume_1,well_mixed_volume,nn,capillary_GE_1,

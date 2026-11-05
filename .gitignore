@@ -10,26 +10,40 @@ __pycache__/
 claude.md
 log_test.log
 module_config_user/old/
-resources/0D_1D_coupling_test_parameters.csv
+resources/0D_1D_coupling_test_parameters.json
 resources/0D_1D_coupling_test_vessel_array.csv
-resources/SN_simple_parameters_unfinished.csv
+resources/0D_1D_coupling_test_module_array.csv
+resources/SN_simple_parameters_unfinished.json
 resources/aortic_bif_1d_0d_vessel_array.csv
+resources/aortic_bif_1d_0d_module_array.csv
 resources/aortic_bif_1d_1d_vessel_array.csv
+resources/aortic_bif_1d_1d_module_array.csv
 resources/aortic_bif_1d_coupler1d0d_unfinished.json
-resources/aortic_bif_1d_wCont_parameters.csv
+resources/aortic_bif_1d_wCont_parameters.json
 resources/aortic_bif_1d_wCont_vessel_array.csv
-resources/control_phys_parameters_unfinished.csv
-resources/cpp_coupling_parameters.csv
+resources/aortic_bif_1d_wCont_module_array.csv
+resources/control_phys_parameters_unfinished.json
+resources/cpp_coupling_parameters.json
 resources/cpp_coupling_vessel_array.csv
-resources/delay_devel_parameters.csv
+resources/cpp_coupling_module_array.csv
+resources/delay_devel_parameters.json
 resources/delay_devel_vessel_array.csv
-resources/parasympathetic_model_parameters_unfinished.csv
+resources/delay_devel_module_array.csv
+resources/parasympathetic_model_parameters_unfinished.json
 resources/priors_physiological_params_for_id.csv
 resources/simple_physiological_prediction_variables.csv
 resources/test_init_states_obs_data.json
 resources/test_init_states_params_for_id.csv
 resources/vessel_array_module_files.csv
-src/circulatory_autogen.egg-info/
+# setuptools build metadata. The rule was pinned to the old distribution name, so renaming the
+# project to libcuflynx made `pip install -e .` (a prerequisite for every user_run_files
+# launcher now) drop an untracked src/libcuflynx.egg-info/ into every checkout. Match any name.
+src/*.egg-info/
+# `python -m build` output. CONTRIBUTING's release checklist tells every releaser to run it
+# before tagging, so cutting a release leaves ~2 MB of untracked wheel and sdist in the
+# checkout -- exactly where a `git add -A` would sweep them into the release commit.
+build/
+dist/
 src/nohup.out
 tests/TEST_REFACTORING_SUMMARY.md
 tests/test_outputs/
@@ -39,4 +53,19 @@ tmp/
 tutorial/interactive/.ipynb_checkpoints/
 tutorial/interactive/generation_and_calibration.py
 tutorial/site/
-user_run_files/plot_param_id_without_autogen.sh
+
+# Local benchmark runner outputs
+benchmarks/_results/
+
+# Per-run resolved-config archives written by save_dated_user_inputs (PrimitiveParsers.py).
+# Run artifacts, not inputs: they bake in absolute local paths, so they are never committed.
+resources/user_inputs_[0-9]*.yaml
+
+# Editor swap/backup files (a vim .swp was committed once by an over-broad `git add`)
+*.swp
+*.swo
+*~
+.*.swp
+
+# the module library CI checks out beside the tests (tests/_module_library.py)
+/_module_library/

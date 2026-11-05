@@ -2,24 +2,30 @@
 
 This section documents the Python API for driving Circulatory Autogen
 programmatically — the same calls used by the
-[interactive tutorial](https://github.com/FinbarArgus/circulatory_autogen/blob/master/tutorial/interactive/generation_and_calibration.py)
+[interactive tutorial](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/generation_and_calibration.ipynb)
 and by external tools such as the CUFLynx GUI.
 
-The reference pages are generated automatically from the docstrings in `src/`,
-so they stay in sync with the code.
+The reference pages are generated automatically from the docstrings in
+`src/libcuflynx/`, so they stay in sync with the code.
 
 ## Setup
 
-The package imports are relative to `src/`, so add it to `sys.path` before
-importing (this is what the tutorials do). Everything must run under the
-OpenCOR Python shell.
+The repository is `circulatory_autogen`; the installable package is **`libcuflynx`**.
+Install it and import from the `libcuflynx` namespace — there is no import path to set up,
+and no checkout or OpenCOR install is required.
+
+```
+pip install libcuflynx
+```
 
 ```python
-import sys
-sys.path.append("/path/to/circulatory_autogen/src")
-
-from utilities.utility_funcs import get_default_inp_data_dict
+from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
 ```
+
+!!! warning "The old flat imports were removed in 0.6.0"
+    `from param_id.paramID import CVS0DParamID` (no `libcuflynx.` prefix) resolved in
+    0.4.0 and 0.5.x as a shim that warned. In 0.6.0 it raises `ModuleNotFoundError`;
+    prefix the import with `libcuflynx.`. See `CHANGELOG.md`.
 
 ## Public API at a glance
 
@@ -28,23 +34,23 @@ analyse pipeline. Each links to its detailed reference page.
 
 | Task | Entry point | Page |
 |---|---|---|
-| Build the config dict | [`get_default_inp_data_dict`][utilities.utility_funcs.get_default_inp_data_dict] | [Utilities](utilities.md) |
-| Generate a model | [`generate_with_new_architecture`][scripts.script_generate_with_new_architecture.generate_with_new_architecture] | [Model generation](generation.md) |
-| Run a simulation | [`get_simulation_helper`][solver_wrappers.get_simulation_helper] / [`get_simulation_helper_from_inp_data_dict`][solver_wrappers.get_simulation_helper_from_inp_data_dict] | [Simulation](solver-wrappers.md) |
-| Build observation data | [`ObsDataCreator`][utilities.obs_data_helpers.ObsDataCreator] | [Observation data &amp; utilities](utilities.md) |
-| Calibrate parameters | [`CVS0DParamID`][param_id.paramID.CVS0DParamID] | [Parameter identification](param-id.md) |
-| Sensitivity analysis | [`SensitivityAnalysis`][sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis] | [Sensitivity analysis](sensitivity.md) |
-| Identifiability analysis | [`IdentifiabilityAnalysis`][identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis] | [Identifiability analysis](identifiability.md) |
-| Run protocols standalone | [`ProtocolRunner`][protocol_runners.protocol_runner.ProtocolRunner] | [Protocols](protocols.md) |
+| Build the config dict | [`get_default_inp_data_dict`][libcuflynx.utilities.utility_funcs.get_default_inp_data_dict] | [Utilities](utilities.md) |
+| Generate a model | [`generate_with_new_architecture`][libcuflynx.scripts.script_generate_with_new_architecture.generate_with_new_architecture] | [Model generation](generation.md) |
+| Run a simulation | [`get_simulation_helper`][libcuflynx.solver_wrappers.get_simulation_helper] / [`get_simulation_helper_from_inp_data_dict`][libcuflynx.solver_wrappers.get_simulation_helper_from_inp_data_dict] | [Simulation](solver-wrappers.md) |
+| Build observation data | [`ObsDataCreator`][libcuflynx.utilities.obs_data_helpers.ObsDataCreator] | [Observation data &amp; utilities](utilities.md) |
+| Calibrate parameters | [`CVS0DParamID`][libcuflynx.param_id.paramID.CVS0DParamID] | [Parameter identification](param-id.md) |
+| Sensitivity analysis | [`SensitivityAnalysis`][libcuflynx.sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis] | [Sensitivity analysis](sensitivity.md) |
+| Identifiability analysis | [`IdentifiabilityAnalysis`][libcuflynx.identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis] | [Identifiability analysis](identifiability.md) |
+| Run protocols standalone | [`ProtocolRunner`][libcuflynx.protocol_runners.protocol_runner.ProtocolRunner] | [Protocols](protocols.md) |
 
 ## Typical call sequence
 
 ```python
-from utilities.utility_funcs import get_default_inp_data_dict
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from solver_wrappers import get_simulation_helper_from_inp_data_dict
-from utilities.obs_data_helpers import ObsDataCreator
-from param_id.paramID import CVS0DParamID
+from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.solver_wrappers import get_simulation_helper_from_inp_data_dict
+from libcuflynx.utilities.obs_data_helpers import ObsDataCreator
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 # 1. Configuration (== user_inputs.yaml defaults, then mutate in code)
 inp = get_default_inp_data_dict(file_prefix, input_param_file, resources_dir)
@@ -75,5 +81,5 @@ pid.plot_outputs()
 
 `params_for_id_dict` is a list of
 `{vessel_name, param_name, min, max, name_for_plotting}` entries (the in-memory
-equivalent of `{prefix}_params_for_id.csv`); `vessel_name` may be a single name
+equivalent of the entries of `{prefix}_params_for_id.json`); `vessel_name` may be a single name
 or a list to share one calibrated parameter across many vessels.

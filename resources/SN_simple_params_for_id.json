@@ -1,0 +1,8 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["soma_SN/g_Na"], "min": 1, "max": 6, "name_for_plotting": "g_{Na}"},
+  {"targets": ["soma_SN/g_M"], "min": 0.001, "max": 0.004, "name_for_plotting": "g_{M}"},
+  {"targets": ["soma_SN/g_Kv1_5"], "min": 0.03, "max": 0.1, "name_for_plotting": "g_{kv}"}
+ ]
+}

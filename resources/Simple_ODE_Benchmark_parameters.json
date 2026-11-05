@@ -1,0 +1,9 @@
+{
+ "schema_version": 1,
+ "benchmark": {
+  "x_init": {"value": 0, "units": "dimensionless", "data_reference": "None"},
+  "y_init": {"value": 0, "units": "dimensionless", "data_reference": "None"},
+  "p": {"value": 1, "units": "dimensionless", "data_reference": "None"},
+  "q": {"value": 1, "units": "dimensionless", "data_reference": "None"}
+ }
+}

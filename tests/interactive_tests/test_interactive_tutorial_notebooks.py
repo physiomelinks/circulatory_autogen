@@ -91,11 +91,8 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
             """\
             print("Imports done")
 
-            # Ensure local src is importable
+            # libcuflynx is imported from the installed package; only the repo data dirs are needed.
             project_root = Path("/home/farg967/Documents/git_projects/circulatory_autogen")
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
 
             # Set up paths
             resources_dir = project_root / "resources" # TODO: change to the downloads dir if using Phlynx output directly
@@ -113,9 +110,6 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
 
             project_root = Path(os.environ["INTERACTIVE_TEST_PROJECT_ROOT"]).resolve()
             test_output_root = Path(os.environ["INTERACTIVE_TEST_OUTPUT_DIR"]).resolve()
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
 
             resources_dir = project_root / "resources"
             generated_models_dir = test_output_root / "generated_models"
@@ -170,7 +164,7 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
 
             param_id = CVS0DParamID(
                 model_path=inp_data_dict["model_path"],
-                model_type="cellml_only",
+                model_type="cellml",
                 param_id_method="genetic_algorithm",
                 file_name_prefix="3compartment" # name here only needed for saved files
             )
@@ -195,8 +189,10 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
     )
     source = _force_num_samples(source, value=4)
     source = _replace_once(source, '"num_calls_to_function": 1000,\n', '"num_calls_to_function": 30,\n')
-    source = source.replace('"name_for_plotting": "$P_{aoMean}$"', '"name_for_plotting": "P_{aoMean}"')
-    source = source.replace('"name_for_plotting": "$P_{aoHalf}$"', '"name_for_plotting": "P_{aoHalf}"')
+    source = source.replace('"trace_name_for_plotting": "$P_{aoMean}$"',
+                            '"trace_name_for_plotting": "P_{aoMean}"')
+    source = source.replace('"trace_name_for_plotting": "$P_{aoHalf}$"',
+                            '"trace_name_for_plotting": "P_{aoHalf}"')
 
     source = _replace_once(
         source,
@@ -228,7 +224,7 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
         "obs_data_dict = obs_data_creator.get_obs_data_dict()\nparam_id.set_ground_truth_data(obs_data_dict)\n",
     )
 
-    truncation_marker = "# TODO: update vessel array to set specific vessels to 1D in PhLynx"
+    truncation_marker = "# TODO: update module array to set specific vessels to 1D in PhLynx"
     if truncation_marker in source:
         source = source.split(truncation_marker, 1)[0]
         source += '\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n'
@@ -248,11 +244,7 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
             CA_root = Path(__file__).resolve().parent.parent.parent if "__file__" in globals() else Path.cwd().parent.parent
             resources_path = CA_root / Path("resources")
 
-            #################### TODO make this automatic in Docker ####################################
-
-            src_path = os.path.join(CA_root, "src")
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
+            # libcuflynx is imported from the installed package; nothing goes on the import path.
             """
         ),
         textwrap.dedent(
@@ -262,10 +254,6 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
             this_dir = project_root / "tutorial" / "interactive"
             CA_root = project_root
             resources_path = project_root / "resources"
-
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
             """
         ),
     )
@@ -349,8 +337,8 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
     source = _replace_once(source, "run_ilastik_batch_processing = True", "run_ilastik_batch_processing = False")
     source = _replace_once(
         source,
-        'print("Wrote:", str(CA_root / Path("tutorial/interactive/resources/user_output/image_to_model_parameters.csv")))\n',
-        'print("Wrote:", str(Path.cwd() / "resources/user_output/image_to_model_parameters.csv"))\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n',
+        'print("Wrote:", str(CA_root / Path("tutorial/interactive/resources/user_output/image_to_model_parameters.json")))\n',
+        'print("Wrote:", str(Path.cwd() / "resources/user_output/image_to_model_parameters.json"))\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n',
     )
 
     return source
@@ -504,4 +492,4 @@ def test_image_to_hemodynamics_notebook_executes_as_script_when_dependencies_exi
         )
 
     assert "INTERACTIVE_NOTEBOOK_COMPLETED" in completed.stdout
-    assert (temp_root / "resources" / "user_output" / "image_to_model_parameters.csv").exists()
+    assert (temp_root / "resources" / "user_output" / "image_to_model_parameters.json").exists()

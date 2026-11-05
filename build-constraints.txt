@@ -1,0 +1,22 @@
+# Constraints for the *build* environments pip creates for sdists
+# (`pip install --build-constraint build-constraints.txt`), not for what libcuflynx
+# runs against. Only ever needed for a dependency that has no wheel for the
+# interpreter CI uses.
+#
+# Cython<3.3 — `harmonic` (pulled in by autoemulate, so only via the `emulation`
+# extra) ships wheels for cp311+ only, so the Python 3.10 jobs build its sdist.
+# Cython 3.3.0 (released 2026-08-22) made an implicit double->long assignment an
+# error, and harmonic 1.3.0's `model_legacy.pyx:433` does exactly that:
+#
+#     harmonic/model_legacy.pyx:433:21: Cannot assign type 'double' to 'long'
+#
+# That broke `pip install -e ".[dev,uq,emulation]"` outright — test-uq and
+# test-uq-mpi started failing in 20s, at dependency install, on branches that had
+# touched nothing related. harmonic's own `[build-system] requires` is an unpinned
+# `Cython`, so the ceiling has to come from here.
+#
+# The same ceiling, for the same reason, is in CUFLynx's build-constraints.txt.
+#
+# Remove when harmonic ships a cp310 wheel or fixes the .pyx — not before, or
+# every job that installs the emulation extra goes red again.
+Cython<3.3

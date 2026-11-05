@@ -7,28 +7,38 @@ import os
 import pytest
 import yaml
 
-import parsers.PrimitiveParsers as primitive_parsers
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+import libcuflynx.parsers.PrimitiveParsers as primitive_parsers
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+
+
+# generic_junction_test2_* have nodes whose compliant end shares its side with another end, which
+# the node rule refuses (#616); generic_junction_test_* is the rule-following version of the same
+# network.
+_MIXED_NODE_XFAIL = "mixed node, see #616; generic_junction_test is the rule-following version"
 
 
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("file_prefix,input_param_file,model_type,solver", [
-    ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
-    ('test_init_states', 'test_init_states_parameters.csv', 'cellml_only', 'CVODE'),
-    ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
-    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml_only', 'CVODE'),
-    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
-    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
-    ('test_fft', 'test_fft_parameters.csv', 'cellml_only', 'CVODE'),
-    ('neonatal', 'neonatal_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('SN_simple', 'SN_simple_parameters.csv', 'cellml_only', 'CVODE'),
-    ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
-    ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
+    ('ports_test', 'ports_test_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('test_init_states', 'test_init_states_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('3compartment', '3compartment_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('simple_physiological', 'simple_physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('parasympathetic_model', 'parasympathetic_model_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('test_fft', 'test_fft_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('neonatal', 'neonatal_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    pytest.param('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit',
+                 marks=pytest.mark.xfail(strict=True, reason=_MIXED_NODE_XFAIL)),
+    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    pytest.param('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit',
+                 marks=pytest.mark.xfail(strict=True, reason=_MIXED_NODE_XFAIL)),
+    ('SN_simple', 'SN_simple_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('physiological', 'physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_phys', 'control_phys_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_parasymp', 'control_parasymp_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_phys_asd', 'control_phys_asd_parameters.json', 'cellml', 'CVODE_myokit'),
 ])
 def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
     """
@@ -63,17 +73,23 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
     assert success, f"Model generation failed for {file_prefix} with {input_param_file}"
 
 
+_SN_SIMPLE_XFAIL = (
+    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+)
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
-        ('3compartment', '3compartment_parameters.csv', 'python', 'solve_ivp'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp'),
-        ('pid_control', 'pid_control_parameters.csv', 'python', 'solve_ivp'),
-        ('Lotka_Volterra', 'Lotka_Volterra_parameters.csv', 'casadi_python', 'casadi_integrator'),
-        ('3compartment', '3compartment_parameters.csv', 'casadi_python', 'casadi_integrator'),
-        ('3compartment_nonstiff', '3compartment_nonstiff_parameters.csv', 'casadi_python', 'casadi_integrator'),
+        ('3compartment', '3compartment_parameters.json', 'python', 'solve_ivp'),
+        pytest.param('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp',
+                     marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
+        ('pid_control', 'pid_control_parameters.json', 'python', 'solve_ivp'),
+        ('Lotka_Volterra', 'Lotka_Volterra_parameters.json', 'casadi_python', 'casadi_integrator'),
+        ('3compartment', '3compartment_parameters.json', 'casadi_python', 'casadi_integrator'),
+        ('3compartment_nonstiff', '3compartment_nonstiff_parameters.json', 'casadi_python', 'casadi_integrator'),
     ],
 )
 def test_generate_python_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
@@ -128,7 +144,7 @@ def test_generate_python_model_is_human_readable_by_default(base_user_inputs, re
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'python',
         'solver': 'solve_ivp',
         'generated_models_dir': temp_generated_models_dir,
@@ -140,7 +156,7 @@ def test_generate_python_model_is_human_readable_by_default(base_user_inputs, re
         },
     })
 
-    param_file_path = os.path.join(resources_dir, '3compartment_parameters.csv')
+    param_file_path = os.path.join(resources_dir, '3compartment_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
 
     success = generate_with_new_architecture(False, config)
@@ -206,7 +222,7 @@ def test_generate_python_model_uses_original_code_when_human_readable_disabled(
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'python',
         'solver': 'solve_ivp',
         'generated_models_dir': temp_generated_models_dir,
@@ -219,7 +235,7 @@ def test_generate_python_model_uses_original_code_when_human_readable_disabled(
         },
     })
 
-    param_file_path = os.path.join(resources_dir, '3compartment_parameters.csv')
+    param_file_path = os.path.join(resources_dir, '3compartment_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
 
     if config_source == "inp_data_dict":
@@ -253,9 +269,10 @@ def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_outpu
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': 'aortic_bif_1d',
-        'input_param_file': 'aortic_bif_1d_parameters.csv',
+        'input_param_file': 'aortic_bif_1d_parameters.json',
         'model_type': 'cpp',
         'solver': 'RK4',
+        'solver_info': {'dt_solver': 0.0001},
         'couple_to_1d': True,
         'generated_models_dir': temp_generated_models_dir,
         'cpp_generated_models_dir': temp_output_dir,
@@ -263,7 +280,7 @@ def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_outpu
     })
     
     # Verify parameter file exists
-    param_file_path = os.path.join(resources_dir, 'aortic_bif_1d_parameters.csv')
+    param_file_path = os.path.join(resources_dir, 'aortic_bif_1d_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
     
     # Generate model
@@ -290,9 +307,9 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': 'nonexistent_model',
-        'input_param_file': 'nonexistent_parameters.csv',
-        'model_type': 'cellml_only',
-        'solver': 'CVODE',
+        'input_param_file': 'nonexistent_parameters.json',
+        'model_type': 'cellml',
+        'solver': 'CVODE_myokit',
         'generated_models_dir': temp_generated_models_dir,
     })
     
@@ -304,7 +321,7 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
 
 def test_casadi_if_else_transform_replaces_ternaries():
     """Unit test: Python ternary expressions become ca.if_else in casadi_compat mode."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
@@ -319,7 +336,7 @@ def test_casadi_if_else_transform_replaces_ternaries():
 
 def test_casadi_division_guard_wraps_denominators():
     """Unit test: divisions become guarded with ca.fmax(fabs(denom), 1e-300) in casadi_compat mode."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
@@ -332,7 +349,7 @@ def test_casadi_division_guard_wraps_denominators():
 
 def test_casadi_compat_utilities_use_if_else_helpers():
     """Unit test: casadi_compat utilities emit ca.if_else comparison helpers."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     lines = PythonGenerator._comparison_helper_lines(casadi_compat=True)
     code = "\n".join(lines)

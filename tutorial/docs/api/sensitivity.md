@@ -3,7 +3,7 @@
 `SensitivityAnalysis` runs variance-based (Sobol) global sensitivity analysis
 over the parameters selected for identification.
 
-::: sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis
+::: libcuflynx.sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis
     options:
       members:
         - init_from_dict

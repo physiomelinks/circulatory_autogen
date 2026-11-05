@@ -1,0 +1,80 @@
+{
+ "schema_version": 1,
+ "global": {
+  "rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "capillary_network rho"},
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "capillary_network mu"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "capillary_network a_vessel"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "capillary_network b_vessel"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "capillary_network c_vessel"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "capillary_network d_vessel"},
+  "saturation_cap": {"value": 0.9999, "units": "dimensionless", "data_reference": "circulatory-autogen-modules pulmonary_GE default (numerical stability)"}
+ },
+ "cap_0": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "capillary_network q_C_init_capillary_6"},
+  "E": {"value": 400000.0, "units": "J_per_m3", "data_reference": "capillary_network E_capillary_6"},
+  "l": {"value": 0.0002, "units": "metre", "data_reference": "capillary_network l_capillary_6"},
+  "r": {"value": 2e-06, "units": "metre", "data_reference": "capillary_network r_capillary_6"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "capillary_network u_ext_capillary_6"},
+  "u_in": {"value": 2000, "units": "J_per_m3", "data_reference": "capillary inlet ~15 mmHg (chosen for this test)"},
+  "u_out": {"value": 666.6, "units": "J_per_m3", "data_reference": "capillary_network u_out_capillary_18"}
+ },
+ "cap_1": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "capillary_network q_C_init_capillary_6"},
+  "E": {"value": 400000.0, "units": "J_per_m3", "data_reference": "capillary_network E_capillary_6"},
+  "l": {"value": 0.0002, "units": "metre", "data_reference": "capillary_network l_capillary_6"},
+  "r": {"value": 2e-06, "units": "metre", "data_reference": "capillary_network r_capillary_6"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "capillary_network u_ext_capillary_6"},
+  "u_in": {"value": 2000, "units": "J_per_m3", "data_reference": "capillary inlet ~15 mmHg (chosen for this test)"},
+  "u_out": {"value": 666.6, "units": "J_per_m3", "data_reference": "capillary_network u_out_capillary_18"}
+ },
+ "capillary_GE_0": {
+  "C_O2_c_init": {"value": 3.0, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_c_init_capillary_GE_6"},
+  "perm_O2": {"value": 4e-06, "units": "m_per_s", "data_reference": "capillary_network perm_O2_capillary_GE_6"},
+  "exp_threshold": {"value": 0.5, "units": "millimolar", "data_reference": "capillary_network exp_threshold_capillary_GE_6"},
+  "S_O2": {"value": 9.75975975975976e-06, "units": "mol_per_m3_per_Pa", "data_reference": "capillary_network S_O2_capillary_GE_6"},
+  "S_CO2": {"value": 0.00022522522522522523, "units": "mol_per_m3_per_Pa", "data_reference": "capillary_network S_CO2_capillary_GE_6"},
+  "k_1": {"value": 14.99, "units": "mmHg", "data_reference": "capillary_network k_1_capillary_GE_6"},
+  "k_2": {"value": 194.4, "units": "mmHg", "data_reference": "capillary_network k_2_capillary_GE_6"},
+  "a_1": {"value": 0.3836, "units": "dimensionless", "data_reference": "capillary_network a_1_capillary_GE_6"},
+  "a_2": {"value": 1.819, "units": "dimensionless", "data_reference": "capillary_network a_2_capillary_GE_6"},
+  "alpha_1": {"value": 0.03198, "units": "per_mmHg", "data_reference": "capillary_network alpha_1_capillary_GE_6"},
+  "alpha_2": {"value": 0.05591, "units": "per_mmHg", "data_reference": "capillary_network alpha_2_capillary_GE_6"},
+  "beta_1": {"value": 0.008275, "units": "per_mmHg", "data_reference": "capillary_network beta_1_capillary_GE_6"},
+  "beta_2": {"value": 0.03255, "units": "per_mmHg", "data_reference": "capillary_network beta_2_capillary_GE_6"},
+  "C_O2_sat": {"value": 9.0, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_sat_capillary_GE_6"},
+  "C_CO2_sat": {"value": 86.11, "units": "mol_per_m3", "data_reference": "capillary_network C_CO2_sat_capillary_GE_6"},
+  "C_CO2_a": {"value": 21.43, "units": "mol_per_m3", "data_reference": "capillary_network C_CO2_a_capillary_GE_0"},
+  "C_O2_a": {"value": 8.75, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_a_capillary_GE_0"}
+ },
+ "capillary_GE_1": {
+  "C_O2_c_init": {"value": 3.0, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_c_init_capillary_GE_6"},
+  "perm_O2": {"value": 4e-06, "units": "m_per_s", "data_reference": "capillary_network perm_O2_capillary_GE_6"},
+  "exp_threshold": {"value": 0.5, "units": "millimolar", "data_reference": "capillary_network exp_threshold_capillary_GE_6"},
+  "S_O2": {"value": 9.75975975975976e-06, "units": "mol_per_m3_per_Pa", "data_reference": "capillary_network S_O2_capillary_GE_6"},
+  "S_CO2": {"value": 0.00022522522522522523, "units": "mol_per_m3_per_Pa", "data_reference": "capillary_network S_CO2_capillary_GE_6"},
+  "k_1": {"value": 14.99, "units": "mmHg", "data_reference": "capillary_network k_1_capillary_GE_6"},
+  "k_2": {"value": 194.4, "units": "mmHg", "data_reference": "capillary_network k_2_capillary_GE_6"},
+  "a_1": {"value": 0.3836, "units": "dimensionless", "data_reference": "capillary_network a_1_capillary_GE_6"},
+  "a_2": {"value": 1.819, "units": "dimensionless", "data_reference": "capillary_network a_2_capillary_GE_6"},
+  "alpha_1": {"value": 0.03198, "units": "per_mmHg", "data_reference": "capillary_network alpha_1_capillary_GE_6"},
+  "alpha_2": {"value": 0.05591, "units": "per_mmHg", "data_reference": "capillary_network alpha_2_capillary_GE_6"},
+  "beta_1": {"value": 0.008275, "units": "per_mmHg", "data_reference": "capillary_network beta_1_capillary_GE_6"},
+  "beta_2": {"value": 0.03255, "units": "per_mmHg", "data_reference": "capillary_network beta_2_capillary_GE_6"},
+  "C_O2_sat": {"value": 9.0, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_sat_capillary_GE_6"},
+  "C_CO2_sat": {"value": 86.11, "units": "mol_per_m3", "data_reference": "capillary_network C_CO2_sat_capillary_GE_6"},
+  "C_CO2_a": {"value": 21.43, "units": "mol_per_m3", "data_reference": "capillary_network C_CO2_a_capillary_GE_0"},
+  "C_O2_a": {"value": 8.75, "units": "mol_per_m3", "data_reference": "capillary_network C_O2_a_capillary_GE_0"}
+ },
+ "volume_0": {
+  "C_P_init": {"value": 0.02, "units": "millimolar", "data_reference": "capillary_network C_P_init_volume_32"},
+  "M": {"value": -0.0011830357142857144, "units": "millimolar_per_s", "data_reference": "capillary_network M_volume_32"},
+  "k_reduce": {"value": 50, "units": "per_millimolar", "data_reference": "capillary_network k_reduce_volume_32"},
+  "V_P": {"value": 8.000000000000001e-14, "units": "m3", "data_reference": "x_P*y_P*z_P of capillary_network volume_32 (200 x 20 x 20 um)"}
+ },
+ "volume_1": {
+  "C_P_init": {"value": 0.02, "units": "millimolar", "data_reference": "capillary_network C_P_init_volume_32"},
+  "M": {"value": -0.0011830357142857144, "units": "millimolar_per_s", "data_reference": "capillary_network M_volume_32"},
+  "k_reduce": {"value": 50, "units": "per_millimolar", "data_reference": "capillary_network k_reduce_volume_32"},
+  "V_P": {"value": 8.000000000000001e-14, "units": "m3", "data_reference": "x_P*y_P*z_P of capillary_network volume_32 (200 x 20 x 20 um)"}
+ }
+}

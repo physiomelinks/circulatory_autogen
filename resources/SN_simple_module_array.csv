@@ -1,0 +1,4 @@
+name,module_subtype,module_type,inp_instances,out_instances
+soma_SN, nn, SN_soma, , axon_SN
+axon_SN, nn, SN_axon, soma_SN, var_SN
+var_SN, nn, SN_varicosity, axon_SN, 

@@ -1,0 +1,8 @@
+name,module_subtype,module_type,inp_instances,out_instances
+pvn,                     vp, venous,             par,                  heart
+par,                     vp, arterial_simple,    heart,                pvn
+heart,                   vp_devel, heart,        zero_flow venous_svc pvn,       aortic_root par   
+aortic_root,             vv, arterial_simple,    heart,                systemic_T       
+systemic_T,              pp, terminal,           aortic_root,          venous_svc            
+venous_svc,              vp, venous,             systemic_T,           heart                
+zero_flow,               nn,          zero_flow,          ,                     heart

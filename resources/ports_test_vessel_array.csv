@@ -1,3 +1,0 @@
-name,                    BC_type,     vessel_type,        inp_vessels,          out_vessels
-test_vessel1,nn,vessel_type_test1,,test_vessel2
-test_vessel2,nn,vessel_type_test2,test_vessel1,

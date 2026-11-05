@@ -1,0 +1,8 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["fhn/a"], "min": 0.0, "max": 1.0, "name_for_plotting": "a", "prior": "uniform"},
+  {"targets": ["fhn/b"], "min": 0.0, "max": 1.0, "name_for_plotting": "b", "prior": "uniform"},
+  {"targets": ["fhn/c"], "min": 0.5, "max": 6.0, "name_for_plotting": "c", "prior": "uniform"}
+ ]
+}

@@ -1,0 +1,7 @@
+{
+ "schema_version": 1,
+ "delay": {
+  "delay": {"value": 0.5, "units": "second", "data_reference": "user_defined"},
+  "k_e": {"value": 1.0, "units": "per_s", "data_reference": "user_defined"}
+ }
+}

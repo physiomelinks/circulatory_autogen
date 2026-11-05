@@ -23,16 +23,13 @@ def generate_param_array(inp_data_dict=None):
     root_dir = os.path.dirname(root_dir)
     root_dir = os.path.dirname(root_dir)
 
-    src_path = os.path.join(root_dir, 'src')
-    if src_path not in sys.path:
-        sys.path.append(src_path)
-
     # 2. Import Classes (Lazy Load)
-    from parsers.ModelParsers import CSV0DModelParser
-    from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-    from generators.CVSCppGenerator import CVS0DCppGenerator
-    from parsers.PrimitiveParsers import YamlFileParser
-    from parsers.PrimitiveParsers import CSVFileParser
+    from libcuflynx.parsers.ModelParsers import CSV0DModelParser
+    from libcuflynx.utilities.config_schemas import load_module_config, read_module_array_csv
+    from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
+    from libcuflynx.generators.cpp.generator import CVS0DCppGenerator
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
     # --- LAZY LOADING END ---
 
     user_inputs_dir = os.path.join(root_dir, 'user_run_files')
@@ -55,7 +52,7 @@ def generate_param_array(inp_data_dict=None):
 
     # csv_parser = CSVFileParser()
     # vessels_df = csv_parser.get_data_as_dataframe_multistrings(parser.vessel_filename, True)
-    vessels_df = pd.read_csv(parser.vessel_filename, header=0, dtype=str) #, na_filter=False)
+    vessels_df = read_module_array_csv(parser.vessel_filename, header=0, dtype=str) #, na_filter=False)
     vessels_df = vessels_df.fillna('')
     # print(vessels_df.head())
     # print(vessels_df.keys())
@@ -80,22 +77,12 @@ def generate_param_array(inp_data_dict=None):
     modules = []
     for filename in os.listdir(module_config_fold1):
         if filename.endswith(".json"):
-            with open(os.path.join(module_config_fold1, filename), "r") as file:
-                temp_data = json.load(file)
-                # modules.append(temp_data)
-                if isinstance(temp_data, list):
-                    modules.extend(temp_data)
-                else:
-                    modules.append(temp_data)
+            # either key style, read as the current keys
+            modules.extend(load_module_config(os.path.join(module_config_fold1, filename)))
     for filename in os.listdir(module_config_fold2):
         if filename.endswith(".json"):
-            with open(os.path.join(module_config_fold2, filename), "r") as file:
-                temp_data = json.load(file)
-                # modules.append(temp_data)
-                if isinstance(temp_data, list):
-                    modules.extend(temp_data)
-                else:
-                    modules.append(temp_data)
+            # either key style, read as the current keys
+            modules.extend(load_module_config(os.path.join(module_config_fold2, filename)))
 
 
     # this list might not be complete
@@ -166,16 +153,16 @@ def generate_param_array(inp_data_dict=None):
     for i in range(nVess):
 
         nameV = vessels_df.at[i,'name']
-        typeBC = vessels_df.at[i,'BC_type']
-        typeV = vessels_df.at[i,'vessel_type']
+        typeBC = vessels_df.at[i,'module_subtype']
+        typeV = vessels_df.at[i,'module_type']
         # print(nameV, typeBC, typeV)
 
-        matches = [entry for entry in modules if entry.get('BC_type')==typeBC and entry.get('vessel_type')==typeV]
+        matches = [entry for entry in modules if entry.get('module_subtype')==typeBC and entry.get('module_type')==typeV]
         if len(matches)>1:
-            sys.exit('ERROR :: multiple modules found for this vessel_type and BC_type combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
+            sys.exit('ERROR :: multiple modules found for this module_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
 
         mod = matches[0]
-        modType = mod['module_type']
+        modType = mod['component_type']
         vars = mod['variables_and_units']
         nVars = len(vars)
         for j in range(nVars):

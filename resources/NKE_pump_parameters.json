@@ -1,0 +1,13 @@
+{
+ "schema_version": 1,
+ "NKE_pump": {
+  "K_1": {"value": 1, "units": "per_fmol", "data_reference": "Alfred_database"},
+  "K_2": {"value": 1, "units": "per_fmol", "data_reference": "user_defined"},
+  "K_3": {"value": 1, "units": "per_fmol", "data_reference": "user_defined"},
+  "K_4": {"value": 1, "units": "per_fmol", "data_reference": "user_defined"},
+  "kappa_2": {"value": 1, "units": "fmol_per_s", "data_reference": "user_defined"},
+  "kappa_4": {"value": 1, "units": "fmol_per_s", "data_reference": "user_defined"},
+  "z_1": {"value": 0.5, "units": "dim", "data_reference": "user_defined"},
+  "flag_0": {"value": 0.0, "units": "dim", "data_reference": "user_defined"}
+ }
+}

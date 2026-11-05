@@ -33,7 +33,7 @@ You can pass any pytest arguments to the script:
 ./run_pytest.sh tests/test_solvers.py::test_all_solvers -v -s
 
 # Run a single parametrized case
-./run_pytest.sh "tests/test_solvers.py::test_all_solvers[3compartment-3compartment_parameters.csv-0.1]" -v -s
+./run_pytest.sh "tests/test_solvers.py::test_all_solvers[3compartment-3compartment_parameters.json-0.1]" -v -s
 
 # Run tests matching a pattern
 ./run_pytest.sh -k "test_name_pattern"
@@ -54,8 +54,10 @@ You can pass any pytest arguments to the script:
 
 ./run_pytest.sh -n NUM_RANKS -v -s
 
-# Run only the optimiser method comparisons
-./run_pytest.sh -n 8 tests/test_param_id.py::test_compare_optimisers -v -s
+# Run the optimiser-comparison benchmarks (moved to benchmarks/; see benchmarks/README.md)
+./benchmarks/run_benchmarks.sh -n 8
+# The fast FitzHugh-Nagumo comparison is also a test:
+./run_pytest.sh -n 8 tests/test_param_id.py::test_compare_optimisers_on_fitzhugh_nagumo -v -s
 
 # Or you can run all tests with a local python without the bash script as
 pytest -v -s

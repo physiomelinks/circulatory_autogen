@@ -3,11 +3,25 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "circulatory-autogen"
-version = "0.1.0"
-description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
+name = "libcuflynx"
+# Keep in step with the release tag: every release is accompanied by a chore PR bumping this.
+# It had drifted to 0.1.0 while the published release was Version_0_2, so anything built from
+# the tree reported a version lower than the one already out.
+# 0.4.0 is the release that renames the distribution to libcuflynx and moves every module under
+# the `libcuflynx` namespace. The flat import names (`parsers`, `param_id`, ...) keep working
+# through this release as deprecation shims and are removed in 0.6.0 -- see
+# libcuflynx/_deprecated_aliases.py::REMOVAL_VERSION, which the shims' warning text quotes.
+version = "0.7.3"
+description = "Generation and calibration of CellML circulatory system models from module arrays"
 readme = "README.md"
-requires-python = ">=3.7"
+# 3.9 is the real floor, not a conservative label: utilities/package_resources.py needs
+# importlib.resources.files/as_file, which arrived in 3.9. Claiming >=3.7 let pip install
+# happily on 3.7/3.8 and then die on the first generator import, because the
+# `importlib_resources` backport that would have covered it was declared nowhere.
+# Raised from >=3.9 deliberately rather than left to drift (#459): the code has no 3.9-specific
+# syntax, but numpy, scipy, matplotlib, scikit-learn and numdifftools all require >=3.10, so a 3.9
+# install cannot resolve the dependencies this project actually declares.
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Finbar J. Argus"}
@@ -18,41 +32,184 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 
+# What a plain `pip install libcuflynx` must bring: everything a generate + simulate +
+# calibrate run imports, and nothing else. Measured at about 540 MB of site-packages in a
+# fresh venv. The expensive things are kept out of it -- casadi (+221 MB), autoemulate/torch
+# (+750 MB), pymc (+65 MB) -- along with mpi4py, which is only 5 MB but needs a system MPI
+# toolchain at install time and is the commonest pip failure on macOS and Windows. See
+# [project.optional-dependencies] and the size table in README.md. Issue #435.
 dependencies = [
     "numpy>=1.19.0",
     "pandas>=1.3.0",
-    "pyyaml>=5.4.0",
-    "mpi4py>=3.0.0",
-    "matplotlib>=3.3.0",
     "scipy>=1.7.0",
+    "pyyaml>=5.4.0",
+    # 0.7's generated Python keeps constants, computed constants and algebraic variables in separate arrays;
+    # PythonGenerator joins them into the one `variables` array the solvers use (#271).
+    "libcellml>=0.7.2",
+    # Renders the C++ for model_type: cpp (libcuflynx/generators/cpp/templates).
+    "jinja2>=3.0",
+    "myokit>=1.39.1",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+    "SALib==1.5.1",
+    "rdflib>=5.0.0",
     "emcee>=3.0.0",
     "corner>=2.2.0",
-    "SALib==1.5.1",
-    "seaborn>=0.11.0",
-    "rdflib>=5.0.0",
-    "libcellml>=0.6.3",
-    "ruamel.yaml>=0.17.0",
-    "sympy>=1.8.0",
+    # --- required beyond the list in #435, because the code imports them at module scope on a
+    # path an ordinary run reaches. Moving any of these to an extra needs the import made lazy
+    # first, which is a behaviour change and not this issue.
+    # utilities/utility_funcs.py imports all three at module scope, and that module is on the
+    # import path of essentially everything (get_default_inp_data_dict, the unit conversion
+    # class, the normalisation helpers).
+    "pint>=0.18",           # pint.UnitRegistry -- the unit conversion every generated model uses
+    "numdifftools>=0.9.0",  # nd.Hessian, the Laplace identifiability analysis (do_ia)
+    # extract_hessian_from_samples() fits a quadratic to sampled losses for the same Laplace
+    # analysis. 46 MB for two estimators, and the biggest single candidate for being made lazy
+    # later -- but lazy or not it is still needed, so it is still a dependency.
+    "scikit-learn",
+    # sensitivity_analysis/sobolSA.py imports tqdm at module scope, three lines from the SALib
+    # imports #435 does list as required. Same module, same reachability, so the same status.
     "tqdm>=4.62.0",
-    "statsmodels>=0.12.0",
-    "schwimmbad>=0.3.0",
-    "myokit>=1.39.1",
+    # `param_id_method: CMA-ES` is one of the four documented calibration methods and has no
+    # other implementation -- param_id/optimisers.py raises ImportError from the CMA-ES
+    # constructor without it. An extra would have to be one #435 does not define.
     "nevergrad>=1.0.12",
-    "numdifftools>=0.9.0",
-    "pint>=0.18",
-    "casadi>=3.7.2",
-    "scikit-learn"
+    # Reached by the *built-in* (emcee) MCMC path, not only by [uq]: paramID.py runs a Geweke
+    # diagnostic after every non-DEBUG chain, and utilities/diagnostics.py imports
+    # statsmodels.regression.linear_model.yule_walker to do it. The import is function-scope,
+    # so an extra would surface as a failure at the end of a chain that had already run.
+    "statsmodels>=0.12.0",
+    # Every reader validates its file against the shipped JSON Schema (libcuflynx.schemas):
+    # the schemas own the input files' structure.
+    "jsonschema>=4.0",
 ]
 
+[project.scripts]
+# The commands user_run_files/*.sh invoke. Console entry points rather than file paths so a
+# launcher never has to know where the package was installed -- `mpiexec -n 4 cuflynx-param-id`
+# works the same from a checkout, a wheel, or a conda env, and resolves through PATH like any
+# other program. Every target is a `main()` in the named module; tests/test_console_entry_points.py
+# is table-driven off this block, so a new entry point cannot be added without being tested.
+cuflynx-generate = "libcuflynx.scripts.script_generate_with_new_architecture:main"
+cuflynx-param-id = "libcuflynx.scripts.param_id_run_script:main"
+# Calibrations and analyses run in order from a calibration_workflow.json, merged into one model.
+cuflynx-calibration-workflow = "libcuflynx.scripts.calibration_workflow_run_script:main"
+# Writing a model and its calibration up: LaTeX symbols per variable, then a methods section.
+cuflynx-variable-mapping = "libcuflynx.scripts.variable_mapping_script:main"
+cuflynx-methods-latex = "libcuflynx.scripts.methods_latex_script:main"
+cuflynx-provenance = "libcuflynx.scripts.provenance_script:main"
+cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
+cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
+# Not a pipeline stage: converts, once, files in a form libcuflynx no longer reads.
+cuflynx-upgrade = "libcuflynx.upgrade:main"
+cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
+cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
+# Writes a folder that reproduces a configuration: the model, the observations, the
+# parameter bounds, the config, and a run_pipeline.py that drives every stage its do_*
+# flags enable. CUFLynx exports the same bundle from the GUI and calls this to write it.
+cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
+# An obs_data's prediction items on a model with no calibration: traces, features and validation
+# (libcuflynx.protocol_runners.run_prediction_items).
+cuflynx-run-predictions = "libcuflynx.scripts.run_predictions_script:main"
+# Runs a generated C++ model coupled to external Python models (api transport "python").
+cuflynx-couple = "libcuflynx.coupling.runner:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Non-Python files that are read at runtime and therefore have to ship in the wheel.
+# Without them `pip install libcuflynx` imports fine and then fails at the first
+# generate_with_new_architecture() call. Locate them with importlib.resources (see
+# libcuflynx/utilities/package_resources.py), never by walking up from __file__.
+# Deliberately NOT shipped: src/libcuflynx/coupler/* (C++ sources plus a Makefile for a
+# separately built 1D-0D coupler executable -- nothing in the Python reads them, and
+# building in place would mean writing into site-packages).
+[tool.setuptools.package-data]
+# The CellML module library and the built-in module configs (~3 MB, ~0.5 MB compressed).
+"libcuflynx.generators" = ["resources/*.cellml", "resources/*.json"]
+# The Jinja2 templates the C++ generator (model_type: cpp) renders.
+"libcuflynx.generators.cpp" = ["templates/*.j2"]
+# Example input for example_format_obs_data_json_file(), which is itself shipped.
+"libcuflynx.scripts" = ["example_data/*.csv"]
+# JSON Schemas of the input files: every reader validates its file against its schema.
+"libcuflynx.schemas" = ["*.schema.json"]
+
 [project.optional-dependencies]
+# Parallel runs -- issue #435. mpi4py is only 5 MB, but it compiles against a system MPI
+# toolchain at install time (libopenmpi-dev / mpich), which is the commonest `pip install`
+# failure on macOS and Windows, and a serial calibration needs none of it. utilities/mpi_utils
+# answers rank/size and supplies one-rank collectives without ever importing mpi4py, so the
+# whole package runs serially with this extra absent; get_MPI() raises with this extra's name
+# when a launcher did start the process and mpi4py is missing.
+# schwimmbad rides along: param_id/paramID.py imports its MPIPool only on the
+# `num_procs > 1 and sampler_needs_a_worker_pool()` branch, which is unreachable without MPI.
+mpi = [
+    "mpi4py>=3.0.0",
+    "schwimmbad>=0.3.0",
+]
+# Symbolic model type and AD gradients -- `model_type: casadi_python`, `solver:
+# casadi_integrator`, and the symbolic-adjoint arm of do_ad. Optional because it is 221 MB,
+# the largest single dependency after autoemulate's torch. Every use site is guarded
+# (param_id/casadi_backend.py, param_id/math_backend.py, solver_wrappers/), so importing CA
+# without it is fine; asking for the model type or the solver names this extra.
+casadi = [
+    "casadi>=3.7.2",
+]
+# Optional UQ backends. Kept out of the core list on purpose: pytensor builds C
+# extensions, and param_id/paramID.py is imported by every calibration run, so a hard
+# dependency would make an ordinary calibration fail to import for anyone not doing UQ.
+# The built-in emcee sampler needs none of this and stays in the core list.
+uq = [
+    "pymc>=5.0",
+    # pymc requires arviz anyway; naming it makes the InferenceData surface that
+    # param_id/pymc_backend.py converts an explicit part of the extra rather than a transitive
+    # accident.
+    "arviz>=0.15",
+]
+# Surrogate (emulator) models -- issue #333. Optional because autoemulate pulls in torch,
+# gpytorch, pyro-ppl and lightgbm -- about 750 MB, which more than doubles a default install
+# (measured at ~540 MB of site-packages) -- and requires Python >=3.10,<3.13, which is narrower
+# than this project's floor. CA imports it
+# only when do_emulation/use_emulator is set, and says so by name when it is missing.
+emulation = [
+    "autoemulate>=2.1,<3",
+    # Fallback containers for saving a fitted emulator. Some models hold an
+    # uninitialised C-extension descriptor that pickle cannot take apart, and
+    # joblib.dump then fails after every training simulation has been paid for
+    # (issue #468). Neither is a superset of joblib -- dill fails on torch-backed
+    # emulators joblib saves fine -- which is why they are fallbacks in order
+    # rather than a replacement. Declared rather than relied on: both arrive
+    # transitively today and that is not a promise.
+    # See emulator_settings.model_serialiser.
+    "cloudpickle>=2.0",
+    "dill>=0.3.6",
+]
+# `model_type: cpp` (and the 0D-1D coupling built on it) generates C++ source for the user to
+# compile. What it needs is a toolchain -- a C++ compiler, CMake, and for the 1D arm PETSc --
+# none of which pip installs, and it adds no Python package to what is already in the core
+# list. The extra exists so `pip install "libcuflynx[cpp]"` and `[all]` resolve rather than
+# erroring on an undefined extra, and so this note has somewhere to live.
+cpp = []
+# AADC (Matlogica) AD backend -- `model_type: aadc_python` -- and aadc-ode, which the
+# `gradient_strategy: kernel` gradient of `semi_implicit_signed` replays its kernel through.
+# AADC is proprietary: binary wheels only, Python >=3.10, under the Matlogica EULA, which
+# limits it to non-commercial / academic use. That is why this extra is in neither [all] nor
+# [dev]: installing it is an explicit choice to accept those terms. Every import is lazy; without
+# aadc-ode the kernel strategy warns and falls back to the tape strategy.
+aadc = [
+    "aadc>=2.12,<3",
+    "aadc-ode>=0.6.5",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -61,18 +218,47 @@ dev = [
     "black>=22.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
+    # tests/_pyproject.py reads this file to check the dependency lists, the extras and the
+    # entry points against the code. tomllib is 3.11+, and the floor is 3.9 -- so on 3.9/3.10
+    # those tests need tomli. They used to `pytest.importorskip` it and pass by skipping,
+    # which meant a green run said nothing at all about pyproject.toml.
+    "tomli; python_version < '3.11'",
+    # Whole extras, not a hand-picked subset of them. `[dev]` listing `mpi4py` on its own
+    # was enough to collect the suite (tests/conftest.py does `from mpi4py import MPI` at
+    # module scope) but not to run it: paramID's multi-rank branch imports `schwimmbad`,
+    # the other half of `[mpi]`, and every mpi-marked test died on ModuleNotFoundError.
+    # Naming the extra means a dependency added to `[mpi]` or `[casadi]` later cannot go
+    # missing here again.
+    "libcuflynx[mpi]",
+    # The casadi tests are `importorskip`, so leaving casadi out would not turn CI red -- it
+    # would quietly stop running the CasADi arm of eleven test modules on the jobs that
+    # install `.[dev]`. A developer environment covers the code, so it carries the extra.
+    "libcuflynx[casadi]",
 ]
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",
     "black>=22.0.0",  # used by mkdocstrings to format rendered signatures
 ]
+# Every runtime extra, for someone who wants the lot and has read the size table. Deliberately
+# excludes dev and docs, which are tooling rather than capability. Note that this inherits
+# emulation's Python >=3.10,<3.13 requirement, so it will not resolve outside that range.
+all = [
+    "libcuflynx[mpi]",
+    "libcuflynx[casadi]",
+    "libcuflynx[uq]",
+    "libcuflynx[emulation]",
+    "libcuflynx[cpp]",
+]
 
 [tool.pytest.ini_options]
 # Pytest configuration
-# NOTE: Tests should be run using the OpenCOR Python shell.
-# Use ./run_pytest.sh to run tests, which automatically uses the Python
-# from python_path.sh
+# Run the suite with ./run_pytest.sh, which starts it under `mpiexec` (the MPI-marked tests
+# need a launcher) using the interpreter named by user_run_files/python_path.sh. Point that at
+# a venv with `pip install -e ".[dev]"` in it. It is NOT the OpenCOR Python shell: that
+# interpreter is deprecated and nothing in the default path needs it -- the default solver is
+# CVODE_myokit, and only the `need_opencor` tests want the OpenCOR backend.
+# Without the script: mpiexec -n 1 venv/bin/python -m pytest -p no:xdist <args>
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -84,6 +270,7 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "manual: never collected without --run-manual; too slow for CI or a normal local run",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "mpi: marks tests that require MPI",
@@ -96,6 +283,7 @@ markers = [
     "autogen_rank(idx): autogeneration test assigned rank index",
     "solver_task: marks a solver test that signals completion",
     "compare_optimisers: marks compare_optimisers tests",
+    "full_scale_model: calibrates a whole-circulation model rather than a small one, so it takes minutes rather than seconds; CI splits the param_id jobs on this marker to halve their wall clock",
     "xdist_group(name): group marker used by pytest-xdist to serialize groups",
 ]
 # Coverage options
@@ -121,7 +309,7 @@ exclude_lines = [
 
 [tool.black]
 line-length = 100
-target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -141,7 +329,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.7"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

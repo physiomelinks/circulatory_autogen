@@ -1,11 +1,13 @@
 ## Other Useful Scripts
 
-These scripts can be found in `src/scripts/`. Most are examples or utilities and may need adjustments for your specific model.
+These scripts ship inside the package, as `libcuflynx.scripts.*` (in a checkout, `src/libcuflynx/scripts/`).
+Most are examples or utilities and may need adjustments for your specific model. Run one with
+`python -m libcuflynx.scripts.<script_name>`, or copy it out of the package and edit your copy.
 
 ## Prerequisites
 
+- `pip install libcuflynx` (or an editable install of a checkout).
 - A configured `user_inputs.yaml` and relevant resource files.
-- The OpenCOR Python environment if scripts invoke OpenCOR.
 
 ### generate_modules_files.py
 
@@ -24,15 +26,16 @@ Example script for automating creation of an `obs_data.json` file from input dat
 
 ### example_format_obs_data_json_file.py
 
-Example script showing how to build an `obs_data.json` using the helper class in `src/utilities/obs_data_helpers.py`.
+Example script showing how to build an `obs_data.json` using the helper class
+`libcuflynx.utilities.obs_data_helpers.ObsDataCreator`. Copy it and change it for your own task.
 
 ### read_and_insert_parameters.py
 
-Updates a `parameters.csv` file with values from a JSON input file.
+Sets every parameter of one parameters file (nested JSON) in another, in place: `read_and_insert_parameters.py parameters_to_add.json` updates the file `input_param_file` names, and `read_and_insert_parameters.py parameters.json parameters_to_add.json` the one given.
 
 ### convert_0d_to_1d.py
 
-Utility for converting a 0D vessel array into a 1D representation (useful when preparing 1D-0D coupled models).
+Utility for converting a 0D module array into a 1D representation (useful when preparing 1D-0D coupled models).
 
 ### run_multiple_param_id.py
 

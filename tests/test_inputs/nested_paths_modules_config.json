@@ -1,0 +1,61 @@
+[
+  {
+    "module_type": "flowpair",
+    "module_subtype": "supermodule",
+    "module_format": "supermodule",
+    "description": "a flow collector and a gain, with an interface (#582)",
+    "phlynx_layout": {
+      "nodes": [
+        {
+          "id": "coll",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "id": "g",
+          "x": 120,
+          "y": 0
+        }
+      ]
+    },
+    "interface": [
+      {
+        "name": "inflow",
+        "submodule": "coll",
+        "port_type": "flow_port",
+        "label": "flow in"
+      },
+      {
+        "name": "gain_out",
+        "submodule": "g",
+        "port_type": "gain_port",
+        "label": "gain out"
+      }
+    ],
+    "submodule_versions": [
+      {
+        "module_type": "collector",
+        "module_subtype": "nn"
+      },
+      {
+        "module_type": "gain",
+        "module_subtype": "nn"
+      }
+    ]
+  },
+  {
+    "module_type": "outer",
+    "module_subtype": "supermodule",
+    "module_format": "supermodule",
+    "submodule_versions": [
+      {
+        "module_type": "flow_src",
+        "module_subtype": "nn"
+      },
+      {
+        "module_type": "flowpair",
+        "module_subtype": "supermodule"
+      }
+    ]
+  }
+]

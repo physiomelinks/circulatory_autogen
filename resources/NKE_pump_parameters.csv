@@ -1,9 +1,0 @@
-variable_name,units,value,data_reference
-K_1_NKE_pump,per_fmol,1,Alfred_database
-K_2_NKE_pump,per_fmol,1,user_defined
-K_3_NKE_pump,per_fmol,1,user_defined
-K_4_NKE_pump,per_fmol,1,user_defined
-kappa_2_NKE_pump,fmol_per_s,1,user_defined
-kappa_4_NKE_pump,fmol_per_s,1,user_defined
-z_1_NKE_pump,dim,0.5,user_defined
-flag_0_NKE_pump,dim, 0.0, user_defined

@@ -15,6 +15,9 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
+          # The package root is src/, so griffe finds `libcuflynx` under it. Every `:::`
+          # identifier in docs/api/*.md is therefore spelled from the top of the package
+          # (`libcuflynx.param_id.paramID.CVS0DParamID`); an unprefixed name does not resolve.
           paths: [../src]
           options:
             docstring_style: google
@@ -31,9 +34,20 @@ nav:
   - Getting Started: getting-started.md
   - Model Generation and Simulation: model-generation-simulation.md
   - Designing a model: design-model.md
+  - External Python Solvers: external-python-solvers.md
+  - Coupling to External Models:
+      - Overview: external-coupling/index.md
+      - Couple your own Python model: external-coupling/python-models.md
+      - "FEniCS: tissue O2 and capillaries": external-coupling/fenics-tissue-o2.md
+      - "FEniCS: NE around a varicosity": external-coupling/fenics-ne-varicosity.md
+      - 1D finite-volume coupling: external-coupling/fv-1d.md
+      - Troubleshooting: external-coupling/troubleshooting.md
+  - Importing other model formats: model-formats.md
   - Parameter Identification: parameter-identification.md
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
+  - Emulators (Surrogate Models): emulators.md
+  - Writing up a model and its calibration: methods-latex.md
   - "Example: 3Compartment Model": example-3compartment-model.md
   - Running on the HPC: running-on-hpc.md
   - Other Useful Features: other-features.md
@@ -44,6 +58,7 @@ nav:
       - Parameter identification: api/param-id.md
       - Sensitivity analysis: api/sensitivity.md
       - Identifiability analysis: api/identifiability.md
+      - Emulators: api/emulators.md
       - Protocols: api/protocols.md
       - Observation data &amp; utilities: api/utilities.md
       - Parsers &amp; generators (internal): api/internals.md

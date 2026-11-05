@@ -1,0 +1,56 @@
+[
+  {
+    "module_type": "FitzHugh_Nagumo",
+    "module_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "FitzHugh_Nagumo_modules.cellml",
+    "component_type": "FitzHugh_Nagumo_main_type",
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "V_init",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "R_init",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "a",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "b",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "c",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "V",
+        "dimensionless",
+        "access",
+        "variable"
+      ],
+      [
+        "R",
+        "dimensionless",
+        "access",
+        "variable"
+      ]
+    ]
+  }
+]

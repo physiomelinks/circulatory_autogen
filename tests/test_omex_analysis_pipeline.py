@@ -10,8 +10,8 @@ import sys
 import numpy as np
 import pytest
 
-from parsers.OMEXParsers import OMEXArchiveParser
-from scripts.generate_omex_analysis_script import generate_omex_analysis_script
+from libcuflynx.parsers.OMEXParsers import OMEXArchiveParser
+from libcuflynx.scripts.generate_omex_analysis_script import generate_omex_analysis_script
 
 
 def _venv_python(project_root):
@@ -95,8 +95,8 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
     assert "OBSERVABLE_DATASET_INDEX_BY_VARIABLE =" in generated_script
     assert "OBSERVABLE_DATASET_OPTIONS =" in generated_script
     assert "run_pipeline()" in generated_script
-    assert '"model_type": "cellml_only"' in generated_script
-    assert '"solver": "CVODE"' in generated_script
+    assert '"model_type": "cellml"' in generated_script
+    assert '"solver": "CVODE_myokit"' in generated_script
     assert '"num_calls_to_function": 200' in generated_script
     assert "'V': 0" in generated_script
     assert "'external_expression': 'V_ext'" in generated_script
@@ -164,12 +164,17 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
     assert best_cost >= 0.0, f"Calibration cost should be non-negative, got {best_cost}"
     assert best_cost < 150.0, f"Calibration cost should remain below threshold, got {best_cost}"
 
-    assert os.path.exists(laplace_mean_path), f"Laplace mean file missing: {laplace_mean_path}"
-    assert os.path.exists(laplace_covariance_path), (
-        f"Laplace covariance file missing: {laplace_covariance_path}"
-    )
-
-    covariance = np.load(laplace_covariance_path)
-    assert covariance.shape[0] == covariance.shape[1], "Covariance matrix should be square"
-    assert not np.isnan(covariance).any(), "Covariance matrix should not contain NaN values"
-    assert not np.isinf(covariance).any(), "Covariance matrix should not contain Inf values"
+    # Laplace runs only when its Hessian is well-conditioned; otherwise it raises and the pipeline
+    # skips it (issue #293), recording None. Either way the pipeline must succeed (asserted above).
+    if laplace_covariance_path is not None:
+        assert laplace_mean_path is not None
+        assert os.path.exists(laplace_mean_path), f"Laplace mean file missing: {laplace_mean_path}"
+        assert os.path.exists(laplace_covariance_path), (
+            f"Laplace covariance file missing: {laplace_covariance_path}")
+        covariance = np.load(laplace_covariance_path)
+        assert covariance.shape[0] == covariance.shape[1], "Covariance matrix should be square"
+        assert not np.isnan(covariance).any(), "Covariance matrix should not contain NaN values"
+        assert not np.isinf(covariance).any(), "Covariance matrix should not contain Inf values"
+    else:
+        # Laplace was skipped (ill-conditioned Hessian) -- the rest of the pipeline still succeeded.
+        assert laplace_mean_path is None

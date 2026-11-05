@@ -1,0 +1,7 @@
+{
+ "schema_version": 1,
+ "global": {
+  "c": {"value": 0.5, "units": "dimensionless", "data_reference": "external_python"},
+  "k": {"value": 4.0, "units": "dimensionless", "data_reference": "external_python"}
+ }
+}

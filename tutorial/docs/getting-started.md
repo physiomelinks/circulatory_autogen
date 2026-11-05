@@ -2,11 +2,68 @@
 
 ## Prerequisites
 
-- **Python** 3.9 or newer recommended (the package requires Python ≥3.7 per `pyproject.toml`; use the same interpreter for the whole project).
+- **Python** 3.9 or newer — `pyproject.toml` declares `requires-python = ">=3.9"`, and the package really does need it (`importlib.resources.files`). Use the same interpreter for the whole project.
 - **Git**, to clone the repository.
 - **pip** (usually bundled with Python).
 - **MPI** (optional): needed only if you run parameter identification or sensitivity analysis with multiple processes. See [MPI and system libraries](#mpi-and-system-libraries) below.
 - **Compiler / SUNDIALS** (optional on Linux): Myokit’s CVODE backend may need `build-essential` and `libsundials-dev` (or your OS equivalent) so extensions can compile when first used.
+
+## Install the package
+
+The repository is called **`circulatory_autogen`**; the package it installs is called
+**`libcuflynx`**. Both names refer to the same project — papers and the repository use the
+first, PyPI and every `import` uses the second.
+
+```
+pip install libcuflynx
+```
+
+That is all that is needed to import the library, run the console commands
+(`cuflynx-generate`, `cuflynx-param-id`, …) and work from any directory — no checkout, and no
+import path to set up. Optional capabilities are extras, because they are large;
+see the size table in the [README](https://github.com/physiomelinks/circulatory_autogen#installing-and-what-each-extra-costs):
+
+```
+pip install "libcuflynx[mpi]"        # multi-rank runs under mpiexec (needs a system MPI)
+pip install "libcuflynx[casadi]"     # model_type: casadi_python, symbolic AD gradients
+pip install "libcuflynx[uq]"         # the pyMC sampler
+pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
+```
+
+!!! note "The flat imports are deprecated"
+    `from param_id.paramID import CVS0DParamID` still works in 0.4.0 with a
+    `DeprecationWarning`, and is **removed in 0.6.0**. Use
+    `from libcuflynx.param_id.paramID import CVS0DParamID`.
+
+### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`
+
+Every stage needs a **user directory** — the one holding `user_run_files/user_inputs.yaml`
+and, unless the config overrides them, `resources/`, `module_config_user/`, `funcs_user/`,
+`generated_models/` and `param_id_output/`. It is chosen in this order:
+
+1. **`$CUFLYNX_USER_DIR`**, if set — an absolute path (`~` is expanded).
+2. the **circulatory_autogen checkout** this `libcuflynx` is being run from, if it is one
+   (including `pip install -e .`), so the developer workflow needs no configuration;
+3. otherwise the **current working directory**.
+
+After a plain `pip install libcuflynx` there is no checkout, so rule 2 never fires: either
+run from your working directory, or point the variable at it, which is the only way to run
+from anywhere else without editing a config.
+
+```
+export CUFLYNX_USER_DIR=/path/to/my_study     # holds user_run_files/, resources/, …
+cuflynx-generate False
+```
+
+Nothing is ever written inside the installed package — that was issue #431. Individual
+directories can still be overridden per-run with `resources_dir`, `generated_models_dir`,
+`param_id_output_dir` and `external_modules_dir` in `user_inputs.yaml`; `CUFLYNX_USER_DIR`
+is what the defaults hang off when the config names none.
+
+The rest of this page sets up a **checkout**, which is what the tutorial's shell-script
+workflow (`user_run_files/*.sh`, `resources/`, `module_config_user/`) and any development work
+need. If you only want to drive the library from Python, the `pip install` above is enough —
+skip to [Model Generation and Simulation](model-generation-simulation.md).
 
 ## Clone the repository
 
@@ -89,21 +146,168 @@ Dependencies are listed in `pyproject.toml`. Installing the package in editable 
 The authoritative lists are `[project.dependencies]` and `[project.optional-dependencies]` in `pyproject.toml`. Highlights:
 
 - Autogeneration: `pandas`, `pyyaml`, `rdflib`, `libcellml`, `pint`, etc.
+
+    !!! note "libCellML 0.7.2 or later"
+        The requirement is `libcellml>=0.7.2`, installed from PyPI. 0.7.1 drops an imported
+        unit's exponent, so models such as SN_simple fail with a units mismatch under it.
+        If libCellML came from conda or a system package rather than pip, an older version there
+        can make the resolver fail with a version conflict; installing into a fresh virtual
+        environment avoids that.
 - Parameter identification: `mpi4py`, `nevergrad` (CMA-ES), `emcee`, `numdifftools`, and related scientific stack.
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).
 
-**4. Run scripts**
+**4. Point the shell helpers at your venv**
 
-With the venv activated (if you use one), run Python from `[project_dir]` as usual, for example:
+The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneration.sh`, `run_pytest.sh`, …) all invoke whatever interpreter `user_run_files/python_path.sh` names. Edit that file once so `python_path` is **your venv’s Python**, using an absolute path:
+
+=== "Linux / macOS"
+    ```
+    python_path=[project_dir]/.venv/bin/python
+    ```
+
+=== "Windows"
+    ```
+    python_path=C:\[project_dir]\.venv\Scripts\python.exe
+    ```
+
+!!! warning "Do not point `python_path` at OpenCOR’s `pythonshell`"
+    That is the deprecated setup — see [Deprecated: OpenCOR-based setup](#deprecated-opencor-based-setup). The scripts contain nothing OpenCOR-specific; they only need an interpreter with the project installed. (`python_path.sh` does **not** read `opencor_pythonshell_path.sh` — that file is unused legacy and is scheduled for removal along with `python_path.sh` itself.)
+
+**5. Run scripts**
+
+With the project installed, the console commands are on your `PATH` and can be run from any
+directory: `cuflynx-generate`, `cuflynx-param-id`, `cuflynx-sensitivity`,
+`cuflynx-identifiability`, `cuflynx-train-emulator` and `cuflynx-plot`. Every one of them
+reads `user_run_files/user_inputs.yaml` and takes `--help`. `cuflynx-calibration-workflow`
+instead takes a `calibration_workflow.json` (see
+[Calibration workflows](parameter-identification.md#calibration-workflows)).
+
+The other scripts that ship in the package are run as modules, for example:
 
 ```
-python src/scripts/<script_name>.py
+python -m libcuflynx.scripts.<script_name>
 ```
 
-The shell helpers under `user_run_files/*.sh` may still assume a particular interpreter; if a script fails, run the matching Python module or script directly with your venv’s `python`.
+or use the shell helper for the same stage, e.g. `cd user_run_files && ./run_autogeneration.sh`
+(each helper invokes the matching console command, so the editable install above is a
+prerequisite for them).
 
-For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
+For a notebook-oriented walkthrough, see `tutorial/interactive/generation_and_calibration.ipynb`.
+
+**6. Run the tests (optional, but do this after any change)**
+
+```
+cd [project_dir]
+./run_pytest.sh
+```
+
+`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` you set above — no OpenCOR involved.
+
+- `./run_pytest.sh -n 4` — `-n N` is the **MPI rank count**, *not* pytest-xdist (xdist is force-disabled, because its workers conflict with MPI ranks).
+- `./run_pytest.sh -m "not slow"` — skip the expensive tests. `-k <expr>` and any other arguments pass straight through to pytest.
+- `./run_pytest.sh -m "not need_opencor"` — **use this if you have not installed OpenCOR.** A handful of tests exercise the optional `CVODE_opencor` backend; they are marked `need_opencor` but are *not* skipped automatically, so they fail rather than skip when OpenCOR is absent. That is expected, not a broken install.
+- Equivalent without the script (handy if `python_path.sh` is set for someone else’s machine):
+
+    ```
+    mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist -m "not need_opencor"
+    ```
+
+## Optional third-party backends (not part of Circulatory Autogen)
+
+Circulatory Autogen itself is **fully open source** (Apache License 2.0) and everything
+described in this documentation works without installing anything below.
+
+This section describes **optional, third-party software that is *not* part of Circulatory
+Autogen**. It is not bundled with it, not installed by `pip install -e .`, not required by
+any feature, and not distributed under Circulatory Autogen's license. It is developed and
+licensed by other parties, on their terms. Circulatory Autogen merely provides an optional
+adapter so that users who *already* have a licence for such a product can plug it in. If
+you install one, you are entering a licensing relationship with that third party, not with
+this project.
+
+### AADC (Matlogica) — proprietary, optional, not included
+
+!!! danger "AADC is third-party proprietary software and is NOT part of Circulatory Autogen"
+    - **Not included, not required.** AADC is **not** shipped with Circulatory Autogen and
+      **no** feature of Circulatory Autogen depends on it. The project is fully functional,
+      and fully open source, without it. Nothing installs it unless you ask for the
+      `[aadc]` extra below, which is in neither `[all]` nor `[dev]`.
+    - **Not open source.** [AADC](https://matlogica.com/) is a commercial product of
+      **Matlogica**, distributed under **Matlogica's own proprietary licence** — *not* under
+      Circulatory Autogen's Apache-2.0 licence, and not under any open-source licence. Its
+      terms restrict it to **academic / non-commercial use**.
+    - **You must obtain your own licence.** The Circulatory Autogen maintainers do not
+      supply, sublicense, or broker AADC licences, and cannot support licensing issues.
+      **Read and accept Matlogica's licence terms yourself, directly with Matlogica,**
+      before installing or using it.
+    - **Its gradients are licence-gated at runtime.** Forward simulation may run with a bare
+      `pip install aadc`, but anything that records a tape — the automatic-differentiation
+      gradients, and the on-tape damping in `semi_implicit` — raises
+      `RuntimeError: AADC License check failed` without a valid licence.
+    - **Use CasADi if you want a fully open-source pipeline.** CasADi (LGPL) is the
+      **default and supported** AD backend and requires no proprietary licence — see
+      `model_type: casadi_python` in
+      [Parameter Identification](parameter-identification.md). AADC is **only** an optional
+      alternative for licensed academic users; you never need it.
+
+If, and only if, you hold a Matlogica licence and accept their terms, the optional adapter
+is enabled by installing the `aadc` extra:
+
+```
+python -m pip install "libcuflynx[aadc]"
+```
+
+(Into the same venv you installed the project into — the one `python_path` points at. From a
+checkout, `python -m pip install -e ".[aadc]"`.)
+
+The extra installs two packages from PyPI:
+
+- `aadc>=2.12,<3` — Matlogica's AADC, under the **Matlogica EULA**: non-commercial /
+  academic use only, published as **binary wheels only** (no source), for **Python >= 3.10**.
+  On Python 3.9 the extra does not resolve.
+- `aadc-ode` — ODE integration on top of AADC. The `gradient_strategy: kernel` gradient of
+  `method: semi_implicit_signed` replays its recorded kernel through it. Without it that
+  strategy warns and falls back to `gradient_strategy: tape`, which integrates the same scheme
+  with a slower gradient.
+
+and then selecting it in your `user_inputs.yaml`:
+
+```yaml
+model_type: aadc_python
+solver: aadc_semi_implicit
+solver_info:
+  method: adaptive_rk45   # non-stiff forward solve; see the gradient caveat below
+```
+
+Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` (**adaptive**,
+so accurate for a *forward* solve but **untapeable** — its step sequence depends on the
+parameters, so it cannot produce an AD gradient), and the **fixed-step** `implicit_euler_ift`,
+`semi_implicit`, and `rk4` (the only methods that can be recorded on a tape for an AD
+gradient).
+
+!!! note "`method: bdf` was removed from the AADC adapter"
+    AADC previously offered a `bdf` method. It ran the solve inside `scipy.solve_ivp` with AADC
+    supplying only the RHS and its Jacobian, so the trajectory never reached the tape — and the
+    AD tape had no `bdf` branch, so `do_ad: true` silently recorded `rk4` instead, making the
+    cost and the gradient different functions. Its RHS kernel was also taped once at `t=0` with
+    the integrator discarding `t`, so a time-dependent model would have been integrated with
+    its `t=0` right-hand side throughout. Setting `method: bdf` on an `aadc_python` model now
+    raises. Use `semi_implicit` for stiff models — subject to the accuracy warning below — or
+    `model_type: casadi_python` with `method: bdf` for a differentiable symbolic BDF.
+
+!!! warning "AADC gradients do not work on stiff models"
+    Only the fixed-step methods can be taped, and fixed-step schemes are inaccurate or unstable
+    on **stiff** models: on the 3compartment cardiovascular model `semi_implicit` deviates from
+    the CVODE reference by ~35% and `implicit_euler_ift` by orders of magnitude. Reducing `dt`
+    does not help — `semi_implicit` *diverges* under step refinement (~35% at `dt=1e-3` rising
+    to ~280% at `dt=1e-4`), because its damping factor `1/(1+dt*lam)` tends to 1 as `dt` shrinks
+    and the scheme degenerates into explicit forward Euler on a very stiff system. The AADC
+    backend probes the first second of dynamics and warns loudly when it detects a stiff model.
+    **For gradient-based calibration of a stiff model, use CasADi `bdf` or Myokit CVODES forward
+    sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's
+    tape gradient is appropriate only for non-stiff, state-observable, single-experiment
+    problems.
 
 ## MPI and system libraries
 
@@ -135,6 +339,22 @@ You should now have:
 ## Deprecated: OpenCOR-based setup
 
 This section documents the **older workflow** that used **OpenCOR’s bundled Python** and `python_path.sh`. It is **not required** for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.
+
+!!! warning "OpenCOR’s `pythonshell` is deprecated — it will be replaced by `pip install libopencor`"
+    Do not build new workflows on OpenCOR’s bundled interpreter. Once
+    [libOpenCOR](https://opencor.ws/libopencor/) is available on PyPI, the OpenCOR
+    functionality will be obtained with a plain `pip install libopencor` into a
+    normal Python environment, and `pythonshell` / `python_path.sh` /
+    `opencor_pythonshell_path.sh` will be removed.
+
+    Prefer the standard `pip install -e .` setup above. Relying on the bundled
+    interpreter pins you to whatever OpenCOR ships, which causes real problems —
+    e.g. OpenCOR bundles a **dual-ABI `mpi4py`** (both an `MPI.mpich.*.so` and an
+    `MPI.openmpi.*.so`), and the variant chosen at import time may not match the
+    system `mpiexec`, aborting MPI runs with
+    `unsupported PMI version PMIx`. Pin it with `MPI4PY_MPIABI=openmpi` (or
+    `mpich`) to match your installed launcher. A pip-installed `mpi4py` builds
+    against the one system MPI and has no such ambiguity.
 
 ### Install OpenCOR (legacy)
 
@@ -177,9 +397,9 @@ cd [project_dir]
 
 (Use `./pythonshell -m pip` / `./pythonshell.bat -m pip` on Mac/Windows as above.) For development tools: `pip install -e ".[dev]"`.
 
-### `python_path.sh` (legacy)
+### `python_path.sh` pointed at a pythonshell (legacy)
 
-Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/python_path.sh`. Set `python_path` to your OpenCOR pythonshell:
+The shell scripts under `user_run_files/` read `python_path` from `[project_dir]/user_run_files/python_path.sh`. The **legacy** setup set it to an OpenCOR pythonshell:
 
 !!! Note
     === "Linux and Mac"
@@ -192,7 +412,7 @@ Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/pyt
         ```
         Use Windows path conventions (`C:\`, backslashes).
 
-This tutorial’s **primary** path no longer depends on this file if you use a normal venv and `python -m pip install -e .`.
+**Do not do this for new setups** — point `python_path` at your venv instead, as in [step 4 above](#install-python-libraries-from-pyprojecttoml). The scripts still read this file either way; only the interpreter it names has changed. `python_path.sh` itself will be removed once libOpenCOR is on PyPI.
 
 ### OpenCOR versions before 0.8 and SSL (legacy)
 

@@ -1,8 +1,0 @@
-variable_name,units,value,data_reference
-a_test_vessel1,dimensionless,0,SampleReference
-b_test_vessel1,dimensionless,4,SampleReference
-c_test_vessel1,dimensionless,1,SampleReference
-d_test_vessel1,dimensionless,2,SampleReference
-y_init_test_vessel1,dimensionless,0.7,SampleReference
-z_test_vessel2,dimensionless,2,SampleReference
-x_init_test_vessel2,dimensionless,1.5,SampleReference

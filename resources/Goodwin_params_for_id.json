@@ -1,0 +1,8 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["Xi/ai"], "min": 20.0, "max": 150.0, "name_for_plotting": "a_i", "prior": "uniform"},
+  {"targets": ["Xi/bi"], "min": 0.5, "max": 6.0, "name_for_plotting": "b_i", "prior": "uniform"},
+  {"targets": ["Xi/Ai"], "min": 10.0, "max": 80.0, "name_for_plotting": "A_i", "prior": "uniform"}
+ ]
+}

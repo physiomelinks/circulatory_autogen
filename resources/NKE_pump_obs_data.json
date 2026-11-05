@@ -23,20 +23,22 @@
   },
   "prediction_items": [
     {
-      "variable": "NKE_pump/v_2",
+      "data_item_name": "NKE_pump/v_2",
+      "operands": ["NKE_pump/v_2"],
       "unit": "fmol_per_s",
       "experiment_idx": 0
     },
     {
-      "variable": "NKE_pump/u_e",
+      "data_item_name": "NKE_pump/u_e",
+      "operands": ["NKE_pump/u_e"],
       "unit": "fmol_per_s",
       "experiment_idx": 0
     }
   ],
   "data_items": [
     {
-      "variable": "NKE_pump/v_1",
-      "name_for_plotting": "v1_{01}",
+      "data_item_name": "NKE_pump/v_1 sub1",
+      "trace_name_for_plotting": "v1_{01}",
       "data_type": "series",
       "operation": null,
       "operands": [
@@ -3655,8 +3657,8 @@
       "subexperiment_idx": 1
     },
     {
-      "variable": "NKE_pump/v_1",
-      "name_for_plotting": "v1_{00}",
+      "data_item_name": "NKE_pump/v_1 sub0",
+      "trace_name_for_plotting": "v1_{00}",
       "data_type": "series",
       "operation": null,
       "operands": [

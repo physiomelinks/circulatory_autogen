@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["global/q_lv_init"], "min": 2.0e-4, "max": 1.5e-3, "param_type": "const", "name_for_plotting": "q_lv_init"}
+ ]
+}

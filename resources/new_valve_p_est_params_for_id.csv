@@ -1,7 +1,0 @@
-vessel_name,                  param_name,       min,        max,     name_for_plotting
-global,                        q_lv_init,        400e-6,     3000e-6,  q_{sbv} 
-systemic_T,                   R_T,              1e6,        1000e6,   R_{sys}
-aortic_root,                  C,                1e-9,       5e-8,     C_{ao}
-global,                        E_lv_A,           1e8,        5e8,      E_{lvA}
-global,                        E_lv_B,           1e6,        5e7,      E_{lvB}
-global,                        A_aov,            2e-4,       4e-4,     A_{aov}

@@ -6,16 +6,12 @@ import shutil
 import numpy as np  
 import xml.etree.ElementTree as ET  
 import json  
+import re
 import pandas as pd  
   
-# Add src to path  
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')  
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')  
-if _SRC_DIR not in sys.path:  
-    sys.path.insert(0, _SRC_DIR)  
   
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture  
-from solver_wrappers import get_simulation_helper  
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture  
+from libcuflynx.solver_wrappers import get_simulation_helper  
   
   
 @pytest.fixture  
@@ -101,11 +97,11 @@ def create_unit_conversion_test_files(temp_model_dir):
     with open(modules_config, 'w') as f:  
         json.dump([  
                     {  
-                        "vessel_type": "test_type1",  
-                        "BC_type": "test",  
+                        "module_type": "test_type1",  
+                        "module_subtype": "test",  
                         "module_format": "cellml",  
-                        "module_file": "test_modules.cellml",  
-                        "module_type": "test_type1_type",  
+                        "component_file": "test_modules.cellml",  
+                        "component_type": "test_type1_type",  
                         "entrance_ports": [],  
                         "exit_ports": [  
                         {  
@@ -120,11 +116,11 @@ def create_unit_conversion_test_files(temp_model_dir):
                         ]  
                     },  
                     {  
-                        "vessel_type": "test_type2",  
-                        "BC_type": "test",  
+                        "module_type": "test_type2",  
+                        "module_subtype": "test",  
                         "module_format": "cellml",  
-                        "module_file": "test_modules.cellml",  
-                        "module_type": "test_type2_type",  
+                        "component_file": "test_modules.cellml",  
+                        "component_type": "test_type2_type",  
                         "entrance_ports": [  
                         {  
                             "port_type": "vessel_port",  
@@ -142,25 +138,24 @@ def create_unit_conversion_test_files(temp_model_dir):
                     }  
                     ], f, indent=2)  
         
-    # Create resources directory for vessel array and parameters  
+    # Create resources directory for module array and parameters  
     resources_dir = os.path.join(temp_model_dir, 'resources')  
     os.makedirs(resources_dir, exist_ok=True)  
       
-    # Create vessel_array.csv  
-    vessel_array_file = os.path.join(resources_dir, 'unit_test_vessel_array.csv')  
-    with open(vessel_array_file, 'w') as f:  
-        f.write("""name,BC_type,vessel_type,inp_vessels,out_vessels  
+    # Create module_array.csv  
+    module_array_file = os.path.join(resources_dir, 'unit_test_module_array.csv')  
+    with open(module_array_file, 'w') as f:  
+        f.write("""name,module_subtype,module_type,inp_instances,out_instances  
 vessel1,test,test_type1,,vessel2  
 vessel2,test,test_type2,vessel1,  
 """)  
       
-    # Create parameters.csv  
-    parameters_file = os.path.join(resources_dir, 'unit_test_parameters.csv')  
-    with open(parameters_file, 'w') as f:    
-        f.write("""variable_name,units,value,data_reference  
-                flux_local_vessel2,L_per_mol,0.5,test  
-    """)
-      
+    # the parameters file
+    from _parameters import write_parameters
+    write_parameters(os.path.join(resources_dir, 'unit_test_parameters.json'),
+                     'variable_name,units,value,data_reference\n'
+                     'vessel2/flux_local,L_per_mol,0.5,test\n')
+
     return resources_dir, module_config_dir
   
 @pytest.mark.integration  
@@ -176,8 +171,8 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
       
     config = {  
         'file_prefix': 'unit_test',  
-        'input_param_file': 'unit_test_parameters.csv',  
-        'model_type': 'cellml_only',  
+        'input_param_file': 'unit_test_parameters.json',  
+        'model_type': 'cellml',  
         'solver': 'CVODE_myokit',  
         'resources_dir': resources_dir,  
         'generated_models_dir': temp_model_dir,  
@@ -194,47 +189,19 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
     cellml_file = os.path.join(generated_dir, 'unit_test.cellml')  
     assert os.path.exists(cellml_file), "Main CellML file should be generated"  
     
-     # Check if unit converter component is in the generated CellML file  
-    with open(cellml_file, 'r') as f:  
-        cellml_content = f.read()  
-      
-    # Parse XML to find unit converter component  
-    root = ET.fromstring(cellml_content)
-
-    # Try both possible namespaces  
-    cellml_ns_1_1 = "http://www.cellml.org/cellml/1.1#"  
-    cellml_ns_2_0 = "http://www.cellml.org/cellml/2.0#"  
-    
-    # Search for components with namespace  
-    components = root.findall(f'.//{{{cellml_ns_1_1}}}component')  
-    if not components:  
-        components = root.findall(f'.//{{{cellml_ns_2_0}}}component')  
-
-    unit_converter_found = False  
-    for comp in components:  
-        comp_name = comp.get('name')  
-        if comp_name and 'unit_converter' in comp_name:  
-            unit_converter_found = True  
-            print(f"✓ Found unit converter component: {comp_name}")  
-            
-            # Verify it has the correct variables  
-            vars_found = []  
-            for var in comp.findall(f'.//{{{cellml_ns_1_1}}}variable'):  
-                vars_found.append(var.get('name'))  
-            
-            assert 'flux' in vars_found, "Unit converter missing input variable"  
-            assert 'flux_in' in vars_found, "Unit converter missing output variable"  
-            
-            break  
-    
-    assert unit_converter_found, "Unit converter component not found in generated CellML"
+    # flux (m3_per_mol) is mapped directly to flux_in (L_per_mol); the solver converts it
+    with open(cellml_file, 'r') as f:
+        cellml_content = f.read()
+    assert 'unit_converter' not in cellml_content
+    assert re.search(r'<map_components component_1="vessel1_module" component_2="vessel2_module"/>\s*'
+                     r'<map_variables variable_1="flux" variable_2="flux_in"/>', cellml_content)
 
     # Run simulation to verify results  
-    from solver_wrappers import get_simulation_helper  
+    from libcuflynx.solver_wrappers import get_simulation_helper  
       
     sim_helper = get_simulation_helper(  
         model_path=cellml_file,  
-        model_type='cellml_only',  
+        model_type='cellml',  
         solver='CVODE_myokit',  
         # solver='CVODE',  
         dt=0.01,  
@@ -262,3 +229,12 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
     # Verify the result is correct (0.5 L_per_mol from local + 1 L_per_mol from conversion)  
     expected_flux_total = 0.5 + 1.0  # 0.5 L_per_mol from local + 1 L_per_mol from conversion (0.001 m3_per_mol = 1 L_per_mol)  
     assert np.isclose(flux_total, expected_flux_total, atol=1e-6), f"Expected flux_total to be {expected_flux_total} L_per_mol, got {flux_total} L_per_mol"
+
+@pytest.mark.unit
+def test_scale_factor_rejects_affine_units():
+    from libcuflynx.utilities.utility_funcs import AffineUnitsError, UnitConverter
+    converter = UnitConverter()
+    assert np.isclose(converter.get_scale_factor('m3', 'litre'), 1.0e3)
+    for from_units, to_units in [('kelvin', 'celsius'), ('celsius', 'kelvin')]:
+        with pytest.raises(AffineUnitsError, match='needs an offset'):
+            converter.get_scale_factor(from_units, to_units)

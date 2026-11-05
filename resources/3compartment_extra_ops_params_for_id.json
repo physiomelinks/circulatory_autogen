@@ -1,0 +1,9 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["global/q_lv_init"], "min": 0.0002, "max": 0.0015, "param_type": "const", "name_for_plotting": "q_{sbv}"},
+  {"targets": ["aortic_root/C"], "min": 0.000000001, "max": 0.00000005, "param_type": "const", "name_for_plotting": "C_{ao}"},
+  {"targets": ["global/E_lv_A"], "min": 100000000, "max": 500000000, "param_type": "const", "name_for_plotting": "E_{lvA}"},
+  {"targets": ["global/E_lv_B"], "min": 1000000, "max": 50000000, "param_type": "const", "name_for_plotting": "E_{lvB}"}
+ ]
+}

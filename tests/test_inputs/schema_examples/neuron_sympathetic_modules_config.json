@@ -1,0 +1,28 @@
+[
+  {
+    "module_type": "neuron",
+    "module_subtype": "sympathetic",
+    "module_format": "supermodule",
+    "default_parameterisation": "default",
+    "licence": "CC0-1.0",
+    "creator": [],
+    "required_citations": [
+      "argus2026sympathetic"
+    ],
+    "description": "Sympathetic neuron (SN_simple) built from its parts: a soma (soma, version sympathetic), an axon cable (axon, version sympathetic_monolithic_v01) and a varicosity (varicosity, version sympathetic), coupled soma -> axon -> varicosity. The soma's membrane gives the axon V and takes its axial current; the axon sets the varicosity membrane's potential. The soma and varicosity are themselves built from their parts, with the ion channels as submodules (cell/ion_channels, versions Argus2026_v01; RyR HernandezCruz1997_v01 since review 2026-10-06). A model uses one record, e.g. {\"name\": \"SN\", \"module_type\": \"neuron\", \"module_subtype\": \"sympathetic\", \"instance\": \"default\"}; the expanded parts are named SN_soma_<part>, SN_axon and SN_varicosity_<part>.",
+    "submodule_versions": [
+      {
+        "module_type": "soma",
+        "module_subtype": "sympathetic"
+      },
+      {
+        "module_type": "axon",
+        "module_subtype": "sympathetic_monolithic_v01"
+      },
+      {
+        "module_type": "varicosity",
+        "module_subtype": "sympathetic"
+      }
+    ]
+  }
+]

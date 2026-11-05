@@ -1,0 +1,8 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["soma_SN/gamma_Na"], "min": 6.52174, "max": 39.1304, "name_for_plotting": "\\gamma_{Na}"},
+  {"targets": ["soma_SN/gamma_M"], "min": 3.42205, "max": 13.6882, "name_for_plotting": "\\gamma_{M}"},
+  {"targets": ["soma_SN/gamma_Kv1_5"], "min": 3.98716, "max": 13.2905, "name_for_plotting": "\\gamma_{kv}"}
+ ]
+}

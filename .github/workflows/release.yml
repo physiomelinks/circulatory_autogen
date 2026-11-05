@@ -1,0 +1,171 @@
+name: Release
+
+# Publishes libcuflynx to PyPI when a `v*` tag is pushed (issue #438).
+#
+# The filename, the repository and the environment name below are not free choices: PyPI's
+# trusted publisher for this project is registered against
+# `physiomelinks/circulatory_autogen`, workflow `release.yml`, environment `pypi`. Rename any
+# of the three and the OIDC token no longer matches the pending publisher -- the build still
+# succeeds and the upload is rejected.
+#
+# There is no API token anywhere in this file, and there must never be one. The `id-token:
+# write` permission below lets GitHub mint a short-lived OIDC token that PyPI exchanges for a
+# one-off upload credential; nothing long-lived is stored in the repository's secrets.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Read-only by default; the publish job asks for what it needs.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel and sdist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install build tooling
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    # The tag is the release. A tag whose version does not match the one baked into the
+    # wheel produces a release that says one thing on GitHub and another on PyPI, and PyPI
+    # will not let the file be replaced afterwards -- so fail here, before anything is built.
+    - name: Check the tag matches the version in pyproject.toml
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        tag_version="${GITHUB_REF_NAME#v}"
+        project_version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+        echo "tag=$tag_version pyproject=$project_version"
+        if [ "$tag_version" != "$project_version" ]; then
+          echo "::error::tag v$tag_version does not match pyproject.toml version $project_version"
+          exit 1
+        fi
+
+    - name: Build
+      run: python -m build
+
+    # Catches the metadata problems PyPI rejects on upload (a bad long_description, a
+    # malformed classifier) while it is still cheap to fix -- a rejected upload cannot be
+    # retried under the same version.
+    - name: Check the distributions
+      run: twine check dist/*
+
+    - name: Upload the distributions
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Only a tag publishes. A manual `workflow_dispatch` run builds and checks, and stops.
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/libcuflynx
+    permissions:
+      # Required by trusted publishing: this is what mints the OIDC token PyPI verifies.
+      id-token: write
+    steps:
+    - name: Download the distributions
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+    - name: Publish
+      uses: pypa/gh-action-pypi-publish@release/v1
+
+    # PyPI accepts the upload before its index serves the new version, and anything that
+    # installs in that window resolves the *old* one -- or fails with
+    # "Could not find a version that satisfies the requirement libcuflynx>=X (from versions:
+    # ...)", which reads like a dependency mistake rather than a race. Two CUFLynx jobs went
+    # red that way on the 0.7.0 release. Waiting here fixes it once, for every consumer,
+    # rather than asking each of them to retry.
+    #
+    # The JSON API, not `pip index versions`, which pip itself flags as experimental.
+    - name: Wait for the index to serve it
+      env:
+        GH_REF_NAME: ${{ github.ref_name }}
+      run: |
+        version="${GH_REF_NAME#v}"
+        for attempt in $(seq 1 40); do
+          if curl -sf "https://pypi.org/pypi/libcuflynx/json" \
+               | python -c "import json,sys; sys.exit(0 if '$version' in json.load(sys.stdin)['releases'] else 1)"; then
+            echo "libcuflynx $version is being served after $attempt attempt(s)"
+            exit 0
+          fi
+          sleep 15
+        done
+        echo "::error::libcuflynx $version was published but the index is still not serving it"
+        exit 1
+
+  # A tag publishes to PyPI, and used to stop there -- so v0.4.1, v0.5.0 and v0.5.1 are on
+  # PyPI with nothing on the releases page, and v0.4.0's entry was written by hand. The
+  # releases page is where someone looks to find out what changed between two versions they
+  # have installed, so leaving it to memory means it is right only when someone remembers.
+  #
+  # Gated on `publish`, not on `build`: a release that announces a version PyPI rejected
+  # points at something nobody can install. Notes only, no attached files -- PyPI is the
+  # distribution channel, and a wheel on the releases page is a second copy that can drift
+  # from it.
+  github-release:
+    name: Create the GitHub release
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      # To create the release. Deliberately narrower than the workflow default, and not
+      # `id-token`, which only the PyPI upload needs.
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Take the notes from CHANGELOG.md
+      id: notes
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        # The section for this version, from its heading to the next `## ` heading. Written
+        # to a file rather than an output: release notes are long and contain everything
+        # awkward for a shell variable.
+        awk -v v="$version" '
+          $0 ~ "^## "v"( |$|—)" {found=1; next}
+          found && /^## / {exit}
+          found {print}
+        ' CHANGELOG.md > notes.md
+        if [ ! -s notes.md ]; then
+          echo "::warning::no CHANGELOG.md section for $version; publishing a stub"
+          printf 'See CHANGELOG.md.\n' > notes.md
+        fi
+        printf '\n---\n\nInstall: `pip install libcuflynx==%s`\nPyPI: https://pypi.org/project/libcuflynx/%s/\n' \
+          "$version" "$version" >> notes.md
+
+    - name: Create it
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # `--verify-tag` so a typo'd ref cannot invent a release against a tag that is not
+        # there. Idempotent on re-run: editing beats failing when the publish is fine and
+        # only this step was retried.
+        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+        else
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "libcuflynx ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        fi

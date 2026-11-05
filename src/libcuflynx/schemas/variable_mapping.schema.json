@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/variable_mapping.schema.json",
+  "title": "libcuflynx variable mapping, JSON form (<prefix>_variable_mapping.csv)",
+  "description": "The LaTeX symbol of each variable of a model, for the methods text (cuflynx-methods-latex). The file is a CSV with a header row, UTF-8 (a BOM is accepted), read by libcuflynx.reporting.variable_mapping.read_variable_mapping, which converts it to this document (variable_mapping_document): each non-blank row becomes one entry of variables, its columns the entry's keys, its values stripped of surrounding whitespace. The columns variable_name and latex are required, kind, component and units are libcuflynx's, and any other column (such as bondgraph, the bond graph name a CellDL editor or bgtool writes) is kept as it is: refreshing the file (cuflynx-variable-mapping) rewrites libcuflynx's columns from the model and leaves the others. What JSON Schema cannot check, the reader does: the header names variable_name and latex, and a variable_name is not in the file twice.",
+  "type": "object",
+  "required": [
+    "variables"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "variables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/row"
+      },
+      "description": "Required. One entry per variable, in the file's order."
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "required": [
+        "variable_name",
+        "latex"
+      ],
+      "properties": {
+        "variable_name": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$",
+          "description": "Required. The variable's canonical name, component/variable, the component without a trailing _module (e.g. mod_A/x, parameters/p_mod_A, environment/time): the names obs_data operands and params_for_id use."
+        },
+        "latex": {
+          "type": "string",
+          "description": "Required. The symbol, LaTeX without $ (e.g. x_{\\mathrm{A}}). Empty: the default rule's symbol (latex_names.symbol). A refresh keeps it."
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "time",
+                "state",
+                "parameter",
+                "constant",
+                "algebraic"
+              ]
+            },
+            {
+              "const": ""
+            }
+          ],
+          "description": "What the variable is: time, state, parameter (in a parameters component), constant (a literal in a module) or algebraic; empty when not known, filled in from the model by a refresh."
+        },
+        "component": {
+          "type": "string",
+          "description": "The variable's component in the model, as named there (e.g. mod_A_module)."
+        },
+        "units": {
+          "type": "string",
+          "description": "Its units, as Myokit writes them without brackets (dimensionless for 1); empty for none."
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Another column, kept as it is (e.g. bondgraph: the bond graph name of the variable)."
+      }
+    }
+  }
+}

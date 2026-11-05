@@ -1,25 +1,40 @@
 #_______ general inputs ________
 DEBUG: false # TODO change back
-user_inputs_path_override: /home/hsma807/Animus/RA/ANS-BGCVS/Code/CA_user_ANS_BGCVS/BG_volume_control_user_inputs.yaml
+# user_inputs_path_override: when set to an absolute path, every stage reads its config from
+# that file instead of this one -- the way to keep a study's config outside the repo. Leave it
+# commented out unless you are pointing at your own config; a committed value here would send
+# every fresh clone to a file that only exists on one machine. Example:
+# user_inputs_path_override: /abs/path/to/my_study/user_inputs.yaml
 file_prefix: 3compartment 
-# input_param_file must be stored in resources. If first creating a parameters file 
-# set this to parameters_orig.csv and a 
-# parameters file will be generated with spaces for the required parameters
+# input_param_file (nested JSON, in resources) holds the model's parameter values. When values are
+# missing, generation writes <file_prefix>_parameters_unfinished.json in resources with
+# EMPTY_MUST_BE_FILLED where a value is needed. A parameters CSV is refused; convert it with
+# cuflynx-upgrade parameters <file>.
 
-# input_param_file: SN_simple_parameters.csv
-input_param_file: 3compartment_parameters.csv
+# input_param_file: SN_simple_parameters.json
+input_param_file: 3compartment_parameters.json
 
 # cpp generation inputs
-# model_type can be cellml_only, cpp, or python, casadi_python atm 
+# model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
+# external_python.
+# The first five are generated from the vessel/module CSV arrays; external_python is the one way
+# to bring a model of your own -- a Python class that owns its time stepping, registered as
+# SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
+# and funcs_user/example_model_scipy/ for a small worked example.
 # model_type: cpp
-model_type: cellml_only
+model_type: cellml
 # model_type: casadi_python
+# model_type: external_python
 
 #__________ parameter identification inputs __________
-# param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize]
+# param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize, multi_start_sp_minimize]
 param_id_method: genetic_algorithm
 # param_id_method: CMA-ES
 # param_id_method: sp_minimize
+# multi_start_sp_minimize runs L-BFGS-B from many scattered starts, so it uses the gradient
+# but still escapes local minima. It works for any model_type: AD gradients for casadi_python
+# and aadc_python models, finite differences otherwise.
+# param_id_method: multi_start_sp_minimize
 
 #_______ Automatic Differentiation __________
 do_ad: false
@@ -40,6 +55,27 @@ sim_time: 2
 # generated_models_dir: /home/farg967/Documents/temp/CA_temp/generated_models
 # param_id_output_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/param_id_output
 # external_modules_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/module_config
+# module_library_dirs: [/path/to/circulatory-autogen-modules/modules]  # searched recursively
+# use_builtin_modules: false  # only use external modules / module libraries
+
+# Every calibration, UQ, sensitivity analysis and emulator run from this config records itself in
+# <param_id_output_dir>/<study_name>_cuflynx_study.json: the model, obs_data, params_for_id, your
+# funcs files, the solver settings and each run's output directory. Drop that file into CUFLynx to
+# reopen the whole study. study_name defaults to file_prefix.
+# study_name: 3compartment
+# write_cuflynx_study: false  # turn the manifest off
+
+# Your own operation / cost / modifier funcs. The built-in ones ship inside the package
+# (libcuflynx.funcs) and must not be edited -- an upgrade replaces them. Write yours in a file of
+# your own and name it here; its funcs are registered alongside the built-ins with the same
+# decorators. Templates: funcs_user/{operation,cost,modifier}_funcs_example.py, and see
+# funcs_user/README.md. Absent/empty => only the built-in funcs.
+# A relative path resolves from the repository root -- or from the directory of the config
+# named by user_inputs_path_override, or from $CUFLYNX_USER_DIR / the current directory when
+# libcuflynx is pip-installed with no checkout. Absolute paths are taken as-is.
+# operation_funcs_external_path: funcs_user/my_operation_funcs.py
+# cost_funcs_external_path: funcs_user/my_cost_funcs.py
+# modifier_funcs_external_path: funcs_user/my_modifier_funcs.py
 
 
 # This is for cpp generation
@@ -54,13 +90,12 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, or for CasADi Python models: casadi_integrator
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
 solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:
   # Maximum time step for solver
   MaximumStep: 0.0001
-  MaximumNumberOfSteps: 5000
   # method: RK45 # any method for solve_ivp
   # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
@@ -84,7 +119,18 @@ optimiser_options:
   cost_type: gaussian_MLE  # use @is_MLE costs for MCMC / Laplace (see cost_funcs_user)
   # CMA-ES specific options:
   # sigma0: 0.1    # optional, initial standard deviation (default: 0.2 * mean(param_range))
-  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
+  # multi_start_sp_minimize specific options:
+  # num_starts: 10             # number of L-BFGS-B descents (default 10, or 4 when DEBUG)
+  # start_sampling: sobol      # sobol (default), latin_hypercube or random
+  # include_init_point: true   # make the first start the x0 from {file_prefix}_parameters.json
+  # seed: 0                    # seed for the start sampler, so runs are repeatable
+  # fd_step: 1.0e-4            # finite-difference step, used when AD isn't available
+  # no_new_starts_on_convergence: true  # true: stop launching starts once one converges.
+  #                                     # false: run every start and report how many land in
+  #                                     # each minimum (maps the basins of a multi-modal problem)
+  # convergence_cluster_tol_frac: 0.02  # two converged starts are the same solution if every
+  #                                     # param agrees to within this fraction of its range
+  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.json
 
 #______ debug optimiser options (used when DEBUG is True) ___________
 debug_optimiser_options:
@@ -93,18 +139,25 @@ debug_optimiser_options:
   cost_type: gaussian_MLE
   # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
-#______ mcmc inputs ___________
-do_mcmc: false
-mcmc_options:
+#______ uncertainty quantification inputs ___________
+# `method` selects the UQ method.
+do_uq: false
+UQ_options:
+  method: mcmc         # only 'mcmc' so far
+  library: emcee       # sampler backend for method: mcmc
   num_steps: 1000
   num_walkers: 64
+  burn_in: 0.5         # < 1 is a fraction of num_steps; >= 1 is a number of steps
   # TODO As above for cost_type
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 
-debug_mcmc_options:
+debug_UQ_options:
+  method: mcmc
+  library: emcee
   num_steps: 5
   num_walkers: 40
+  burn_in: 0.5
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 
@@ -112,11 +165,65 @@ sa_options:
   method: sobol
   sample_type: saltelli
   num_samples: 256 # this is multiplied by (2M + 2) to get the actual number of samples (M is the number of parameters).
+  # Also report the obs_data prediction_items that are scalar features (an operation, not a series) as
+  # extra outputs. Items without an operation are skipped with a warning.
+  include_prediction_items: false
     # output_dir: /non/default/path
 
 # identifiability analysis
 do_ia: false
 ia_options:
   method: Laplace # profile_likelihood
+
+#______ emulator (surrogate model) inputs ___________
+# An emulator maps the params_for_id parameters to the scalar features of your obs_data.json
+# data items -- the same numbers the cost is computed from. Train it once, and calibration,
+# sensitivity analysis, MCMC/UQ and identifiability analysis can all evaluate it instead of the
+# solver. The N training simulations are paid up front, so this wins for Sobol SA
+# (num_samples*(2M+2) runs), MCMC and identifiability, and does NOT win for a single GA run.
+#
+# The two flags are independent:
+#   do_emulation  - train an emulator (./run_emulator_training.sh <num_processors>)
+#   use_emulator  - make the analyses evaluate the trained emulator
+# `solver` above keeps naming the solver used to TRAIN, and to compare the emulator against.
+# Needs the optional dependency: pip install "libcuflynx[emulation]"
+do_emulation: false
+use_emulator: false
+emulator_settings:
+  # Where the trained emulator lives.
+  # Default: <param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>
+  # emulator_dir:
+  # 'default' (autoemulate's default set), 'all', or a comma-separated list of emulator names
+  models: default
+  # Number of simulations run to build the training set
+  num_train_samples: 128
+  # Refit the design and simulated features a previous run already saved in emulator_dir
+  # (training_data.npz) instead of running the simulations again -- for trying a different
+  # `models` or fit setting for the cost of the fit alone. Runs no simulations, so
+  # num_train_samples, sample_type and log_scale_params are ignored; needs a previous training
+  # run (the first one must have this false), and is refused if the parameter bounds, obs_data,
+  # protocol or model have changed since those samples were simulated.
+  reuse_samples: false
+  # Design over the params_for_id box: sobol, latin_hypercube or random
+  sample_type: sobol
+  # Space the design logarithmically (worth it when a bound spans decades; needs min > 0)
+  log_scale_params: false
+  random_seed: 0
+  # Held out and never trained on -- this is what the reported R2/RMSE are measured against
+  test_fraction: 0.2
+  n_splits: 5
+  n_iter: 10
+  # Refuse to USE an emulator whose worst held-out per-feature R2 is below this. An emulator
+  # below it does not fail loudly; it returns plausible wrong numbers.
+  min_r2: 0.9
+  # Outside its training box an emulator is extrapolating with no error estimate:
+  # error (default), warn, or clip
+  out_of_bounds: error
+  # Relative step for the finite-difference gradient over the emulator
+  fd_rel_step: 1.0e-3
+  # Also train on the obs_data prediction_items that are scalar features (an operation, not a series), for
+  # sa_options.include_prediction_items on the emulator. Items without an operation are skipped
+  # with a warning. Calibration still uses only the data_item features.
+  include_prediction_items: false
 
 plot_predictions: true

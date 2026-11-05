@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"heart_simple_OLD",
-        "BC_type":"vp",
+        "module_type":"heart_simple_OLD",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"cvs_mvp_modules.cellml",
-        "module_type":"heart_simplesimple_type_OLD",
+        "component_file":"cvs_mvp_modules.cellml",
+        "component_type":"heart_simplesimple_type_OLD",
         "entrance_ports":
         [
           {
@@ -89,11 +89,11 @@
         ]
     },
     {
-        "vessel_type":"heart_simple",
-        "BC_type":"vp",
+        "module_type":"heart_simple",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"cvs_mvp_modules.cellml",
-        "module_type":"heart_simplesimple_type",
+        "component_file":"cvs_mvp_modules.cellml",
+        "component_type":"heart_simplesimple_type",
         "entrance_ports":
         [
           {
@@ -173,11 +173,11 @@
         ]
     },
     {
-      "vessel_type":"heart_simple_2",
-      "BC_type":"vp",
+      "module_type":"heart_simple_2",
+      "module_subtype":"vp",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"heart_simplesimple_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"heart_simplesimple_type2",
       "entrance_ports":
       [
         {
@@ -259,11 +259,11 @@
 
 
     {
-      "vessel_type":"simple",
-      "BC_type":"pv_noI",
+      "module_type":"simple",
+      "module_subtype":"pv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pv_simple_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pv_simple_noI_type",
       "entrance_ports":
       [
         {
@@ -298,11 +298,11 @@
       ]
     },
     {
-      "vessel_type":"simple",
-      "BC_type":"vp_noI",
+      "module_type":"simple",
+      "module_subtype":"vp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vp_simple_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vp_simple_noI_type",
       "entrance_ports":
       [
         {
@@ -337,11 +337,11 @@
       ]
     },
     {
-      "vessel_type":"simple",
-      "BC_type":"pp_noI",
+      "module_type":"simple",
+      "module_subtype":"pp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pp_simple_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pp_simple_noI_type",
       "entrance_ports":
       [
         {
@@ -367,11 +367,11 @@
       ]
     },
     {
-      "vessel_type":"simple",
-      "BC_type":"vv_noI",
+      "module_type":"simple",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_simple_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_simple_noI_type",
       "entrance_ports":
       [
         {
@@ -406,11 +406,11 @@
     },
 
     {
-      "vessel_type":"Nout_junction",
-      "BC_type":"pv_noI",
+      "module_type":"Nout_junction",
+      "module_subtype":"pv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pv_Nout_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pv_Nout_noI_type",
       "entrance_ports":
       [
         {
@@ -446,11 +446,11 @@
       ]
     },
     {
-      "vessel_type":"Nout_junction",
-      "BC_type":"vv_noI",
+      "module_type":"Nout_junction",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_Nout_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_Nout_noI_type",
       "entrance_ports":
       [
         {
@@ -485,11 +485,11 @@
       ]
     },
     {
-      "vessel_type":"Min_junction",
-      "BC_type":"vp_noI",
+      "module_type":"Min_junction",
+      "module_subtype":"vp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vp_Min_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vp_Min_noI_type",
       "entrance_ports":
       [
         {
@@ -525,11 +525,11 @@
       ]
     },
     {
-      "vessel_type":"Min_junction",
-      "BC_type":"vv_noI",
+      "module_type":"Min_junction",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_Min_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_Min_noI_type",
       "entrance_ports":
       [
         {
@@ -564,11 +564,11 @@
       ]
     },
     {
-      "vessel_type":"MinNout_junction",
-      "BC_type":"vv_noI",
+      "module_type":"MinNout_junction",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_MinNout_noI_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_MinNout_noI_type",
       "entrance_ports":
       [
         {
@@ -605,11 +605,11 @@
     },
 
     {
-      "vessel_type":"simple_2",
-      "BC_type":"pv_noI",
+      "module_type":"simple_2",
+      "module_subtype":"pv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pv_simple_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pv_simple_noI_type2",
       "entrance_ports":
       [
         {
@@ -644,11 +644,11 @@
       ]
     },
     {
-      "vessel_type":"simple_2",
-      "BC_type":"vp_noI",
+      "module_type":"simple_2",
+      "module_subtype":"vp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vp_simple_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vp_simple_noI_type2",
       "entrance_ports":
       [
         {
@@ -683,11 +683,11 @@
       ]
     },
     {
-      "vessel_type":"simple_2",
-      "BC_type":"pp_noI",
+      "module_type":"simple_2",
+      "module_subtype":"pp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pp_simple_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pp_simple_noI_type2",
       "entrance_ports":
       [
         {
@@ -713,11 +713,11 @@
       ]
     },
     {
-      "vessel_type":"simple_2",
-      "BC_type":"vv_noI",
+      "module_type":"simple_2",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_simple_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_simple_noI_type2",
       "entrance_ports":
       [
         {
@@ -752,11 +752,11 @@
     },
 
     {
-      "vessel_type":"Nout_junction_2",
-      "BC_type":"pv_noI",
+      "module_type":"Nout_junction_2",
+      "module_subtype":"pv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"pv_Nout_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"pv_Nout_noI_type2",
       "entrance_ports":
       [
         {
@@ -792,11 +792,11 @@
       ]
     },
     {
-      "vessel_type":"Nout_junction_2",
-      "BC_type":"vv_noI",
+      "module_type":"Nout_junction_2",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_Nout_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_Nout_noI_type2",
       "entrance_ports":
       [
         {
@@ -831,11 +831,11 @@
       ]
     },
     {
-      "vessel_type":"Min_junction_2",
-      "BC_type":"vp_noI",
+      "module_type":"Min_junction_2",
+      "module_subtype":"vp_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vp_Min_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vp_Min_noI_type2",
       "entrance_ports":
       [
         {
@@ -871,11 +871,11 @@
       ]
     },
     {
-      "vessel_type":"Min_junction_2",
-      "BC_type":"vv_noI",
+      "module_type":"Min_junction_2",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_Min_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_Min_noI_type2",
       "entrance_ports":
       [
         {
@@ -910,11 +910,11 @@
       ]
     },
     {
-      "vessel_type":"MinNout_junction_2",
-      "BC_type":"vv_noI",
+      "module_type":"MinNout_junction_2",
+      "module_subtype":"vv_noI",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"vv_MinNout_noI_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"vv_MinNout_noI_type2",
       "entrance_ports":
       [
         {
@@ -951,11 +951,11 @@
     },
 
     {
-      "vessel_type":"sum_blood_vol",
-      "BC_type":"nn",
+      "module_type":"sum_blood_vol",
+      "module_subtype":"nn",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"sum_blood_vol_type",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"sum_blood_vol_type",
       "entrance_ports":
       [
         {
@@ -979,11 +979,11 @@
       ]
     },
     {
-      "vessel_type":"sum_blood_vol_2",
-      "BC_type":"nn",
+      "module_type":"sum_blood_vol_2",
+      "module_subtype":"nn",
       "module_format":"cellml",
-      "module_file":"cvs_mvp_modules.cellml",
-      "module_type":"sum_blood_vol_type2",
+      "component_file":"cvs_mvp_modules.cellml",
+      "component_type":"sum_blood_vol_type2",
       "entrance_ports":
       [
         {

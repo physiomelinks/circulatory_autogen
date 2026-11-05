@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The *modifier* half of the modifier-equivalence pair (CUFLynx #208).
+
+Two decoupled decays, one rate constant each:
+
+    dx/dt = -k1 * x    x(0) = 2.0
+    dy/dt = -k2 * y    y(0) = 3.0
+
+k1 and k2 are independent constants, defaulting to exactly the coefficients
+`affine_native.cellml` multiplies by theta, so a params_for_id scale modifier
+over (affine/k1, affine/k2) reproduces that model's theta: CA resolves the
+baselines to these defaults, and theta = 1 is the same point of the same system.
+
+Decoupled on purpose. The obvious pairing (dx/dt = k1 - k2*x) makes the steady
+state k1/k2 independent of theta, so scaling both members leaves theta's effect
+as the small remainder of two large opposing terms: the chain-rule sum then
+amplifies each member's integration error about sixfold, and no tolerance can
+be tightened past it. Here each observable depends on one member only, so the
+combination is well conditioned and an exact claim about it means something.
+
+The rates differ by a factor of 6.5 so that a swapped or duplicated weight is
+unmistakable rather than a rounding difference.
+-->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="affine_modifier">
+
+  <component name="environment">
+    <variable name="time" units="second" interface="public"/>
+  </component>
+
+  <component name="affine">
+    <variable name="t"  units="second"        interface="public"/>
+    <!-- the two parameters a scale modifier drives together -->
+    <variable name="k1" units="dimensionless" initial_value="0.7314"/>
+    <variable name="k2" units="dimensionless" initial_value="0.1129"/>
+    <!-- states -->
+    <variable name="x"  units="dimensionless" initial_value="2.0" interface="public"/>
+    <variable name="y"  units="dimensionless" initial_value="3.0" interface="public"/>
+
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+
+      <!-- dx/dt = -k1*x -->
+      <apply>
+        <eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply>
+          <minus/>
+          <apply><times/><ci>k1</ci><ci>x</ci></apply>
+        </apply>
+      </apply>
+
+      <!-- dy/dt = -k2*y -->
+      <apply>
+        <eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>y</ci></apply>
+        <apply>
+          <minus/>
+          <apply><times/><ci>k2</ci><ci>y</ci></apply>
+        </apply>
+      </apply>
+
+    </math>
+  </component>
+
+  <connection component_1="environment" component_2="affine">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+
+</model>

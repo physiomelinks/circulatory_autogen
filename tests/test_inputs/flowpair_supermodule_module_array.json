@@ -1,0 +1,4 @@
+[
+ {"name": "coll", "module_type": "collector", "module_subtype": "nn", "inp_instances": [], "out_instances": [], "phlynx_position": {"x": 0, "y": 0}},
+ {"name": "g", "module_type": "gain", "module_subtype": "nn", "inp_instances": [], "out_instances": []}
+]

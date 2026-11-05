@@ -1,0 +1,10 @@
+name,module_type,module_subtype,inp_instances,out_instances
+input_flow_aorticroot,inlet_flow,nn_aorticbif,,parent
+parent,split_junction,vv_nonlinear_visco,input_flow_aorticroot,daughter_1 daughter_2 K_tube_parent
+daughter_1,arterial,pv_nonlinear_visco,parent,terminal_1 K_tube_daughter_1
+daughter_2,arterial,pv_nonlinear_visco,parent,terminal_2 K_tube_daughter_2
+terminal_1,terminal,pp,daughter_1,
+terminal_2,terminal,pp,daughter_2,
+K_tube_parent,material_prop_visco_const,nn,parent,
+K_tube_daughter_1,material_prop_visco_const,nn,daughter_1,
+K_tube_daughter_2,material_prop_visco_const,nn,daughter_2,

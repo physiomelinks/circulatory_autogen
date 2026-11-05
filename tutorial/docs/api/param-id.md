@@ -4,7 +4,7 @@
 data, across the genetic-algorithm, CMA-ES, Bayesian, and `sp_minimize`
 optimisers, plus MCMC sampling.
 
-::: param_id.paramID.CVS0DParamID
+::: libcuflynx.param_id.paramID.CVS0DParamID
     options:
       members:
         - init_from_dict
@@ -20,7 +20,7 @@ optimisers, plus MCMC sampling.
         - remove_params_by_name
         - remove_params_by_idx
         - run
-        - run_mcmc
+        - run_UQ
         - simulate_with_best_param_vals
         - plot_outputs
         - plot_mcmc

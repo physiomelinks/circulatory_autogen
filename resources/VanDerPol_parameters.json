@@ -1,0 +1,8 @@
+{
+ "schema_version": 1,
+ "VanDerPol": {
+  "x_init": {"value": 2, "units": "dimensionless", "data_reference": "None"},
+  "y_init": {"value": 0, "units": "dimensionless", "data_reference": "None"},
+  "mu": {"value": 100, "units": "dimensionless", "data_reference": "None"}
+ }
+}

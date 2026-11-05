@@ -1,9 +1,0 @@
-variable_name,units,value,data_reference
-v_inlet,m3_per_s,83333e-09,user_defined
-R_par,Js_per_m6,10.664e+6,Blanco_2013_Table_8
-C_par,m6_per_J,0.0309077e-8,to_be_identified
-I_par,Js2_per_m6,1.0e-6,Blanco_2013_Table_8
-R_pvn,Js_per_m6,1.333e+6,Blanco_2013_Table_8
-C_pvn,m6_per_J,0.60015e-8,to_be_identified
-I_pvn,Js2_per_m6,1.0e-6,Blanco_2013_Table_8
-P_outlet,J_per_m3,666.0,user_defined

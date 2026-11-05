@@ -1,0 +1,202 @@
+[
+  {
+    "module_type": "i_M",
+    "module_subtype": "Argus2026_v01",
+    "module_format": "cellml",
+    "component_file": "i_M_Argus2026_v01_modules.cellml",
+    "component_type": "i_M_SN",
+    "default_parameterisation": "default",
+    "licence": "CC0-1.0",
+    "creator": [
+      "Finbar Argus"
+    ],
+    "required_citations": [
+      "martin2023modelling",
+      "argus2026sympathetic"
+    ],
+    "required_citations_uncertain": [
+      "martin2023modelling"
+    ],
+    "notes": "Built for: sympathetic neuron, soma or varicosity (Argus sympathetic-neuron model, decomposed from SN_soma / SN_varicosity)",
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [
+      {
+        "port_type": "membrane_voltage",
+        "variables": [
+          "V"
+        ]
+      },
+      {
+        "port_type": "E_K_potential",
+        "variables": [
+          "E_K"
+        ]
+      },
+      {
+        "port_type": "membrane_current",
+        "variables": [
+          "i_M"
+        ]
+      },
+      {
+        "port_type": "K_flux",
+        "variables": [
+          "j_KM"
+        ]
+      },
+      {
+        "port_type": "membrane_area",
+        "variables": [
+          "A_mem"
+        ]
+      }
+    ],
+    "variables_and_units": [
+      [
+        "Delta_V_mid_w",
+        "milliV",
+        "access",
+        "constant"
+      ],
+      [
+        "E_K",
+        "milliV",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "F",
+        "C_per_mol",
+        "access",
+        "global_constant"
+      ],
+      [
+        "V",
+        "milliV",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "V_den_w",
+        "milliV",
+        "access",
+        "constant"
+      ],
+      [
+        "V_mid_w",
+        "milliV",
+        "access",
+        "constant"
+      ],
+      [
+        "V_rest_approx",
+        "milliV",
+        "access",
+        "constant"
+      ],
+      [
+        "g_M",
+        "microS",
+        "access",
+        "variable"
+      ],
+      [
+        "A_mem",
+        "um2",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "rho_M",
+        "per_um2",
+        "access",
+        "constant"
+      ],
+      [
+        "gamma_M",
+        "picoS",
+        "access",
+        "constant"
+      ],
+      [
+        "g_M_mod",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "i_M",
+        "nanoA",
+        "access",
+        "variable"
+      ],
+      [
+        "j_KM",
+        "mol_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "tau_w",
+        "millis",
+        "access",
+        "variable"
+      ],
+      [
+        "tau_w_min",
+        "millis",
+        "access",
+        "constant"
+      ],
+      [
+        "tau_w_num",
+        "millis",
+        "access",
+        "constant"
+      ],
+      [
+        "w",
+        "dimensionless",
+        "access",
+        "variable"
+      ],
+      [
+        "w_inf",
+        "dimensionless",
+        "access",
+        "variable"
+      ],
+      [
+        "w_init",
+        "dimensionless",
+        "access",
+        "variable"
+      ],
+      [
+        "T",
+        "kelvin",
+        "access",
+        "global_constant"
+      ],
+      [
+        "Q10_M",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "T_ref_M",
+        "kelvin",
+        "access",
+        "constant"
+      ],
+      [
+        "phi_M",
+        "dimensionless",
+        "access",
+        "variable"
+      ]
+    ]
+  }
+]

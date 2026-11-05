@@ -1,0 +1,1797 @@
+{
+ "schema_version": 1,
+ "global": {
+  "rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "known"},
+  "T": {"value": 1, "units": "second", "data_reference": "defined_by_user"},
+  "q_ra_us": {"value": 4e-06, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_rv_us": {"value": 1e-05, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_la_us": {"value": 4e-06, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_lv_us": {"value": 5e-06, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_ra_init": {"value": 4e-06, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_rv_init": {"value": 1e-05, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_la_init": {"value": 4e-06, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
+  "q_lv_init": {"value": 1e-3, "units": "m3", "data_reference": "to_be_identified"},
+  "T_ac": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "T_ar": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "t_astart": {"value": 0.8, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "T_vc": {"value": 0.34, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "T_vr": {"value": 0.15, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "t_vstart": {"value": 0, "units": "second", "data_reference": "Liang_2009_Table_2"},
+  "E_ra_A": {"value": 7998000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_ra_B": {"value": 9331000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_rv_A": {"value": 73315000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_rv_B": {"value": 6665000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_la_A": {"value": 9331000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_la_B": {"value": 11997000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_lv_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_lv_B": {"value": 10664000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "K_vo_trv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_miv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_aov": {"value": 0.12, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_trv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_miv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_aov": {"value": 0.12, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "M_rg_trv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_puv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_miv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_aov": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_trv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_puv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_miv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_aov": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "l_eff": {"value": 0.01, "units": "metre", "data_reference": "to_be_identified"},
+  "A_nn_trv": {"value": 0.0008, "units": "m2", "data_reference": "Mynard_2012"},
+  "A_nn_puv": {"value": 0.00071, "units": "m2", "data_reference": "Mynard_2012"},
+  "A_nn_miv": {"value": 0.00077, "units": "m2", "data_reference": "Mynard_2012"},
+  "A_nn_aov": {"value": 0.00068, "units": "m2", "data_reference": "Mynard_2012"},
+  "beta_g": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "known"},
+  "g": {"value": 9.81, "units": "m_per_s2", "data_reference": "known"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "TODO_reference"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "TODO_reference"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "TODO_reference"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "TODO_reference"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_intercostal_T1_R98": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_intercostal_T1_L102": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_intercostal_T2_R106": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_intercostal_T2_L110": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_left_gastric_T3_C120": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_dorsal_pancreatic_T1_C124": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_splenic_T2_C126": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_hepatic_artery_proper_left_branch_C132": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_hepatic_artery_proper_right_branch_C134": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_colic_T8_C140": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_jejunal_3_T10_C144": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_jejunal_6_T11_C148": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ileocolic_T9_C152": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ileal_4_T12_C156": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ileal_6_T13_C160": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_superior_mesenteric_T4_C162": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_inferior_segmental_T5_L170": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_superior_segmental_T4_L172": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_renal_posterior_branch_T3_L174": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_superior_segmental_T4_R182": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_inferior_segmental_T5_R184": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_renal_posterior_branch_T3_R186": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_inferior_mesenteric_T5_C190": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_interosseous_T3_R40": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ulnar_T2_R42": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_radial_T1_R44": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_interosseous_T3_L88": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ulnar_T2_L90": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_radial_T1_L92": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_external_carotid_T2_R26": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_external_carotid_T2_L62": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_intermediate_temporal_branch_T47_L20": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_intermediate_temporal_branch_T76_R216": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_calcarine_branch_T51_L202": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_calcarine_branch_T79_R270": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_occipitotemporal_branch_T52_L190": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_occipitotemporal_branch_T80_R258": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_parietal_branch_T53_L196": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_parietal_branch_T81_R264": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_choroidal_T34_L116": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_choroidal_T98_R54": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_parietal_T100_R100": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_parietal_T35_L162": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_central_sulcus_T101_R70": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_central_sulcus_T36_L132": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_postcentral_sulcus_T102_R88": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_postcentral_sulcus_T37_L150": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_precentral_sulcus_T103_R72": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_artery_of_precentral_sulcus_T38_L134": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_cingular_branch_T105_R250": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_cingular_branch_T40_L182": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_intermediomedial_frontal_branch_T106_R242": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_intermediomedial_frontal_branch_T41_L174": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_paracentral_branch_T107_R254": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_paracentral_branch_T42_L186": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_posteromedial_frontal_branch_T108_R246": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_callosomarginal_posteromedial_frontal_branch_T43_L178": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_distal_medial_striate_T109_R236": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_distal_medial_striate_T44_L40": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_frontobasal_T110_R60": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_frontobasal_T45_L122": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_anterior_temporal_branch_T111_R212": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_anterior_temporal_branch_T46_L16": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_posterior_temporal_branch_T112_R220": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_lateral_occipital_posterior_temporal_branch_T48_L24": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_parieto_occipital_branch_T118_R266": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_medial_occipital_parieto_occipital_branch_T54_L198": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_anterior_temporal_branch_T119_R80": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_anterior_temporal_branch_T55_L142": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_branch_to_angular_gyrus_T120_R108": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_branch_to_angular_gyrus_T56_L170": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_middle_temporal_branch_T121_R84": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_middle_temporal_branch_T57_L146": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_posterior_temporal_branch_T122_R96": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_posterior_temporal_branch_T58_L158": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_posterior_temp_occipital_branch_T123_R94": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_middle_cerebral_posterior_temp_occipital_branch_T59_L156": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_pericallosal_parieto_occipital_branch_T124_R226": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_pericallosal_parieto_occipital_branch_T60_L30": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_pericallosal_precuneal_branch_T125_R230": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_pericallosal_precuneal_branch_T61_L34": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_polar_temporal_T127_R76": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_polar_temporal_T63_L138": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_parietal_T129_R106": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_parietal_T64_L168": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_prefrontal_T130_R64": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_prefrontal_T65_L126": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_internal_iliac_T1_R218": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_profundus_T2_R224": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_tibial_T3_R230": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_tibial_T4_R236": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_internal_iliac_T1_L196": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_profundus_T2_L202": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_anterior_tibial_T3_L208": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_posterior_tibial_T4_L214": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "u_ext_ven": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ascending_aorta_C0": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.014796, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0145305, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "aortic_arch_C2": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.014796, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0133364, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "brachiocephalic_trunk_C4": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0473822, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00641887, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "aortic_arch_C46": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00960849, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0127671, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "aortic_arch_C64": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00697955, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0124288, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "aortic_arch_C94": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0432111, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0117401, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "thoracic_aorta_C96": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00989803, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0104579, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "thoracic_aorta_C100": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00788038, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0102897, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "thoracic_aorta_C104": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0155561, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.0100681, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "thoracic_aorta_C108": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00532705, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00987279, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "thoracic_aorta_C112": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.121566, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00847543, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C114": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00324767, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00751533, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C136": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0139886, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00742666, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C164": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00431913, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00729199, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C176": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0119773, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00718902, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C188": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0540907, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00679934, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "abdominal_aorta_C192": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.042231, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00612422, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_intercostal_T1_R98_T": {
+  "R_T": {"value": 22580900000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.2736e-12, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T1_L102_T": {
+  "R_T": {"value": 23166100000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.2162e-12, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 1e-06, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_intercostal_T2_R106_T": {
+  "R_T": {"value": 21067800000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.4369e-12, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T2_L110_T": {
+  "R_T": {"value": 21248300000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.4162e-12, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "celiac_trunk_C116": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0169374, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00329653, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "splenic_T2_C118": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0039576, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00216682, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "left_gastric_T3_C120_T": {
+  "R_T": {"value": 31125100000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.6495e-12, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "splenic_T2_C122": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.00279812, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00216682, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "dorsal_pancreatic_T1_C124_T": {
+  "R_T": {"value": 16631300000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.5055e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "splenic_T2_C126_T": {
+  "R_T": {"value": 429028000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.1967e-10, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_hepatic_C128": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0693076, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00268614, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "hepatic_artery_proper_C130": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0168059, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00177555, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "hepatic_artery_proper_left_branch_C132_T": {
+  "R_T": {"value": 852085000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 6.0253e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "hepatic_artery_proper_right_branch_C134_T": {
+  "R_T": {"value": 471438000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.089e-10, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C138": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0495492, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00372737, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_colic_T8_C140_T": {
+  "R_T": {"value": 2686500000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.9111e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C142": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0351664, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00340146, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "jejunal_3_T10_C144_T": {
+  "R_T": {"value": 1969520000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.6067e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C146": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0322488, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00306914, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "jejunal_6_T11_C148_T": {
+  "R_T": {"value": 1969520000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.6067e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C150": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0167458, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00285201, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ileocolic_T9_C152_T": {
+  "R_T": {"value": 971722000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 5.2835e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C154": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0230546, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00269257, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ileal_4_T12_C156_T": {
+  "R_T": {"value": 1329640000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 3.8612e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C158": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0205397, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00249385, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ileal_6_T13_C160_T": {
+  "R_T": {"value": 1329640000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 3.8612e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric_T4_C162_T": {
+  "R_T": {"value": 880745000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 5.8292e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "renal_L166": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0220037, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00273574, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "renal_anterior_branch_L168": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0108789, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00248193, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "inferior_segmental_T5_L170_T": {
+  "R_T": {"value": 526057000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 9.7595e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "superior_segmental_T4_L172_T": {
+  "R_T": {"value": 526057000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 9.7595e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "renal_posterior_branch_T3_L174_T": {
+  "R_T": {"value": 931304000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 5.5127e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "renal_R178": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0377403, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00296767, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "renal_anterior_branch_R180": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0108792, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00248193, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "superior_segmental_T4_R182_T": {
+  "R_T": {"value": 527823000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 9.7268e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "inferior_segmental_T5_R184_T": {
+  "R_T": {"value": 527823000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 9.7268e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "renal_posterior_branch_T3_R186_T": {
+  "R_T": {"value": 934431000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 5.4943e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "inferior_mesenteric_T5_C190_T": {
+  "R_T": {"value": 2167460000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.3687e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "subclavian_R28": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0157469, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00452027, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "subclavian_R30": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0411419, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00332268, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "axillary_R32": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.120021, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00218463, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "brachial_R34": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.223119, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00196732, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ulnar_T2_R36": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0297599, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "common_interosseous_R38": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0162682, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.000959006, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_interosseous_T3_R40_T": {
+  "R_T": {"value": 4333780000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.1847e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "ulnar_T2_R42_T": {
+  "R_T": {"value": 1064900000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 4.8212e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "radial_T1_R44_T": {
+  "R_T": {"value": 1045880000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 4.9088e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "subclavian_L66": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0494669, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00399235, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "subclavian_L78": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0411396, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00290824, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "axillary_L80": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.120021, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00218463, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "brachial_L82": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.223119, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00196732, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "ulnar_T2_L84": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0297594, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "common_interosseous_L86": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0162681, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.000959006, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_interosseous_T3_L88_T": {
+  "R_T": {"value": 4349480000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.1804e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "ulnar_T2_L90_T": {
+  "R_T": {"value": 1085530000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 4.7295e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "radial_T1_L92_T": {
+  "R_T": {"value": 1027150000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 4.9983e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_carotid_R6": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "l": {"value": 0.0812532, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "r_0": {"value": 0.00443, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_carotid_R8": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "l": {"value": 0.135108, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "r_0": {"value": 0.00254, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "external_carotid_T2_R26_T": {
+  "R_T": {"value": 851000000, "units": "Js_per_m6", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "C_T": {"value": 6.03e-11, "units": "m6_per_J", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_carotid_L48": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "l": {"value": 0.091017, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "r_0": {"value": 0.00437, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_carotid_L50": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "l": {"value": 0.135108, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "r_0": {"value": 0.00254, "units": "metre", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "external_carotid_T2_L62_T": {
+  "R_T": {"value": 854000000, "units": "Js_per_m6", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "C_T": {"value": 6.01e-11, "units": "m6_per_J", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "ADAN_UNSURE_NUMBER"}
+ },
+ "anterior_cerebral_L110": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0105951, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_cerebral_L38": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.02809, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_cerebral_L42": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00114668, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_cerebral_R234": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0280898, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_cerebral_R238": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00114733, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_cerebral_R46": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0105945, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000965045, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_communicating_C44": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00565531, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000656645, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "basilar_C4": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0226443, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00172394, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_L172": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0113312, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_L176": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0172952, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_L180": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0139198, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_L184": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00496294, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_R240": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0113311, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_R244": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0172952, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_R248": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0139198, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "callosomarginal_R252": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00496295, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000623142, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_carotid_L112": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00196966, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00132843, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_carotid_R48": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00196955, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00132843, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_dorsal_branch_to_corpus_callosum_L28": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0251851, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000349979, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_dorsal_branch_to_corpus_callosum_R224": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0251847, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000349979, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_L188": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00490507, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_L192": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00892062, "units": "metre", "data_reference": "to_find_reference"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_L200": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0126049, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_L26": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0321752, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_R222": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0321754, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_R256": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00490474, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_R260": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00892067, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_R268": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0126049, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000795007, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L136": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00142512, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L140": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.000932844, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L144": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0283599, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L148": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0182043, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L152": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00708809, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L160": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00549683, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_L164": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0105444, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R102": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0105443, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R74": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00142516, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R78": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.000932844, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R82": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0283601, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R86": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0182041, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R90": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00708809, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_inferior_terminal_branch_R98": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00549683, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000816459, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_L114": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00182233, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00104132, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_L118": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0283007, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00104132, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_R52": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00182229, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00104132, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_R56": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.028301, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00104132, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_L120": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00251165, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_L124": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0133091, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_L128": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.012255, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_R58": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00251165, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_R62": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.013309, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_superior_terminal_branch_R66": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.012255, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000877201, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_L14": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00472985, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.00064999, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_L18": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0111052, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000649994, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_L22": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.012455, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000649994, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_R210": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00472973, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000649994, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_R214": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0111056, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000649994, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "occipital_lateral_R218": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.012455, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000649994, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "pericallosal_L32": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.015668, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000800314, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "pericallosal_L36": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0557509, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000800314, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "pericallosal_R228": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.015668, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000800314, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "pericallosal_R232": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0557509, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000800314, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_cerebral_postcommunicating_part_L12": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "l": {"value": 0.0128, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.000869, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_cerebral_postcommunicating_part_R208": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "l": {"value": 0.0128, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.000869, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_cerebral_precommunicating_part_L6": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "l": {"value": 0.00698, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.000816, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_cerebral_precommunicating_part_R204": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "l": {"value": 0.00778, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.000816, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_communicating_L8": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0165974, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000494463, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_communicating_R206": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.016597, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000494463, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "vertebral_L2": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.209765, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00133527, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "vertebral_R272": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.210146, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00133527, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "artery_of_precentral_sulcus_T103_R68": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00935654, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000480986, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "artery_of_precentral_sulcus_T38_L130": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00935653, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000480986, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_parieto_occipital_branch_T118_R262": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0188989, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000500001, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "medial_occipital_parieto_occipital_branch_T54_L194": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0188987, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000500001, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_branch_to_angular_gyrus_T120_R104": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0101852, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000558491, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_branch_to_angular_gyrus_T56_L166": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.0101852, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000558491, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_posterior_temporal_branch_T122_R92": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00692096, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000500255, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "middle_cerebral_posterior_temporal_branch_T58_L154": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_218"},
+  "l": {"value": 0.00692097, "units": "metre", "data_reference": "ADAN_218"},
+  "r_0": {"value": 0.000500255, "units": "metre", "data_reference": "ADAN_218"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 90, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "lateral_occipital_intermediate_temporal_branch_T47_L20_T": {
+  "R_T": {"value": 60731700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.64334e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_occipital_intermediate_temporal_branch_T76_R216_T": {
+  "R_T": {"value": 60731700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.6433e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_calcarine_branch_T51_L202_T": {
+  "R_T": {"value": 31094600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 5.1628e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_calcarine_branch_T79_R270_T": {
+  "R_T": {"value": 31094600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 5.1628e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_occipitotemporal_branch_T52_L190_T": {
+  "R_T": {"value": 31094600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 5.1628e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_occipitotemporal_branch_T80_R258_T": {
+  "R_T": {"value": 31094600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 5.1628e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_parietal_branch_T53_L196_T": {
+  "R_T": {"value": 51930600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 3.0913e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_parietal_branch_T81_R264_T": {
+  "R_T": {"value": 51930600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 3.0913e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "anterior_choroidal_T34_L116_T": {
+  "R_T": {"value": 9502370000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.68941e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "anterior_choroidal_T98_R54_T": {
+  "R_T": {"value": 9502370000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.6894e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "anterior_parietal_T100_R100_T": {
+  "R_T": {"value": 15382700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.0436e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "anterior_parietal_T35_L162_T": {
+  "R_T": {"value": 15382700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.0436e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_central_sulcus_T101_R70_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3398e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_central_sulcus_T36_L132_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.33978e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_postcentral_sulcus_T102_R88_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3398e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_postcentral_sulcus_T37_L150_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3398e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_precentral_sulcus_T103_R72_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3398e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "artery_of_precentral_sulcus_T38_L134_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.33978e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_cingular_branch_T105_R250_T": {
+  "R_T": {"value": 12424800000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2921e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_cingular_branch_T40_L182_T": {
+  "R_T": {"value": 12424800000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2921e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_intermediomedial_frontal_branch_T106_R242_T": {
+  "R_T": {"value": 13211000000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2152e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_intermediomedial_frontal_branch_T41_L174_T": {
+  "R_T": {"value": 13211000000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2152e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_paracentral_branch_T107_R254_T": {
+  "R_T": {"value": 12424800000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2921e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_paracentral_branch_T42_L186_T": {
+  "R_T": {"value": 12424800000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.2921e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_posteromedial_frontal_branch_T108_R246_T": {
+  "R_T": {"value": 9396730000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.7084e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "callosomarginal_posteromedial_frontal_branch_T43_L178_T": {
+  "R_T": {"value": 9396730000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.7084e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "distal_medial_striate_T109_R236_T": {
+  "R_T": {"value": 65885500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.4366e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "distal_medial_striate_T44_L40_T": {
+  "R_T": {"value": 65885500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.43656e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_frontobasal_T110_R60_T": {
+  "R_T": {"value": 23301900000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 6.8893e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_frontobasal_T45_L122_T": {
+  "R_T": {"value": 23301900000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 6.88932e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_occipital_anterior_temporal_branch_T111_R212_T": {
+  "R_T": {"value": 6172140000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.6009e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_occipital_anterior_temporal_branch_T46_L16_T": {
+  "R_T": {"value": 6172140000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.60095e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_occipital_posterior_temporal_branch_T112_R220_T": {
+  "R_T": {"value": 25281100000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 6.35e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "lateral_occipital_posterior_temporal_branch_T48_L24_T": {
+  "R_T": {"value": 25281100000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 6.34997e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_parieto_occipital_branch_T118_R266_T": {
+  "R_T": {"value": 10665500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5052e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "medial_occipital_parieto_occipital_branch_T54_L198_T": {
+  "R_T": {"value": 10665500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5052e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_anterior_temporal_branch_T119_R80_T": {
+  "R_T": {"value": 15382700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.0436e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_anterior_temporal_branch_T55_L142_T": {
+  "R_T": {"value": 15382700000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.0436e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_branch_to_angular_gyrus_T120_R108_T": {
+  "R_T": {"value": 7652790000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.0977e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_branch_to_angular_gyrus_T56_L170_T": {
+  "R_T": {"value": 7652790000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 2.0977e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_middle_temporal_branch_T121_R84_T": {
+  "R_T": {"value": 13543300000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.1853e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_middle_temporal_branch_T57_L146_T": {
+  "R_T": {"value": 13543300000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.1853e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_posterior_temporal_branch_T122_R96_T": {
+  "R_T": {"value": 10648200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5076e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_posterior_temporal_branch_T58_L158_T": {
+  "R_T": {"value": 10648200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5076e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_posterior_temp_occipital_branch_T123_R94_T": {
+  "R_T": {"value": 10648200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5076e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "middle_cerebral_posterior_temp_occipital_branch_T59_L156_T": {
+  "R_T": {"value": 10648200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.5076e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "pericallosal_parieto_occipital_branch_T124_R226_T": {
+  "R_T": {"value": 17801900000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 9.0178e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "pericallosal_parieto_occipital_branch_T60_L30_T": {
+  "R_T": {"value": 17801900000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 9.01782e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "pericallosal_precuneal_branch_T125_R230_T": {
+  "R_T": {"value": 12274600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3079e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "pericallosal_precuneal_branch_T61_L34_T": {
+  "R_T": {"value": 12274600000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.30786e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "polar_temporal_T127_R76_T": {
+  "R_T": {"value": 44807500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 3.5828e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "polar_temporal_T63_L138_T": {
+  "R_T": {"value": 44807500000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 3.5828e-13, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "posterior_parietal_T129_R106_T": {
+  "R_T": {"value": 9502370000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.6894e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "posterior_parietal_T64_L168_T": {
+  "R_T": {"value": 9502370000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.6894e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "prefrontal_T130_R64_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.3398e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "prefrontal_T65_L126_T": {
+  "R_T": {"value": 11982200000, "units": "Js_per_m6", "data_reference": "ADAN_218"},
+  "C_T": {"value": 1.33978e-12, "units": "m6_per_J", "data_reference": "ADAN_218"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_iliac_R216": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0764393, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00430633, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_iliac_T1_R218_T": {
+  "R_T": {"value": 376000000, "units": "Js_per_m6", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "C_T": {"value": 1.37e-10, "units": "m6_per_J", "data_reference": "ADAN_UNSURE_NUMBER"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "external_iliac_R220": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.102358, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00328821, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "femoral_R222": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0315982, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00317347, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "profundus_T2_R224_T": {
+  "R_T": {"value": 310612000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.6529e-10, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "femoral_R226": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.319, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00289, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "popliteal_R228": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.132, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00252, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_tibial_T3_R230_T": {
+  "R_T": {"value": 2222960000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.3096e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "popliteal_R232": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0088, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00236, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "tibiofibular_trunk_R234": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0362, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00235, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_tibial_T4_R236_T": {
+  "R_T": {"value": 1917610000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.6773e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "common_iliac_L194": {
+  "E": {"value": 400000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0740524, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00428142, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "internal_iliac_T1_L196_T": {
+  "R_T": {"value": 377000000, "units": "Js_per_m6", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "C_T": {"value": 1.36e-10, "units": "m6_per_J", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "external_iliac_L198": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.102358, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00328821, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "femoral_L200": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0315982, "units": "metre", "data_reference": "ADAN_86"},
+  "r_0": {"value": 0.00317347, "units": "metre", "data_reference": "ADAN_86"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "profundus_T2_L202_T": {
+  "R_T": {"value": 310778000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 1.652e-10, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "femoral_L204": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.319, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00289, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "popliteal_L206": {
+  "E": {"value": 800000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.132, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00252, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "anterior_tibial_T3_L208_T": {
+  "R_T": {"value": 2223650000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.3088e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "popliteal_L210": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0088, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00236, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "tibiofibular_trunk_L212": {
+  "E": {"value": 1600000, "units": "J_per_m3", "data_reference": "ADAN_86"},
+  "l": {"value": 0.0362, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "r_0": {"value": 0.00235, "units": "metre", "data_reference": "EMPTY_MUST_BE_FILLED"},
+  "u_0": {"value": 10.64e3, "units": "J_per_m3", "data_reference": "AssumedRefOf80mmHg"},
+  "theta": {"value": 180, "units": "dimensionless", "data_reference": "defined_by_user"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "posterior_tibial_T4_L214_T": {
+  "R_T": {"value": 1918450000, "units": "Js_per_m6", "data_reference": "ADAN_86"},
+  "C_T": {"value": 2.6761e-11, "units": "m6_per_J", "data_reference": "ADAN_86"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "venous_lb": {
+  "R": {"value": 1e-07, "units": "Js_per_m6", "data_reference": "small_chosen"},
+  "C": {"value": 1e-06, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-07, "units": "Js2_per_m6", "data_reference": "small_chosen"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "q_us_0": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "Delta_q_us": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "venous_ub": {
+  "R": {"value": 1e-07, "units": "Js_per_m6", "data_reference": "small_chosen"},
+  "C": {"value": 1e-06, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-07, "units": "Js2_per_m6", "data_reference": "small_chosen"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "q_us_0": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "Delta_q_us": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "venous_ivc": {
+  "R": {"value": 1e-07, "units": "Js_per_m6", "data_reference": "small_chosen"},
+  "C": {"value": 1e-06, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-07, "units": "Js2_per_m6", "data_reference": "small_chosen"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "q_us_0": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "Delta_q_us": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "venous_svc": {
+  "R": {"value": 1e-07, "units": "Js_per_m6", "data_reference": "small_chosen"},
+  "C": {"value": 1e-06, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-07, "units": "Js2_per_m6", "data_reference": "small_chosen"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"},
+  "q_us_0": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "Delta_q_us": {"value": 0.0, "units": "m3", "data_reference": "small_chosen"},
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "user_defined"}
+ },
+ "par": {
+  "R": {"value": 10664000, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "C": {"value": 3.09077e-10, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-06, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ },
+ "pvn": {
+  "R": {"value": 1333000, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "C": {"value": 6.0015e-09, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1e-06, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "small_chosen"}
+ }
+}

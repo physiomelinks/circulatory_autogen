@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/params_for_id.schema.json",
+  "title": "libcuflynx params_for_id, JSON form (<prefix>_params_for_id.json)",
+  "description": "The parameters a calibration identifies (version 1), a flat list of entries (libcuflynx/utilities/params_for_id_file.py). Read by ObsAndParamDataParser.get_param_id_info; a params_for_id CSV is refused, naming cuflynx-upgrade params-for-id, which converts it: vessel_name \"a b\" with param_name \"C\" -> targets [\"a/C\", \"b/C\"] (a nested vessel heart__lv as its path, heart/lv/C); min, max, param_type, name_for_plotting, prior, comment -> the same keys; the prior_* columns -> prior_params; unbounded -> unbounded (true/false). A parameter is named as users write it: <vessel>/<variable>, a nested vessel by its path (heart/lv/E_A, the model's heart__lv) and a global as global/<variable>. The document is then checked and defaults folded in by resolve_params_for_id_doc (libcuflynx/parsers/PrimitiveParsers.py), which also checks what JSON Schema cannot: unique names, registered modifier functions and their declared inputs, prior settings the chosen prior takes, a normal prior_mean within [min, max], min and max given unless unbounded, and no parameter both a target and modified, or modified twice. Other top-level keys are ignored.",
+  "type": "object",
+  "required": [
+    "params"
+  ],
+  "properties": {
+    "version": {
+      "enum": [
+        1,
+        "1"
+      ],
+      "description": "The format version. Default: 1, the only one."
+    },
+    "defaults": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/entryKeys"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Keys applied to every entry; an entry's own key wins, and prior_params merge per setting. Default: {}."
+    },
+    "params": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "description": "Required. One entry per calibrated value."
+    }
+  },
+  "$defs": {
+    "qname": {
+      "type": "string",
+      "pattern": "/",
+      "description": "A model parameter as <vessel>/<variable> (e.g. \"aortic_root/C\"), a nested vessel by its path (\"heart/lv/E_A\", the model's heart__lv) and a global as \"global/<variable>\"; the variable follows the last \"/\"."
+    },
+    "entryKeys": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The entry's name, unique in the file. Default: its first target (or first modified parameter)."
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/qname"
+              }
+            },
+            {
+              "$ref": "#/$defs/qname"
+            }
+          ],
+          "description": "A parameter entry: the model parameters this one calibrated value sets (all to the same value). A single string is a one-item list. Give targets or modifies."
+        },
+        "modifies": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/qname"
+              }
+            },
+            {
+              "$ref": "#/$defs/qname"
+            }
+          ],
+          "description": "A modifier entry: the model parameters its calibrated value acts on, through the modifier function. None of them may also be a target, be modified by another entry, or be a modifier. Give targets or modifies."
+        },
+        "modifier": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Modifier entries only: the registered modifier function (built-in, funcs_user, or modifier_funcs_external_path). Default: \"scale\", one multiplier on every modified parameter's default value."
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/qname"
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/qname"
+                }
+              }
+            ]
+          },
+          "description": "Modifier entries only: one value per input the modifier function declares, a qname for a \"float\" input or a non-empty list of qnames for a \"list\" input; the function receives their default values. Default: {} (required when the function declares inputs)."
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The lower bound of the calibrated value: of the uniform prior, the optimiser's search box and the sampling range. Required unless unbounded. For a scale modifier it is a multiplier, not a physical value."
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The upper bound of the calibrated value. Required unless unbounded."
+        },
+        "param_type": {
+          "type": "string",
+          "description": "\"const\" (a constant) or \"state\" (an initial value). Deprecated and not read: give initial values to calibrate as constants of the module."
+        },
+        "name_for_plotting": {
+          "type": "string",
+          "description": "Label (LaTeX allowed) in plots and tables. Default: the first target, or a modifier's name."
+        },
+        "prior": {
+          "anyOf": [
+            {
+              "enum": [
+                "uniform",
+                "exponential",
+                "normal"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The prior distribution: \"uniform\" on [min, max], \"normal\" (prior_mean, prior_std) or \"exponential\" (prior_scale or prior_lambda, prior_origin), each truncated to [min, max] unless unbounded. The reader ignores case and surrounding whitespace. Default: \"uniform\"."
+        },
+        "prior_params": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "prior_lambda": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "exponential: decay rate relative to max, used when prior_scale is not given. Default: 1."
+                },
+                "prior_origin": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "exponential: where the decay starts. Default: 0."
+                },
+                "prior_scale": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "exponential: decay scale in the parameter's units. Default: max / prior_lambda; required when unbounded."
+                },
+                "prior_mean": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "normal: the centre, within [min, max]. Default: (min + max) / 2; required when unbounded."
+                },
+                "prior_std": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "normal: the standard deviation. Default: (max - min) / 6; required when unbounded."
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The prior's settings; only those the prior takes may be given (see each). Default: {} (each setting's default)."
+        },
+        "unbounded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                0,
+                1
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*(1|1\\.0|0|0\\.0|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy]([Ee][Ss])?|[Nn]([Oo])?|[Nn][Aa][Nn])?\\s*$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "true: the parameter has no min/max of its own; its range is the prior's centre +/- 5 scales (normal: prior_mean, prior_std; exponential: prior_origin to + 5 prior_scale). Needs a normal or exponential prior. Also read: 1/0, yes/no, y/n. Default: false."
+        },
+        "comment": {
+          "type": "string",
+          "description": "Free text. Not read."
+        }
+      },
+      "description": "The keys an entry may have; any other key is refused."
+    },
+    "entry": {
+      "description": "One calibrated value: a parameter entry (targets) or a modifier entry (modifies), not both. targets, modifies and the modifier keys may also come from defaults.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/entryKeys"
+        },
+        {
+          "not": {
+            "required": [
+              "targets",
+              "modifies"
+            ]
+          },
+          "description": "An entry is a parameter (targets) or a modifier (modifies), not both."
+        },
+        {
+          "if": {
+            "required": [
+              "targets"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "modifier"
+                  ]
+                },
+                {
+                  "required": [
+                    "inputs"
+                  ]
+                }
+              ]
+            }
+          },
+          "description": "modifier and inputs apply to modifier entries only."
+        }
+      ]
+    }
+  }
+}

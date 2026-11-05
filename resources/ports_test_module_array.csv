@@ -1,0 +1,3 @@
+name,                    module_subtype,     module_type,        inp_instances,          out_instances
+test_vessel1,nn,vessel_type_test1,,test_vessel2
+test_vessel2,nn,vessel_type_test2,test_vessel1,

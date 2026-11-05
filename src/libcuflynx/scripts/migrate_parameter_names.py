@@ -1,0 +1,264 @@
+'''
+``cuflynx-upgrade parameter-names``: rewrite parameter names written ``{variable}_{vessel}`` as
+``<vessel>/<variable>`` (see ``utilities/parameter_names.py``).
+
+Two kinds of file:
+
+* a host parameters file, with ``--module-array <prefix>_module_array.json|csv``: each name
+  ``{var}_{vessel}`` of a vessel in the (expanded) module array becomes ``<vessel>/<var>``,
+  written ``<record>/<submodule>/<var>`` for a supermodule's expanded vessel;
+* a supermodule's parameterisation files, with ``--supermodule-config
+  <its *_modules_config.json>``: ``{var}_{sub}`` becomes ``<sub>/<var>``, and
+  ``<sub>/<subsub>/<var>`` for a nested submodule.
+
+A name is rewritten only when exactly one reading of it names a real variable of that
+module, so the guess the old form forced is checked rather than repeated; a global constant
+keeps its plain name. A name with more than one such reading is left as it is and reported,
+for a person to settle. Every other column, and the row order, is kept.
+
+It rewrites parameters files of either form: nested JSON (``utilities/parameters_file.py``), where
+an older name sits at the top of a parameterisation or under ``global`` in a model's file, or the
+parameters CSVs those names were first written in (convert those to nested JSON afterwards with
+``cuflynx-upgrade parameters``).
+'''
+
+import argparse
+import csv
+import io
+import os
+import sys
+
+from libcuflynx.utilities.config_schemas import (is_supermodule_entry, load_component_registry,
+                                                 load_supermodule_array,
+                                                 load_module_config, load_supermodule_registry,
+                                                 read_module_array_records)
+from libcuflynx.utilities.parameterisations import parameterisations_dir
+from libcuflynx.utilities.module_library import ModuleSources
+from libcuflynx.utilities.parameter_names import SEPARATOR, flat_name
+from libcuflynx.utilities.supermodules import expand_supermodules, submodule_path_parts
+
+EPILOG = (
+    "Not a pipeline stage: it does not read user_inputs.yaml. Give the files' module array or\n"
+    "supermodule config, and the module libraries their modules come from.\n"
+    "\n"
+    "  cuflynx-upgrade parameter-names --module-array resources/m_module_array.json \\\n"
+    "      --module-library-dir ../circulatory-autogen-modules/modules\n"
+    "  cuflynx-upgrade parameter-names --supermodule-config \\\n"
+    "      modules/heart/versions/v1/heart_v1_modules_config.json --module-library-dir modules\n"
+    "\n"
+    "--dry-run prints the changes without writing them."
+)
+
+
+def _variables(entry):
+    '''``{variable: kind}`` of a component entry.'''
+    return {v[0]: v[3] for v in entry.get('variables_and_units') or [] if len(v) > 3}
+
+
+def _candidates(name, places, variables_of):
+    '''The readings of ``name`` as ``{var}_{place}`` whose ``var`` is a non-global variable of
+    that place: ``[(written place, var)]``. ``places`` is ``{joined name: written}``.'''
+    found = []
+    for joined, written in places.items():
+        suffix = '_' + joined
+        if not name.endswith(suffix) or len(name) <= len(suffix):
+            continue
+        variable = name[:-len(suffix)]
+        kind = variables_of(joined).get(variable)
+        if kind is not None and kind != 'global_constant':
+            found.append((written, variable))
+    return found
+
+
+def _rewrite_json(path, places, variables_of, kind):
+    '''``(new text, changes, ambiguous)`` for the nested JSON parameters file at ``path``.'''
+    from libcuflynx.utilities import parameters_file as pf
+    rows = pf.read_parameter_rows(path, kind=kind)
+    changes, ambiguous = [], []
+    for row in rows:
+        name = row['variable_name']
+        if SEPARATOR in name:
+            continue
+        found = _candidates(name, places, variables_of)
+        if len(found) == 1:
+            written, variable = found[0]
+            new = f'{written}{SEPARATOR}{variable}'
+            changes.append((name, new))
+            row['variable_name'] = new
+        elif len(found) > 1:
+            ambiguous.append((name, [f'{w}{SEPARATOR}{v}' for w, v in found]))
+    return pf.dump_parameters(pf.rows_to_document(rows, kind, f'{path}: ')), changes, ambiguous
+
+
+def _rewrite_rows(path, places, variables_of, kind=None):
+    '''``(new text, changes, ambiguous)`` for the parameters file at ``path`` (a CSV, or nested
+    JSON of ``kind``).'''
+    if str(path).lower().endswith('.json'):
+        from libcuflynx.utilities.parameters_file import MODEL
+        return _rewrite_json(path, places, variables_of, kind or MODEL)
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        text = f.read()
+    reader = csv.DictReader(io.StringIO(text))
+    fields = reader.fieldnames or []
+    if 'variable_name' not in fields:
+        raise ValueError(f'{path}: no variable_name column')
+    rows, changes, ambiguous = [], [], []
+    for row in reader:
+        name = (row.get('variable_name') or '').strip()
+        if name and SEPARATOR not in name:
+            found = _candidates(name, places, variables_of)
+            if len(found) == 1:
+                written, variable = found[0]
+                new = f'{written}{SEPARATOR}{variable}'
+                changes.append((name, new))
+                row['variable_name'] = new
+            elif len(found) > 1:
+                ambiguous.append((name, [f'{w}{SEPARATOR}{v}' for w, v in found]))
+        rows.append(row)
+    newline = '\r\n' if '\r\n' in text else '\n'
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fields, lineterminator=newline,
+                            extrasaction='ignore')
+    writer.writeheader()
+    writer.writerows(rows)
+    return out.getvalue(), changes, ambiguous
+
+
+def _sources(args):
+    return ModuleSources({'module_library_dirs': args.module_library_dirs or None,
+                          'external_modules_dir': args.external_modules_dir,
+                          'use_builtin_modules': not args.no_builtin_modules}).config_files
+
+
+def host_places(module_array, config_files):
+    '''``({joined vessel name: written}, variables_of)`` for a host file's module array.'''
+    supermodules = load_supermodule_registry(config_files)
+    components = load_component_registry(config_files)
+    written = {}
+    for record in read_module_array_records(module_array):
+        entry = supermodules.get((record['module_type'], record['module_subtype']))
+        if entry is None:
+            written[record['name']] = record['name']
+            continue
+        for parts in submodule_path_parts(entry, supermodules):
+            for joined in (flat_name((record['name'],) + parts),
+                           '_'.join((record['name'],) + parts)):  # current and older joins
+                written.setdefault(joined, SEPARATOR.join((record['name'],) + parts))
+    records, _ = expand_supermodules(read_module_array_records(module_array), supermodules,
+                                     source=module_array, components=components)
+    variables = {}
+    for record in records:
+        entry = components.get((record['module_type'], record['module_subtype']))
+        variables[record['name']] = _variables(entry) if entry else {}
+        written.setdefault(record['name'], record['name'])
+    places = {name: written[name] for name in variables}
+    return places, (lambda name: variables.get(name, {}))
+
+
+def supermodule_places(entry, config_files):
+    '''``({joined submodule path: written}, variables_of)`` for a supermodule's rows.'''
+    supermodules = load_supermodule_registry(config_files)
+    components = load_component_registry(config_files)
+    variables, places = {}, {}
+    for parts in submodule_path_parts(entry, supermodules):
+        container, leaf = entry, None
+        for part in parts:
+            leaf = next(s for s in container['submodules'] if s['name'] == part)
+            container = supermodules.get((leaf['module_type'], leaf['module_subtype']), {})
+        component = components.get((leaf['module_type'], leaf['module_subtype']))
+        for joined in (flat_name(parts), '_'.join(parts)):  # current and older joins
+            variables.setdefault(joined, _variables(component) if component else {})
+            places.setdefault(joined, SEPARATOR.join(parts))
+    return places, (lambda name: variables.get(name, {}))
+
+
+def supermodule_files(config_path):
+    '''The supermodule entry in ``config_path`` and the parameters files to rewrite.'''
+    entries = [e for e in load_module_config(config_path, include_supermodules=True)
+               if is_supermodule_entry(e)]
+    if len(entries) != 1:
+        raise ValueError(f'{config_path} holds {len(entries)} supermodule entries; give a config '
+                         f'with exactly one.')
+    entry = dict(entries[0], config_path=os.path.abspath(config_path))
+    entry['submodules'] = load_supermodule_array(entry, config_path)
+    root = parameterisations_dir(config_path)
+    files = []
+    for name in sorted(os.listdir(root) if os.path.isdir(root) else ()):
+        for ext in ('.json', '.csv'):
+            path = os.path.join(root, name, f'{name}_parameters{ext}')
+            if os.path.isfile(path):
+                files.append(path)
+                break
+    return entry, files
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog='cuflynx-upgrade parameter-names',
+        description='Rewrite {variable}_{vessel} parameter names as <vessel>/<variable>, in a '
+                    'host parameters file or in a supermodule\'s parameterisation files.',
+        epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
+    kind = parser.add_mutually_exclusive_group(required=True)
+    kind.add_argument('--module-array', help='the host model\'s module array')
+    kind.add_argument('--supermodule-config', help='a supermodule\'s *_modules_config.json')
+    parser.add_argument('--parameters', help='the host parameters file (default: '
+                                             '<prefix>_parameters.json beside the module array, '
+                                             'or the older .csv when there is no .json)')
+    parser.add_argument('--module-library-dir', dest='module_library_dirs', action='append',
+                        default=[], metavar='DIR', help='a module library (repeatable)')
+    parser.add_argument('--external-modules-dir', default=None, metavar='DIR')
+    parser.add_argument('--no-builtin-modules', action='store_true',
+                        help='leave libcuflynx\'s built-in modules out (as a module library '
+                             'with its own copies of them does)')
+    parser.add_argument('--dry-run', action='store_true', help='print, do not write')
+    return parser
+
+
+def run(args):
+    config_files = _sources(args)
+    from libcuflynx.utilities.parameters_file import MODEL, MODULE
+    if args.module_array:
+        places, variables_of = host_places(args.module_array, config_files)
+        files = [args.parameters or _host_parameters(args.module_array)]
+        kind = MODEL
+    else:
+        if not args.module_library_dirs and not args.external_modules_dir:
+            raise SystemExit('--supermodule-config needs --module-library-dir (the library its '
+                             'submodules come from), to check each name against them.')
+        entry, files = supermodule_files(args.supermodule_config)
+        places, variables_of = supermodule_places(entry, config_files)
+        kind = MODULE
+    status = 0
+    for path in files:
+        text, changes, ambiguous = _rewrite_rows(path, places, variables_of, kind)
+        print(f'{path}: {len(changes)} name(s) rewritten'
+              + (f', {len(ambiguous)} left for you' if ambiguous else ''))
+        for old, new in changes:
+            print(f'    {old} -> {new}')
+        for old, readings in ambiguous:
+            print(f'    {old}: could be {" or ".join(readings)}; left unchanged')
+            status = 1
+        if changes and not args.dry_run:
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                f.write(text)
+    return status
+
+
+def _host_parameters(module_array):
+    directory, name = os.path.split(module_array)
+    for suffix in ('_module_array.json', '_module_array.csv'):
+        if name.endswith(suffix):
+            stem = os.path.join(directory, name[:-len(suffix)] + '_parameters')
+            return stem + '.json' if os.path.isfile(stem + '.json') or \
+                not os.path.isfile(stem + '.csv') else stem + '.csv'
+    raise ValueError(f'{module_array}: not a <prefix>_module_array file; give --parameters')
+
+
+def main(argv=None):
+    """``cuflynx-upgrade parameter-names``."""
+    args = build_parser().parse_args(argv)
+    return run(args)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

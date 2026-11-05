@@ -1,0 +1,67 @@
+{
+ "schema_version": 1,
+ "global": {
+  "A_aov": {"value": 0.0001720229, "units": "m2", "data_reference": "biobeat_measurement"},
+  "A_nn_aov": {"value": 0.000314, "units": "m2", "data_reference": "defined_by_user_from_BB128"},
+  "A_nn_miv": {"value": 0.0006, "units": "m2", "data_reference": "to_be_identified"},
+  "A_nn_puv": {"value": 0.0004, "units": "m2", "data_reference": "to_be_identified"},
+  "A_nn_trv": {"value": 0.0009, "units": "m2", "data_reference": "to_be_identified"},
+  "E_la_A": {"value": 9.331e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_la_B": {"value": 11.997e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_lv_A": {"value": 366.575e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_lv_B": {"value": 10.664e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_ra_A": {"value": 7.998e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_ra_B": {"value": 9.331e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_rv_A": {"value": 73.315e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "E_rv_B": {"value": 6.665e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"},
+  "K_vc_aov": {"value": 0.04, "units": "m3_per_Js", "data_reference": "to_be_identified"},
+  "K_vc_miv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vc_trv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_aov": {"value": 0.04, "units": "m3_per_Js", "data_reference": "to_be_identified"},
+  "K_vo_miv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "K_vo_trv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012"},
+  "M_rg_aov": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_miv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_puv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_rg_trv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_aov": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_miv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_puv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "M_st_trv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012"},
+  "T": {"value": 0.725, "units": "second", "data_reference": "biobeat_measurement"},
+  "T_ac": {"value": 0.0708333333, "units": "second", "data_reference": "biobeat_measurement"},
+  "T_ar": {"value": 0.0708333333, "units": "second", "data_reference": "biobeat_measurement"},
+  "T_vc": {"value": 0.33125, "units": "second", "data_reference": "biobeat_measurement"},
+  "T_vr": {"value": 0.0625, "units": "second", "data_reference": "biobeat_measurement"},
+  "beta": {"value": 2, "units": "dimensionless", "data_reference": "user_defined"},
+  "gamma": {"value": 0.0269, "units": "dimensionless", "data_reference": "mean_of_population_id_07_09_22_FARGUS"},
+  "l_eff": {"value": 0.01, "units": "metre", "data_reference": "to_be_identified"},
+  "r_ao": {"value": 0.0142714778, "units": "metre", "data_reference": "biobeat_measurement"},
+  "r_lvot": {"value": 0.010030084, "units": "metre", "data_reference": "biobeat_measurement"},
+  "rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "known"},
+  "t_astart": {"value": 0.5833333333, "units": "second", "data_reference": "biobeat_measurement"},
+  "t_vstart": {"value": 0.0, "units": "second", "data_reference": "Liang_2009_Table_2"}
+ },
+ "aortic_root": {
+  "C": {"value": 1.2028e-08, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e+4, "units": "Js2_per_m6", "data_reference": "to_be_identified"},
+  "R": {"value": 1.0e6, "units": "Js_per_m6", "data_reference": "to_be_identified"}
+ },
+ "par": {
+  "C": {"value": 0.0309077e-8, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "R": {"value": 10.664e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"}
+ },
+ "pvn": {
+  "C": {"value": 0.60015e-8, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8"},
+  "R": {"value": 1.333e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8"}
+ },
+ "venous_svc": {
+  "C": {"value": 2e-6, "units": "m6_per_J", "data_reference": "to_be_identified"},
+  "I": {"value": 1.0e-3, "units": "Js2_per_m6", "data_reference": "small_chosen"},
+  "R": {"value": 1114600.0, "units": "Js_per_m6", "data_reference": "small_chosen"}
+ }
+}

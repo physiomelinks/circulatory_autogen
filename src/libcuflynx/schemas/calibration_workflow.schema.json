@@ -1,0 +1,423 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
+  "title": "libcuflynx calibration workflow (calibration_workflow.json)",
+  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation or identifiability; every kind but reduction names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workflow_name",
+    "target",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workflow_name": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string"
+    },
+    "comment": {
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/model",
+      "description": "the model the calibrated values are merged into"
+    },
+    "module_library_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "module libraries, relative to this file; more can be given on the command line"
+    },
+    "settings": {
+      "$ref": "#/$defs/settings"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "model": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "a CA module array; its parameters file is <prefix>_parameters.json beside it"
+        },
+        {
+          "$ref": "#/$defs/module_array"
+        },
+        {
+          "$ref": "#/$defs/library_module"
+        }
+      ]
+    },
+    "step_model": {
+      "if": {
+        "type": "object",
+        "required": [
+          "select"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/selection"
+      },
+      "else": {
+        "$ref": "#/$defs/model"
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "select"
+      ],
+      "properties": {
+        "select": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\s*[^\\s/]+(/[^\\s/]+)*\\s*$",
+            "description": "an instance of the target: a record name, or a path into a super instance (heart/lv)"
+          },
+          "description": "instances of the workflow's module-array target, calibrated as they are in it. One instance is calibrated as its library module, placed at that instance; several (records of the target) as the module array they form, cut from the target"
+        }
+      },
+      "description": "a selection of the target's instances"
+    },
+    "module_array": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_array"
+      ],
+      "properties": {
+        "module_array": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a CA module array (<prefix>_module_array.csv or .json)"
+        },
+        "parameters": {
+          "type": "string",
+          "minLength": 1,
+          "description": "its parameters file; default <prefix>_parameters.json beside it"
+        }
+      }
+    },
+    "library_module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_type",
+        "version",
+        "parameterisation"
+      ],
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "instance"
+            ]
+          },
+          "description": "\"instance\" is not a target key: a target names its parameter set with \"parameterisation\"."
+        }
+      ],
+      "properties": {
+        "module_type": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the module type (a module config entry's module_type)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the module version (the entry's module_subtype)"
+        },
+        "parameterisation": {
+          "type": "string",
+          "pattern": "^[^/\\\\]+$",
+          "description": "a directory under <version>/parameterisations/"
+        }
+      },
+      "description": "a module of a module library: one parameterisation of one version"
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "user_inputs settings for the steps (a step's are merged over the workflow's, one dict level deep). The model, obs_data, params_for_id and output directories are chosen by the workflow and cannot be set.",
+      "properties": {
+        "param_id_method": {},
+        "optimiser_options": {},
+        "debug_optimiser_options": {},
+        "model_type": {},
+        "solver": {},
+        "solver_info": {},
+        "dt": {},
+        "pre_time": {},
+        "sim_time": {},
+        "DEBUG": {},
+        "do_ad": {},
+        "UQ_options": {},
+        "debug_UQ_options": {},
+        "use_builtin_modules": {},
+        "external_modules_dir": {},
+        "operation_funcs_external_path": {},
+        "cost_funcs_external_path": {},
+        "modifier_funcs_external_path": {},
+        "write_cuflynx_study": {},
+        "cuflynx_study_copy_inputs": {},
+        "sa_options": {},
+        "ia_options": {},
+        "emulator_settings": {}
+      }
+    },
+    "prior": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "a step id; its stored distribution, as the default kind (mvnormal)"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "step"
+          ],
+          "properties": {
+            "step": {
+              "type": "string",
+              "description": "the step whose stored distribution is used (it must set store_distribution)"
+            },
+            "kind": {
+              "enum": [
+                "mvnormal",
+                "normal",
+                "kde"
+              ],
+              "default": "mvnormal",
+              "description": "how the stored samples are represented: a multivariate normal, independent normals, or a kernel density estimate, each on a scale on which the parameter bounds are unbounded"
+            },
+            "inflate": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.0,
+              "description": "multiplies the distribution's variance, to temper an overconfident earlier posterior"
+            },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "only these parameters (model names in the source step), not all of them"
+            }
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[^/\\\\]+$",
+          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\"",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          }
+        },
+        "kind": {
+          "enum": [
+            "calibration",
+            "sensitivity",
+            "reduction",
+            "emulation",
+            "identifiability"
+          ],
+          "default": "calibration",
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: keeps the parameters a Sobol sensitivity step found most influential (sensitivity_from, reduction), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. Every kind but reduction needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+        },
+        "description": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/step_model",
+          "description": "the model this step runs on"
+        },
+        "obs_data": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the obs_data file it is run against"
+        },
+        "params_for_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the params_for_id file: what it calibrates or analyses"
+        },
+        "submodule": {
+          "type": "string",
+          "description": "a library module in a library supermodule target: where it sits, a submodule name or a nested one as soma/i_M (soma_i_M is also read). Inferred when the module type and version occur once."
+        },
+        "vessel": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a library module in a module-array target: the vessel it is. Inferred when the module type and version occur once."
+        },
+        "vessel_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "a module-array model: its vessel names -> the target's (a submodule path for a library target). Unmapped vessels keep their names."
+        },
+        "fixed_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "calibration steps whose calibrated values, and the values they were given as fixed, are fixed in this step's model; this step runs after them"
+        },
+        "priors_from": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prior"
+          },
+          "description": "earlier steps whose stored distributions become priors here: their parameters are calibrated again in this step, with that prior"
+        },
+        "store_distribution": {
+          "type": "boolean",
+          "default": false,
+          "description": "after the fit, sample the posterior by MCMC (needs UQ_options) and store it (chain, samples, stats) for later steps and tools"
+        },
+        "settings": {
+          "$ref": "#/$defs/settings"
+        },
+        "emulator_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "an emulation step whose emulator this step runs on (calibration or sensitivity), with that step's model; give the same model, obs_data and params_for_id as it"
+        },
+        "result_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a calibration step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity or identifiability: the analysis is at that result)"
+        },
+        "sensitivity_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a reduction step: the Sobol sensitivity step whose indices it ranks"
+        },
+        "params_for_id_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a calibration or emulation step: the reduction step whose params_for_id it uses instead of its own; a step on that emulator names the same reduction"
+        },
+        "reduction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "top_n"
+          ],
+          "properties": {
+            "top_n": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "how many parameters to keep, highest score first"
+            },
+            "index_type": {
+              "enum": [
+                "ST",
+                "S1"
+              ],
+              "default": "ST",
+              "description": "total or first-order Sobol indices"
+            },
+            "criterion": {
+              "enum": [
+                "max",
+                "mean"
+              ],
+              "default": "max",
+              "description": "a parameter's score: the max or mean of its index over the outputs"
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "description": "drop parameters scoring below this"
+            }
+          },
+          "description": "a reduction step: which parameters to keep"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "reduction"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "sensitivity_from",
+              "reduction"
+            ]
+          },
+          "else": {
+            "required": [
+              "model",
+              "obs_data"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "params_for_id"
+                ]
+              },
+              {
+                "required": [
+                  "params_for_id_from"
+                ]
+              }
+            ],
+            "not": {
+              "required": [
+                "params_for_id",
+                "params_for_id_from"
+              ]
+            },
+            "description": "A step that is not a reduction names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+          }
+        }
+      ]
+    }
+  }
+}

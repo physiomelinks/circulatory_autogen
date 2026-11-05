@@ -1,0 +1,1673 @@
+import os
+import copy
+import logging
+import time
+import warnings
+
+import numpy as np
+
+from libcuflynx.solver_wrappers.param_grouping import pair_names_with_values
+
+
+def _import_myokit_tolerating_first_run_race(attempts=5, delay=0.2):
+    """``import myokit``, surviving the race it loses on its own first import.
+
+    Myokit creates its user config directory at import time with a bare
+    ``if not os.path.exists(DIR_USER): os.makedirs(DIR_USER)`` -- a check and a create with a
+    gap in between. Under ``mpiexec`` every rank imports at once, so on a machine where
+    ``~/.config/myokit`` does not yet exist the ranks all see "missing", all call ``makedirs``,
+    and every one but the winner dies with ``FileExistsError``.
+
+    It only ever happens on the *first* parallel run, because afterwards the directory is there
+    -- which is why it presents as a CI job that passes when re-run, and why it is easy to
+    dismiss as noise. It is not noise: it is equally a user's first ``./run_param_id.sh 4`` on a
+    new machine or a fresh HPC home directory, where it reads as "Myokit is not installed".
+
+    Retrying is the fix rather than pre-creating the directory ourselves, because the path is
+    Myokit's to decide (it has already moved once, from ``~/.myokit``) and a copy of that rule
+    here would stop matching without saying so. A failed import leaves nothing in
+    ``sys.modules``, so the retry genuinely re-runs the module -- by which time the winning rank
+    has created the directory and the import takes the "already exists" branch.
+
+    Only ``FileExistsError`` is retried. Every other import failure is the caller's to see
+    immediately, and is reported with its reason by ``solver_wrappers`` (#410).
+    """
+    for attempt in range(attempts):
+        try:
+            import myokit  # noqa: PLC0415 - the point of this function
+            return myokit
+        except FileExistsError:
+            if attempt == attempts - 1:
+                raise
+            # The winner may still be inside makedirs, or writing myokit.ini.
+            time.sleep(delay * (attempt + 1))
+
+
+myokit = _import_myokit_tolerating_first_run_race()
+from myokit.formats import cellml as cellml_format
+import libcellml
+import libcuflynx.utilities.libcellml_helper_funcs as cellml
+from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
+from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
+import xml.etree.ElementTree as ET
+import tempfile
+
+logger = logging.getLogger(__name__)
+import hashlib
+import re
+import os
+
+
+# Where flattened CellML goes. A flattened model is a pure function of its input file, so
+# it is written under one stable name per input and overwritten on each run. It used to be
+# a fresh ``NamedTemporaryFile(delete=False)`` per simulation -- nothing ever deleted them,
+# and a calibration run flattens once per helper, so /tmp accumulated one ~100 kB file per
+# simulation forever (7,655 of them, 719 MB, on one dev machine).
+FLATTENED_CELLML_DIRNAME = 'circulatory_autogen_flattened'
+
+
+def flattened_cellml_path(path):
+    """The stable path the flattened form of *path* is written to.
+
+    The digest of the absolute input path keeps two models that share a basename in
+    different resources dirs from overwriting each other: silently simulating the wrong
+    model is a far worse failure than the disk use this naming fixes.
+    """
+    resolved = os.path.abspath(path)
+    digest = hashlib.sha1(resolved.encode('utf-8')).hexdigest()[:8]
+    stem = os.path.splitext(os.path.basename(resolved))[0]
+    cache_dir = os.path.join(tempfile.gettempdir(), FLATTENED_CELLML_DIRNAME)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'{stem}_{digest}_flat.cellml')
+
+
+def write_flattened_cellml(prepared_path, model_string):
+    """Write *model_string* to *prepared_path*, atomically.
+
+    Under ``mpiexec`` every rank flattens the same model to the same path, so a plain
+    open-and-write lets one rank parse what another is still writing. Staging in the same
+    directory and calling os.replace makes the swap atomic, and readers see either the old
+    complete file or the new one.
+    """
+    os.makedirs(os.path.dirname(prepared_path), exist_ok=True)
+    fd, staging_path = tempfile.mkstemp(
+        prefix=f'.{os.path.basename(prepared_path)}.',
+        suffix='.tmp',
+        dir=os.path.dirname(prepared_path),
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as wf:
+            wf.write(model_string)
+            wf.flush()
+            os.fsync(wf.fileno())
+        os.replace(staging_path, prepared_path)
+    except Exception:
+        try:
+            os.remove(staging_path)
+        except OSError:
+            pass
+        raise
+
+
+_MATHML_NS = '{http://www.w3.org/1998/Math/MathML}'
+
+
+def _all_components(parent):
+    for i in range(parent.componentCount()):
+        component = parent.component(i)
+        yield component
+        yield from _all_components(component)
+
+
+def _derivative_bvars(component):
+    """``(state_name, bvar_name)`` for each ``<diff>`` in *component*'s MathML."""
+    math = component.math()
+    if not math.strip():
+        return []
+    found = []
+    for apply in ET.fromstring(f'<root>{math}</root>').iter(f'{_MATHML_NS}apply'):
+        children = list(apply)
+        if not children or children[0].tag != f'{_MATHML_NS}diff':
+            continue
+        bvar = apply.find(f'{_MATHML_NS}bvar/{_MATHML_NS}ci')
+        state = apply.find(f'{_MATHML_NS}ci')
+        if bvar is not None and state is not None:
+            found.append((state.text.strip(), bvar.text.strip()))
+    return found
+
+
+def scale_derivatives_to_free_time(model, flat_model):
+    """Rescale ``dot()`` of states whose CellML derivative is taken w.r.t. a time variable
+    in other units than the free variable (issue #604).
+
+    Myokit's CellML importer converts a module's local time (``t = time * 1000`` for a
+    module in ms on a model in s) but takes every derivative w.r.t. the free variable, so
+    ``dx/dt`` written per ms would run 1000x too slowly. Each such state's RHS is multiplied
+    by ``d(t_local)/d(time)``. *model* is the imported Myokit model and *flat_model* the
+    libcellml model it was imported from. Returns ``{qname: factor}`` for the states changed.
+    """
+    free = model.binding('time')
+    if free is None:
+        return {}
+    free_units = flat_model.component(free.parent().name(), True).variable(free.name()).units()
+    scaled = {}
+    for component in _all_components(flat_model):
+        for state_name, bvar_name in _derivative_bvars(component):
+            bvar = component.variable(bvar_name)
+            if bvar is None or not libcellml.Units.compatible(bvar.units(), free_units):
+                continue
+            factor = libcellml.Units.scalingFactor(bvar.units(), free_units)
+            if factor == 1.0:
+                continue
+            qname = f'{component.name()}.{state_name}'
+            var = model.get(qname)
+            var.set_rhs(myokit.Multiply(myokit.Number(factor), var.rhs()))
+            scaled[qname] = factor
+    return scaled
+
+
+# CA's default CVODES tolerances for the Myokit backend, mirrored by the CVODE_myokit schema
+# defaults in PrimitiveParsers.SOLVER_INFO_FIELDS (a test pins the two equal). abs 1e-8 keeps
+# the absolute floor previous users ran at (the long-standing declared default was 1e-8/1e-8),
+# so existing models do not start failing; rel 1e-6 relaxes only the relative knob, which is
+# where most of the 1e-8/1e-8 solve cost was. Applied whenever the user sets neither value, and
+# used to fill in the partner when only one is set (set_tolerance takes both).
+CA_DEFAULT_ABS_TOL = 1e-8
+CA_DEFAULT_REL_TOL = 1e-6
+
+
+def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
+    """Apply solver_info's ``rtol``/``atol`` to a myokit Simulation.
+
+    Myokit's signature is ``set_tolerance(abs_tol, rel_tol)`` -- absolute *first*, the reverse
+    of the rtol-then-atol order CA's schema lists. They were passed positionally in that schema
+    order, so each reached the other argument: invisible while CA's declared default was a
+    symmetric 1e-8/1e-8, and measurable the moment they differ. Keyword arguments make the
+    mapping explicit so it cannot silently swap again.
+
+    With neither tolerance set, CA's own defaults apply (CA_DEFAULT_ABS_TOL /
+    CA_DEFAULT_REL_TOL) -- the declared schema default and the applied value are the same
+    thing, whichever front door the run came through. Under FSA the unset case tightens
+    further to 1e-8/1e-8: CVODES forward sensitivities are only as accurate as the state
+    integration, and a looser tolerance leaves a noise floor that swamps small sensitivities.
+    Explicit user values always win.
+
+    Returns the effective ``(abs_tol, rel_tol)`` -- what the simulation will actually integrate
+    with -- so failure diagnostics can report real values rather than re-deriving them.
+    """
+    rtol = solver_info.get("rtol", None)
+    atol = solver_info.get("atol", None)
+    if (rtol is None and atol is None) and fsa_enabled:
+        rtol, atol = 1e-8, 1e-8
+    abs_tol = atol if atol is not None else CA_DEFAULT_ABS_TOL
+    rel_tol = rtol if rtol is not None else CA_DEFAULT_REL_TOL
+    simulation.set_tolerance(abs_tol=abs_tol, rel_tol=rel_tol)
+    if fsa_enabled:
+        warn_if_sensitivities_are_under_resolved(rel_tol)
+    return abs_tol, rel_tol
+
+
+# Below this relative tolerance the CVODES *sensitivities* get worse, not better, on Myokit
+# < 1.40 -- see warn_if_sensitivities_are_under_resolved. Measured on an analytically-solvable
+# model (tests/test_fsa_analytic_accuracy.py): rel 1e-8 gives a cost gradient accurate to ~1e-7,
+# rel 1e-12 to only ~3e-3.
+FSA_MIN_SAFE_REL_TOL = 1e-9
+
+# Myokit 1.40 (myokit#1203) calls CVodeSetSensErrCon, so the sensitivities are in the local error
+# test and tightening rtol improves them. Older Myokit does not, and `myokit>=1.39.1` still lets
+# an install keep 1.39.x.
+MYOKIT_ERROR_CONTROLS_SENSITIVITIES = (
+    tuple(int(p) for p in re.findall(r"\d+", myokit.__version__)[:2]) >= (1, 40))
+
+
+def warn_if_sensitivities_are_under_resolved(rel_tol):
+    """Warn when a tightened `rtol` will *degrade* the FSA gradient (issue #387).
+
+    Only on Myokit < 1.40 (``MYOKIT_ERROR_CONTROLS_SENSITIVITIES`` is False); from 1.40 the
+    sensitivities are error-controlled and there is nothing to warn about.
+
+    Myokit < 1.40 configures CVODES with a finite-difference (DQ) sensitivity right-hand side
+    (``CVodeSensInit(..., NULL, ...)``) and never calls ``CVodeSetSensErrCon``, so the
+    sensitivity variables are **excluded from the local error test**: the step size is chosen
+    to control the states alone, and nothing controls the sensitivities. CVODES sizes the DQ
+    perturbation as ``sqrt(max(rtol, uround)) * pbar``, so tightening rtol shrinks that
+    perturbation (more cancellation noise per evaluation) *and* takes more steps (more
+    evaluations to accumulate it) -- the two effects compound and the sensitivities drift.
+
+    Measured on ``affine_native.cellml``, one parameter, cost gradient vs a finite difference
+    of the cost: rel 1e-8 -> 9e-8, rel 1e-10 -> 3e-7, rel 1e-12 -> 3e-3. The states over the
+    same sweep stay accurate to ~1e-11 throughout, which is why this is so easy to miss: the
+    trajectory looks better and better while the gradient quietly gets worse.
+
+    Warn rather than clamp: an explicitly-set tolerance is a deliberate user choice, and a
+    forward-only run at rel 1e-12 is perfectly reasonable. Bounding ``MaximumStep`` recovers
+    much of the loss when a tight tolerance is genuinely needed (1e-12 with MaximumStep 1e-3
+    measured 1.7e-5).
+    """
+    if MYOKIT_ERROR_CONTROLS_SENSITIVITIES:
+        return
+    if rel_tol is not None and rel_tol < FSA_MIN_SAFE_REL_TOL:
+        warnings.warn(
+            f"FSA (do_ad) gradients with solver_info rtol={rel_tol:g}: below "
+            f"{FSA_MIN_SAFE_REL_TOL:g} the CVODES sensitivities get *less* accurate as rtol "
+            f"tightens, because Myokit {myokit.__version__} excludes them from the local error "
+            f"test and sizes its finite-difference sensitivity RHS by sqrt(rtol). The states "
+            f"stay accurate, so this is invisible in the trajectory. Upgrade to Myokit >= 1.40 "
+            f"(Python >= 3.10), which error-controls the sensitivities; or prefer rtol >= "
+            f"{FSA_MIN_SAFE_REL_TOL:g} for gradient-based calibration, or bound "
+            f"solver_info MaximumStep to compensate (issue #387).")
+
+
+def stability_hint(solver_info, effective_tolerances):
+    """The one-line hint a failed solve carries: the three solver_info knobs that govern CVODES
+    stability, with their *effective* values (CA defaults included, so 'unset' still reads as
+    a number a user can decrease)."""
+    max_step = solver_info.get("MaximumStep")
+    abs_tol, rel_tol = effective_tolerances
+    max_step_str = "unset (unbounded)" if max_step is None else f"{max_step}"
+    return (f"MaximumStep is {max_step_str}, atol is {abs_tol}, rtol is {rel_tol}; "
+            f"decreasing these (solver_info MaximumStep / atol / rtol) may help stability.")
+
+
+def _trace_label_candidates():
+    """Binding labels for traced inputs, in the order they are handed out."""
+    yield "pace"
+    n = 1
+    while True:
+        yield f"pace_{n}"
+        n += 1
+
+
+def _is_trace_label(label):
+    return label is not None and re.fullmatch(r"pace(_\d+)?", label) is not None
+
+
+class SimulationHelper(ExperimentTimeMixin):
+    """
+    Myokit-based solver wrapper matching the OpenCOR SimulationHelper interface.
+
+    Key supported solver_info keys:
+    - MaximumStep: mapped to Simulation.set_max_step_size
+    - rtol / atol: mapped to Simulation.set_tolerance
+    - method is ignored (kept for compatibility with other helpers)
+    """
+
+    def __init__(self, cellml_path, dt, sim_time, solver_info=None, pre_time=0.0):
+        self.original_cellml_path = cellml_path
+        self.cellml_path = cellml_path
+        self.dt = dt
+        self.sim_time = sim_time
+        self.pre_time = pre_time
+        self.protocol_info = None
+        # Each traced input's Myokit binding label, {qname: label}, and the protocol last set
+        # on each label (re-applied when the Simulation is rebuilt).
+        self.trace_labels = {}
+        self._trace_protocols = {}
+        self.solver_info = solver_info or {}
+
+        # Forward sensitivity analysis (FSA / CVODES) config. Populated by enable_fsa();
+        # when _fsa_enabled the Simulation is built with sensitivities and run() returns
+        # (log, sensitivities). See enable_fsa/get_sensitivities.
+        self._fsa_enabled = False
+        self._fsa_dependent_qnames = None       # ordered myokit qnames of dependents
+        self._fsa_dependent_specs = None        # myokit dependent spec strings
+        self._fsa_independent_specs = None       # myokit independent spec strings (eligible + chain init(state))
+        self._fsa_independent_keys = None        # retrieval key per independent: param name or ('init_state', qname)
+        self._fsa_eligible_param_names = None    # framework param names whose own column is the sensitivity
+        self._fsa_ineligible_param_names = None  # framework param names needing FD fallback
+        self._fsa_chain_rule_map = {}            # param name -> [(state_qname, d(init_state)/d(param)), ...]
+        self._fsa_independent_state_qnames = None  # state qnames that ARE FSA independents (init params)
+        self._last_sensitivities = None
+        # Per-sub-experiment sensitivities within one experiment: run() appends, reset_states()
+        # clears. get_jac_cost_fsa reads this so multi-sub protocols keep each sub's dy/dp.
+        self._fsa_sensitivities_history = []
+
+        self.model = self._load_model(self.cellml_path)
+        self.processed_cellml_path = getattr(self, '_last_processed_path', None)
+        self._recreate_simulation()
+
+        if sim_time is not None and pre_time is not None:
+            self._setup_time(dt, sim_time, pre_time)
+
+        self._build_variable_maps()
+        self._init_defaults()
+
+        self.last_log = None
+        self._last_results_dict = None
+
+    def set_protocol_info(self, protocol_info):
+        """
+        Store protocol metadata and bind every traced input to its own label.
+        """
+        # Any protocol_shapes become protocol_traces here, so the trace lookup
+        # further down sees one representation regardless of which the user
+        # wrote. In place and idempotent: the caller keeps the dict it passed
+        # (plot_outputs reads protocol_info back off the helper), and a
+        # protocol_info that came through the parser is already expanded.
+        materialise_shapes(protocol_info)
+        validate_trace_references(protocol_info)
+        self.protocol_info = protocol_info
+        qnames = []
+        for param_name in self._traced_parameter_names(protocol_info):
+            kind, qname = self._resolve_name(param_name)
+            if kind == "state":
+                raise ValueError(
+                    f"Pacing parameter {param_name} must resolve to a non-state variable"
+                )
+            elif kind in [None, "None"]:
+                raise ValueError(
+                    f"Pacing parameter {param_name} must resolve to a valid variable",
+                    f"valid variables are: {self.all_qnames}"
+                )
+            elif kind != "var":
+                raise ValueError(
+                    f"Pacing parameter {param_name} must resolve to a valid kind, but got {kind}",
+                    f"valid kinds are: var, constant"
+                )
+            if qname not in qnames:
+                qnames.append(qname)
+        if not qnames:
+            return
+
+        # Labels left on variables this protocol does not trace would pin them to 0.
+        unbound = False
+        for var in self.all_vars:
+            if var.qname() not in qnames and _is_trace_label(var.binding()):
+                self._trace_protocols.pop(var.binding(), None)
+                var.set_binding(None)
+                self.trace_labels.pop(var.qname(), None)
+                unbound = True
+        self._bind_trace_inputs(qnames, rebuild=unbound)
+
+    def _load_model(self, path):
+        """
+        Load a CellML file via the Myokit CellML importer.
+        """
+
+        importer = cellml_format.CellMLImporter()
+        # Prepare a temporary CellML that Myokit can import without touching the source file.
+        prepared_path = self._prepare_cellml_for_myokit_libcellml(path)
+        self._last_processed_path = prepared_path  # Store for later analysis
+        try:
+            model = importer.model(prepared_path)
+            # Keep temp file for debugging
+            print(f"Myokit import succeeded, temp file kept at: {prepared_path}")
+        except Exception as e:
+            # Keep temp file for debugging
+            print(f"Myokit import failed, temp file kept at: {prepared_path}")
+            raise e
+        scale_derivatives_to_free_time(model, self._last_flat_model)
+        del self._last_flat_model
+        # Don't remove temp file for debugging
+        try:
+            self._apply_post_import_initial_expressions(model, prepared_path)
+        except Exception as e:
+            # Keep model usable even if this optional step fails; tests will surface issues.
+            print(f"Warning: post-import initial expression handling failed: {e}")
+        return model
+
+    def _apply_post_import_initial_expressions(self, model, processed_cellml_path):
+        """
+        Convert CellML initial_value references into Myokit initial value expressions
+        after import. This preserves dependency of state initial values on constants
+        (Myokit #898 behavior), without pre-resolving values in XML.
+        """
+        if not processed_cellml_path or not os.path.exists(processed_cellml_path):
+            return
+
+        # Parse flattened CellML to find initial_value attributes
+        try:
+            tree = ET.parse(processed_cellml_path)
+            root = tree.getroot()
+        except Exception:
+            return
+
+        cellml_ns = "http://www.cellml.org/cellml/2.0#"
+        # Build lookup: component -> set(varnames), and component.var -> initial_value string
+        init_map = {}  # qname (comp.var) -> initial_value (string)
+        for comp in root.findall(f".//{{{cellml_ns}}}component"):
+            comp_name = comp.get("name")
+            if not comp_name:
+                continue
+            for var in comp.findall(f".//{{{cellml_ns}}}variable"):
+                vname = var.get("name")
+                init_val = var.get("initial_value")
+                if vname and init_val is not None:
+                    init_map[f"{comp_name}.{vname}"] = init_val
+
+        if not init_map:
+            return
+
+        # Map Myokit state qnames to their variables for fast lookup
+        # Myokit states are named like "<component>_module.<var>" after CellML import.
+        states = list(model.states())
+        # Built once: the qnames Myokit ended up with, which is not the same set
+        # the CellML declared (connected variables are merged into one).
+        qname_to_var = {v.qname(): v for v in model.variables(deep=True)}
+        for s in states:
+            qn = s.qname()
+            # Translate Myokit component name back to CellML component name used in init_map
+            # (strip the common "_module" suffix added by importer).
+            if "." not in qn:
+                continue
+            comp_mod, var_name = qn.split(".", 1)
+            comp = comp_mod[:-7] if comp_mod.endswith("_module") else comp_mod
+
+            cellml_qn = f"{comp}.{var_name}"
+            if cellml_qn not in init_map:
+                continue
+
+            init_val = init_map[cellml_qn].strip()
+            # Only handle non-numeric initial values (variable references or expressions)
+            try:
+                float(init_val)
+                continue
+            except Exception:
+                pass
+
+            # If init_val is an unqualified identifier, qualify it so Myokit can
+            # parse it (fully qualified names are required). Its own component is
+            # only the first guess: Myokit's importer *merges* connected
+            # variables, so a constant the CellML declared in this component but
+            # defined in `parameters` no longer has a qname here -- it survives
+            # only as `parameters.<whatever that model calls it>`. Fall back to
+            # the resolver, which knows the naming conventions (CUFLynx #300);
+            # an unresolvable name is left alone so the numeric initial value
+            # stands rather than the whole step being abandoned for this model.
+            expr = init_val
+            if re.fullmatch(r"[A-Za-z_]\w*", init_val):
+                expr = self._qualify_initial_reference(qname_to_var, comp, comp_mod, init_val)
+                if expr is None:
+                    continue
+
+            # Set initial value as expression string (Myokit will parse it)
+            s.set_initial_value(expr)
+
+    @staticmethod
+    def _qualify_initial_reference(qname_to_var, comp, comp_mod, name):
+        """The qname of *name* as seen from CellML component *comp*, or None.
+
+        Its own component wins when the variable is still there. Otherwise the
+        shared resolver is asked, which covers both the CA parameter convention
+        and the hoisted forms other generators write.
+        """
+        for own in (f"{comp_mod}.{name}", f"{comp}.{name}"):
+            if own in qname_to_var:
+                return own
+        _, qname = VariableNameResolver.resolve_key(
+            f"{comp}/{name}", [("var", qname_to_var)], separator="."
+        )
+        return qname
+
+    def _prepare_cellml_for_myokit_libcellml(self, path):
+        """
+        Prepare a CellML file for Myokit by flattening it using libcellml.
+        This properly resolves imports and connections.
+        """
+        try:
+
+            # Parse the model in non-strict mode to allow non CellML 2.0 models
+            model = cellml.parse_model(path, False)
+
+            # Resolve imports, in non-strict mode
+            importer = cellml.resolve_imports(model, os.path.dirname(path), False)
+
+            # Flatten the model to resolve all imports and connections
+            flat_model = cellml.flatten_model(model, importer)
+            self._last_flat_model = flat_model
+
+            # Print the flattened model to string
+            model_string = cellml.print_model(flat_model)
+
+            # One file per input model, overwritten, not a new tempfile per run.
+            prepared_path = flattened_cellml_path(path)
+            write_flattened_cellml(prepared_path, model_string)
+
+            return prepared_path
+
+        except ImportError:
+            raise ImportError("libcellml not available, unable to prepare cellml for myokit")
+
+    def _setup_time(self, dt, sim_time, pre_time, start_time=0.0):
+        self.dt = dt
+        self.sim_time = sim_time
+        self.pre_time = pre_time
+        self.start_time = start_time
+        self._track_experiment_start(start_time, pre_time)
+        self.stop_time = start_time + pre_time + sim_time
+        self.pre_steps = int(pre_time / dt)
+        self.n_steps = int(sim_time / dt)
+        self.tSim = np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)
+
+    def _recreate_simulation(self):
+        # A Simulation accepts protocols only for the labels it was built with: 'pace', plus
+        # one per traced input, each with the protocol last set on it.
+        protocols = {"pace": None}
+        for label in self.trace_labels.values():
+            protocols[label] = None
+        for label, protocol in self._trace_protocols.items():
+            if label in protocols:
+                protocols[label] = protocol
+        if self._fsa_enabled:
+            # CVODES forward sensitivity: sensitivities=(dependents, independents) makes
+            # run() return (log, sensitivities), where sensitivities[time][dep][indep] is
+            # d(dependent)/d(independent). Only FSA-eligible params are independents; params
+            # that appear in a state's initial-value expression raise NotImplementedError in
+            # Myokit and are handled by finite differences instead (see enable_fsa).
+            self.simulation = myokit.Simulation(
+                self.model, protocols,
+                sensitivities=(self._fsa_dependent_specs, self._fsa_independent_specs),
+            )
+        else:
+            self.simulation = myokit.Simulation(self.model, protocols)
+        # Store baseline initial state used before any pre-simulation.
+        self.original_state = self._get_simulation_model().initial_values(as_floats=True)
+
+        # apply solver settings
+        if "MaximumStep" in self.solver_info:
+            try:
+                self.simulation.set_max_step_size(self.solver_info["MaximumStep"])
+            except Exception as exc:
+                logger.debug("MaximumStep=%r was not applied: %s",
+                             self.solver_info["MaximumStep"], exc)
+        self._effective_tolerances = apply_cvodes_tolerances(
+            self.simulation, self.solver_info, self._fsa_enabled)
+        self.last_log = None
+        if hasattr(self, "all_vars"):
+            self._init_defaults()
+
+    def _get_simulation_model(self):
+        # Myokit API differs across versions: prefer public model() when present.
+        if hasattr(self.simulation, "model") and callable(getattr(self.simulation, "model")):
+            return self.simulation.model()
+        return self.simulation._model
+
+    @staticmethod
+    def _traced_parameter_names(protocol_info):
+        """The params_to_change keys given a trace name in any sub-experiment, in key order."""
+        if not isinstance(protocol_info, dict):
+            return []
+        params_to_change = protocol_info.get("params_to_change", {})
+        if not isinstance(params_to_change, dict):
+            return []
+        names = []
+        for param_name, exp_values in params_to_change.items():
+            if not isinstance(exp_values, list):
+                continue
+            if any(isinstance(val, str)
+                   for sub_values in exp_values if isinstance(sub_values, list)
+                   for val in sub_values):
+                names.append(param_name)
+        return names
+
+    def _build_variable_maps(self):
+        # Qualified names for variables
+        self.state_vars = self.model.states()
+        self.state_qnames = [v.qname() for v in self.state_vars]
+        self.state_index = {q: i for i, q in enumerate(self.state_qnames)}
+        # include all variables (deep) for logging
+        self.all_vars = list(self.model.variables(deep=True))
+        self.all_qnames = [v.qname() for v in self.all_vars]
+        # map for resolution
+        self.qname_to_var = {v.qname(): v for v in self.all_vars}
+
+    def _init_defaults(self):
+        self._offline_default_state = None
+        self._state_overrides = {}
+        # default states
+        self.default_states = list(self.simulation.state())
+        # capture default values for all variables (best-effort)
+        self.default_values = {}
+        for var in self.all_vars:
+            try:
+                self.default_values[var.qname()] = var.eval()
+            except Exception as exc:
+                # Left unset. Named, because a variable missing from default_values is a
+                # variable that will not be restored by reset_and_clear().
+                logger.debug("no default value for %s: %s", var.qname(), exc)
+
+    def _describe_myokit_log_configuration(self):
+        """Context for debugging empty logs or failed final-state extraction."""
+        logical_lt = np.asarray(self.tSim, dtype=float) - float(self.pre_time)
+        passed_lt = getattr(self, "_last_log_times_passed_to_myokit", None)
+        n_st = getattr(self, "n_steps", None)
+        lines = [
+            "Time grid / logging context:",
+            f"  sim_time={self.sim_time!r}, dt={self.dt!r}, pre_time={self.pre_time!r}",
+            (
+                "  segment_clock start_time="
+                f"{getattr(self, 'start_time', None)!r} (cumulative timeline index for this subexperiment)"
+            ),
+            f"  n_steps = int(sim_time/dt) = {n_st!r}",
+            f"  protocol log schedule linspace(start_time, start_time+sim_time): length={logical_lt.size}"
+            + (
+                f", min={float(logical_lt.min())!r}, max={float(logical_lt.max())!r}"
+                if logical_lt.size
+                else " (empty — no output points requested)"
+            ),
+        ]
+        if passed_lt is not None and np.asarray(passed_lt).size > 0:
+            pl = np.asarray(passed_lt, dtype=float)
+            lines.append(
+                f"  log_times passed to Myokit.run (aligned to sim time after reset+pre): "
+                f"length={pl.size}, min={float(pl.min())!r}, max={float(pl.max())!r}"
+            )
+        lines.append(
+            f"  duration passed to Simulation.run(): {self.sim_time + 1e-12!r} (sim_time + eps)"
+        )
+        if self.last_log is not None:
+            time_key = None
+            try:
+                time_key = self.model.time().qname()
+            except Exception as exc:
+                logger.debug("model has no resolvable time variable: %s", exc)
+            if time_key and time_key in self.last_log:
+                tser = np.asarray(self.last_log[time_key])
+                lines.append(
+                    f"  logged time series ({time_key!r}): length={tser.size}"
+                )
+        return "\n".join(lines)
+
+    def _primary_myokit_log_failure_cause(self):
+        """
+        One explanation derived from actual time settings / intervals (no speculative list).
+
+        Preconditions: reads sim_time, dt, n_steps, tSim, pre_time, optionally
+        _last_integration_interval set immediately before Simulation.run().
+        """
+        st = float(self.sim_time)
+        dt = float(self.dt)
+        n_steps = int(getattr(self, "n_steps", int(st / dt) if dt else 0))
+        pre_t = float(self.pre_time)
+        passed = getattr(self, "_last_log_times_passed_to_myokit", None)
+        if passed is not None and np.asarray(passed).size > 0:
+            lt = np.asarray(passed, dtype=float)
+        else:
+            lt = np.asarray(self.tSim, dtype=float) - pre_t
+        iv = getattr(self, "_last_integration_interval", None)
+        iv_start, iv_end = (iv[0], iv[1]) if iv is not None else (None, None)
+
+        if st == 0:
+            return (
+                "Likely cause: sim_time is 0, so nothing is integrated and state logs have no samples."
+            )
+        if st < 0:
+            return f"Likely cause: sim_time is negative ({st!r}), which is invalid for integration."
+        if dt <= 0:
+            return f"Likely cause: dt is not positive ({dt!r}), so the output time grid is invalid."
+
+        if lt.size == 0:
+            return (
+                "Likely cause: computed log_times is empty (check sim_time and dt producing n_steps)."
+            )
+
+        if n_steps == 0 and st > 0:
+            return (
+                "Likely cause: sim_time is positive but smaller than dt, so "
+                f"n_steps = int(sim_time/dt) is 0 (sim_time={st:g} s, dt={dt:g} s): "
+                "only one output instant exists; Myokit produced no logged points there."
+            )
+
+        if iv_start is not None and iv_end is not None:
+            lt_min = float(np.min(lt))
+            lt_max = float(np.max(lt))
+            tol = max(1e-9 * max(abs(iv_end), abs(iv_start), 1.0), 1e-12)
+            if lt_max < iv_start - tol or lt_min > iv_end + tol:
+                return (
+                    "Likely cause: log_times do not overlap the integration interval "
+                    f"(log_times in [{lt_min:g}, {lt_max:g}] s vs integration "
+                    f"[{iv_start:g}, {iv_end:g}] s)."
+                )
+
+        return (
+            "Likely cause: timing looks self-consistent but Myokit returned no logged samples "
+            "at the requested log_times (solver/model issue — e.g. failure, stiffness, NaNs)."
+        )
+
+    def _validate_myokit_state_logs(self):
+        """
+        After Simulation.run(), every state should have a non-empty series at log_times.
+        Empty series cause index -1 errors when restoring the endpoint state.
+        """
+        if self.last_log is None:
+            raise RuntimeError(
+                "Myokit Simulation.run returned no log (last_log is None).\n"
+                + self._primary_myokit_log_failure_cause()
+                + "\n"
+                + self._describe_myokit_log_configuration()
+            )
+        empty = []
+        missing = []
+        for qname in self.state_qnames:
+            if qname not in self.last_log:
+                missing.append(qname)
+                continue
+            if np.asarray(self.last_log[qname]).size == 0:
+                empty.append(qname)
+        if missing or empty:
+            parts = [
+                "Myokit returned no logged samples for at least one state variable, "
+                "so the final state cannot be read from the log.",
+                self._primary_myokit_log_failure_cause(),
+            ]
+            if missing:
+                parts.append(f"States missing from log: {missing}")
+            if empty:
+                parts.append(f"States with empty log series: {empty}")
+            parts.append(self._describe_myokit_log_configuration())
+            raise RuntimeError("\n".join(parts))
+
+    # --------- core API ----------
+    def run(self):
+        try:
+            if self.pre_time > 0:
+                # Unlogged warm-up. Deliberately run(log=LOG_NONE) and NOT simulation.pre():
+                # pre() resets every initial-value sensitivity row of _s_state to the identity
+                # basis vector ("Reset to time 0", myokit cvodessim.pre()), throwing away the
+                # d(state)/d(init) that CVODES accumulated across the warm-up. This warm-up is
+                # part of *this* experiment and the calibrated initial value lives at its
+                # start, so that sensitivity must propagate through it; otherwise a directly
+                # calibrated state reports ~identity sensitivity when the true value has
+                # decayed towards zero (the system forgets its IC), and the optimiser chases a
+                # parameter that barely matters. run() integrates identically -- both advance
+                # the clock through _run's `self._time += duration`, so the run_t0 offset below
+                # is unaffected -- but leaves the sensitivities alone. pre() IS the correct call
+                # for a genuine *offline* warm-up, which really does establish a new initial
+                # condition; see issue #269.
+                # (Return value discarded: with FSA on this is (log, sensitivities), and the
+                # warm-up's own log/sensitivities are not wanted.)
+                self.simulation.run(self.pre_time, log=myokit.LOG_NONE)
+
+            log = self._make_log()
+            # Use explicit log times so the end-point is included.
+            start_time = self.simulation.time()
+            eps = self.dt * 1e-9 # run for eps after the end time to make sure the final requested log point is emitted.
+            # Logical output grid on the cumulative protocol timeline
+            logical_log_times = np.asarray(self.tSim, dtype=float) - float(self.pre_time)
+            if logical_log_times.size == 0:
+                self._last_log_times_passed_to_myokit = None
+                raise RuntimeError(
+                    "Cannot run Myokit simulation: no sampling instants (log_times is empty).\n"
+                    + self._primary_myokit_log_failure_cause()
+                    + "\n"
+                    + self._describe_myokit_log_configuration()
+                )
+            # update_times() calls simulation.reset(), so Myokit's clock starts at t=0 for every
+            # segment. pre() advances to t==pre_time. Requested sampling instants must be
+            # shifted from cumulative protocol times to simulator-absolute times.
+            run_t0 = float(self.simulation.time())
+            log_times = logical_log_times + (run_t0 - float(logical_log_times.flat[0]))
+            self._last_log_times_passed_to_myokit = np.asarray(log_times, dtype=float).copy()
+            duration = float(self.sim_time) + eps
+            self._last_integration_interval = (run_t0, run_t0 + duration)
+            run_out = self.simulation.run(
+                self.sim_time+eps,
+                log=log,
+                log_times=log_times,
+            )
+            if self._fsa_enabled:
+                # With sensitivities enabled, run() returns (log, sensitivities).
+                self.last_log, self._last_sensitivities = run_out
+                # Retain this sub-experiment's sensitivities; reset_states() (experiment start)
+                # clears the list, so it holds exactly the current experiment's per-sub dy/dp in
+                # sub order for get_jac_cost_fsa.
+                self._fsa_sensitivities_history.append(np.asarray(self._last_sensitivities))
+            else:
+                self.last_log = run_out
+            self._validate_myokit_state_logs()
+            # Restore exact endpoint (without epsilon overshoot) for continued runs.
+            end_state = [float(np.asarray(self.last_log[qname])[-1]) for qname in self.state_qnames]
+            self.simulation.set_state(end_state)
+            self.simulation.set_time(start_time + self.sim_time)
+        except Exception as e:
+            err = str(e)
+            if "out of bounds" in err and "size 0" in err:
+                print(
+                    "Myokit simulation failed: tried to read the final logged state but a "
+                    f"time series was empty (underlying error: {e}).\n"
+                    + self._primary_myokit_log_failure_cause()
+                    + "\n"
+                    + self._describe_myokit_log_configuration()
+                )
+            else:
+                print(f"Myokit simulation failed: {e}")
+            # The three solver_info knobs that govern CVODES stability, with their effective
+            # values -- so a failed solve tells the user which numbers to turn, not just that
+            # it failed.
+            warnings.warn(
+                "Myokit simulation failed: "
+                + stability_hint(
+                    self.solver_info,
+                    getattr(self, '_effective_tolerances',
+                            (CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL))))
+            return False
+        return True
+
+    def run_offline_pre_and_set_default_state(self, offline_pre_time):
+        """Run unlogged warmup once; use end state as default for reset_states().
+
+        param_id calls this once, after set_protocol_info, when the protocol sets
+        offline_pre_time; every evaluation then starts its pre_time + sim_time from this state.
+        param_id refuses it when a calibration parameter sets a state's initial value
+        (OFFLINE_PRE_TIME_INIT_STATE_ERROR), since this frozen state would not move with it.
+        Uses pre(), which resets the initial-value sensitivity rows: right here, as the warm-up
+        establishes a new initial condition. Traced inputs hold experiment 0's first value.
+        """
+        offline_pre_time = float(offline_pre_time)
+        if offline_pre_time <= 0:
+            return
+        # Traced inputs hold experiment 0's first value; set_protocol_info binds them.
+        for qname, value in self._first_input_values().items():
+            self._set_trace_protocol(qname, myokit.TimeSeriesProtocol(
+                [0.0, offline_pre_time], [value, value]))
+        self.simulation.reset()
+        self.simulation.pre(offline_pre_time)
+        new_state = list(self.simulation.state())
+        self._offline_default_state = new_state
+        self.simulation.set_default_state(new_state)
+        self.default_states = list(new_state)
+        self.simulation.set_state(new_state)
+        self.simulation.set_time(0.0)
+        self.last_log = None
+
+    def reset_and_clear(self, only_one_exp=-1):
+        # Fully reset to baseline default state (before any pre-simulation).
+        if self.last_log is not None:
+            self._last_results_dict = self._collect_all_results_dict_from_log()
+        self.simulation.set_default_state(self.original_state)
+        self.simulation.reset()
+        self._state_overrides = {}
+        self.last_log = None
+
+    def reset_states(self):
+        # Reset to offline pre-time state when configured, otherwise model ICs.
+        if self.last_log is not None:
+            self._last_results_dict = self._collect_all_results_dict_from_log()
+        # New experiment: start a fresh per-sub sensitivity history (each experiment is
+        # independent; sensitivities do not carry across experiment boundaries).
+        self._fsa_sensitivities_history = []
+        # reset() restores _s_state from _s_default_state. Nothing mutates _s_default_state any
+        # more -- the warm-up in run() uses run(log=LOG_NONE), not pre(), precisely so the
+        # initial-value sensitivity rows survive it -- so the default reset() restores is
+        # already the pristine one built at construction. The explicit pristine save/restore
+        # that used to live here existed only to undo pre()'s pollution and is now redundant.
+        # NOTE: if an offline warm-up using pre() is ever reinstated, that pollution returns and
+        # this restore must come back with it (see run_offline_pre_and_set_default_state).
+        self.simulation.reset()
+        # Same refresh set_param_vals(change_states=True) performs -- kept in one place so the
+        # two paths cannot drift (offline warm-up precedence, state overrides, default_state).
+        self._refresh_initial_states_from_model()
+        self.last_log = None
+
+    def get_all_variable_names(self):
+        # Return variables that are actually logged (Myokit restrictions apply)
+        if self.last_log is not None:
+            return list(self.last_log.keys())
+        else:
+            # Return loggable variables only (non-constants)
+            return [v.qname() for v in self.all_vars if not v.is_constant()]
+
+    def get_all_results(self, flatten=False):
+        return self.get_results(self.get_all_variable_names(), flatten=flatten)
+
+    def get_results(self, variables_list_of_lists, flatten=False):
+        if self.last_log is None:
+            raise RuntimeError("Simulation has not been run yet.")
+        if type(variables_list_of_lists[0]) is not list:
+            variables_list_of_lists = [[entry] for entry in variables_list_of_lists]
+
+        results = []
+        for variables_list in variables_list_of_lists:
+            row = []
+            for name in variables_list:
+                row.append(self._extract(name))
+            results.append(row)
+        if flatten:
+            results = [item for sublist in results for item in sublist]
+        return results
+    
+    def get_all_results_dict(self):
+        if self.last_log is not None:
+            self._last_results_dict = self._collect_all_results_dict_from_log()
+            return {name: np.asarray(val).copy() for name, val in self._last_results_dict.items()}
+        if self._last_results_dict is not None:
+            return {name: np.asarray(val).copy() for name, val in self._last_results_dict.items()}
+        raise RuntimeError("Simulation has not been run yet.")
+
+    def _collect_all_results_dict_from_log(self):
+        """Every logged variable, once, under a key set that does not vary between runs.
+
+        The time series needs care. Myokit merges connected variables on import and keeps one
+        qname for the pair, so which name the model ends up using is the importer's choice --
+        for the 3compartment model it is ``volume_sum_module.t``, because ``environment.time``
+        is connected to it and does not survive as a separate variable. This project publishes
+        the time under one stable name regardless.
+
+        The log sometimes also carries that importer-specific qname, and sometimes does not:
+        ``all_outputs_with_best_param_vals_exp_0.npz`` gained a ``volume_sum_module.t`` key in
+        one run of five, against an identical model and identical code, holding an array
+        bit-identical to ``environment.time``. So the file's key set was not reproducible, and
+        anything diffing two runs saw a change that was not one. Dropping the log's own time
+        key and publishing the series only as ``environment.time`` makes the set the same every
+        time, whichever name the importer picked.
+        """
+        log_time_key = None
+        if hasattr(self.last_log, "time_key"):
+            try:
+                log_time_key = self.last_log.time_key()
+            except Exception:
+                log_time_key = None
+
+        # Time first, always. The log arrives in both shapes -- sometimes keyed
+        # `environment.time`, sometimes the importer's `volume_sum_module.t` -- and putting the
+        # series wherever that key happened to sit would leave the npz's *order* varying even
+        # once its key set was fixed. First is where the `environment.time` shape already put
+        # it, so this reproduces the common case exactly.
+        results = {"environment.time": self._get_log_time_series()}
+        for qname in self.last_log.keys():
+            if qname == log_time_key or qname == "environment.time":
+                continue
+            results[qname] = np.asarray(self.last_log[qname])
+        return results
+
+    def _get_log_time_series(self):
+        """
+        Returns the logged time series from Myokit DataLog using its own time-key
+        abstraction, with fallbacks for compatibility.
+        """
+        if self.last_log is None:
+            raise RuntimeError("No log available")
+
+        # Preferred: use DataLog's configured time key.
+        time_key = None
+        if hasattr(self.last_log, "time_key"):
+            try:
+                time_key = self.last_log.time_key()
+            except Exception:
+                time_key = None
+        if time_key and time_key in self.last_log:
+            return np.asarray(self.last_log[time_key])
+
+        # Secondary: ask DataLog directly for time values.
+        if hasattr(self.last_log, "time"):
+            try:
+                return np.asarray(self.last_log.time())
+            except Exception as exc:
+                logger.debug("DataLog.time() unavailable, trying the next fallback: %s", exc)
+
+        # Final fallback: model-declared bound time variable qname.
+        model_time = self.model.time()
+        if model_time is not None:
+            model_time_qname = model_time.qname()
+            if model_time_qname in self.last_log:
+                return np.asarray(self.last_log[model_time_qname])
+
+        raise RuntimeError("Unable to determine time series key from Myokit log.")
+
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded. On this backend get_init_param_vals already reads the
+        default_values snapshot rather than the live simulation, so the two agree -- but the name
+        says which is meant, and other backends do not have that property."""
+        return self.get_init_param_vals(param_names)
+
+    def get_init_param_vals(self, param_names):
+        param_init = []
+        for name_or_list in param_names:
+            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
+            vals = []
+            for name in names:
+                kind, qname = self._resolve_name(name)
+                if kind == "state":
+                    vals.append(self.default_states[self.state_index[qname]])
+                elif kind == "var":
+                    if qname in self.default_values:
+                        vals.append(self.default_values[qname])
+                    else:
+                        # fallback to first log value if available later
+                        vals.append(self._extract(qname)[0] if self.last_log else 0.0)
+                else:
+                    raise ValueError(f"parameter {name} not found")
+            param_init.append(vals if len(vals) > 1 else vals[0])
+        return param_init
+
+    def _set_state_value(self, qname, val):
+        """Set a single state's current value. Myokit's Simulation exposes only set_state()
+        (the full vector), so read-modify-write it. Does not disturb the CVODES sensitivity
+        state (set_state leaves _s_state untouched)."""
+        idx = self.state_index[qname]
+        state = list(self.simulation.state())
+        state[idx] = float(val)
+        self.simulation.set_state(state)
+
+    def _refresh_initial_states_from_model(self):
+        """Push the model's (re-evaluated) initial values into the Simulation.
+
+        A Myokit ``Simulation`` keeps its own ``state``/``default_state`` arrays, snapshotted at
+        construction. ``set_constant()`` updates the *model* -- so a state whose CellML
+        ``initial_value`` references a constant (``q_lv`` -> ``q_lv_init``) re-evaluates
+        correctly there -- but it never touches those arrays, and ``reset()`` restores *from*
+        ``default_state``. Without this refresh the simulation keeps the initial condition it was
+        built with, silently ignoring any change to a state-init parameter.
+
+        Mirrors ``reset_states()``: an offline warm-up state, when present, still wins over the
+        model's initial values, and explicit state overrides are re-applied on top.
+        """
+        if self._offline_default_state is not None:
+            self.simulation.set_state(list(self._offline_default_state))
+        else:
+            self.simulation.set_state(self._get_simulation_model().initial_values(as_floats=True))
+        for qname, val in self._state_overrides.items():
+            if qname in self.state_index:
+                self._set_state_value(qname, float(val))
+        state = list(self.simulation.state())
+        self.simulation.set_default_state(state)
+        self.default_states = state
+
+    def _states_initialised_by(self, changed_qnames):
+        """States whose CellML initial value references any of ``changed_qnames``.
+
+        Only these can be affected by the constants just written, so only these are refreshed --
+        re-deriving *every* state would reset the whole vector and destroy the state a running
+        multi-sub-experiment protocol has evolved into.
+        """
+        affected = []
+        if not changed_qnames:
+            return affected
+        for s in self._get_simulation_model().states():
+            initial = s.initial_value()
+            if initial is None:
+                continue
+            try:
+                refs = {n.var().qname() for n in initial.references()}
+            except Exception:
+                continue  # a literal initial value has nothing to depend on
+            if refs & changed_qnames:
+                affected.append(s)
+        return affected
+
+    def _refresh_initial_states_for(self, changed_qnames):
+        """Re-evaluate and apply the initial values driven by ``changed_qnames``.
+
+        A Myokit ``Simulation`` keeps its own ``state``/``default_state`` arrays, snapshotted at
+        construction. ``set_constant()`` updates the *model* -- so a state whose CellML
+        ``initial_value`` references a constant (``q_lv`` -> ``q_lv_init``) re-evaluates correctly
+        there -- but never touches those arrays, and ``reset()`` restores *from* ``default_state``.
+        Without this the simulation silently keeps the initial condition it was built with.
+        """
+        affected = self._states_initialised_by(changed_qnames)
+        if not affected:
+            return
+        state = list(self.simulation.state())
+        for s in affected:
+            try:
+                state[self.state_index[s.qname()]] = float(s.initial_value().eval())
+            except Exception:
+                continue
+        for qname, val in self._state_overrides.items():
+            if qname in self.state_index:
+                state[self.state_index[qname]] = float(val)
+        self.simulation.set_state(state)
+        self.simulation.set_default_state(list(state))
+        self.default_states = list(state)
+
+    def set_param_vals(self, param_names, param_vals, change_states=True):
+        """Set parameter values, by default including any state initial values they drive.
+
+        Args:
+            param_names: names to set; each entry may be a list sharing one value.
+            param_vals: matching values.
+            change_states: when True (default), state initial values are re-derived from the
+                model after the parameters are applied, so setting a state-init parameter
+                (``q_lv_init``) actually moves the state it initialises. Set False for
+                mid-protocol updates, where re-deriving initial values would discard the state
+                the previous sub-experiment evolved into and break continuity. With
+                ``change_states=False`` it is an error to name a state directly, since that
+                request cannot be honoured without disturbing exactly that continuity.
+        """
+        # Phase 0: with change_states=False the caller is asserting "do not touch the state
+        # vector". Naming a state contradicts that, so fail loudly rather than half-applying.
+        if not change_states:
+            offenders = []
+            for name_or_list in param_names:
+                for name in (name_or_list if isinstance(name_or_list, list) else [name_or_list]):
+                    try:
+                        kind, qname = self._resolve_name(name)
+                    except Exception:
+                        continue
+                    if kind == "state":
+                        offenders.append(f"{name} (state {qname})")
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state; writing a state there would "
+                    "destroy sub-experiment continuity. Either call with change_states=True (the "
+                    "default) or remove the state from this call.")
+
+        # Phase 1: bind every traced input that has no label yet, in one Simulation rebuild,
+        # so set_constant calls made later in the same invocation are not lost to it.
+        new_traced = [q for q in self._find_required_traced_qnames(param_names, param_vals)
+                      if q not in self.trace_labels]
+        if new_traced:
+            self._bind_trace_inputs(new_traced)
+
+        # Phase 2: Apply all parameter values, recording which constants changed so only the
+        # states they initialise are refreshed afterwards.
+        changed_var_qnames = set()
+        for idx, name_or_list in enumerate(param_names):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'set_param_vals'):
+                kind, qname = self._resolve_name(name)
+
+                if kind == "state":
+                    self._state_overrides[qname] = float(val)
+                    self._set_state_value(qname, float(val))
+                    # FSA: a params_to_change entry that forces a state to a value makes that
+                    # state momentarily independent of the calibration params, so its carried
+                    # dy/dp column is stale -- zero it. Skip states that are themselves FSA
+                    # independents (calibration state-init params): Myokit seeds those, and a
+                    # reset_states() re-seed will restore them anyway.
+                    if (self._fsa_enabled
+                            and qname not in (self._fsa_independent_state_qnames or set())):
+                        s = getattr(self.simulation, '_s_state', None)
+                        if s is not None:
+                            sidx = self.state_index[qname]
+                            for row in s:
+                                if sidx < len(row):
+                                    row[sidx] = 0.0
+                elif kind == "var":
+                    if isinstance(val, str):
+                        trace_name = val
+                        # Validate protocol info exists
+                        if self.protocol_info is None or 'protocol_traces' not in self.protocol_info:
+                            raise ValueError(
+                                "params_to_change entry is a string trace key, but protocol_traces "
+                                "not found in protocol_info."
+                            )
+                        if trace_name not in self.protocol_info['protocol_traces']:
+                            raise ValueError(
+                                f"Protocol trace '{trace_name}' not found in protocol_traces."
+                            )
+                        trace = self.protocol_info['protocol_traces'][trace_name]
+                        if 'values' not in trace:
+                            raise ValueError(
+                                f"Protocol trace '{trace_name}' is missing 'values' key."
+                            )
+                        times, values = list(trace['t']), list(trace['values'])
+                        pre_time = float(self.pre_time or 0.0)
+                        if pre_time > 0:
+                            # The clock starts at the warm-up, the trace at the
+                            # sub-experiment: hold the first value through the warm-up.
+                            times = [0.0] + [float(t) + pre_time for t in times]
+                            values = [values[0]] + values
+                        protocol = myokit.TimeSeriesProtocol(times, values)
+                        self._set_trace_protocol(qname, protocol)
+
+                    elif not isinstance(val, (float, np.float64, int)):
+                        raise ValueError(
+                            f"Parameter value {val} is not a valid type ({type(val)}); "
+                            "must be float, np.float64, or int."
+                        )
+                    else:
+                        if qname in self.trace_labels:
+                            # A traced input is bound to its label: use a flat
+                            # TimeSeriesProtocol so the value is applied rather than
+                            # calling set_constant.
+                            pace_val = float(val)
+                            duration = float(max(self.sim_time if self.sim_time is not None else 1.0, self.dt))
+                            duration += float(self.pre_time or 0.0)
+                            protocol = myokit.TimeSeriesProtocol(
+                                [0.0, duration],
+                                [pace_val, pace_val],
+                            )
+                            self._set_trace_protocol(qname, protocol)
+                        else:
+                            self.simulation.set_constant(qname, float(val))
+                            changed_var_qnames.add(qname)
+                            # Keep self.model in sync with every set_constant call.
+                            # _bind_trace_inputs calls _recreate_simulation(), which clones
+                            # self.model fresh (Myokit docs: "changes to the original model
+                            # object will not affect the simulation"). Without this, any
+                            # set_constant calls made *before* the rebind (e.g. ID params
+                            # set at the start of each experiment) are lost when the second
+                            # trace experiment triggers a rebind, causing the calibration
+                            # and post-regeneration runs to use different constant values
+                            # (template defaults vs. embedded best-fit values) — the root
+                            # cause of the cost mismatch reported in issue #219.
+                            try:
+                                self.qname_to_var[qname].set_rhs(myokit.Number(float(val)))
+                            except Exception:
+                                pass
+                else:
+                    raise ValueError(f"parameter {name} not found")
+        # Keep state defaults consistent with model-defined initial values. With change_states
+        # the re-derived values are pushed into the Simulation too, not just recorded here --
+        # otherwise self.default_states and simulation.default_state() silently disagree.
+        if change_states:
+            self._refresh_initial_states_for(changed_var_qnames)
+        self.default_states = list(
+            self._get_simulation_model().initial_values(as_floats=True))
+
+    def _find_required_traced_qnames(self, param_names, param_vals):
+        """The resolved qnames of the parameters given a trace name in this call, in order."""
+        found = []
+        for idx, name_or_list in enumerate(param_names):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'traced-input scan'):
+                if isinstance(val, str):
+                    kind, qname = self._resolve_name(name)
+                    if kind != "var":
+                        raise ValueError(
+                            f"Trace name '{val}' was given for '{name}', but it does not "
+                            "resolve to a non-state variable."
+                        )
+                    if qname not in found:
+                        found.append(qname)
+        return found
+
+    def _bind_trace_inputs(self, qnames, rebuild=False):
+        """Bind each of *qnames* to its own Myokit label, in one Simulation rebuild.
+
+        A variable that already carries a binding keeps it, so an imported ``bind pace``
+        stays ``pace``; the others take the first free label of ``pace``, ``pace_1``, ....
+        The Simulation is rebuilt only when a binding changed (or *rebuild* is set), keeping
+        its state and time; with nothing to change, the state an offline warm-up left stays.
+        """
+        for qname in qnames:
+            if qname not in self.qname_to_var:
+                raise ValueError(
+                    f"Cannot bind a trace to '{qname}': variable not found in model."
+                )
+        used = {v.binding() for v in self.all_vars if v.binding() is not None}
+        for qname in qnames:
+            var = self.qname_to_var[qname]
+            label = var.binding()
+            if label is None:
+                label = next(lbl for lbl in _trace_label_candidates() if lbl not in used)
+                var.set_binding(label)
+                used.add(label)
+                rebuild = True
+            self.trace_labels[qname] = label
+        if not rebuild:
+            return
+
+        current_state = self.simulation.state()
+        current_time = self.simulation.time()
+        # Myokit Simulation clones the model at construction time, so recreate it to
+        # pick up the new bindings.
+        self._recreate_simulation()
+        self.simulation.set_state(current_state)
+        self.simulation.set_time(current_time)
+
+    def _first_input_values(self):
+        """{qname: value} of each traced input at the start of experiment 0."""
+        params_to_change = (self.protocol_info or {}).get("params_to_change") or {}
+        traces = (self.protocol_info or {}).get("protocol_traces") or {}
+        first = {}
+        for name, exp_values in params_to_change.items():
+            _, qname = self._resolve_name(name)
+            if qname not in self.trace_labels:
+                continue
+            val = exp_values[0][0]
+            first[qname] = float(traces[val]["values"][0] if isinstance(val, str) else val)
+        return first
+
+    def _set_trace_protocol(self, qname, protocol):
+        """Drive traced input *qname* with *protocol*, through its own label."""
+        label = self.trace_labels[qname]
+        self._trace_protocols[label] = protocol
+        self.simulation.set_protocol(protocol, label=label)
+
+    def modify_params_and_run_and_get_results(self, param_names, mod_factors, obs_names, absolute=False):
+        if absolute:
+            new_param_vals = mod_factors
+        else:
+            init_param_vals = self.get_init_param_vals(param_names)
+            new_param_vals = [a * b for a, b in zip(init_param_vals, mod_factors)]
+
+        self.set_param_vals(param_names, new_param_vals)
+        success = self.run()
+        if success:
+            pred_obs_new = self.get_results(obs_names)
+            self.reset_and_clear()
+        else:
+            raise RuntimeError("simulation failed")
+        return pred_obs_new
+
+    def update_times(self, dt, start_time, sim_time, pre_time):
+        # Preserve the current state across reset() so multi-sub-experiment
+        # protocols continue from the previous sub-experiment's end state, matching
+        # the OpenCOR and solve_ivp backends. Myokit's reset() reverts to the
+        # *default* (initial) state; run() only set_state()s the end state, not the
+        # default state, so without this restore every sub-experiment after the
+        # first would restart from the model initial conditions.
+        current_state = list(self.simulation.state())
+        # Same idea for the CVODES forward sensitivities. reset() zeros dy/dp (restores
+        # _s_default_state); without carrying it, a later sub-experiment's sensitivities would
+        # ignore how the parameters shaped the earlier sub's end state (which is this sub's
+        # initial condition) -- the cross-sub chain-rule term. Myokit exposes no public setter,
+        # so we save/restore the private _s_state (a list indexed [independent][state]). At an
+        # experiment start reset_states() has just re-seeded _s_state, so the carried value is
+        # the correct fresh identity/zero; at sub boundaries it is the previous sub's end dy/dp.
+        carried_s_state = None
+        if self._fsa_enabled:
+            s = getattr(self.simulation, '_s_state', None)
+            if s is not None:
+                carried_s_state = [list(row) for row in s]
+        self._setup_time(dt, sim_time, pre_time, start_time=start_time)
+        # Reset to ensure time/step changes are honored
+        self.simulation.reset()
+        self.simulation.set_state(current_state)
+        if carried_s_state is not None:
+            self.simulation._s_state = carried_s_state
+
+    def close_simulation(self):
+        # Myokit doesn't require explicit close
+        pass
+
+    # --------- internals ----------
+    def _make_log(self):
+        # Create a list of loggable variable names (Myokit restrictions)
+        # Myokit cannot log constants, only states and certain other variable types
+        variables_to_log = []
+        for v in self.all_vars:
+            # Check if variable is loggable (not a constant)
+            if not v.is_constant():
+                variables_to_log.append(v.qname())
+        return variables_to_log
+
+    def _extract(self, name):
+        if name == "time":
+            if self.last_log is None:
+                raise RuntimeError("No log available")
+            # The cumulative time axis (get_time()), not Myokit's logged clock, which
+            # restarts at each sub-experiment's run_t0 (update_times -> reset). tSim is the
+            # same length as the logged series, so it stays aligned with get_results.
+            return self.get_time()
+        kind, qname = self._resolve_name(name)
+        # `qname in self.last_log` is not redundant: _make_log deliberately leaves constants
+        # out ("Myokit cannot log constants"), while _resolve_name classifies them as "var"
+        # like every other non-state. So a constant reached this branch, was indexed out of a
+        # log that never contained it, and raised KeyError -- even though the `kind == "var"`
+        # arm below already knows how to answer for one, by evaluating it. Falling through is
+        # all that was missing (issue #453).
+        if self.last_log and kind in ("state", "var") and qname in self.last_log:
+            data = np.asarray(self.last_log[qname])
+            return data
+        if kind == "state":
+            return np.asarray([self.simulation.state()[self.state_index[qname]]])
+        if kind == "var":
+            # if qname in self.default_values:
+            #     return np.asarray([self.default_values[qname]])
+            # Evaluate algebraic variable from current model state  
+            if qname in self.qname_to_var:  
+                try:  
+                    current_value = self.qname_to_var[qname].eval()  
+                    return np.asarray([current_value])  
+                except Exception:  
+                    pass  
+        raise ValueError(f"variable {name} not found")
+
+    def _resolve_name(self, name):
+        """Resolve a name to (kind, qname) using the unified VariableNameResolver."""
+        return VariableNameResolver.resolve_key(
+            name,
+            [("state", self.state_index), ("var", self.qname_to_var)],
+            separator=".",
+        )
+
+    # ------------------------------------------------------------------
+    # Forward sensitivity analysis (FSA / CVODES)
+    # ------------------------------------------------------------------
+
+    def enable_fsa(self, dependent_names, independent_param_names):
+        """Rebuild the Simulation with CVODES forward sensitivities.
+
+        dependent_names       : framework variable names of the observable operands
+                                (e.g. 'aortic_root/u'), i.e. the traces whose gradient
+                                w.r.t. parameters we need.
+        independent_param_names : framework names of the parameters to differentiate.
+
+        A parameter that appears inside a state's initial-value expression cannot be a CVODES
+        independent directly (Myokit raises NotImplementedError). When such a parameter feeds
+        *only* initial values (not the dynamics) it is handled analytically by the chain rule
+        d(obs)/d(param) = sum_s d(obs)/d(init s) * d(init_s)/d(param) -- the first factor from an
+        ``init(state)`` sensitivity independent, the second from the initial-value expression --
+        and is not ineligible. Only parameters that also enter the dynamics, or whose derivative
+        cannot be reduced to a fixed factor, remain FSA-ineligible and fall back to finite
+        differences. Returns the list of ineligible parameter names (empty when the chain rule
+        covers them all).
+        """
+        dep_specs = []
+        dep_qnames = []
+        for name in dependent_names:
+            _, qname = self._resolve_name(name)
+            dep_specs.append(qname)
+            dep_qnames.append(qname)
+
+        # A constant that appears in a state's initial-value expression cannot be a CVODES
+        # independent directly -- Myokit raises "Sensitivities with respect to parameters used
+        # in initial conditions is not implemented". But the information is still analytic: by
+        # the chain rule d(obs)/d(param) = sum_s d(obs)/d(init s) * d(init_s)/d(param), where the
+        # first factor is an ordinary FSA independent `init(state)` (which Myokit *does* support,
+        # even when the initial value is an expression) and the second is the derivative of the
+        # initial-value expression w.r.t. the constant. `_init_chain_rule_targets` finds those
+        # states and derivatives; such params are then handled by that product instead of falling
+        # back to two extra full simulations per gradient evaluation (issue #270).
+        calib_qnames = {self._resolve_name(n)[1] for n in independent_param_names}
+
+        cand_specs = []
+        cand_names = []
+        indep_state_qnames = set()
+        chain_rule_map = {}          # param name -> [(state_qname, d(init_state)/d(param)), ...]
+        chain_state_qnames = []      # extra init(state) independents needed by the chain rule
+        for name in independent_param_names:
+            kind, qname = self._resolve_name(name)
+            if kind == 'state':
+                # A directly-overridden state uses its own initial value as the independent.
+                cand_specs.append(f'init({qname})')
+                cand_names.append(name)
+                indep_state_qnames.add(qname)
+                continue
+            # A constant: use it directly unless it feeds a state initial value, in which case
+            # route it through the chain rule.
+            targets = self._init_chain_rule_targets(qname, calib_qnames)
+            if targets is None:
+                cand_specs.append(qname)
+                cand_names.append(name)
+            else:
+                chain_rule_map[name] = targets
+                for state_qname, _ in targets:
+                    if state_qname not in chain_state_qnames:
+                        chain_state_qnames.append(state_qname)
+        # States that are calibration (FSA-independent) params: Myokit seeds their sensitivity
+        # (identity at t=0), so a set_param_vals state override of these must NOT be treated as a
+        # protocol re-seed (see set_param_vals). params_to_change state overrides are everything
+        # else and DO get their sensitivity column zeroed.
+        self._fsa_independent_state_qnames = indep_state_qnames
+
+        eligible_specs, eligible_names, ineligible_names = self._classify_fsa_independents(
+            dep_specs, cand_specs, cand_names)
+
+        # The init(state) columns the chain rule needs, deduplicated against any state that is
+        # already a direct independent (a directly-calibrated state reuses its own column).
+        eligible_state_qnames = {
+            s[len('init('):-1] for s in eligible_specs if s.startswith('init(')}
+        indep_specs = list(eligible_specs)
+        indep_keys = list(eligible_names)  # retrieval key parallel to indep_specs
+        for state_qname in chain_state_qnames:
+            if state_qname in eligible_state_qnames:
+                continue
+            indep_specs.append(f'init({state_qname})')
+            indep_keys.append(('init_state', state_qname))
+            eligible_state_qnames.add(state_qname)
+
+        self._fsa_dependent_specs = dep_specs
+        self._fsa_dependent_qnames = dep_qnames
+        self._fsa_independent_specs = indep_specs
+        self._fsa_independent_keys = indep_keys
+        self._fsa_eligible_param_names = eligible_names
+        self._fsa_ineligible_param_names = ineligible_names
+        self._fsa_chain_rule_map = chain_rule_map
+        self._fsa_enabled = True
+
+        # Rebuild the simulation with sensitivities and refresh derived maps/defaults.
+        self._recreate_simulation()
+        self._build_variable_maps()
+        self._init_defaults()
+        # The multi-sub sensitivity carry in update_times() reads and writes Myokit's private
+        # CVODES sensitivity matrix, `Simulation._s_state` (a list indexed
+        # [independent][state]); Myokit exposes no public setter for it. Fail loudly here if it
+        # is missing rather than at the call sites, which all use getattr(..., None) and would
+        # otherwise silently skip the carry -- dropping the cross-sub chain-rule term and
+        # biasing every gradient low with no warning at all. A Myokit upgrade that renames or
+        # removes this attribute must break the build, not the numbers.
+        if not hasattr(self.simulation, '_s_state'):
+            raise RuntimeError(
+                "This Myokit build does not expose Simulation._s_state, the private CVODES "
+                "sensitivity matrix that the multi-sub-experiment FSA gradient carries across "
+                f"sub-experiment boundaries (myokit {getattr(myokit, '__version__', 'unknown')}). "
+                "Verified present in 1.39.1 with layout [independent][state]. Without it the "
+                "gradient would be silently wrong rather than absent, so FSA refuses to run. "
+                "Either pin a Myokit that provides it, or use model_type 'casadi_python' "
+                "(solver_info method 'bdf') for a gradient that does not depend on it.")
+        return ineligible_names
+
+    def _classify_fsa_independents(self, dep_specs, cand_specs, cand_names):
+        """Split candidate independents into FSA-eligible/ineligible using Myokit itself.
+
+        Tries to build one sensitivity Simulation with all candidates (a single compile
+        when nothing is ineligible); only if that fails does it probe each parameter
+        individually to find the offenders. This defers to Myokit's own rule for what may
+        be a forward-sensitivity independent, rather than re-deriving it structurally.
+        """
+        if not cand_specs:
+            return [], [], []
+        try:
+            myokit.Simulation(self.model, sensitivities=(dep_specs, list(cand_specs)))
+            return list(cand_specs), list(cand_names), []
+        except Exception:
+            pass
+
+        probe_dep = dep_specs[:1] if dep_specs else dep_specs
+        eligible_specs, eligible_names, ineligible_names = [], [], []
+        for spec, name in zip(cand_specs, cand_names):
+            try:
+                myokit.Simulation(self.model, sensitivities=(probe_dep, [spec]))
+                eligible_specs.append(spec)
+                eligible_names.append(name)
+            except Exception:
+                ineligible_names.append(name)
+        return eligible_specs, eligible_names, ineligible_names
+
+    def _init_chain_rule_targets(self, const_qname, calib_qnames):
+        """Chain-rule targets for a constant that feeds state initial-value expressions.
+
+        Returns ``[(state_qname, d(init_state)/d(const)), ...]`` if the constant ``const_qname``
+        can be differentiated through state initial values instead of being a direct CVODES
+        independent, or ``None`` if it should be handled the usual way (direct independent, or
+        FD fallback if Myokit then refuses it).
+
+        Chain-rule handling is used only when it is *exact*:
+          * the constant appears in at least one state's initial-value expression, and
+          * it does not appear in any dynamic equation (``refs_by()`` is empty) -- otherwise the
+            gradient has a component through the dynamics that ``init(state)`` sensitivities do
+            not capture, so we must keep the full-cost FD, and
+          * every ``d(init_state)/d(const)`` is a compile-time constant, i.e. its expression does
+            not reference another calibration parameter (if it did, the factor would vary with
+            those params and a value captured now would go stale between gradient evaluations).
+        Any expression Myokit cannot differentiate/evaluate here drops the constant back to the
+        normal path rather than risk a wrong number.
+        """
+        try:
+            const_var = self.model.get(const_qname)
+        except Exception:
+            return None
+        # Used in the dynamics as well as an initial value -> chain rule would be incomplete.
+        if list(const_var.refs_by()):
+            return None
+        const_name = myokit.Name(const_var)
+        targets = []
+        for state in self.model.states():
+            init_expr = state.initial_value()
+            if init_expr is None:
+                continue
+            if not any(ref.var().qname() == const_qname for ref in init_expr.references()):
+                continue
+            try:
+                deriv = init_expr.diff(const_name)
+                # A derivative that depends on another calibration param is not a fixed factor.
+                if any(ref.var().qname() in calib_qnames for ref in deriv.references()):
+                    return None
+                targets.append((state.qname(), float(deriv.eval())))
+            except Exception:
+                return None
+        return targets or None
+
+    def get_fsa_ineligible_params(self):
+        """Framework names of AD params that fall back to finite differences (or None)."""
+        return self._fsa_ineligible_param_names
+
+    def get_sensitivities(self, dependent_names, param_names, sensitivities=None):
+        """d(dependent_trace)/d(param) from a FSA run.
+
+        Returns ``{dependent_name: {param_name: np.ndarray}}`` with each array aligned to
+        the logged output grid (same length as get_results traces). Only FSA-eligible
+        params are present in the inner dicts; ineligible params are omitted (the caller
+        handles them by finite differences).
+
+        ``sensitivities`` defaults to the last run's array; pass an explicit array (e.g. one
+        retained per sub-experiment in ``_fsa_sensitivities_history``) to map that one instead.
+        """
+        if sensitivities is None:
+            sensitivities = self._last_sensitivities
+        if sensitivities is None:
+            raise RuntimeError(
+                "No sensitivities available: FSA is not enabled or run() has not been called.")
+        sens = np.asarray(sensitivities, dtype=float)  # [n_time, n_dep, n_indep]
+        dep_index = {q: i for i, q in enumerate(self._fsa_dependent_qnames)}
+        indep_index = {n: i for i, n in enumerate(self._fsa_eligible_param_names)}
+        out = {}
+        for dname in dependent_names:
+            _, dqname = self._resolve_name(dname)
+            di = dep_index[dqname]
+            out[dname] = {}
+            for pname in param_names:
+                if pname in indep_index:
+                    out[dname][pname] = sens[:, di, indep_index[pname]].copy()
+        return out
+
+    def get_init_state_sensitivities(self, dependent_names, state_qnames, sensitivities=None):
+        """d(dependent_trace)/d(init state) from a FSA run, for the chain-rule fallback.
+
+        Returns ``{dependent_name: {state_qname: np.ndarray}}`` for each requested state whose
+        ``init(state_qname)`` was set up as a sensitivity independent (either a directly
+        calibrated state or one added because a constant feeds its initial value -- see
+        ``enable_fsa`` / ``_init_chain_rule_targets``). Column positions are read from
+        ``_fsa_independent_specs`` so both key forms (param name and ``('init_state', qname)``)
+        resolve identically. States without an ``init(...)`` column are omitted.
+        """
+        if sensitivities is None:
+            sensitivities = self._last_sensitivities
+        if sensitivities is None:
+            raise RuntimeError(
+                "No sensitivities available: FSA is not enabled or run() has not been called.")
+        sens = np.asarray(sensitivities, dtype=float)  # [n_time, n_dep, n_indep]
+        dep_index = {q: i for i, q in enumerate(self._fsa_dependent_qnames)}
+        # Map each state qname to its column via the init(<qname>) independent specs.
+        state_col = {}
+        for i, spec in enumerate(self._fsa_independent_specs):
+            if spec.startswith('init(') and spec.endswith(')'):
+                state_col[spec[len('init('):-1]] = i
+        out = {}
+        for dname in dependent_names:
+            _, dqname = self._resolve_name(dname)
+            di = dep_index[dqname]
+            out[dname] = {}
+            for sq in state_qnames:
+                if sq in state_col:
+                    out[dname][sq] = sens[:, di, state_col[sq]].copy()
+        return out
+

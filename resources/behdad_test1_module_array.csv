@@ -1,0 +1,5 @@
+name,module_subtype,module_type,inp_instances,out_instances
+inlet,                     nn_constant, inlet_flow,             ,                  par
+par,                       vp,arterial_simple,                 inlet,             pvn
+pvn,                      vp,venous,                          par,               outlet
+outlet,                    nn_constant,outlet_pressure,        pvn,              

@@ -5,7 +5,7 @@ from datetime import date
 
 import yaml
 
-from parsers.PrimitiveParsers import save_dated_user_inputs
+from libcuflynx.parsers.PrimitiveParsers import save_dated_user_inputs
 
 
 def _dated_name():

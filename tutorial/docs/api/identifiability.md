@@ -4,7 +4,7 @@
 around a best fit, via the Laplace approximation (profile likelihood is
 planned). It wraps an existing `CVS0DParamID` object.
 
-::: identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis
+::: libcuflynx.identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis
     options:
       members:
         - init_from_dict

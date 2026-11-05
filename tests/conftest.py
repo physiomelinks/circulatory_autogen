@@ -7,6 +7,52 @@ It provides fixtures for test data, configuration, and deterministic randomness.
 import os
 import re
 import sys
+
+
+def _validate_aadc_license():
+    """Record a throwaway AADC tape to force the licence check, and report whether
+    it succeeded.
+
+    This MUST run before ``mpi4py.MPI`` is imported. AADC validates its licence over
+    the network via LicenseSpring/libcurl, and once MPI is loaded into the process the
+    curl TLS backend can no longer be initialised ("Could not initialize curl TLS
+    backend"), so every subsequent ``start_recording()`` raises ``RuntimeError: AADC
+    License check failed`` — even with a perfectly valid licence. Validating here caches
+    the licence while curl still works, and it stays usable for the rest of the session.
+    """
+    try:
+        import aadc
+        import numpy
+
+        funcs = aadc.Functions()
+        funcs.start_recording()
+        x = aadc.idouble(2.0)
+        x_arg = x.mark_as_input()
+        y = x * x
+        y_res = y.mark_as_output()
+        funcs.stop_recording()
+        aadc.evaluate(funcs, {y_res: [x_arg]}, {x_arg: numpy.array([3.0])},
+                      aadc.ThreadPool(1))
+        return True
+    except ImportError:
+        # aadc simply isn't installed -- the ordinary case on CI and for most contributors.
+        return False
+    except RuntimeError as exc:
+        # Only an actual licence failure means "skip". Anything else raised by
+        # start_recording/mark_as_input/evaluate is a genuine regression in the AADC tape
+        # path, and swallowing it here would report the entire AADC suite as "skipped, no
+        # Matlogica licence" with the run still green -- hiding exactly the breakage these
+        # tests exist to catch.
+        if 'License' in str(exc) or 'licence' in str(exc).lower():
+            return False
+        raise
+
+
+# Whether AADC is installed *and* licensed. AADC's forward solves run unlicensed, but
+# anything that records a tape (the gradients) does not, so licence-gated tests skip
+# rather than fail. See the `aadc_licensed` fixture.
+AADC_LICENSE_AVAILABLE = _validate_aadc_license()
+
 import yaml
 import shutil
 import pytest
@@ -16,31 +62,73 @@ import fcntl
 import io
 import contextlib
 import time
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    MPI = None  # set below, once src/ is on sys.path
 
-# Ensure src is on sys.path before importing project modules
+# Put this worktree's src/ first on sys.path so the suite exercises the libcuflynx in
+# this tree rather than a copy pip happens to have installed elsewhere. This is the
+# only sys.path surgery the package itself needs.
 _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
 _SRC_DIR = os.path.join(_TEST_ROOT, 'src')
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
+# Also put the repo root on sys.path so top-level packages (e.g. `benchmarks`, which
+# test_param_id imports for the shared FitzHugh-Nagumo benchmark) are importable regardless of
+# how pytest was invoked. Without this, `pytest tests/` in CI fails to even collect
+# test_param_id with `ModuleNotFoundError: No module named 'benchmarks'`.
+_ROOT_DIR = os.path.abspath(_TEST_ROOT)
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+
+def _launcher_reports_one_rank(env):
+    """Whether the MPI launcher that started this process says the job has one rank."""
+    sizes = [env[var] for var in ('PMI_SIZE', 'OMPI_COMM_WORLD_SIZE') if var in env]
+    return bool(sizes) and all(size == '1' for size in sizes)
+
+
+def _mpi_without_mpi4py(env=None):
+    """``libcuflynx.utilities.mpi_utils``'s serial ``MPI`` for a run without mpi4py.
+
+    mpi4py is the optional ``[mpi]`` extra, and a single-rank run (plain ``pytest`` or
+    ``mpiexec -n 1``) needs none of it. A multi-rank launch, or one whose size is unknown,
+    raises ``mpi_utils.MPI4PY_MISSING_MESSAGE``: every rank would otherwise run the whole
+    suite as rank 0 of 1 and clear the others' shared result files.
+    """
+    from libcuflynx.utilities import mpi_utils
+
+    env = os.environ if env is None else env
+    if _launcher_reports_one_rank(env):
+        env = {}
+    return mpi_utils.get_MPI(env)
+
+
+if MPI is None:
+    MPI = _mpi_without_mpi4py()
+
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
 _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_one_rank_results")
+# Must match the autogen_status_file fixture: the completion counter that
+# wait_for_autogen_if_needed blocks on.
+_AUTOGEN_STATUS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_autogen_status")
 _MISC_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_misc_results")
 _SOLVER_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_solver_results")
 _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
-#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
+#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
-_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis")
+_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
+                      "test_UQ")
 
 
 def _is_autogen_like_nodeid(nodeid: str) -> bool:
@@ -149,6 +237,18 @@ def _get_assigned_one_rank_rank(request):
     return 0
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        '--run-manual', action='store_true', default=False,
+        help='also run the tests marked "manual" -- ones too slow for CI or for a normal local '
+             'run, kept because they check something a faster test only approximates (e.g. the '
+             'full-model UQ posterior recovery, ~80 min, whose emulated equivalents run in ~5).')
+    parser.addoption(
+        '--ci-shard', default=None, metavar='SUITE:GROUP[,GROUP...]',
+        help='keep only the tests of these groups of tests/ci_shards.json; SUITE:rest is every '
+             'collected test no group of SUITE names. Used by CI to split long jobs.')
+
+
 def pytest_configure(config):
     """
     Configure pytest to work with OpenCOR Python environment.
@@ -166,12 +266,6 @@ def pytest_configure(config):
             config.pluginmanager.unregister(tr)
         # Prevent later re-registration and suppress header/footer hooks
         config.pluginmanager.set_blocked("terminalreporter")
-
-    # Add src directory to path if not already there
-    root_dir = os.path.join(os.path.dirname(__file__), '..')
-    src_dir = os.path.join(root_dir, 'src')
-    if src_dir not in sys.path:
-        sys.path.insert(0, src_dir)
 
     # Keep runtime marker registration aligned with pyproject strict markers.
     config.addinivalue_line("markers", "need_opencor: tests requiring OpenCOR backend")
@@ -256,7 +350,26 @@ def pytest_runtest_logreport(report):
     Some runners/plugins keep capture enabled; this surfaces the comparison output.
     """
     if report.when != "call":
-        return
+        # A test that is skipped or errors during setup -- by a fixture (e.g. aadc_licensed),
+        # a skipif marker, or a broken fixture -- never reaches the "call" phase, so it would
+        # never be written to the results file. It is still counted in the expected totals set
+        # by pytest_collection_modifyitems, so pytest_terminal_summary would then block on
+        # _wait_for_expected_result_count for its full 1800 s timeout waiting for a line that
+        # can never arrive. Record it here instead.
+        if not (report.when == "setup" and (report.skipped or report.failed)):
+            return
+
+        # The same applies to the autogen completion counter. track_autogen_completion is a
+        # yield fixture, so a test skipped during setup never runs its teardown and never
+        # appends its "done" line -- but it is still counted in ONE_RANK_TOTAL. That leaves
+        # wait_for_autogen_if_needed short by one line, and its loop is unbounded, so the run
+        # hangs forever. Write the line here for tests whose teardown won't.
+        if "autogen_task" in getattr(report, "keywords", {}):
+            try:
+                with open(_AUTOGEN_STATUS_FILE, "a") as f:
+                    f.write("done\n")
+            except OSError:
+                pass
 
     # Collect autogen outcomes for cross-rank aggregation
     if "one_rank_task" in getattr(report, "keywords", {}):
@@ -478,6 +591,43 @@ def resources_dir(project_root):
     return os.path.join(project_root, 'resources')
 
 
+@pytest.fixture(scope="session")
+def aadc_licensed():
+    """Skip a test unless AADC is installed *and* licensed.
+
+    AADC's forward solves run with a bare ``pip install aadc``, but anything that
+    records a tape — the gradients, and the on-tape damping in ``method='semi_implicit'``
+    — needs a Matlogica licence and otherwise raises ``RuntimeError: AADC License check
+    failed``. Those tests skip rather than fail so an unlicensed environment (including
+    CI) stays green.
+    """
+    pytest.importorskip("aadc")
+    if not AADC_LICENSE_AVAILABLE:
+        pytest.skip(
+            "AADC is installed but not licensed: recording a tape raises 'AADC License "
+            "check failed'. A Matlogica licence is needed to exercise the AADC gradient "
+            "and tape-recording solve paths."
+        )
+
+
+@pytest.fixture
+def skip_generated_model_checks(monkeypatch):
+    """Generate CellML without the checks that run after the files are written.
+
+    ``CVSCellMLGenerator.generate_files`` writes the model, then flattens and analyses it
+    with libCellML (writing ``<prefix>_flat.cellml``) and compiles and runs it with Myokit.
+    None of that changes the written files, and it is about three quarters of a
+    generation: generic_junction_test_closed_loop takes 22 s locally and 88 s on CI, of
+    which the analysis is 10 s and the Myokit build and run 6 s. For a test that
+    compares the files two generations write, use this; generation then succeeds
+    whenever the files are written.
+    """
+    import libcuflynx.generators.CVSCellMLGenerator as generator
+    monkeypatch.setattr(generator, 'LIBCELLML_available', False)
+    monkeypatch.setattr(generator.CVS0DCellMLGenerator, '_validate_with_myokit',
+                        lambda self, cellml_path: (True, None))
+
+
 @pytest.fixture(scope="function")
 def base_user_inputs(user_inputs_dir):
     """
@@ -515,9 +665,9 @@ def temp_generated_models_dir(request, temp_output_dir):
 # Default parameters CSV per model prefix, used by generated_cellml_model_factory
 # when the caller doesn't pass input_param_file explicitly.
 _MODEL_INPUT_FILES = {
-    "3compartment": "3compartment_parameters.csv",
-    "SN_simple": "SN_simple_parameters.csv",
-    "test_init_states": "test_init_states_parameters.csv",
+    "3compartment": "3compartment_parameters.json",
+    "SN_simple": "SN_simple_parameters.json",
+    "test_init_states": "test_init_states_parameters.json",
 }
 
 
@@ -530,7 +680,7 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
     autogeneration.
     """
 
-    def _generate(file_prefix, input_param_file=None, solver="CVODE"):
+    def _generate(file_prefix, input_param_file=None, solver="CVODE_myokit"):
         source_dir = os.path.join(_TEST_ROOT, "generated_models", file_prefix)
         target_dir = os.path.join(temp_generated_models_dir, file_prefix)
         source_cellml = os.path.join(source_dir, f"{file_prefix}.cellml")
@@ -546,16 +696,16 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
             "DEBUG": True,
             "file_prefix": file_prefix,
             "input_param_file": input_param_file,
-            "model_type": "cellml_only",
+            "model_type": "cellml",
             "solver": solver,
             "pre_time": 0.0,
             "sim_time": 0.1,
             "dt": 0.01,
             "plot_predictions": False,
-            "do_mcmc": False,
+            "do_uq": False,
             "resources_dir": resources_dir,
             "generated_models_dir": temp_generated_models_dir,
-            "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
+            "solver_info": {"MaximumStep": 0.001},
         })
         ok = generate_with_new_architecture(False, config)
         assert ok, f"Autogeneration failed for {file_prefix}"
@@ -586,31 +736,114 @@ def test_model_configs():
     """
     return [
         # CellML models
-        ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
-        ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
-        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
-        ('test_fft', 'test_fft_parameters.csv', 'cellml_only', 'CVODE'),
-        ('neonatal', 'neonatal_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'cellml_only', 'CVODE'),
-        ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
+        ('ports_test', 'ports_test_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('3compartment', '3compartment_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('simple_physiological', 'simple_physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('parasympathetic_model', 'parasympathetic_model_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('test_fft', 'test_fft_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('neonatal', 'neonatal_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('SN_simple', 'SN_simple_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('physiological', 'physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('control_phys', 'control_phys_parameters.json', 'cellml', 'CVODE_myokit'),
         # CPP models
-        ('aortic_bif_1d', 'aortic_bif_1d_parameters.csv', 'cpp', 'RK4'),
+        ('aortic_bif_1d', 'aortic_bif_1d_parameters.json', 'cpp', 'RK4'),
     ]
 
 
-def pytest_collection_modifyitems(items):
+def drop_manual_tests(config, items):
+    """Deselect the ``manual`` tests unless ``--run-manual`` was passed.
+
+    Deselected rather than skipped so they leave the rank-assignment bookkeeping untouched --
+    and because a permanently-skipped test in every run's summary is noise that stops being read.
+
+    A module-level function rather than inline in the hook so it can be tested directly. Testing
+    it by launching a nested pytest is not an option: ``pytest_configure`` deletes the shared
+    ``.pytest_*_results`` files at session start, so an inner session wipes the outer run's
+    accumulated results and the outer run then blocks in ``_wait_for_expected_result_count``
+    for its full 1800 s timeout.
+    """
+    if config.getoption('--run-manual'):
+        return
+    manual = [item for item in items if 'manual' in item.keywords]
+    if manual:
+        items[:] = [item for item in items if item not in manual]
+        config.hook.pytest_deselected(items=manual)
+
+
+CI_SHARDS_FILE = os.path.join(os.path.dirname(__file__), 'ci_shards.json')
+
+
+def load_ci_shards(path=CI_SHARDS_FILE):
+    """The suites of ``tests/ci_shards.json``: {suite: {group: [entry, ...]}}."""
+    import json
+    with open(path) as f:
+        return {suite: groups for suite, groups in json.load(f).items()
+                if not suite.startswith('_')}
+
+
+def ci_shard_entry_matches(entry, nodeid):
+    """``tests/x.py`` matches every test in the file; ``tests/x.py::name`` matches the test
+    function ``name`` and each of its parametrizations, and nothing that only starts with it."""
+    if '::' not in entry:
+        return nodeid.split('::', 1)[0] == entry
+    return nodeid == entry or nodeid.startswith(entry + '[')
+
+
+def select_ci_shard(config, items, shards=None):
+    """Deselect every test outside ``--ci-shard SUITE:GROUP[,GROUP...]``.
+
+    Runs before anything counts the collected one-rank tests, so the expected-result totals
+    the session waits for at the end are those of the shard. Deselected rather than skipped,
+    like ``drop_manual_tests``, and a module-level function for the same reason: it can be
+    tested directly, without a nested pytest session.
+    """
+    spec = config.getoption('--ci-shard')
+    if not spec:
+        return
+    suite, _, wanted = spec.partition(':')
+    if shards is None:
+        shards = load_ci_shards()
+    if suite not in shards or not wanted:
+        raise pytest.UsageError(
+            f"--ci-shard {spec!r}: expected SUITE:GROUP[,GROUP...] with SUITE one of "
+            f"{sorted(shards)}")
+    groups = shards[suite]
+    wanted = wanted.split(',')
+    unknown = [g for g in wanted if g != 'rest' and g not in groups]
+    if unknown:
+        raise pytest.UsageError(
+            f"--ci-shard {spec!r}: no group {unknown} in suite {suite!r}; "
+            f"groups are {sorted(groups)} and 'rest'")
+
+    def group_of(nodeid):
+        for name, entries in groups.items():
+            if any(ci_shard_entry_matches(e, nodeid) for e in entries):
+                return name
+        return 'rest'
+
+    kept, deselected = [], []
+    for item in items:
+        (kept if group_of(item.nodeid) in wanted else deselected).append(item)
+    if deselected:
+        items[:] = kept
+        config.hook.pytest_deselected(items=deselected)
+
+
+def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
     """
     import os
+
+    drop_manual_tests(config, items)
+    select_ci_shard(config, items)
+
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
     solver_items = [item for item in items if "test_solvers" in item.nodeid]
@@ -763,8 +996,14 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
         # No autogen tests collected; nothing to wait for
         return
 
+    # Bounded: this loop used to be `while True`, so a single missing completion line hung the
+    # whole run forever (on CI that means the 6 hour job timeout, with no diagnostic). Time out
+    # loudly instead -- the tests that follow will fail on their own if the models really are
+    # missing, which is far easier to debug than a silent hang.
+    deadline = time.time() + 600.0
+    count = 0
     waited = 0.0
-    while True:
+    while time.time() < deadline:
         if os.path.exists(autogen_status_file):
             try:
                 with open(autogen_status_file, "r") as f:
@@ -781,6 +1020,21 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
             continue
         if abs(waited - round(waited, 1)) < 1e-6 and int(waited) % 10 == 0 and waited > 0:
             print(f"Waiting for autogeneration to finish... ({waited:.1f}s)")
+
+    print(
+        f"ERROR: timed out after {waited:.0f}s waiting for autogeneration to finish "
+        f"({count} of {total} completion lines in {autogen_status_file}). "
+        f"A one-rank test was counted but never recorded its completion."
+    )
+    # Fail rather than continue. The tests that follow consume temp_generated_models_dir,
+    # which is *persistent* (not tmp_path), so on a warm checkout they would happily run
+    # against models generated by an earlier commit and report passed -- turning a missed
+    # autogeneration into a green run. Absent models would have failed loudly; stale ones
+    # do not, so the timeout itself has to be the failure.
+    raise RuntimeError(
+        f"Timed out after {waited:.0f}s waiting for autogeneration "
+        f"({count} of {total} completion lines in {autogen_status_file}). Refusing to "
+        f"continue: downstream tests would silently run against stale generated models.")
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -958,12 +1212,19 @@ def _set_expected_summary_totals(autogen_count: int, misc_count: int, solver_cou
     os.environ["SOLVER_SUMMARY_TOTAL"] = str(solver_count)
 
 
-def _should_wait_for_result_files(exitstatus, terminalreporter) -> bool:
+def _should_wait_for_result_files(exitstatus, terminalreporter, config) -> bool:
     """
     Only wait for one-rank result files when pytest completed normal test
     execution. Collection/import/internal errors never produce those files and
     would otherwise stall the summary for the full timeout.
+
+    ``--collect-only`` is the same trap wearing a clean exit status: collection
+    still counts the one-rank tests into the *_SUMMARY_TOTAL environment
+    variables, but no test runs, so nothing ever appends to the result files and
+    the summary blocks for 1800 s per file -- 90 minutes to list the suite.
     """
+    if config.getoption("collectonly", False):
+        return False
     if terminalreporter.stats.get("error"):
         return False
     return exitstatus in (0, 1)
@@ -1047,7 +1308,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if rank != 0:
         return
 
-    if _should_wait_for_result_files(exitstatus, terminalreporter):
+    if _should_wait_for_result_files(exitstatus, terminalreporter, config):
         _wait_for_expected_result_count(
             _AUTOGEN_RESULTS_FILE,
             int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
@@ -1258,18 +1519,17 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
     """
     config = base_user_inputs.copy()
     config.update({
-        'model_type': 'cellml_only',
-        'solver': 'CVODE',
+        'model_type': 'cellml',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_output_dir': temp_output_dir,
     })

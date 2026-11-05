@@ -36,6 +36,10 @@ Circulatory Autogen provides the following two main functionalities.
 
     This allows calibrating model parameters to data. See section [Parameter Identification](parameter-identification.md) for more information.
 
+You do not have to bring a CellML model. If you already have a solver of your own — a
+finite-element code, a compiled library, a hand-written scheme — Circulatory Autogen can drive
+it through the same pipelines. See [External Python Solvers](external-python-solvers.md).
+
 ## Start here
 
 If you are new to the project, follow these in order:
@@ -43,7 +47,8 @@ If you are new to the project, follow these in order:
 1. [Getting Started](getting-started.md): install prerequisites and Python dependencies from `pyproject.toml` (virtual environment recommended).
 2. [Designing a model](design-model.md): define your modules and configuration files.
 3. [Model Generation and Simulation](model-generation-simulation.md): generate a model and run it in OpenCOR or Python.
-4. [Parameter Identification](parameter-identification.md): calibrate parameters to data.
-5. [Sensitivity Analysis](sensitivity-analysis.md) and [Identifiability Analysis](identifiability-analysis.md): evaluate parameter influence and uncertainty.
+4. [External Python Solvers](external-python-solvers.md): *or* plug in a solver of your own that does its own time-stepping.
+5. [Parameter Identification](parameter-identification.md): calibrate parameters to data.
+6. [Sensitivity Analysis](sensitivity-analysis.md) and [Identifiability Analysis](identifiability-analysis.md): evaluate parameter influence and uncertainty.
 
 If you are running on HPC, also read [Running on HPC](running-on-hpc.md).

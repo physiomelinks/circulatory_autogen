@@ -1,0 +1,1332 @@
+"""
+Post-calibration plotting for CVS0D parameter identification.
+
+Each figure type produced by ``plot_outputs`` lives in its own method on
+:class:`ParamIDPlotOutputs`.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from sys import exit
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+import matplotlib.pyplot as plt
+import numpy as np
+from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labels,
+                                                    obs_trace_labels, obs_item_references,
+                                                    data_reference_line)
+
+
+def distribution_reference_lines(prob_dist_params):
+    """Horizontal reference values summarising a distribution ground truth, as (value, label).
+
+    A data_item scored against a distribution (kernel_density_estimation, multimodal_gaussian,
+    poisson_MLE) has no single ``value`` to draw a ground-truth line at, so draw what the
+    distribution says instead: its modes if it names them, otherwise the spread of the samples
+    it was built from. Quantiles rather than a mean, because the whole point of these costs is
+    that the target need not be unimodal -- the mean of a bimodal sample sits where no
+    measurement ever landed.
+    """
+    if not isinstance(prob_dist_params, dict):
+        return []
+    if "means" in prob_dist_params:
+        return [(float(m), f"gt mean {i}")
+                for i, m in enumerate(prob_dist_params["means"])]
+    if "data_points" in prob_dist_params:
+        points = np.asarray(prob_dist_params["data_points"], dtype=float)
+        if points.size == 0:
+            return []
+        lo, mid, hi = np.percentile(points, [5, 50, 95])
+        return [(float(lo), "gt 5th pct"), (float(mid), "gt median"),
+                (float(hi), "gt 95th pct")]
+    if "k" in prob_dist_params:
+        return [(float(prob_dist_params["k"]), "gt count")]
+    return []
+
+
+def constant_line_times(t_sub, obs_info, II):
+    """Times a constant's horizontal line should span, as (t_start, t_end).
+
+    An ``*_in_range`` feature is computed over ``[start_frac, end_frac]`` of the
+    subexperiment window, so a line drawn across the whole window claims the
+    value describes data the operation never looked at. Fractions are of the
+    subexperiment span, matching how the operation funcs resolve them.
+    """
+    t_sub = np.asarray(t_sub, dtype=float)
+    if t_sub.size == 0:
+        return t_sub
+    kwargs_list = obs_info.get("operation_kwargs", [])
+    kwargs = kwargs_list[II] if II < len(kwargs_list) else {}
+    if not isinstance(kwargs, dict):
+        return t_sub
+    start_frac = kwargs.get("start_frac")
+    end_frac = kwargs.get("end_frac")
+    if start_frac is None and end_frac is None:
+        return t_sub
+    t_0 = float(t_sub[0])
+    span = float(t_sub[-1]) - t_0
+    try:
+        lo = t_0 + float(0.0 if start_frac is None else start_frac) * span
+        hi = t_0 + float(1.0 if end_frac is None else end_frac) * span
+    except (TypeError, ValueError):
+        return t_sub
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+        return t_sub
+    return np.array([lo, hi], dtype=float)
+
+
+class ParamIDPlotOutputs:
+    """
+    Build and save post-calibration figures for parameter identification.
+
+    ``plot_outputs`` runs, in order: best-fit reconstruction pages
+    (:meth:`plot_reconstruction_pages`), vector saves (:meth:`save_error_vectors`),
+    percent / std error bar pages (:meth:`plot_percent_error_bar_pages`,
+    :meth:`plot_std_error_bar_pages`),     protocol-parameter time courses
+    (:meth:`plot_protocol_params_to_change`: one figure per ``params_to_change`` key,
+    subplots wrapped **3 per row**), and console error summary
+    (:meth:`print_observable_errors`). Orphan reconstruction figures are closed
+    with :meth:`finalize_reconstruction_if_unsaved`.
+
+    Parameters
+    ----------
+    client :
+        :class:`CVS0DParamID` instance holding ``obs_info``, ``protocol_info``,
+        ``param_id``, ``gt_df``, paths, ``dt``, and ``rank``.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self.client = client
+
+    def plot_outputs(self) -> None:
+        print("plotting best observables")
+        if getattr(self.client.param_id, "emulates_features", False):
+            self.save_emulator_outputs()
+            return
+        phase = self._uses_phase()
+        list_of_obs_dicts, list_of_all_series = self._fetch_best_fit_data()
+        tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count = (
+            self._compute_subexperiment_time_axes()
+        )
+        percent_error_vec, std_error_vec, phase_error_vec = (
+            self.plot_reconstruction_pages(
+                phase,
+                list_of_obs_dicts,
+                list_of_all_series,
+                tSim_per_sub_count,
+                sim_time_tot_per_exp,
+                n_steps_per_sub_count,
+            )
+        )
+        self.save_error_vectors(percent_error_vec, std_error_vec)
+        obs_names_for_plot = self._observable_names_for_error_plots()
+        self.plot_percent_error_bar_pages(obs_names_for_plot, percent_error_vec)
+        self.plot_std_error_bar_pages(obs_names_for_plot, std_error_vec)
+        self.plot_protocol_params_to_change()
+        self.print_observable_errors(
+            phase, percent_error_vec, phase_error_vec
+        )
+
+    def save_emulator_outputs(self) -> None:
+        """Error vectors and error-bar pages for a run that used an emulator.
+
+        An emulator predicts the scalar features and not the traces, so the
+        reconstruction pages cannot be drawn -- but the *errors* are a comparison
+        of feature against ground truth, and those are exactly what it has. Losing
+        them along with the traces would leave a finished calibration with nothing
+        to show for itself, which is what happened before this existed (#333).
+
+        Writes the same ``percent_error_vec`` / ``error_vec_names`` files an
+        ordinary run writes, so every consumer of them -- CA's own plots, and the
+        tools that read the outputs directory -- is unchanged.
+        """
+        percent_error_vec, std_error_vec = self.emulator_error_vectors()
+        self.save_error_vectors(percent_error_vec, std_error_vec)
+        obs_names_for_plot = self._observable_names_for_error_plots()
+        self.plot_percent_error_bar_pages(obs_names_for_plot, percent_error_vec)
+        self.plot_std_error_bar_pages(obs_names_for_plot, std_error_vec)
+        print(
+            "This run used an emulator, so the reconstruction plots (which need the "
+            "simulated traces) were not drawn; the observable errors above are the "
+            "emulator's own features against the ground truth."
+        )
+
+    def emulator_error_vectors(self):
+        """Percent and std error per observable, from the emulator's features.
+
+        Only ``constant`` observables exist on this path -- CA refuses an emulator
+        study whose obs_data holds anything else -- so this is the constant branch
+        of ``plot_reconstruction_pages`` with the plotting removed, and it must
+        stay identical to it: the two numbers are the same quantity, and a run
+        should not report a different error because it drew fewer pictures.
+        """
+        obs_info = self.client.obs_info
+        param_id = self.client.param_id
+        num_obs = obs_info["num_obs"]
+        percent_error_vec = np.zeros((num_obs,))
+        std_error_vec = np.zeros((num_obs,))
+
+        _, operands_list = param_id.get_cost_and_obs_from_params(param_id.best_param_vals)
+        if not operands_list:
+            print("WARNING: the emulator produced no observables; errors not saved")
+            return percent_error_vec, std_error_vec
+
+        # One evaluation per segment, then each observable read from its own --
+        # a data_item names the experiment and sub-experiment it belongs to, and
+        # scoring it against another segment is scoring the wrong thing.
+        num_sub_per_exp = self.client.protocol_info["num_sub_per_exp"]
+        const_by_segment = {}
+        for const_idx, obs_idx in enumerate(obs_info["const_idx_to_obs_idx"]):
+            exp = int(obs_info["experiment_idxs"][obs_idx])
+            sub = int(obs_info["subexperiment_idxs"][obs_idx])
+            flat = sum(num_sub_per_exp[:exp]) + sub
+            if flat >= len(operands_list) or operands_list[flat] is None:
+                continue
+            if flat not in const_by_segment:
+                const_by_segment[flat] = np.asarray(
+                    param_id.get_obs_output_dict(operands_list[flat])["const"], dtype=float
+                )
+            consts = const_by_segment[flat]
+            if const_idx >= len(consts):
+                continue
+            ground_truth = obs_info["ground_truth_const"][const_idx]
+            percent_error_vec[obs_idx] = (
+                100 * (consts[const_idx] - ground_truth) / (ground_truth + 1e-10)
+            )
+            std_error_vec[obs_idx] = (
+                consts[const_idx] - ground_truth
+            ) / obs_info["std_const_vec"][const_idx]
+        return percent_error_vec, std_error_vec
+
+    def _uses_phase(self) -> bool:
+        gtp = self.client.obs_info["ground_truth_phase"]
+        if len(gtp) == 0:
+            return False
+        if gtp.all() == None:
+            return False
+        return True
+
+    def _fetch_best_fit_data(self):
+        obs_info = self.client.obs_info
+        param_id = self.client.param_id
+        model_type = self.client.model_type
+        best = param_id.best_param_vals
+
+        if model_type == "casadi_python":
+            _cost = param_id.get_cost_ca(best)
+            return param_id.get_obs_ca(best, get_all_series=True)
+
+        _, best_fit_operands_list = param_id.get_cost_and_obs_from_params(best)
+        list_of_obs_dicts = []
+        list_of_all_series = []
+        for obs in best_fit_operands_list:
+            obs_dict, all_series = param_id.get_obs_output_dict(
+                obs, get_all_series=True
+            )
+            list_of_obs_dicts.append(obs_dict)
+            list_of_all_series.append(all_series)
+        return list_of_obs_dicts, list_of_all_series
+
+    def _compute_subexperiment_time_axes(self):
+        """Build per-subexperiment time grids used for reconstruction overlays."""
+        protocol_info = self.client.protocol_info
+        dt = self.client.dt
+
+        subexp_count = -1
+        tSim_per_sub_count = []
+        sim_time_tot_per_exp = []
+        n_steps_per_sub_count = []
+
+        for exp_idx in range(protocol_info["num_experiments"]):
+            subexp_count += 1
+            sim_time_tot_per_exp.append(np.sum(protocol_info["sim_times"][exp_idx]))
+            n_steps_tot = int(sim_time_tot_per_exp[exp_idx] / dt)
+            n_steps_per_sub_count = n_steps_per_sub_count + [
+                int(protocol_info["sim_times"][exp_idx][II] / dt)
+                for II in range(protocol_info["num_sub_per_exp"][exp_idx])
+            ]
+            np.linspace(0.0, np.sum(protocol_info["sim_times"][exp_idx]), n_steps_tot + 1)
+            tSim_per_sub_count.append(
+                np.linspace(
+                    0.0,
+                    protocol_info["sim_times"][exp_idx][0],
+                    n_steps_per_sub_count[subexp_count] + 1,
+                )
+            )
+            start_time_sum = protocol_info["sim_times"][exp_idx][0]
+
+            for II in range(1, protocol_info["num_sub_per_exp"][exp_idx]):
+                subexp_count += 1
+                tSim_per_sub_count.append(
+                    np.linspace(
+                        start_time_sum,
+                        start_time_sum + protocol_info["sim_times"][exp_idx][II],
+                        n_steps_per_sub_count[subexp_count] + 1,
+                    )
+                )
+                start_time_sum += protocol_info["sim_times"][exp_idx][II]
+
+        return tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count
+
+    def plot_reconstruction_pages(
+        self,
+        phase,
+        list_of_obs_dicts,
+        list_of_all_series,
+        tSim_per_sub_count,
+        sim_time_tot_per_exp,
+        n_steps_per_sub_count,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Produce ``reconstruct_*`` and optional ``phase_reconstruct_*`` figures;
+        accumulate percent / std / phase error vectors.
+
+        Each unique (observable, experiment) corresponds to one saved reconstruction file.
+        """
+        m3_to_cm3 = 1e6
+        Pa_to_kPa = 1e-3
+        no_conv = 1.0
+
+        obs_info = self.client.obs_info
+        protocol_info = self.client.protocol_info
+        plot_dir = self.client.plot_dir
+        prefix = self.client.file_name_prefix
+        obs_stub = self.client.param_id_obs_file_prefix
+
+        # One figure per (trace, experiment), not per (item, experiment). A data_item_name is
+        # unique by construction since #466, so grouping on it gave every feature its own page
+        # -- max and min of the same pressure became two figures instead of two lines on one.
+        # trace_name_for_plotting is the name of the series a feature is measured on, is
+        # allowed to repeat, and is already what the y-axis is labelled with, so it is the
+        # thing a page is about. Subexperiment is deliberately not in the key: features of one
+        # trace measured on different subexperiments belong on one page, drawn side by side
+        # along the experiment's timeline (#515).
+        item_names = obs_item_names(obs_info)
+        trace_labels = obs_trace_labels(obs_info)
+        group_keys = [
+            str(trace_labels[idx]) if idx < len(trace_labels) and trace_labels[idx]
+            else str(item_names[idx])
+            for idx in range(obs_info["num_obs"])
+        ]
+        obs_tuples_unique = []
+        for idx, group_name in enumerate(group_keys):
+            tup = (group_name, obs_info["experiment_idxs"][idx])
+            if tup not in obs_tuples_unique:
+                obs_tuples_unique.append(tup)
+
+        percent_error_vec = np.zeros((obs_info["num_obs"],))
+        phase_error_vec = np.zeros((obs_info["num_obs"],))
+        std_error_vec = np.zeros((obs_info["num_obs"],))
+
+        plot_idx = 0
+        fig, axs = plt.subplots(squeeze=False)
+        axs = axs[0, 0]
+        if phase:
+            fig_phase, axs_phase = plt.subplots(squeeze=False)
+            axs_phase = axs_phase[0, 0]
+        else:
+            fig_phase = axs_phase = None
+
+        plot_saved = False
+
+        for unique_obs_count in range(len(obs_tuples_unique)):
+            # Which subexperiments this page has already drawn the trace for. Per
+            # subexperiment rather than a single flag, so a group spanning several of them
+            # shows the whole trace instead of only the first segment (#515); still once per
+            # subexperiment, so several features measured on the same segment share one line.
+            subexps_drawn = set()
+            trace_x_window = []
+            page_references = []
+            const_idx = -1
+            series_idx = -1
+            freq_idx = -1
+
+            for II in range(obs_info["num_obs"]):
+                if obs_info["data_types"][II] == "constant":
+                    const_idx += 1
+                elif obs_info["data_types"][II] == "series":
+                    series_idx += 1
+                elif obs_info["data_types"][II] == "frequency":
+                    freq_idx += 1
+
+                if (
+                    group_keys[II],
+                    obs_info["experiment_idxs"][II],
+                ) != obs_tuples_unique[unique_obs_count]:
+                    continue
+
+                if II < len(obs_item_references(obs_info)):
+                    page_references.append(obs_item_references(obs_info)[II])
+                exp_idx = obs_info["experiment_idxs"][II]
+                this_sub_idx = obs_info["subexperiment_idxs"][II]
+                subexp_count = int(
+                    np.sum(protocol_info["num_sub_per_exp"][:exp_idx]) + this_sub_idx
+                )
+
+                series_per_sub = list_of_all_series[subexp_count]
+
+                best_fit_obs_const = list_of_obs_dicts[subexp_count]["const"]
+                best_fit_obs_series = list_of_obs_dicts[subexp_count]["series"]
+                best_fit_obs_amp = list_of_obs_dicts[subexp_count]["amp"]
+                best_fit_obs_phase = list_of_obs_dicts[subexp_count]["phase"]
+
+                if len(obs_info["ground_truth_series"]) > 0:
+                    if obs_info["obs_dt"][series_idx] == self.client.dt:
+                        min(
+                            obs_info["ground_truth_series"][series_idx].shape[0],
+                            len(best_fit_obs_series[0]),
+                        )
+
+                # The same resolved name the page was grouped by, so the y-axis label and the
+                # grouping cannot disagree -- an item whose trace name is empty would
+                # otherwise be grouped under its item name and labelled '$$'.
+                obs_name_for_plot = group_keys[II]
+                if obs_name_for_plot.count("_") > 1:
+                    print(
+                        f'obs_data variable "{obs_name_for_plot}" has too many underscores',
+                        'for plotting a label. Include a "trace_name_for_plotting" key in ',
+                        "obs_data json file entry",
+                    )
+                    exit()
+
+                unit = obs_info["units"][II]
+                if unit == "m3_per_s":
+                    conversion = m3_to_cm3
+                    unit_label = "[cm^3/s]"
+                elif unit == "m_per_s":
+                    conversion = no_conv
+                    unit_label = "[m/s]"
+                elif unit == "m3":
+                    conversion = m3_to_cm3
+                    unit_label = "[cm^3]"
+                elif unit == "J_per_m3":
+                    conversion = Pa_to_kPa
+                    unit_label = "[kPa]"
+                else:
+                    conversion = 1.0
+                    unit_label = f"[{unit}]"
+
+                if obs_info["data_types"][II] == "series":
+                    axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
+
+                # An observable built from other observables has no trace of its own to draw:
+                # its operation takes its inputs from operation_kwargs, not from a model
+                # variable, so the "series" reconstruction is the scalar it returns. It has no
+                # operand either, so its trace_name_for_plotting defaults to its own name and
+                # it lands on a page of its own -- reaching here with nothing to plot, which
+                # `has_waveform` is what handles.
+                reconstruction = series_per_sub[II] if II < len(series_per_sub) else None
+                has_waveform = reconstruction is not None and np.ndim(reconstruction) > 0
+                if has_waveform and np.size(reconstruction) == 1:
+                    # A model constant as operand: the solver does not log constants, so its
+                    # trace is the one value. It is drawn as a flat line over the subexperiment,
+                    # the way join_segments pads a scalar for the prediction plots.
+                    reconstruction = np.full(
+                        len(tSim_per_sub_count[subexp_count]),
+                        float(np.ravel(reconstruction)[0]),
+                    )
+
+                if subexp_count not in subexps_drawn and (
+                        has_waveform or obs_info["data_types"][II] == "frequency"):
+                    axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
+                    if obs_info["data_types"][II] != "frequency":
+                        # Only the subexperiments this page's features were measured on. A
+                        # settle/pre subexperiment nothing is measured on is still left out,
+                        # so the axis never stretches over a window the ground truth says
+                        # nothing about -- but a trace measured on two of them gets both.
+                        axs.plot(
+                            tSim_per_sub_count[subexp_count],
+                            conversion * reconstruction[:],
+                            color=protocol_info["experiment_colors"][exp_idx],
+                            # One legend entry for the trace, however many segments it has.
+                            # '_nolegend_' rather than None: it is the documented way to keep
+                            # an artist out of the legend, and does not depend on legend()
+                            # happening to skip a None label.
+                            label="output" if not subexps_drawn else "_nolegend_",
+                        )
+                        trace_x_window.append(
+                            (tSim_per_sub_count[subexp_count][0],
+                             tSim_per_sub_count[subexp_count][-1])
+                        )
+                        axs.set_xlim(
+                            min(lo for lo, _ in trace_x_window),
+                            max(hi for _, hi in trace_x_window),
+                        )
+                        axs.set_xlabel("Time [$s$]", fontsize=18)
+                    else:
+                        axs.plot(
+                            obs_info["freqs"][II],
+                            conversion * best_fit_obs_amp[freq_idx],
+                            color=protocol_info["experiment_colors"][exp_idx],
+                            marker="v",
+                            linestyle="",
+                            label="model output",
+                        )
+                        if phase:
+                            axs_phase.plot(
+                                obs_info["freqs"][II],
+                                best_fit_obs_phase[freq_idx],
+                                color=protocol_info["experiment_colors"][exp_idx],
+                                marker="v",
+                                linestyle="",
+                                label="model output",
+                            )
+                            axs_phase.set_ylabel(
+                                f"${obs_name_for_plot}$ phase", fontsize=18
+                            )
+                        axs.set_xlim(0.0, obs_info["freqs"][II][-1])
+                        axs.set_xlabel("frequency [$Hz$]", fontsize=18)
+                    subexps_drawn.add(subexp_count)
+
+                dt = self.client.dt
+
+                if obs_info["data_types"][II] == "constant":
+                    pt = obs_info["plot_type"][II]
+                    if pt == "horizontal":
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
+                        )
+                        ones = np.ones_like(t_const)
+                        const_plot_bf = best_fit_obs_const[const_idx] * ones
+                        gt_lines = distribution_reference_lines(
+                            obs_info["ground_truth_prob_dist_params"][II])
+                        if not gt_lines:
+                            gt_lines = [(obs_info["ground_truth_const"][const_idx], "gt")]
+                        for gt_val, gt_label in gt_lines:
+                            axs.plot(
+                                t_const,
+                                conversion * gt_val * ones,
+                                color=obs_info["plot_colors"][II],
+                                linestyle="--",
+                                label=f'{obs_info["operations"][II]} {gt_label}',
+                            )
+                        axs.plot(
+                            t_const,
+                            conversion * const_plot_bf,
+                            color=obs_info["plot_colors"][II],
+                            linestyle="-",
+                            label=f'{obs_info["operations"][II]} output',
+                        )
+                    elif pt == "horizontal_from_min":
+                        min_val = np.min(series_per_sub[II])
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
+                        )
+                        ones = np.ones_like(t_const)
+                        const_plot_gt = (
+                            min_val + obs_info["ground_truth_const"][const_idx]
+                        ) * ones
+                        const_plot_bf = (
+                            min_val + best_fit_obs_const[const_idx]
+                        ) * ones
+                        axs.plot(
+                            t_const,
+                            conversion * const_plot_gt,
+                            color=obs_info["plot_colors"][II],
+                            linestyle="--",
+                            label=f'{obs_info["operations"][II]} gt',
+                        )
+                        axs.plot(
+                            t_const,
+                            conversion * const_plot_bf,
+                            color=obs_info["plot_colors"][II],
+                            linestyle="-",
+                            label=f'{obs_info["operations"][II]} output',
+                        )
+                    elif pt == "vertical":
+                        axs.axvline(
+                            x=obs_info["ground_truth_const"][const_idx]
+                            - protocol_info["pre_times"][exp_idx],
+                            color=obs_info["plot_colors"][II],
+                            linestyle="--",
+                            label=f'{obs_info["operations"][II]} desired',
+                        )
+                        axs.axvline(
+                            x=best_fit_obs_const[const_idx]
+                            - protocol_info["pre_times"][exp_idx],
+                            color=obs_info["plot_colors"][II],
+                            label=f'{obs_info["operations"][II]} output',
+                        )
+                    elif pt == "vertical_from_subexp_start":
+                        t_gt = (
+                            obs_info["ground_truth_const"][const_idx]
+                            + tSim_per_sub_count[subexp_count][0]
+                        )
+                        t_bf = (
+                            best_fit_obs_const[const_idx]
+                            + tSim_per_sub_count[subexp_count][0]
+                        )
+                        axs.axvline(
+                            x=t_gt,
+                            color=obs_info["plot_colors"][II],
+                            linestyle="--",
+                            label=f'{obs_info["operations"][II]} desired',
+                        )
+                        axs.axvline(
+                            x=t_bf,
+                            color=obs_info["plot_colors"][II],
+                            label=f'{obs_info["operations"][II]} output',
+                        )
+                    elif pt in (
+                        None,
+                        "None",
+                        "none",
+                        "NULL",
+                        "null",
+                        "Null",
+                        np.nan,
+                        "nan",
+                    ):
+                        pass
+                    else:
+                        print(
+                            f'plot_type for {obs_item_names(obs_info)[II]} '
+                            f"of {obs_info['plot_type'][II]} is not recognised",
+                            "for constants it must be in [None, horizontal, veritical, horizontal_from_min], exiting",
+                        )
+                        exit()
+                elif obs_info["data_types"][II] == "series":
+                    start_time = np.sum(
+                        protocol_info["sim_times"][exp_idx][:this_sub_idx]
+                    )
+                    t_obs = np.linspace(
+                        start_time,
+                        start_time + protocol_info["sim_times"][exp_idx][this_sub_idx],
+                        len(obs_info["ground_truth_series"][series_idx]),
+                    )
+                    axs.plot(
+                        t_obs,
+                        conversion * obs_info["ground_truth_series"][series_idx],
+                        "k--",
+                        label="gt",
+                    )
+                elif obs_info["data_types"][II] == "frequency":
+                    axs.plot(
+                        obs_info["freqs"][II],
+                        conversion * obs_info["ground_truth_amp"][freq_idx],
+                        "kx",
+                        label="gt",
+                    )
+                    if phase:
+                        axs_phase.plot(
+                            obs_info["freqs"][II],
+                            obs_info["ground_truth_phase"][freq_idx],
+                            "kx",
+                            label="gt",
+                        )
+
+                if (
+                    exp_idx == obs_info["experiment_idxs"][II]
+                    and this_sub_idx == obs_info["subexperiment_idxs"][II]
+                ):
+                    if obs_info["data_types"][II] == "constant":
+                        gt_lines = distribution_reference_lines(
+                            obs_info["ground_truth_prob_dist_params"][II])
+                        if gt_lines:
+                            # Error against the *nearest* reference value. A multimodal target
+                            # has no single right answer, so scoring against a fixed one would
+                            # report a large error for a fit that landed squarely on the other
+                            # mode.
+                            gt_const = min((v for v, _ in gt_lines),
+                                           key=lambda v: abs(best_fit_obs_const[const_idx] - v))
+                            gt_std = np.nan
+                        else:
+                            gt_const = obs_info["ground_truth_const"][const_idx]
+                            gt_std = obs_info["std_const_vec"][const_idx]
+                        percent_error_vec[II] = (
+                            100
+                            * (best_fit_obs_const[const_idx] - gt_const)
+                            / (gt_const + 1e-10)
+                        )
+                        std_error_vec[II] = (
+                            (best_fit_obs_const[const_idx] - gt_const) / gt_std
+                            if np.isfinite(gt_std) and gt_std != 0 else 0.0
+                        )
+                    elif obs_info["data_types"][II] == "series":
+                        if obs_info["obs_dt"][series_idx] != dt:
+                            time_series = np.linspace(
+                                0,
+                                best_fit_obs_series[series_idx].shape[0] * dt,
+                                best_fit_obs_series[series_idx].shape[0],
+                            )
+                            gs = obs_info["ground_truth_series"][series_idx]
+                            obs_time_series = np.linspace(
+                                0,
+                                gs.shape[0] * obs_info["obs_dt"][series_idx],
+                                gs.shape[0],
+                            )
+                            series_entry = np.interp(
+                                obs_time_series,
+                                time_series,
+                                best_fit_obs_series[series_idx],
+                            )
+                            obs_entry = gs
+                            std_entry = obs_info["std_series_vec"][series_idx]
+                        else:
+                            min_len_series = min(
+                                obs_info["ground_truth_series"][series_idx].shape[0],
+                                len(best_fit_obs_series[series_idx]),
+                            )
+                            series_entry = best_fit_obs_series[series_idx][:min_len_series]
+                            obs_entry = obs_info["ground_truth_series"][series_idx][
+                                :min_len_series
+                            ]
+                            std_entry = obs_info["std_series_vec"][series_idx][
+                                :min_len_series
+                            ]
+                        percent_error_vec[II] = (
+                            100
+                            * np.sum(
+                                np.abs(
+                                    (obs_entry - series_entry) / (np.mean(obs_entry))
+                                )
+                            )
+                            / len(obs_entry)
+                        )
+                        std_error_vec[II] = np.sum(
+                            np.abs((obs_entry - series_entry / (std_entry)))
+                            / len(obs_entry)
+                        )
+                    elif obs_info["data_types"][II] == "frequency":
+                        std_error_vec[II] = np.sum(
+                            np.abs(
+                                (
+                                    best_fit_obs_amp[freq_idx]
+                                    - obs_info["ground_truth_amp"][freq_idx]
+                                )
+                                * obs_info["weight_amp_vec"][freq_idx]
+                                / obs_info["std_amp_vec"][freq_idx]
+                            )
+                            / len(best_fit_obs_amp[freq_idx])
+                        )
+                        ga = obs_info["ground_truth_amp"][freq_idx]
+                        percent_error_vec[II] = (
+                            100
+                            * np.sum(
+                                np.abs(
+                                    (best_fit_obs_amp[freq_idx] - ga)
+                                    / (np.mean(ga))
+                                )
+                            )
+                            / len(best_fit_obs_amp[freq_idx])
+                        )
+                        if phase:
+                            phase_error_vec[II] = np.sum(
+                                np.abs(
+                                    (
+                                        best_fit_obs_phase[freq_idx]
+                                        - obs_info["ground_truth_phase"][freq_idx]
+                                    )
+                                    * obs_info["weight_phase_vec"][freq_idx]
+                                )
+                            ) / len(best_fit_obs_phase[freq_idx])
+
+            plot_saved = False
+
+            # the source of the data drawn on this page, from the items' data_reference
+            source_line = data_reference_line(page_references)
+            if source_line:
+                axs.set_title(source_line, fontsize=8, loc="left")
+            axs.legend(fontsize=10)
+            if phase:
+                axs_phase.legend(loc="upper right", fontsize=10)
+            fig.tight_layout()
+            if phase:
+                fig_phase.tight_layout()
+            self._save_reconstruction_figure_bundle(
+                plot_dir,
+                prefix,
+                obs_stub,
+                plot_idx,
+                fig,
+                axs,
+                fig_phase,
+                axs_phase,
+                phase,
+            )
+            plt.close(fig)
+            if phase:
+                plt.close(fig_phase)
+
+            plot_saved = True
+            plot_idx += 1
+            if unique_obs_count != len(obs_tuples_unique) - 1:
+                fig, axs = plt.subplots(squeeze=False)
+                axs = axs[0, 0]
+                if phase:
+                    fig_phase, axs_phase = plt.subplots(squeeze=False)
+                    axs_phase = axs_phase[0, 0]
+                plot_saved = False
+
+        self.finalize_reconstruction_if_unsaved(
+            plot_saved, axs, plot_dir, prefix, obs_stub, plot_idx
+        )
+
+        return percent_error_vec, std_error_vec, phase_error_vec
+
+    def finalize_reconstruction_if_unsaved(
+        self,
+        plot_saved: bool,
+        axs,
+        plot_dir: str,
+        prefix: str,
+        obs_stub: str,
+        plot_idx: int,
+    ) -> None:
+        """Save the last open reconstruction figure if the unique-obs loop did not."""
+        if plot_saved:
+            return
+        axs.legend(loc="lower right", fontsize=12)
+        plt.tight_layout()
+        for ext in ("eps", "pdf"):
+            plt.savefig(
+                os.path.join(
+                    plot_dir,
+                    f"reconstruct_{prefix}_{obs_stub}_{plot_idx}.{ext}",
+                )
+            )
+        plt.close()
+
+    @staticmethod
+    def _save_reconstruction_figure_bundle(
+        plot_dir,
+        prefix,
+        obs_stub,
+        plot_idx,
+        fig,
+        axs,
+        fig_phase,
+        axs_phase,
+        phase,
+    ) -> None:
+        base = os.path.join(
+            plot_dir, f"reconstruct_{prefix}_{obs_stub}_{plot_idx}"
+        )
+        fig.savefig(base + ".eps")
+        fig.savefig(base + ".pdf")
+        axs.legend().get_frame().set_alpha(0.5)
+        fig.savefig(base + ".png")
+        if phase:
+            pbase = os.path.join(
+                plot_dir, f"phase_reconstruct_{prefix}_{obs_stub}_{plot_idx}"
+            )
+            fig_phase.savefig(pbase + ".eps")
+            fig_phase.savefig(pbase + ".pdf")
+            axs_phase.legend().get_frame().set_alpha(0.5)
+            fig_phase.savefig(pbase + ".png")
+
+    def save_error_vectors(
+        self, percent_error_vec: np.ndarray, std_error_vec: np.ndarray
+    ) -> None:
+        out = self.client.output_dir
+        np.save(os.path.join(out, "percent_error_vec.npy"), percent_error_vec)
+        np.save(os.path.join(out, "std_error_vec.npy"), std_error_vec)
+        # The error vectors are positional: entry i belongs to data_items[i]. Every
+        # consumer therefore re-derives the labels by reading obs_data.json in the
+        # same order, so reordering that file silently relabels every bar -- a wrong
+        # plot that looks entirely right. These artefacts are an interface now, not an
+        # implementation detail (#341), so the names CA itself used are saved beside
+        # them and the data identifies itself.
+        #
+        # Raw names, not the '$...$' mathtext the bar plots wrap them in: this is data
+        # for whoever reads it. A consumer wanting mathtext can add the delimiters; one
+        # wanting the plain name could not reliably strip them, since a name may
+        # legitimately contain '$'.
+        np.save(os.path.join(out, "error_vec_names.npy"), self.observable_names())
+        # Each observable's data_reference, in the same order ('' where an item has none).
+        references = obs_item_references(self.client.obs_info)
+        np.save(os.path.join(out, "error_vec_data_references.npy"),
+                np.array([str(references[II]) if II < len(references) and references[II]
+                          else "" for II in range(self.client.obs_info["num_obs"])]))
+
+    def observable_names(self) -> np.ndarray:
+        """The per-observable labels, in the order the error vectors use.
+
+        Public because it defines the meaning of ``error_vec_names.npy``: this is
+        the ordering an external consumer binds to.
+        """
+        obs_info = self.client.obs_info
+        return np.array(
+            [str(obs_item_labels(obs_info)[II]) for II in range(obs_info["num_obs"])]
+        )
+
+    def _observable_names_for_error_plots(self) -> np.ndarray:
+        """The same labels wrapped for matplotlib mathtext, for the bar plots."""
+        return np.array([f"${name}$" for name in self.observable_names()])
+
+    def plot_percent_error_bar_pages(
+        self, obs_names_for_plot: np.ndarray, percent_error_vec: np.ndarray
+    ) -> None:
+        plot_dir = self.client.plot_dir
+        prefix = self.client.file_name_prefix
+        obs_stub = self.client.param_id_obs_file_prefix
+        obs_info = self.client.obs_info
+        protocol_info = self.client.protocol_info
+
+        do_plots_per_exp = True
+        num_plots = (
+            len(protocol_info["pre_times"])
+            if do_plots_per_exp
+            else len(obs_names_for_plot) // 10 + 1
+        )
+
+        if len(percent_error_vec) == 0:
+            return
+        y_min_percent = 1.05 * np.min(percent_error_vec)
+        y_max_percent = 1.05 * np.max(percent_error_vec)
+
+        for plot_idx_inner in range(num_plots):
+            fig, axs = plt.subplots()
+            if do_plots_per_exp:
+                obs_idx_for_plot = [
+                    II
+                    for II in range(obs_info["num_obs"])
+                    if obs_info["experiment_idxs"][II] == plot_idx_inner
+                ]
+                if len(obs_idx_for_plot) == 0:
+                    plt.close(fig)
+                    continue
+            else:
+                start_idx = plot_idx_inner * 10
+                end_idx = min(start_idx + 10, len(obs_names_for_plot))
+                obs_idx_for_plot = list(range(start_idx, end_idx))
+
+            axs.bar(
+                obs_names_for_plot[obs_idx_for_plot],
+                percent_error_vec[obs_idx_for_plot],
+                label="% error",
+                width=1.0,
+                color="b",
+                edgecolor="black",
+            )
+            axs.set_ylim(y_min_percent, y_max_percent)
+            axs.axhline(y=0.0, linewidth=3, color="k", linestyle="dotted")
+            axs.set_ylabel(r"E$_{\%}$")
+            plt.xticks(rotation=90)
+            plt.tight_layout()
+            for ext in ("eps", "pdf", "png"):
+                plt.savefig(
+                    os.path.join(
+                        plot_dir,
+                        f"error_bars_{prefix}_{obs_stub}_{plot_idx_inner}.{ext}",
+                    )
+                )
+            plt.close(fig)
+
+    def plot_std_error_bar_pages(
+        self, obs_names_for_plot: np.ndarray, std_error_vec: np.ndarray
+    ) -> None:
+        plot_dir = self.client.plot_dir
+        prefix = self.client.file_name_prefix
+        obs_stub = self.client.param_id_obs_file_prefix
+        obs_info = self.client.obs_info
+        protocol_info = self.client.protocol_info
+
+        do_plots_per_exp = True
+        num_plots = (
+            len(protocol_info["pre_times"])
+            if do_plots_per_exp
+            else len(obs_names_for_plot) // 10 + 1
+        )
+
+        for plot_idx_inner in range(num_plots):
+            fig, axs = plt.subplots()
+            if do_plots_per_exp:
+                obs_idx_for_plot = [
+                    II
+                    for II in range(obs_info["num_obs"])
+                    if obs_info["experiment_idxs"][II] == plot_idx_inner
+                ]
+                if len(obs_idx_for_plot) == 0:
+                    plt.close(fig)
+                    continue
+                axs.bar(
+                    obs_names_for_plot[obs_idx_for_plot],
+                    std_error_vec[obs_idx_for_plot],
+                    label="% error",
+                    width=1.0,
+                    color="b",
+                    edgecolor="black",
+                )
+            else:
+                if plot_idx_inner == num_plots - 1:
+                    axs.bar(
+                        obs_names_for_plot[plot_idx_inner * 10 :],
+                        std_error_vec[plot_idx_inner * 10 :],
+                        label="% error",
+                        width=1.0,
+                        color="b",
+                        edgecolor="black",
+                    )
+                else:
+                    axs.bar(
+                        obs_names_for_plot[
+                            plot_idx_inner * 10 : plot_idx_inner * 10 + 10
+                        ],
+                        std_error_vec[
+                            plot_idx_inner * 10 : plot_idx_inner * 10 + 10
+                        ],
+                        label="% error",
+                        width=1.0,
+                        color="b",
+                        edgecolor="black",
+                    )
+            axs.axhline(y=0.0, linewidth=3, color="k", linestyle="dotted")
+            axs.set_ylabel("E$_{std}$")
+            plt.xticks(rotation=90)
+            plt.tight_layout()
+            for ext in ("eps", "pdf", "png"):
+                plt.savefig(
+                    os.path.join(
+                        plot_dir,
+                        f"std_error_bars_{prefix}_{obs_stub}_{plot_idx_inner}.{ext}",
+                    )
+                )
+            plt.close(fig)
+
+    @staticmethod
+    def _normalize_sub_vals(vals: Union[Sequence, Any]) -> List[Any]:
+        if isinstance(vals, (list, tuple, np.ndarray)):
+            return list(vals)
+        return [vals]
+
+    @staticmethod
+    def _schedule_segments_for_param_experiment(
+        protocol_info: dict, exp_idx: int, vals: Sequence[Any]
+    ) -> Optional[List[Tuple[float, float, Any]]]:
+        """
+        Build (t_start, t_end, scheduled_value) for each subexperiment.
+
+        Matches the CVODE/Myokit timestepping order: segment 0 covers
+        pre_time + sim_times[exp][0]; later segments cover only their sim_times.
+        ``scheduled_value`` is numeric or a protocol_traces key (str).
+
+        Returns None when the observation row shape does not match the protocol.
+        """
+        try:
+            n_sub_e = protocol_info["num_sub_per_exp"][exp_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+        vals_list = ParamIDPlotOutputs._normalize_sub_vals(vals)
+        if len(vals_list) != n_sub_e:
+            return None
+
+        try:
+            pre_t = float(protocol_info["pre_times"][exp_idx])
+            sim_blk = protocol_info["sim_times"][exp_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+
+        segments: List[Tuple[float, float, Any]] = []
+        t_cursor = 0.0
+
+        dur0 = pre_t + float(sim_blk[0])
+        segments.append((t_cursor, t_cursor + dur0, vals_list[0]))
+        t_cursor += dur0
+
+        for k in range(1, n_sub_e):
+            dur = float(sim_blk[k])
+            segments.append((t_cursor, t_cursor + dur, vals_list[k]))
+            t_cursor += dur
+
+        return segments
+
+    def _plot_param_segment(
+        self,
+        ax,
+        t0: float,
+        t1: float,
+        val: Any,
+        traces: Dict[str, Any],
+        color: Any,
+        label: Optional[str],
+    ) -> None:
+        """Draw one schedule segment on *ax* at absolute experiment time [t0, t1)."""
+        str_key = isinstance(val, str)
+
+        def _numeric_ok(v):
+            if isinstance(v, bool):
+                return False
+            return isinstance(v, (int, float, np.integer, np.floating))
+
+        if not str_key and _numeric_ok(val):
+            y = float(val)
+            ax.plot([t0, t1], [y, y], color=color, linewidth=2.0, label=label, zorder=2)
+            return
+
+        if str_key:
+            trace_key = val
+            if trace_key not in traces:
+                ax.annotate(
+                    f"Missing trace '{trace_key}'",
+                    xy=(0.5, 0.5),
+                    xycoords="axes fraction",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=color,
+                    clip_on=False,
+                )
+                return
+            trace = traces[trace_key]
+            if isinstance(trace, dict) and "t" in trace:
+                tt = np.asarray(trace["t"], dtype=float)
+            elif hasattr(trace, "to_dict"):
+                d = trace.to_dict()
+                tt = np.asarray(d.get("t", []), dtype=float)
+            else:
+                ax.annotate(
+                    f"Trace '{trace_key}' has no time vector",
+                    xy=(0.5, 0.5),
+                    xycoords="axes fraction",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=color,
+                    clip_on=False,
+                )
+                return
+            if isinstance(trace, dict) and "values" in trace:
+                yy = np.asarray(trace["values"], dtype=float)
+            elif hasattr(trace, "to_dict"):
+                d = trace.to_dict()
+                yy = np.asarray(d.get("values", []), dtype=float)
+            else:
+                return
+            if tt.size != yy.size or tt.size == 0:
+                ax.annotate(
+                    f"Bad trace '{trace_key}' lengths",
+                    xy=(0.5, 0.5),
+                    xycoords="axes fraction",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=color,
+                    clip_on=False,
+                )
+                return
+            ax.plot(t0 + tt, yy, color=color, linewidth=1.8, label=label, zorder=2)
+            return
+
+        # Non-string, non-supported (e.g. bad type): annotate
+        ax.annotate(
+            f"(unplotable)\n{type(val).__name__}: {val!s}",
+            xy=(0.5, 0.5),
+            xycoords="axes fraction",
+            ha="center",
+            va="center",
+            fontsize=7,
+            color=color,
+            clip_on=False,
+        )
+
+    @staticmethod
+    def _safe_param_fname_token(pname: str) -> str:
+        tok = pname.replace("/", "__").strip()
+        tok = re.sub(r"[^\w.\-]+", "_", tok, flags=re.ASCII)
+        tok = tok.strip("_") or "param"
+        if len(tok) > 128:
+            tok = tok[:128]
+        return tok
+
+    # Experiments wrapped left-to-right, then downward (reading order).
+    _PROTOCOL_PARAM_SUBPLOTS_PER_ROW = 3
+
+    def plot_protocol_params_to_change(self) -> None:
+        """
+        One **saved figure file** per ``params_to_change`` key: subplots sit on a grid
+        with **three panels per row** (:math:`3` columns); rows wrap until every
+        experiment has one axes (time vs applied parameter).
+
+        Numeric schedules render as horizontal segments; uniform numeric values yield
+        a single horizontal line. String entries resolve ``protocol_traces`` as before.
+        """
+        client = self.client
+        if client.rank != 0:
+            return
+        if client.protocol_info is None:
+            return
+        ptc = client.protocol_info.get("params_to_change") or {}
+        if not ptc:
+            return
+        num_exp = int(client.protocol_info.get("num_experiments", 0))
+        if num_exp < 1:
+            return
+
+        param_keys = list(ptc.keys())
+        traces_raw = client.protocol_info.get("protocol_traces") or {}
+
+        traces: Dict[str, Any] = traces_raw if isinstance(traces_raw, dict) else {}
+        exp_labels = client.protocol_info.get("experiment_labels") or [None] * num_exp
+        exp_colors = client.protocol_info.get("experiment_colors") or []
+
+        ncol = min(self._PROTOCOL_PARAM_SUBPLOTS_PER_ROW, num_exp)
+        nrow = max(1, int(np.ceil(num_exp / ncol)))
+
+        for pname in param_keys:
+            row_vals = ptc[pname]
+            fname_tok = self._safe_param_fname_token(pname)
+            fig, axes = plt.subplots(
+                nrow,
+                ncol,
+                squeeze=False,
+                figsize=(max(3.7 * ncol, 6.0), max(3.2 * nrow, 2.9)),
+                sharey=False,
+            )
+
+            fig.suptitle(
+                pname.replace("/", " / "),
+                fontsize=11,
+                y=1.06,
+            )
+
+            for k in range(num_exp, nrow * ncol):
+                r, cc = divmod(k, ncol)
+                axes[r, cc].set_visible(False)
+
+            if not isinstance(row_vals, (list, tuple)) or len(row_vals) < num_exp:
+                for exp_idx in range(num_exp):
+                    r, cc = divmod(exp_idx, ncol)
+                    ax = axes[r, cc]
+                    ax.axis("off")
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "params_to_change row length mismatch vs num_experiments",
+                        ha="center",
+                        va="center",
+                        transform=ax.transAxes,
+                        fontsize=9,
+                    )
+                base = os.path.join(
+                    client.plot_dir,
+                    f"protocol_params_to_change_{client.file_name_prefix}_"
+                    f"{client.param_id_obs_file_prefix}_{fname_tok}",
+                )
+                fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.93))
+                for ext in ("eps", "pdf", "png"):
+                    dpi = 150 if ext == "png" else None
+                    if dpi:
+                        fig.savefig(base + "." + ext, dpi=dpi)
+                    else:
+                        fig.savefig(base + "." + ext)
+                plt.close(fig)
+                continue
+
+            for exp_idx in range(num_exp):
+                r, cc = divmod(exp_idx, ncol)
+                ax = axes[r, cc]
+                elab = exp_labels[exp_idx] if exp_idx < len(exp_labels) else None
+                sub_title = f"Experiment {exp_idx}"
+                if (
+                    elab is not None
+                    and str(elab).strip() != ""
+                    and str(elab).lower() != "none"
+                ):
+                    sub_title = f"{sub_title}\n{elab}"
+                ax.set_title(sub_title, fontsize=9)
+
+                c = (
+                    exp_colors[exp_idx]
+                    if exp_idx < len(exp_colors)
+                    else f"C{exp_idx % 10}"
+                )
+
+                vals = ParamIDPlotOutputs._normalize_sub_vals(row_vals[exp_idx])
+                segments = self._schedule_segments_for_param_experiment(
+                    client.protocol_info, exp_idx, vals
+                )
+
+                if segments is None:
+                    ax.axis("off")
+                    ax.annotate(
+                        "Sub-count mismatch vs protocol",
+                        xy=(0.5, 0.5),
+                        xycoords="axes fraction",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                        color=c,
+                        clip_on=False,
+                    )
+                else:
+                    for seg_i, (t0, t1, val) in enumerate(segments):
+                        # Label only the first segment (trace vs piecewise cue)
+                        if seg_i != 0:
+                            lbl_tr = None
+                        elif isinstance(val, str):
+                            lbl_tr = f"trace `{val}`"
+                        else:
+                            lbl_tr = None
+                        self._plot_param_segment(
+                            ax, t0, t1, val, traces, c, lbl_tr
+                        )
+                    ax.axhline(
+                        0.0, color="0.82", linewidth=0.8, linestyle="-", zorder=0
+                    )
+                    ax.grid(True, axis="both", linestyle=":", alpha=0.35)
+                    handles, legends = ax.get_legend_handles_labels()
+                    if any(legends):
+                        ax.legend(handles, legends, fontsize=7, loc="best")
+
+                ax.set_xlabel(r"Time [$s$]", fontsize=9)
+
+            for r in range(nrow):
+                if r * ncol < num_exp:
+                    axes[r, 0].set_ylabel(r"Applied value", fontsize=9)
+
+            fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.90))
+            base = os.path.join(
+                client.plot_dir,
+                f"protocol_params_to_change_{client.file_name_prefix}_"
+                f"{client.param_id_obs_file_prefix}_{fname_tok}",
+            )
+            fig.savefig(base + ".eps")
+            fig.savefig(base + ".pdf")
+            fig.savefig(base + ".png", dpi=150)
+            plt.close(fig)
+
+    def print_observable_errors(
+        self,
+        phase: bool,
+        percent_error_vec: np.ndarray,
+        phase_error_vec: np.ndarray,
+    ) -> None:
+        obs_info = self.client.obs_info
+        gt_df = self.client.gt_df
+
+        print("______observable errors______")
+        for obs_idx in range(obs_info["num_obs"]):
+            dt_row = gt_df.iloc[obs_idx]["data_type"]
+            if dt_row == "constant":
+                if obs_info["operations"][obs_idx] is not None:
+                    print(f'{obs_item_labels(obs_info)[obs_idx]} error:')
+                else:
+                    print(
+                        f'{obs_item_labels(obs_info)[obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} error:'
+                    )
+                print(f"{percent_error_vec[obs_idx]:.2f} %")
+            if dt_row == "series":
+                if obs_info["operations"][obs_idx] is not None:
+                    print(f'{obs_item_labels(obs_info)[obs_idx]} series error:')
+                else:
+                    print(
+                        f'{obs_item_labels(obs_info)[obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} error:'
+                    )
+                print(f"{percent_error_vec[obs_idx]:.2f} %")
+            if dt_row == "frequency":
+                print(
+                    f'{obs_item_labels(obs_info)[obs_idx]} '
+                    f'{obs_info["data_types"][obs_idx]} error:'
+                )
+                print(f"{percent_error_vec[obs_idx]:.2f} %")
+                if phase:
+                    print(
+                        f'{obs_item_labels(obs_info)[obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} phase error:'
+                    )
+                    print(f"{phase_error_vec[obs_idx]:.2f}")

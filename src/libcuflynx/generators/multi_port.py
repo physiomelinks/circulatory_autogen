@@ -1,0 +1,225 @@
+"""Helpers for the ``multi_port`` port setting.
+
+A port in a module_config.json entry may carry ``multi_port``. Its values are
+case-insensitive (``"sum"``, ``"Sum"`` and ``"SUM"`` are the same):
+
+* ``"True"`` -- the port accepts any number of connections; this module's variables are mapped
+  to the corresponding variables of every connected module (one source, many sinks).
+* ``"sum"`` -- each of the port's variables is the sum, over every module connected through
+  the port, of the neighbour's corresponding variable. It is read as the list form with
+  ``"sum"`` for every variable (below). This is PhLynx's ``"Sum"``.
+* ``"Multiply"`` -- the port must map exactly one variable. Whichever end of a connection
+  it is on, each connected module's corresponding variable is set to ``multiply_factor`` (an
+  optional number on the port, default 1) times this module's variable; if the neighbour's
+  port is a "sum", the scaled value is one term of its sum. A connection cannot have
+  Multiply on both ends. This is PhLynx's ``"Multiply"``, whose factor PhLynx keeps in its UI
+  rather than the config.
+
+The list form gives one entry per port variable, aligned with the port's ``variables``::
+
+    {"port_type": "vessel_port", "variables": ["v_in", "u"], "multi_port": ["sum", "True"]}
+
+* ``"sum"`` -- this module's variable (an input) is the sum, over every module connected
+  through this port, of the neighbour's corresponding port variable. With nothing connected,
+  it must be a ``boundary_condition``, whose value comes from the parameters file; any other
+  parameter type is then a ValueError. A neighbour connected twice to the same sum is an error.
+* ``"True"`` -- this module's variable is mapped to the corresponding variable of every
+  connected neighbour (normally an output: one source, many sinks).
+* ``"multiply"`` -- as a whole-port ``"Multiply"``, for this variable: its neighbour's variable
+  is set to (or, into a "sum", gets the term) the factor times this variable. The factor is
+  ``multiply_factor``: one number for every Multiply variable, or a list aligned with
+  ``variables`` (null for the others), as PhLynx exports it.
+
+A list-form port accepts any number of neighbours, on entrance, exit or general ports.
+Only one side of a connection can sum, or multiply, a variable pair. A variable summed through
+several ports is the sum over the neighbours of all of them.
+
+``normalise_port_multi_port`` puts a port's multi_port in canonical form when the module
+config is loaded (utilities/config_schemas.py), so the generator only sees ``"True"``,
+``"Multiply"`` and list forms of ``"sum"``/``"True"``/``"Multiply"``.
+"""
+
+import numbers
+
+MULTI_PORT_SUM = 'sum'
+MULTI_PORT_SHARED = 'True'
+MULTI_PORT_MULTIPLY = 'Multiply'
+
+def _canonical_entry(entry):
+    """A list-form entry as "sum"/"True"/"Multiply" (case-insensitively), or unchanged if
+    unknown."""
+    if isinstance(entry, str) and entry.lower() == 'sum':
+        return MULTI_PORT_SUM
+    if isinstance(entry, str) and entry.lower() == 'multiply':
+        return MULTI_PORT_MULTIPLY
+    if entry is True or entry == 'True':
+        return MULTI_PORT_SHARED
+    return entry
+
+
+def list_multi_port(port):
+    """The normalised list-form multi_port of ``port``, or None if it has no list form."""
+    if not isinstance(port, dict):
+        return None
+    value = port.get('multi_port')
+    if not isinstance(value, (list, tuple)):
+        return None
+    return [_canonical_entry(entry) for entry in value]
+
+
+def is_blank_variable(variable):
+    """Whether a port variable slot is empty ('' or None), i.e. maps nothing."""
+    return variable in ('', None, 'None', 'none')
+
+
+def is_multiply_port(port):
+    """Whether ``port`` has a (canonical) "Multiply" multi_port."""
+    return isinstance(port, dict) and port.get('multi_port') == MULTI_PORT_MULTIPLY
+
+
+def multiply_factor(port, index=0):
+    """The ``multiply_factor`` of the Multiply variable at ``index`` of ``port``, as a float
+    (default 1). The factor is one number for every Multiply variable, or a list aligned with
+    the port's variables."""
+    factor = port.get('multiply_factor', 1)
+    if isinstance(factor, (list, tuple)):
+        factor = factor[index]
+    return float(1 if factor is None else factor)
+
+
+def _is_number(value):
+    if isinstance(value, bool) or not isinstance(value, (numbers.Real, str)):
+        return False
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
+def normalise_port_multi_port(port, module_description):
+    """``port`` with its multi_port in canonical form (a new dict if anything changes).
+
+    * a string "sum" in any case: ``["sum"]`` with one entry per variable, on a port with at
+      least one variable;
+    * a string "multiply" in any case: "Multiply", on a port with exactly one variable, and
+      a numeric ``multiply_factor`` if one is given;
+    * list-form entries: "sum" and "multiply" in any case become "sum" and "Multiply";
+    * anything else is left as it is.
+
+    ``multiply_factor`` is a number, or a list with one entry per variable: a number for each
+    Multiply variable and null for the others.
+
+    Raises ValueError for a Sum port with no variables, a Multiply port that does not have
+    exactly one variable, a
+    ``multiply_factor`` that is not a number (or such a list), or a ``multiply_factor`` on a
+    port with no Multiply variable.
+    """
+    if not isinstance(port, dict) or 'multi_port' not in port and 'multiply_factor' not in port:
+        return port
+    value = port.get('multi_port')
+    port_type = port.get('port_type')
+    variables = port.get('variables', [])
+    if value is None or value is False:
+        # no multi_port (null or false)
+        port = {k: v for k, v in port.items() if k != 'multi_port'}
+        if 'multiply_factor' in port:
+            raise ValueError(f'{module_description}: port "{port_type}" has a multiply_factor but no '
+                             f'multi_port; multiply_factor only applies to "Multiply" ports.')
+        return port
+    if value is True or (isinstance(value, str) and value.lower() == 'true'):
+        if value != 'True':
+            value = 'True'
+            port = dict(port, multi_port=value)
+    elif not (isinstance(value, (list, tuple))
+              or (isinstance(value, str) and value.lower() in ('sum', 'multiply'))):
+        raise ValueError(
+            f'{module_description}: port "{port_type}" has multi_port {value!r}. It must be '
+            f'"True", "Sum" or "Multiply" (any case), true/false, or a list with one entry per '
+            f'port variable.')
+
+    if not isinstance(variables, (list, tuple)):
+        variables = []
+
+    new_value = value
+    if isinstance(value, str) and value.lower() == 'sum':
+        if not variables:
+            raise ValueError(
+                f'{module_description}: port "{port_type}" has multi_port "{value}" but no '
+                f'variables. A "Sum" port must map at least one variable.')
+        new_value = [MULTI_PORT_SUM] * len(variables)
+    elif isinstance(value, str) and value.lower() == 'multiply':
+        if len(variables) != 1:
+            raise ValueError(
+                f'{module_description}: port "{port_type}" has multi_port "{value}" but '
+                f'variables {variables}. A "Multiply" port must map exactly one variable.')
+        new_value = MULTI_PORT_MULTIPLY
+    elif isinstance(value, (list, tuple)):
+        new_value = [_canonical_entry(entry) for entry in value]
+
+    if 'multiply_factor' in port:
+        entries = new_value if isinstance(new_value, list) else [new_value] * len(variables)
+        if MULTI_PORT_MULTIPLY not in entries:
+            raise ValueError(
+                f'{module_description}: port "{port_type}" has a multiply_factor but its '
+                f'multi_port is {value!r}; multiply_factor only applies to "Multiply" variables.')
+        factor = port['multiply_factor']
+        if isinstance(factor, (list, tuple)):
+            if len(factor) != len(variables) or not all(
+                    _is_number(f) if e == MULTI_PORT_MULTIPLY else f is None
+                    for f, e in zip(factor, entries)):
+                raise ValueError(
+                    f'{module_description}: port "{port_type}" has multiply_factor {factor!r}. '
+                    f'A list needs one entry per variable {list(variables)}: a number for each '
+                    f'"multiply" variable and null for the others.')
+        elif not _is_number(factor):
+            raise ValueError(f'{module_description}: port "{port_type}" has multiply_factor '
+                             f'{factor!r}, which is not a number.')
+
+    if new_value == value and type(new_value) is type(value):
+        return port
+    port = dict(port)
+    port['multi_port'] = new_value
+    return port
+
+
+def is_multi_port(port):
+    """Whether ``port`` accepts connections from several modules ("True", "Multiply" or list form)."""
+    if not isinstance(port, dict):
+        return False
+    value = port.get('multi_port')
+    return value in ['True', True, MULTI_PORT_MULTIPLY] or isinstance(value, (list, tuple))
+
+
+def validate_list_multi_port(port, module_description):
+    """Raise ValueError if a list-form multi_port on ``port`` is malformed.
+
+    Ports without a list-form multi_port are not checked here.
+    """
+    value = port.get('multi_port') if isinstance(port, dict) else None
+    if not isinstance(value, (list, tuple)):
+        return
+    variables = port.get('variables', [])
+    if len(value) != len(variables):
+        raise ValueError(
+            f'{module_description}: port "{port.get("port_type")}" has a list-form multi_port '
+            f'{list(value)} of length {len(value)}, but {len(variables)} variables '
+            f'{list(variables)}. The list must have one entry per port variable.')
+    for entry, variable in zip(value, variables):
+        if _canonical_entry(entry) not in (MULTI_PORT_SUM, MULTI_PORT_SHARED, MULTI_PORT_MULTIPLY):
+            raise ValueError(
+                f'{module_description}: port "{port.get("port_type")}" has multi_port entry '
+                f'{entry!r} for variable "{variable}". List-form entries must be "sum", "True" '
+                f'or "multiply".')
+
+
+def module_has_list_multi_port(module_row):
+    """Whether any entrance, exit or general port of a module row has a list-form multi_port
+    or a Multiply multi_port (both are written as generated components)."""
+    for key in ('entrance_ports', 'exit_ports', 'general_ports'):
+        ports = module_row[key] if key in module_row else []
+        if isinstance(ports, (list, tuple)):
+            for port in ports:
+                if list_multi_port(port) is not None or is_multiply_port(port):
+                    return True
+    return False

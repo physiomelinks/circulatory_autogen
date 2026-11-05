@@ -1,0 +1,1209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/obs_data.schema.json",
+  "title": "libcuflynx obs_data file (<name>_obs_data.json)",
+  "description": "The data a calibration is scored against, its protocol, and the outputs to predict: an object with protocol_info (required), data_items and prediction_items, and an optional obs_data_name. Other top-level keys are ignored. Read by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); vocabularies in libcuflynx/utilities/obs_data_helpers.py. The parser fills the defaults given here and refuses unknown keys in items and protocol_info.",
+  "type": "object",
+  "properties": {
+    "obs_data_name": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "The name of this obs_data set. In a module library, parameterisations/<name>/<name>_obs_data.json must set it to <name> (a different or missing name is warned about). Default: none."
+    },
+    "data_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dataItem"
+      },
+      "description": "The observations a model is scored against. Default: none (a protocol-only file)."
+    },
+    "prediction_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/predictionItem"
+      },
+      "description": "Outputs to record and plot, not scored in the calibration; with a value they are held-out validation data. Default: none."
+    },
+    "protocol_info": {
+      "$ref": "#/$defs/protocolInfo"
+    },
+    "prediction_plots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/prediction_plot"
+      },
+      "description": "figures across experiments (libcuflynx.param_id.prediction_plots): a scalar feature against another feature or an input, or an input and a model output over time; drawn by save_prediction_data and cuflynx-run-predictions"
+    }
+  },
+  "required": [
+    "protocol_info"
+  ],
+  "$defs": {
+    "prediction_plot": {
+      "type": "object",
+      "description": "one figure. feature_vs_feature / feature_vs_input: a group is the data_items and prediction_items sharing an item_name_for_plotting, at most one per experiment, and a point is one experiment. input_and_output / output_vs_input: an input and a model output over time, from a simulation",
+      "required": [
+        "name",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "figure title and file stem; unique"
+        },
+        "kind": {
+          "enum": [
+            "feature_vs_feature",
+            "feature_vs_input",
+            "input_and_output",
+            "output_vs_input"
+          ],
+          "description": "feature_vs_feature: y against another group; feature_vs_input: y against a value params_to_change sets; input_and_output: per experiment, the input and the output over time on two y-axes; output_vs_input: the output against the input at the same times, a line per experiment"
+        },
+        "y": {
+          "type": "string",
+          "description": "feature kinds: the group on the y-axis"
+        },
+        "x": {
+          "description": "feature kinds: a group (feature_vs_feature) or an input reference (feature_vs_input)",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/input_reference"
+            }
+          ]
+        },
+        "series": {
+          "description": "feature kinds: one line per distinct value of this input",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/input_reference"
+            }
+          ]
+        },
+        "input": {
+          "$ref": "#/$defs/time_course_input"
+        },
+        "output": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "time-course kinds: the model output, <vessel>/<variable> (a nested vessel by its path, SN/soma/membrane/V) or a global's bare name"
+        },
+        "experiments": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "time-course kinds: the experiments drawn. Default: all"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "feature_vs_feature",
+                  "feature_vs_input"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "x",
+              "y"
+            ],
+            "properties": {
+              "input": false,
+              "output": false,
+              "experiments": false
+            }
+          },
+          "description": "A feature_vs_feature or feature_vs_input plot gives x and y, and not input, output or experiments."
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "input_and_output",
+                  "output_vs_input"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "input",
+              "output"
+            ],
+            "properties": {
+              "x": false,
+              "y": false,
+              "series": false
+            }
+          },
+          "description": "An input_and_output or output_vs_input plot gives input and output, and not x, y or series."
+        }
+      ]
+    },
+    "input_reference": {
+      "type": "object",
+      "required": [
+        "params_to_change",
+        "subexperiment_idx"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "params_to_change": {
+          "type": "string",
+          "description": "the params_to_change key (a model parameter) whose value is used: a number, or a trace with reduce"
+        },
+        "subexperiment_idx": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "the sub-experiment whose value is used"
+        },
+        "reduce": {
+          "description": "a trace made one number: its final value, its mean, max or min over the sub-experiment, or its value at a time from the start of the sub-experiment. Ignored for a number. Default: none (an experiment whose input is a trace has no point)",
+          "oneOf": [
+            {
+              "enum": [
+                "final",
+                "mean",
+                "max",
+                "min"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "at"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "seconds from the start of the sub-experiment"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "time_course_input": {
+      "type": "object",
+      "required": [
+        "params_to_change"
+      ],
+      "additionalProperties": false,
+      "description": "the input of a time-course plot",
+      "properties": {
+        "params_to_change": {
+          "type": "string",
+          "description": "the params_to_change key, drawn over each experiment: a number as a step, a trace as its waveform"
+        }
+      }
+    },
+    "dataItem": {
+      "type": "object",
+      "description": "One observation the model is scored against. Unknown keys are refused. A datum's origin goes in data_reference. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
+      "additionalProperties": false,
+      "properties": {
+        "data_item_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required. The item's identity: unique across every data_item and prediction_item of the file, and the name an operation_kwargs value naming another item resolves against. Need not be a model variable name."
+        },
+        "data_type": {
+          "enum": [
+            "constant",
+            "series",
+            "frequency"
+          ],
+          "description": "Required. \"constant\": value and std are single numbers. \"series\": value is a list of samples obs_dt apart (from the start of the item's sub-experiment), std a number or a list as long as value. \"frequency\": value is a list of amplitudes at the item's frequencies. (\"prob_dist\" was removed: use \"constant\" with prob_dist_params.)"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Required. The unit of the observable (a CellML unit name)."
+        },
+        "operands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Required. The model variables ('component/variable') or earlier items the operation reduces, as a list. Empty strings are dropped. With no operation, the first operand is the observable itself."
+        },
+        "operation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The operation function (built-in, funcs_user, or operation_funcs_external_path) reducing the operands to the observable. Default: none (null, \"\", \"None\", \"null\" and \"nan\" also mean none), in which case the first operand is used as it is."
+        },
+        "operation_kwargs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Keyword arguments for the operation function. A string value naming another item (by data_item_name) is replaced by that item's value. Default: {}."
+        },
+        "cost_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The cost function (built-in or cost_funcs_external_path) scoring this item. Default: \"gaussian_MLE\"."
+        },
+        "cost_kwargs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Extra keyword arguments for the cost_type function; std and weight are supplied from the item's own keys and are refused here. Default: {}."
+        },
+        "value": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ground truth: one number for a constant, a list for a series or frequency item. Required (with std) unless the item has prob_dist_params; a series item may instead load it from value_path."
+        },
+        "std": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measurement standard deviation the cost normalises by: one number for a constant; for a series one number (applied to every sample) or one per sample, each finite and > 0. Required (with value) unless the item has prob_dist_params."
+        },
+        "prob_dist_params": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The ground truth as a distribution, for a cost_type that scores against one (kernel_density_estimation, multimodal_gaussian, poisson_MLE). An item with prob_dist_params needs no value or std. Default: none."
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The weight of this item in the cost (a list: one per sample or frequency). Default: 1.0."
+        },
+        "obs_dt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The spacing of a series' samples, in seconds. Required for a series (filled from t_path when the series is loaded from .npy files)."
+        },
+        "experiment_idx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "The experiment (index into protocol_info sim_times) the item is measured in. Default: 0."
+        },
+        "subexperiment_idx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "The sub-experiment of experiment_idx the item is measured over. Default: 0."
+        },
+        "trace_name_for_plotting": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Axis label (LaTeX allowed) of the trace the item is drawn from. May repeat across items. Default: the first operand, or data_item_name if there is none."
+        },
+        "item_name_for_plotting": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Label of the item itself, used in sensitivity tables and error reports. Default: \"<trace_name_for_plotting> (<operation>)\", or trace_name_for_plotting when there is no operation."
+        },
+        "plot_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "How the ground truth is drawn: \"horizontal\", \"vertical\", \"horizontal_from_min\", \"series\" or \"frequency\" (null or \"None\" draws no marker). Default: \"horizontal\" for a constant, \"series\" for a series, \"frequency\" for a frequency item."
+        },
+        "plot_color": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Matplotlib colour of the item in plots. Default: cycles through b, g, c, m, y, tab:brown, tab:pink, tab:olive, tab:orange."
+        },
+        "frequencies": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The frequencies (Hz) of a frequency item's value. Default: none."
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ground-truth phases of a frequency item, one per frequency. Default: none."
+        },
+        "phase_weight": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The weight of a frequency item's phase in the cost. Default: the item's weight."
+        },
+        "t_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A series' sample times as a .npy file (absolute, or relative to the working directory). Used with value_path instead of an embedded value; obs_dt defaults to their mean spacing."
+        },
+        "value_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A series' values as a .npy file, used with t_path instead of an embedded value (not both)."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
+        },
+        "data_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (error_vec_data_references.npy beside error_vec_names.npy) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Free text. Not read."
+        },
+        "species": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Metadata: the species the data are from. Not read."
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Metadata: where the data were measured. Not read."
+        },
+        "dt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Metadata. Accepted but not read (a series' spacing is obs_dt)."
+        },
+        "sample_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Metadata: a series' sample rate in Hz. Accepted but not read (a series' spacing is obs_dt)."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "data_type": {
+                "const": "constant"
+              }
+            },
+            "required": [
+              "data_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "std": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "description": "A constant's value and std are single numbers."
+        },
+        {
+          "if": {
+            "properties": {
+              "data_type": {
+                "const": "series"
+              }
+            },
+            "required": [
+              "data_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": [
+              "std"
+            ],
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "required": [
+                      "obs_dt"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "t_path"
+                    ]
+                  }
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "required": [
+                      "value"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "value_path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "vm_path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "im_path"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "not": {
+              "allOf": [
+                {
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                },
+                {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "t_path"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "value_path"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "description": "A series' value is a list (embedded, or loaded from t_path and value_path, not both); it needs std, and obs_dt (or t_path to derive it from)."
+        },
+        {
+          "if": {
+            "properties": {
+              "data_type": {
+                "enum": [
+                  "constant",
+                  "frequency"
+                ]
+              }
+            },
+            "required": [
+              "data_type"
+            ],
+            "not": {
+              "required": [
+                "prob_dist_params"
+              ]
+            }
+          },
+          "then": {
+            "required": [
+              "value",
+              "std"
+            ]
+          },
+          "description": "Every item needs a ground truth: value and std, or prob_dist_params."
+        }
+      ],
+      "required": [
+        "data_item_name",
+        "data_type",
+        "operands",
+        "unit"
+      ]
+    },
+    "predictionItem": {
+      "type": "object",
+      "description": "A model output to record and plot, not scored in the calibration. A datum's origin goes in data_reference. It takes a data_item's vocabulary; with value (plus data_type, std, and obs_dt for a series) it is held-out data, checked after calibration (libcuflynx.param_id.validation, validation_results.json). Unknown keys are refused.",
+      "additionalProperties": false,
+      "properties": {
+        "data_item_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required. The item's identity, unique across every data_item and prediction_item of the file."
+        },
+        "operands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Required. The model variable(s) ('component/variable') to record."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Required. The unit of the prediction."
+        },
+        "operation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Reduces the operands to one number, as for a data_item: the item is then a scalar feature, its held-out value is compared with operation(operands), and sensitivity analysis and emulator training include it when include_prediction_items is true. Default: none."
+        },
+        "operation_kwargs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Keyword arguments for the operation function; only with an operation. Default: {}."
+        },
+        "experiment_idx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "The experiment the operands are recorded in. Default: 0."
+        },
+        "subexperiment_idx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "The sub-experiment of experiment_idx the operands are recorded over. Default: the experiment's last sub-experiment."
+        },
+        "trace_name_for_plotting": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Axis label (LaTeX allowed) of the trace. Default: the first operand, or data_item_name if there is none."
+        },
+        "item_name_for_plotting": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Label of the item. Default: trace_name_for_plotting."
+        },
+        "data_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "constant",
+                "series"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The shape of the held-out data: required with a value. Default: none (no held-out data)."
+        },
+        "value": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Held-out data the prediction is validated against after calibration (never scored in the calibration): one number for a constant, a list for a series. Default: none."
+        },
+        "std": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The held-out data's standard deviation: one number for a constant; one number or one per sample for a series, each finite and > 0. Default: none."
+        },
+        "obs_dt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The spacing of a held-out series' samples, in seconds; required for a series with a value. Default: none."
+        },
+        "data_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (validation_results.json) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "value": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data_type"
+            ],
+            "properties": {
+              "data_type": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "An item with a value needs data_type."
+        },
+        {
+          "if": {
+            "properties": {
+              "data_type": {
+                "const": "constant"
+              }
+            },
+            "required": [
+              "data_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "std": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "description": "A held-out constant's value and std are single numbers."
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "data_type": {
+                    "const": "series"
+                  }
+                },
+                "required": [
+                  "data_type"
+                ]
+              },
+              {
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "value": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": [
+              "obs_dt"
+            ]
+          },
+          "description": "A held-out series' value is a list of numbers, and it needs obs_dt."
+        }
+      ],
+      "required": [
+        "data_item_name",
+        "operands",
+        "unit"
+      ]
+    },
+    "protocolInfo": {
+      "type": "object",
+      "description": "The simulation protocol: experiments, each a run of sub-experiments. Unknown keys are refused. pre_times and sim_times are required unless pre_time and sim_time are set in user_inputs.yaml (then one experiment of one sub-experiment). Checked by parse_obs_data_json, which also checks that params_to_change rows match sim_times and that every trace name it uses is defined.",
+      "additionalProperties": false,
+      "properties": {
+        "pre_times": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number"
+          },
+          "description": "One per experiment: the time (s) simulated before it to reach steady state, not recorded. Default: [pre_time] from user_inputs.yaml."
+        },
+        "sim_times": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "description": "One list per experiment of its sub-experiment durations (s). Default: [[sim_time]] from user_inputs.yaml."
+        },
+        "params_to_change": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "description": "{model parameter qname: one row per experiment of one value per sub-experiment}. A string value names a protocol_traces or protocol_shapes entry (a time-varying input). Default: {}."
+        },
+        "offline_pre_time": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "An unrecorded warm-up (s) run once before all experiments. Default: none."
+        },
+        "experiment_labels": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "One label per experiment, for plots. Default: none."
+        },
+        "experiment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "One identifier per experiment. Default: none."
+        },
+        "experiment_colors": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "One matplotlib colour per experiment, for plots. Default: none."
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Free text. Not read."
+        },
+        "protocol_traces": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "t",
+              "values"
+            ],
+            "properties": {
+              "t": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Times (s) from the start of the sub-experiment."
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "The input's value at each time (interpolated linearly)."
+              }
+            }
+          },
+          "description": "{name: {t, values}}: time-varying inputs a params_to_change string names. Default: {}."
+        },
+        "protocol_shapes": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/shape"
+          },
+          "description": "{name: shape}: the same inputs written as Myokit-style events or a ramp, expanded into protocol_traces on read. A name is defined in one of the two. Default: {}."
+        }
+      },
+      "required": [
+        "pre_times",
+        "sim_times"
+      ]
+    },
+    "shape": {
+      "description": "A waveform written as Myokit-style events (type \"pacing\", the default) or a linear sweep (type \"ramp\"). A bare list is read as {\"events\": list}. Expanded into protocol_traces over the sub-experiment that uses it (libcuflynx/utilities/protocol_shapes.py).",
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "pacing",
+                "ramp"
+              ],
+              "description": "\"pacing\" (square events) or \"ramp\" (from -> to across the sub-experiment). Default: \"pacing\"."
+            },
+            "events": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "description": "Pacing: the events, one per line of a .mmt [[protocol]] table. Required for pacing."
+            },
+            "baseline": {
+              "type": "number",
+              "description": "Pacing: the value between events. Default: 0."
+            },
+            "from": {
+              "type": "number",
+              "description": "Ramp: the value at the start of the sub-experiment. Required for a ramp."
+            },
+            "to": {
+              "type": "number",
+              "description": "Ramp: the value at its end. Required for a ramp."
+            },
+            "duration": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "The length of the generated trace. Default: the length of the sub-experiment(s) using the shape (required when they differ)."
+            }
+          },
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ramp"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "from",
+              "to"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "events"
+                  ]
+                },
+                {
+                  "required": [
+                    "baseline"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "events"
+            ]
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "description": "One line of a Myokit [[protocol]] table.",
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "type": "number",
+          "description": "Required. The value during the event."
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "description": "When the event first starts, from the start of the sub-experiment. Default: 0."
+        },
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "How long each occurrence lasts (Myokit's Length column). Give length or duration."
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Same as length (Myokit's Python API name). Give length or duration, not both."
+        },
+        "period": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Time between occurrences; 0 means it does not repeat. Default: 0."
+        },
+        "multiplier": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many times the event occurs; 0 repeats it for the whole sub-experiment. More than 1 needs a period. Default: 0."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "length"
+          ]
+        },
+        {
+          "required": [
+            "duration"
+          ]
+        }
+      ]
+    }
+  }
+}

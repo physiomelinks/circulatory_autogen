@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The *native* half of the 5-parameter scaling pair (issue #383 / #387 follow-up).
+
+One constant, theta, drives FIVE rate constants through the model's own math:
+
+    k_i = theta * c_i      c = [0.7314, 0.1129, 0.4207, 0.2561, 0.8893]
+    dx_i/dt = -k_i * x_i   x_i(0) = [2.0, 3.0, 1.5, 4.0, 2.5]
+
+so d(anything)/d(theta) is computed by the solver directly, with no modifier
+machinery involved at all. `scaling_modifier.cellml` is the same system with
+k1..k5 as independent constants defaulting to exactly c1..c5, driven by a
+params_for_id scale modifier over all five.
+
+At theta = 1 the two are the same point of the same system, so every observable
+sensitivity and every cost gradient must agree.
+
+Closed form, per state:
+
+    x_i(T) = x_i0 * exp(-theta*c_i*T)  =>  d ln(x_i)/d ln(theta) = -c_i*T exactly
+
+Five members rather than two so the modifier chain rule is summed over a number
+where dropping any single member is unambiguous.
+-->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="scaling_native">
+
+  <units name="per_second">
+    <unit units="second" exponent="-1"/>
+  </units>
+
+  <component name="environment">
+    <variable name="time" units="second" interface="public"/>
+  </component>
+
+  <component name="scaling">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="theta" units="dimensionless" initial_value="1"/>
+    <variable name="c1" units="per_second" initial_value="0.7314"/>
+    <variable name="c2" units="per_second" initial_value="0.1129"/>
+    <variable name="c3" units="per_second" initial_value="0.4207"/>
+    <variable name="c4" units="per_second" initial_value="0.2561"/>
+    <variable name="c5" units="per_second" initial_value="0.8893"/>
+    <variable name="k1" units="per_second"/>
+    <variable name="k2" units="per_second"/>
+    <variable name="k3" units="per_second"/>
+    <variable name="k4" units="per_second"/>
+    <variable name="k5" units="per_second"/>
+    <variable name="x1" units="dimensionless" initial_value="2.0" interface="public"/>
+    <variable name="x2" units="dimensionless" initial_value="3.0" interface="public"/>
+    <variable name="x3" units="dimensionless" initial_value="1.5" interface="public"/>
+    <variable name="x4" units="dimensionless" initial_value="4.0" interface="public"/>
+    <variable name="x5" units="dimensionless" initial_value="2.5" interface="public"/>
+
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+
+      <apply><eq/>
+        <ci>k1</ci>
+        <apply><times/><ci>theta</ci><ci>c1</ci></apply>
+      </apply>
+
+      <apply><eq/>
+        <ci>k2</ci>
+        <apply><times/><ci>theta</ci><ci>c2</ci></apply>
+      </apply>
+
+      <apply><eq/>
+        <ci>k3</ci>
+        <apply><times/><ci>theta</ci><ci>c3</ci></apply>
+      </apply>
+
+      <apply><eq/>
+        <ci>k4</ci>
+        <apply><times/><ci>theta</ci><ci>c4</ci></apply>
+      </apply>
+
+      <apply><eq/>
+        <ci>k5</ci>
+        <apply><times/><ci>theta</ci><ci>c5</ci></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x1</ci></apply>
+        <apply><minus/><apply><times/><ci>k1</ci><ci>x1</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x2</ci></apply>
+        <apply><minus/><apply><times/><ci>k2</ci><ci>x2</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x3</ci></apply>
+        <apply><minus/><apply><times/><ci>k3</ci><ci>x3</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x4</ci></apply>
+        <apply><minus/><apply><times/><ci>k4</ci><ci>x4</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x5</ci></apply>
+        <apply><minus/><apply><times/><ci>k5</ci><ci>x5</ci></apply></apply>
+      </apply>
+
+    </math>
+  </component>
+
+  <connection component_1="environment" component_2="scaling">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+
+</model>
