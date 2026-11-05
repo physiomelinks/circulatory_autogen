@@ -16,6 +16,10 @@
         <variable name="C_CO2_p_init" public_interface="in" units="dimensionless"/>
         <variable initial_value="C_O2_p_init" name="C_O2_p" public_interface="out" units="dimensionless"/>
         <variable initial_value="C_CO2_p_init" name="C_CO2_p" public_interface="out" units="dimensionless"/>
+        <!-- outflow and the gas it carries, for a flow-weighted mix downstream: j = v C (an input can't be passed on, so v_out = v) -->
+        <variable name="v_out" public_interface="out" units="m3_per_s"/>
+        <variable name="j_O2" public_interface="out" units="m3_per_s"/>
+        <variable name="j_CO2" public_interface="out" units="m3_per_s"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
@@ -69,6 +73,104 @@
                         <ci>M_CO2</ci>
                     </apply>
                     <ci>q_0</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_out</ci>
+                <ci>v</ci>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>j_O2</ci>
+                <apply>
+                    <times/>
+                    <ci>v</ci>
+                    <ci>C_O2_p</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>j_CO2</ci>
+                <apply>
+                    <times/>
+                    <ci>v</ci>
+                    <ci>C_CO2_p</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+    <!--//////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////module for the flow-weighted mix of the venous blood of several terminals ///
+//////////////////////////////////////////////////////////////////////////////////////////////////////-->
+    <component name="venous_gas_mixing">
+        <variable name="t" public_interface="in" units="second"/>
+        <!-- totals over the connected regions (multi_port sums): flow, and the O2 and CO2 each region's outflow carries -->
+        <variable name="v" public_interface="in" units="m3_per_s"/>
+        <variable name="J_O2" public_interface="in" units="m3_per_s"/>
+        <variable name="J_CO2" public_interface="in" units="m3_per_s"/>
+        <!-- the total flow as an output, so the downstream compartment can use it (an input can't be passed on) -->
+        <variable name="v_mix" public_interface="out" units="m3_per_s"/>
+        <!-- flow-weighted mixed contents, C_mix = J v / (v^2 + eps^2) with eps = 1e-12 m3/s: equal to J / v to
+             within (eps / v)^2 at any real flow (~1e-16 at a venous return of 1e-4 m3/s), 0 at zero flow (e.g. at
+             t = 0) instead of 0 / 0, the flow-weighted average with the right sign when the total flow reverses,
+             and smooth (no piecewise or abs), so the solver sees no switch -->
+        <variable name="C_O2_mix" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_mix" public_interface="out" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_mix</ci>
+                <ci>v</ci>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_O2_mix</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>J_O2</ci>
+                        <ci>v</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <apply>
+                            <times/>
+                            <ci>v</ci>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
+                            <times/>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_mix</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>J_CO2</ci>
+                        <ci>v</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <apply>
+                            <times/>
+                            <ci>v</ci>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
+                            <times/>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
         </math>
