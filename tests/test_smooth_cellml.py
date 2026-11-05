@@ -252,6 +252,10 @@ def test_eps_is_rel_times_the_range_with_an_absolute_fallback():
     assert report['sites'][0]['eps'] == 1e-5 and 'zero_range' in report['sites'][0]['flags']
     _, report = sc.smooth(_model(ABS), {})
     assert 'no_range' in report['sites'][0]['flags']
+    _, report = sc.smooth(_model(ABS + MAX.replace('<ci>y</ci>', '<ci>q</ci>'), '<variable name="q" units="mmHg"/>'),
+                          {'sm1_x': {'min': -1.0, 'max': 1.0}, 'sm2_x': {'min': -1.0, 'max': 1.0}},
+                          rel={'abs': 1e-2, 'variables': {'c/q': 1e-4}})
+    assert [s['eps'] for s in report['sites']] == [pytest.approx(0.02), pytest.approx(2e-4)]
 
 
 def _simulate(text, tmp_path, name, variables, sim_time=2.0):

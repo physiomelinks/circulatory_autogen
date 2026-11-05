@@ -374,7 +374,8 @@ class _Pass:
 
     def _set_eps(self, site):
         r = self.ranges.get(site.names['x'])
-        rel = float(self.rel[site.kind])
+        by_variable = self.rel.get('variables') or {}
+        rel = float(by_variable.get(f'{site.component}/{site.variable}', by_variable.get(site.variable, self.rel[site.kind])))
         record = site.record
         record['rel'] = rel
         if r is None:
@@ -701,7 +702,8 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only
             (``[min, max]`` also accepted). ``min_abs``, the smallest |x| seen, sets the largest
             deviation; without it the deviation is the worst case for the range.
         rel: ``{"abs", "maxmin", "piecewise"}`` -> eps relative to each argument's range, or one
-            float for all. Defaults to 1e-3.
+            float for all. Defaults to 1e-3. ``rel["variables"]``: ``{variable or "component/variable":
+            rel}`` for the sites in the equation of that variable, over their kind's.
         collapse: replace a site that never switches in the reference runs by its active branch.
             None or False: off. True: each such site whose |x| stays above zero. A list of site
             numbers k: those sites, also when x reaches zero without changing sign (flagged
