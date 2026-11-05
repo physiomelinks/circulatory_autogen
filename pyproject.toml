@@ -121,6 +121,8 @@ cuflynx-run-predictions = "libcuflynx.scripts.run_predictions_script:main"
 cuflynx-couple = "libcuflynx.coupling.runner:main"
 # A smooth copy of a flat CellML model (abs, max, min, piecewise) and its smoothing_report.json.
 cuflynx-smooth = "libcuflynx.utilities.smooth_cellml:main"
+# The quadratic lifting of a smooth flat CellML model for Operator Inference: lifted CellML, lifting.json.
+cuflynx-lift = "libcuflynx.utilities.lift_cellml:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -212,6 +214,13 @@ aadc = [
     "aadc>=2.12,<3",
     "aadc-ode>=0.6.5",
 ]
+# Quadratic lifting for Operator Inference (cuflynx-lift, utilities/lift_cellml.py): sympy for the
+# equations and QBee for the polynomialization and quadratization. About 180 MB, most of it QBee's
+# pyarrow and sympy; nothing else imports either, so a run without this extra is unaffected.
+lift = [
+    "qbee>=0.8.2",
+    "sympy>=1.12",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -236,6 +245,8 @@ dev = [
     # would quietly stop running the CasADi arm of eleven test modules on the jobs that
     # install `.[dev]`. A developer environment covers the code, so it carries the extra.
     "libcuflynx[casadi]",
+    # The lifting tests import sympy and run QBee.
+    "libcuflynx[lift]",
 ]
 docs = [
     "mkdocs-material>=9.0",
@@ -251,6 +262,7 @@ all = [
     "libcuflynx[uq]",
     "libcuflynx[emulation]",
     "libcuflynx[cpp]",
+    "libcuflynx[lift]",
 ]
 
 [tool.pytest.ini_options]

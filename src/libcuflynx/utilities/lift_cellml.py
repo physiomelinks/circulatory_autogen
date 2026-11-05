@@ -1,0 +1,1920 @@
+"""Lift a smooth flat CellML 2.0 model to exactly quadratic form, for Operator Inference (Lift & Learn).
+
+A lifting map T adds auxiliary states w_aux = T_aux(s) to the original states s, so that the lifted
+state w = (s, w_aux) obeys an ODE that is quadratic in w and affine in the inputs u::
+
+    dw/dt = A w + H (w (x) w) + sum_k N_k w u_k + B u + C
+
+(Qian, Kramer, Peherstorfer & Willcox 2020, Definition 1 and eq. 62). The original states are the first n
+entries of w, so the reverse map is the projection w[:n].
+
+Use on a model smoothed by :mod:`libcuflynx.utilities.smooth_cellml` (``cuflynx-smooth``): its smooth forms use
+only square roots, reciprocals, products and sums, which lift exactly.
+
+The steps (:func:`lift`):
+
+1. **Read.** The flat model's MathML becomes sympy, one symbol per connected set of variables. Constants
+   (no equation, a numeric initial value) are parameters; algebraic chains are substituted into the state
+   right-hand sides.
+2. **Inputs.** Named variables (``inputs``: module ports, open boundary conditions) stay symbols u. A
+   state-free subexpression that depends on time (``sin(w t)``, a pacing piecewise) becomes an input
+   given by that expression, and so does a non-smooth subexpression left in the model (an exempt site of
+   the smoothing pass, ``floor``): the lifted model computes it from the original states, as the original
+   does. A parameter-only subexpression that is not a monomial becomes a derived parameter.
+3. **Polynomialize.** QBee's ``polynomialize`` (in a subprocess with a time budget), checked against the
+   chain rule; if it fails, a rule table: each non-polynomial node f(g) becomes an auxiliary w = f(g) with
+   dw/dt = f'(g) dg/dt rewritten in the auxiliaries -- exp(g): w g'; ln g: g' z with z = 1/g;
+   g^(a/b): w = g^(1/b), z = g^(-1/b); 1/D: -w^2 D'; sin/cos as a pair; tanh: (1 - w^2) g'.
+   Input-free (Bychkov et al. 2023): the auxiliaries depend on the states only. Where an argument mixes
+   states and inputs, the derivative of an input that is a known function of time is added as an input
+   (``d<u>_dt``) and reported; otherwise the term becomes an input of its own (reported, not input-free).
+4. **Quadratize.** QBee's ``quadratize(input_free=True)`` (subprocess, time budget), else a greedy search that
+   adds the monomial removing the most terms of degree > 2 until every term is quadratic (a term with an
+   input may carry at most one state factor).
+5. **Outputs.** :func:`write_outputs` writes the lifted CellML model (each auxiliary initialised at
+   T(s(0))), ``lifting.json`` and ``lifting_functions.py`` (vectorised numpy T, J, inputs and right-hand
+   sides). :func:`verify` simulates the lifted and the smoothed model with CVODE_myokit and reports the
+   error in the original states, the distance from the manifold max |w - T(s)|, J f = rhs_lifted at sampled
+   states and the operator residual; :func:`structure` reports clocks, input kinds, the block-triangular
+   pattern and conserved linear functionals.
+
+In Python: :func:`lift_cellml_file` does all of it; ``cuflynx-lift`` is its command.
+"""
+
+import argparse
+import itertools
+import json
+import keyword
+import math
+import multiprocessing
+import os
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+import numpy as np
+
+try:
+    import sympy as sp
+except ModuleNotFoundError as e:  # pragma: no cover - checked in a subprocess
+    raise ModuleNotFoundError(f'{e}: the lifting needs pip install "libcuflynx[lift]"') from None
+
+from libcuflynx.utilities.smooth_cellml import _C, _M, _args, _op, _read, _tag
+
+CELLML2_NS = 'http://www.cellml.org/cellml/2.0#'
+MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
+DEFAULT_TIME_BUDGET = 60.0          # s for each QBee stage
+DEFAULT_MAX_AUX = 400               # auxiliaries either fallback may add
+#: smoothness class of each smoothing rule's original operation, and of its smooth form
+SMOOTHNESS = {'abs': 'C0 (Lipschitz, kink at x = 0)', 'maxmin': 'C0 (Lipschitz, kink where a = b)',
+              'rectifier': 'C0 (Lipschitz, kink at x = 0)',
+              'piecewise': 'C-1 (a jump) unless the branches meet at the switch, then C0',
+              'division': 'singular (unbounded where the denominator crosses 0)'}
+_NONSMOOTH = (sp.Piecewise, sp.Abs, sp.Max, sp.Min, sp.floor, sp.ceiling, sp.sign, sp.Heaviside, sp.Mod)
+_RESERVED = {'np', 'numpy', 'p', 'X', 'W', 'U', 'math', 'sp', 'E', 'I', 'N', 'O', 'S', 'Q', 'pi', 'oo', 'zoo',
+             'nan', 'beta', 'gamma', 'zeta', 'lambda', 'Lambda', 'ff', 'rf'}
+
+
+class LiftError(RuntimeError):
+    """The model cannot be read or lifted."""
+
+
+# ---------------------------------------------------------------------------------------------
+# reading: flat CellML MathML -> sympy
+
+_FUNCS = {'exp': sp.exp, 'ln': sp.log, 'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan, 'sinh': sp.sinh,
+          'cosh': sp.cosh, 'tanh': sp.tanh, 'arcsin': sp.asin, 'arccos': sp.acos, 'arctan': sp.atan,
+          'arcsinh': sp.asinh, 'arccosh': sp.acosh, 'arctanh': sp.atanh, 'abs': sp.Abs, 'floor': sp.floor,
+          'ceiling': sp.ceiling, 'sec': sp.sec, 'csc': sp.csc, 'cot': sp.cot}
+_REL = {'lt': sp.StrictLessThan, 'gt': sp.StrictGreaterThan, 'leq': sp.LessThan, 'geq': sp.GreaterThan,
+        'eq': sp.Eq, 'neq': sp.Ne}
+
+
+def _number(text):
+    text = text.strip()
+    try:
+        return sp.Integer(int(text))
+    except ValueError:
+        value = float(text)
+        r = sp.Rational(value).limit_denominator(10000)
+        return r if float(r) == value and r.q <= 1000 else sp.Float(value)
+
+
+class _Reader:
+    """The variables of a flat model, one per connected set, and its equations as sympy."""
+
+    def __init__(self, root):
+        self.root = root
+        self.parent = {}
+        for conn in root.findall(_C + 'connection'):
+            c1, c2 = conn.get('component_1'), conn.get('component_2')
+            for mv in conn.findall(_C + 'map_variables'):
+                a, b = self.find((c1, mv.get('variable_1'))), self.find((c2, mv.get('variable_2')))
+                if a != b:
+                    self.parent[a] = b
+        self.members, self.init, self.units = {}, {}, {}
+        for comp in root.findall(_C + 'component'):
+            for v in comp.findall(_C + 'variable'):
+                key = self.find((comp.get('name'), v.get('name')))
+                self.members.setdefault(key, []).append((comp.get('name'), v.get('name')))
+                if v.get('initial_value') is not None:
+                    self.init.setdefault(key, (comp.get('name'), v.get('initial_value')))
+                self.units.setdefault(key, v.get('units'))
+        self.state_of, self.alg_of, self.time_key, self.home = {}, {}, None, {}
+        self._raw = []
+        for comp in root.findall(_C + 'component'):
+            name = comp.get('name')
+            for m in comp.findall(_M + 'math'):
+                for eq in m:
+                    if _op(eq) != 'eq' or len(_args(eq)) != 2:
+                        raise LiftError(f'{name}: an equation that is not "a = b"')
+                    lhs, rhs = _args(eq)
+                    if _op(lhs) == 'diff':
+                        bvar = lhs.find(_M + 'bvar')[0].text.strip()
+                        tkey = self.find((name, bvar))
+                        if self.time_key not in (None, tkey):
+                            raise LiftError('more than one variable of integration')
+                        self.time_key = tkey
+                        target = _args(lhs)[0].text.strip()
+                        key = self.find((name, target))
+                        self.state_of[key] = (name, rhs)
+                        self.home[key] = (name, target)
+                    elif _tag(lhs) == 'ci':
+                        key = self.find((name, lhs.text.strip()))
+                        if key in self.alg_of:
+                            raise LiftError(f'{name}/{lhs.text.strip()} has two equations')
+                        self.alg_of[key] = (name, rhs)
+                        self.home[key] = (name, lhs.text.strip())
+                    else:
+                        raise LiftError(f'{name}: an equation whose left-hand side is not a variable or a rate')
+        for key, (comp, _value) in self.init.items():
+            self.home.setdefault(key, (comp, next(v for c, v in self.members[key] if c == comp)))
+        if self.time_key is not None:
+            self.home.setdefault(self.time_key, self.time_key)
+        # names: the variable's own name if unique, else component__variable; never a Python keyword or a
+        # name sympy parses as something else
+        homes = {k: self.home.get(k, k) for k in self.members}
+        counts = {}
+        for c, v in homes.values():
+            counts[v] = counts.get(v, 0) + 1
+        self.name, used = {}, set()
+        for key, (c, v) in homes.items():
+            n = v if counts[v] == 1 else f'{c}__{v}'
+            while keyword.iskeyword(n) or n in _RESERVED or n in used:
+                n += '_'
+            used.add(n)
+            self.name[key] = n
+        self.sym = {k: sp.Symbol(n, real=True) for k, n in self.name.items()}
+
+    def find(self, a):
+        while self.parent.get(a, a) != a:
+            a = self.parent[a]
+        return a
+
+    def qname(self, key):
+        c, v = self.home.get(key, key)
+        return f'{c}.{v}'
+
+    def expr(self, e, comp):
+        t = _tag(e)
+        if t == 'ci':
+            return self.sym[self.find((comp, e.text.strip()))]
+        if t == 'cn':
+            if e.get('type') == 'e-notation':
+                sep = e.find(_M + 'sep')
+                return _number(f'{(e.text or "").strip()}e{sep.tail.strip()}')
+            return _number(e.text)
+        if t == 'pi':
+            return sp.pi
+        if t == 'exponentiale':
+            return sp.E
+        if t == 'true':
+            return sp.true
+        if t == 'false':
+            return sp.false
+        if t == 'piecewise':
+            pieces = [(self.expr(p[0], comp), self.expr(p[1], comp)) for p in e if _tag(p) == 'piece']
+            pieces += [(self.expr(o[0], comp), True) for o in e if _tag(o) == 'otherwise']
+            return sp.Piecewise(*pieces)
+        if t != 'apply':
+            raise LiftError(f'unsupported MathML element <{t}>')
+        op, args = _op(e), [self.expr(a, comp) for a in _args(e)]
+        if op == 'plus':
+            return sp.Add(*args)
+        if op == 'minus':
+            return -args[0] if len(args) == 1 else args[0] - args[1]
+        if op == 'times':
+            return sp.Mul(*args)
+        if op == 'divide':
+            return args[0] / args[1]
+        if op == 'power':
+            return args[0] ** args[1]
+        if op == 'root':
+            degree = e.find(_M + 'degree')
+            n = self.expr(degree[0], comp) if degree is not None else sp.Integer(2)
+            return args[0] ** (1 / n)
+        if op == 'log':
+            base = e.find(_M + 'logbase')
+            b = self.expr(base[0], comp) if base is not None else sp.Integer(10)
+            return sp.log(args[0]) / sp.log(b)
+        if op in _FUNCS:
+            return _FUNCS[op](*args)
+        if op in ('max', 'min'):
+            return (sp.Max if op == 'max' else sp.Min)(*args)
+        if op in _REL:
+            return _REL[op](*args)
+        if op == 'and':
+            return sp.And(*args)
+        if op == 'or':
+            return sp.Or(*args)
+        if op == 'not':
+            return sp.Not(args[0])
+        if op == 'xor':
+            return sp.Xor(*args)
+        if op == 'rem':
+            return sp.Mod(*args)
+        raise LiftError(f'unsupported MathML operator <{op}>')
+
+
+# ---------------------------------------------------------------------------------------------
+# the model as sympy
+
+class Model:
+    """A flat model as sympy: states, parameters, inputs and right-hand sides in the states only.
+
+    Attributes:
+        states: state symbols, in myokit's order when myokit can import the model.
+        state_qnames: their ``component.variable`` names.
+        rhs: {state: right-hand side in states, parameters and input symbols}.
+        params: {parameter symbol: value}; ``derived``: {symbol: expression in parameters}, in order.
+        inputs: [{symbol, name, expr, kind, ...}]: a named variable (``variable``), a known function of
+            time (``time``), a non-smooth site (``nonsmooth``) or the derivative of an input (``derivative``).
+        init: {state: initial value}.
+        time: the time symbol.
+    """
+
+    def __init__(self, text, inputs=(), myokit_order=True):
+        root = _read(text)
+        r = _Reader(root)
+        self.reader = r
+        if r.time_key is None:
+            raise LiftError('no state variables')
+        self.time = r.sym[r.time_key]
+        wanted = set(inputs or ())
+        input_keys = set()
+        for key, members in r.members.items():
+            for c, v in members:
+                if v in wanted or f'{c}/{v}' in wanted or r.name[key] in wanted:
+                    input_keys.add(key)
+        missing = wanted - {n for k in input_keys for c, v in r.members[k] for n in (v, f'{c}/{v}', r.name[k])}
+        if missing:
+            raise LiftError(f'inputs not in the model: {sorted(missing)}')
+        state_keys = list(r.state_of)
+        self.params, self.inputs = {}, []
+        alg_raw = {k: r.expr(e, c) for k, (c, e) in r.alg_of.items()}
+        consts = {}
+        for key in r.members:
+            if key in r.state_of or key in r.alg_of or key == r.time_key:
+                continue
+            comp, value = r.init.get(key, (None, None))
+            try:
+                consts[key] = float(value)
+            except (TypeError, ValueError):
+                raise LiftError(f'{r.qname(key)} has no equation and no numeric initial value') from None
+        # algebraic chains, substituted
+        resolved = {}
+
+        def resolve(key, stack=()):
+            if key in resolved:
+                return resolved[key]
+            if key in stack:
+                raise LiftError(f'algebraic loop through {r.qname(key)}')
+            e = alg_raw[key]
+            subs = {}
+            for s in e.free_symbols:
+                k2 = self._key_of(s)
+                if k2 in alg_raw and k2 not in input_keys:
+                    subs[s] = resolve(k2, stack + (key,))
+            resolved[key] = e.xreplace(subs) if subs else e
+            return resolved[key]
+
+        self._sym_key = {s: k for k, s in r.sym.items()}
+        for key in alg_raw:
+            resolve(key)
+        for key, value in consts.items():
+            if key not in input_keys:
+                self.params[r.sym[key]] = value
+        # initial values
+        state_set = {r.sym[k] for k in state_keys}
+        param_vals = {s: v for s, v in self.params.items()}
+        self.init = {}
+        for key in state_keys:
+            comp, value = r.init.get(key, (None, None))
+            if value is None:
+                raise LiftError(f'state {r.qname(key)} has no initial value')
+            try:
+                self.init[r.sym[key]] = float(value)
+            except ValueError:
+                k2 = r.find((comp, value))
+                e = resolved.get(k2, r.sym[k2])
+                try:
+                    self.init[r.sym[key]] = _value(e, param_vals)
+                except TypeError:
+                    v = e.xreplace(param_vals)
+                    raise LiftError(f'initial value of {r.qname(key)} is not a constant: {v}') from None
+        # named inputs: their symbol stays; their value is their constant or their equation
+        for key in sorted(input_keys, key=lambda k: r.name[k]):
+            s = r.sym[key]
+            if key in consts:
+                self.inputs.append({'symbol': s, 'name': r.name[key], 'expr': sp.Float(consts[key]),
+                                    'kind': 'variable', 'held': True, 'qname': r.qname(key)})
+            elif key in alg_raw:
+                e = alg_raw[key].xreplace({x: resolved[self._key_of(x)] for x in alg_raw[key].free_symbols
+                                           if self._key_of(x) in resolved and self._key_of(x) not in input_keys})
+                self.inputs.append({'symbol': s, 'name': r.name[key], 'expr': e, 'kind': 'variable',
+                                    'held': not (e.free_symbols - set(self.params)), 'qname': r.qname(key)})
+            else:
+                raise LiftError(f'input {r.qname(key)} is a state')
+        rhs = {}
+        for key in state_keys:
+            comp, e = r.state_of[key]
+            e = r.expr(e, comp)
+            subs = {s: resolved[self._key_of(s)] for s in e.free_symbols
+                    if self._key_of(s) in resolved and self._key_of(s) not in input_keys}
+            rhs[r.sym[key]] = e.xreplace(subs) if subs else e
+        # state order: myokit's
+        self.states = [r.sym[k] for k in state_keys]
+        self.state_qnames = [r.qname(k) for k in state_keys]
+        if myokit_order:
+            order = _myokit_state_order(text)
+            if order and set(order) == set(self.state_qnames):
+                idx = [self.state_qnames.index(q) for q in order]
+                self.states = [self.states[i] for i in idx]
+                self.state_qnames = order
+        self.derived = {}
+        self._abstract_counter = itertools.count()
+        self.rhs = {}
+        self._input_by_expr = {}
+        for s in self.states:
+            self.rhs[s] = self._abstract(rhs[s], state_set)
+        self.n_inputs_named = len(self.inputs)
+
+    def _key_of(self, s):
+        return self._sym_key.get(s)
+
+    @property
+    def input_symbols(self):
+        return [i['symbol'] for i in self.inputs]
+
+    def new_input(self, e, kind, **extra):
+        key = (kind, e)
+        if key in self._input_by_expr:
+            return self._input_by_expr[key]
+        names = {str(s) for s in self.reader.sym.values()} | {i['name'] for i in self.inputs}
+        k = len(self.inputs) + 1
+        while f'u_{k}' in names:
+            k += 1
+        s = sp.Symbol(f'u_{k}', real=True)
+        self.inputs.append(dict({'symbol': s, 'name': f'u_{k}', 'expr': e, 'kind': kind}, **extra))
+        self._input_by_expr[key] = s
+        return s
+
+    def new_derived(self, e):
+        for s, d in self.derived.items():
+            if d == e:
+                return s
+        names = {str(s) for s in self.reader.sym.values()}
+        k = len(self.derived) + 1
+        while f'k_{k}' in names:
+            k += 1
+        s = sp.Symbol(f'k_{k}', real=True)
+        self.derived[s] = e
+        return s
+
+    def _abstract(self, e, states):
+        """Inputs and derived parameters out of an expression: what is left is elementary in the states."""
+        fs = e.free_symbols
+        params = set(self.params) | set(self.derived)
+        if not fs or fs <= params:
+            return self._param_part(e)
+        named = set(self.input_symbols[:len(self.inputs)])
+        if not fs & states:
+            if self.time in fs or not _is_poly_in(e, fs - params):
+                if e == self.time:
+                    return self.new_input(e, 'time')
+                if isinstance(e, (sp.Add, sp.Mul)) and not e.has(*_NONSMOOTH):
+                    # a sum or product of time and inputs: each non-polynomial part its own input
+                    return e.func(*[self._abstract(a, states) for a in e.args])
+                return self.new_input(e, 'time' if self.time in fs and not (fs & named) else 'input_function')
+            return e
+        if not e.args:
+            return e
+        if isinstance(e, _NONSMOOTH) or isinstance(e, (sp.logic.boolalg.BooleanFunction, sp.core.relational.Relational)):
+            switch = sorted(str(s) for s in fs & states)
+            return self.new_input(e, 'nonsmooth', switch_variables=switch)
+        return e.func(*[self._abstract(a, states) for a in e.args])
+
+    def _param_part(self, e):
+        if e.is_Number or e.is_Symbol or e in (sp.pi, sp.E):
+            return e
+        if isinstance(e, (sp.Add, sp.Mul)):
+            return e.func(*[self._param_part(a) for a in e.args])
+        if isinstance(e, sp.Pow) and e.args[0].is_Symbol and e.args[1].is_Integer:
+            return e
+        return self.new_derived(e)
+
+    def param_values(self):
+        """{symbol: value} of the parameters and the derived parameters."""
+        vals = dict(self.params)
+        for s, e in self.derived.items():
+            vals[s] = _value(e, vals)
+        return vals
+
+
+def _value(e, *values):
+    """A float of an expression with the symbols of ``values`` (dicts {symbol: float}) replaced."""
+    subs = {k: sp.Float(v) for d in values for k, v in d.items()}
+    return float(sp.sympify(e).xreplace(subs))
+
+
+def _is_poly_in(e, syms):
+    try:
+        return bool(sp.sympify(e).is_polynomial(*syms)) if syms else True
+    except Exception:
+        return False
+
+
+def _myokit_state_order(text):
+    try:
+        import warnings
+        import tempfile
+        import myokit.formats
+        with tempfile.NamedTemporaryFile('w', suffix='.cellml', delete=False) as f:
+            f.write(text if text.lstrip().startswith('<') else open(text).read())
+            path = f.name
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            m = myokit.formats.importer('cellml').model(path)
+        os.unlink(path)
+        return [s.qname() for s in m.states()]
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------------------------
+# QBee in a subprocess (it has no budget on polynomialization, and can recurse without end)
+
+def _qbee_child(conn, stage, payload, budget):
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 2)
+        os.dup2(devnull, 1)
+        sys.setrecursionlimit(5000)
+        import qbee
+        from functools import partial
+        fn = {n: qbee.functions(n, laurent=False) for n in payload['functions']}
+        pn = {n: qbee.parameters(n) for n in payload['parameters']}
+        loc = dict(fn, **pn)
+        system = [(fn[n], sp.sympify(e, locals=loc)) for n, e in payload['equations']]
+        if stage == 'polynomialize':
+            res = qbee.polynomialize(system, upper_bound=payload.get('upper_bound', 50), new_vars_name='qw_')
+            out = {'introduced': [(str(eq.lhs), str(eq.rhs)) for eq in res.introduced_variables],
+                   'equations': [(str(eq.lhs), str(eq.rhs)) for eq in res.polynomial_equations]}
+        else:
+            prune = [partial(qbee.pruning_by_elapsed_time, start_t=time.time(), max_t=budget)]
+            res = qbee.quadratize(system, input_free=True, pruning_functions=prune, new_vars_name='qm')
+            out = None if res is None else {'introduced': [(str(eq.lhs), str(eq.rhs))
+                                                           for eq in res.introduced_variables]}
+        conn.send(('ok', out))
+    except BaseException as e:  # noqa: BLE001 -- QBee errors of every kind end the attempt
+        conn.send(('error', f'{type(e).__name__}: {str(e)[:300]}'))
+
+
+def _run_qbee(stage, payload, budget):
+    """('ok', result) | ('error', message) | ('timeout', message)."""
+    ctx = multiprocessing.get_context('fork')
+    parent, child = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_qbee_child, args=(child, stage, payload, budget))
+    proc.start()
+    child.close()
+    if parent.poll(budget + 5.0):
+        try:
+            status, out = parent.recv()
+        except EOFError:
+            status, out = 'error', 'the QBee process ended without a result'
+    else:
+        status, out = 'timeout', f'over the time budget of {budget:g} s'
+    if proc.is_alive():
+        proc.kill()
+    proc.join()
+    return status, out
+
+
+# ---------------------------------------------------------------------------------------------
+# polynomialization by rules
+
+class _Aux:
+    def __init__(self, symbol, T, rule):
+        self.symbol, self.T, self.rule = symbol, T, rule
+
+
+class _Polynomializer:
+    """Rewrites expressions in the states as polynomials in the states and auxiliaries."""
+
+    def __init__(self, model, max_aux=DEFAULT_MAX_AUX):
+        self.m = model
+        self.states = list(model.states)
+        self.state_set = set(self.states)
+        self.aux, self.by_key = [], {}
+        self.max_aux = max_aux
+        self.notes = []
+        self.input_free = True
+        self._memo = {}
+
+    def _new(self, key, T, rule):
+        if key in self.by_key:
+            return self.by_key[key].symbol
+        if len(self.aux) >= self.max_aux:
+            raise LiftError(f'more than {self.max_aux} auxiliaries from the rule table')
+        s = sp.Symbol(f'pw_{len(self.aux)}', real=True)
+        a = _Aux(s, T, rule)
+        self.aux.append(a)
+        self.by_key[key] = a
+        return s
+
+    def _pow_aux(self, g, e):
+        """g^e for a rational e = a/b (b > 1) or a negative integer: in w = g^(1/b) or z = g^(-1/b)."""
+        e = sp.Rational(e)
+        a, b = e.p, e.q
+        if b == 1:
+            if ('pow', g, sp.Rational(-1, 2)) in self.by_key:
+                return self.by_key[('pow', g, sp.Rational(-1, 2))].symbol ** (2 * -a)
+            z = self._new(('pow', g, sp.Integer(-1)), 1 / g, 'reciprocal')
+            return z ** (-a)
+        if a > 0:
+            w = self._new(('pow', g, sp.Rational(1, b)), g ** sp.Rational(1, b), 'root' if b == 2 else 'power')
+            return w ** a
+        z = self._new(('pow', g, sp.Rational(-1, b)), g ** sp.Rational(-1, b), 'reciprocal root' if b == 2 else 'power')
+        return z ** (-a)
+
+    def rewrite(self, e):
+        if e in self._memo:
+            return self._memo[e]
+        out = self._rewrite(e)
+        self._memo[e] = out
+        return out
+
+    def _rewrite(self, e):
+        fs = e.free_symbols
+        if not (fs & self.state_set):
+            if fs & set(self.m.input_symbols) and not _is_poly_in(e, fs & set(self.m.input_symbols)):
+                return self.m.new_input(e, 'input_function')
+            return e
+        if e.is_Symbol:
+            return e
+        if isinstance(e, (sp.Add, sp.Mul)):
+            return e.func(*[self.rewrite(a) for a in e.args])
+        if isinstance(e, sp.Pow):
+            g, p = e.args
+            if p.free_symbols & self.state_set:
+                return self._aux_function(sp.exp(p * sp.log(g)), 'exp')
+            if p.is_Integer and p >= 0:
+                return self.rewrite(g) ** p
+            if p.is_Float:
+                r = sp.Rational(float(p)).limit_denominator(1000)
+                if float(r) == float(p):
+                    p = r
+            if p.is_Rational:
+                if g.is_Symbol and p.is_Integer:
+                    return self._pow_aux(g, p)
+                if g.is_Symbol or not (g.free_symbols & set(self.m.input_symbols)):
+                    return self._pow_aux(g, p)
+                return self._mixed(e)
+            # a symbolic exponent: g^(c + r), with c rational
+            c, rest = p.as_coeff_Add()
+            w = self._new(('pow', g, rest), g ** rest, 'power')
+            self._pow_aux(g, -1)
+            return w * (self.rewrite(g ** c) if c != 0 else 1)
+        if isinstance(e, sp.exp):
+            g = e.args[0]
+            if isinstance(g, sp.Add):
+                # exp(a + b) = exp(a) exp(b): the state-free part is a coefficient
+                free = [a for a in g.args if not (a.free_symbols & self.state_set)]
+                if free:
+                    rest = sp.Add(*[a for a in g.args if a.free_symbols & self.state_set])
+                    return self.rewrite(sp.exp(sp.Add(*free))) * self.rewrite(sp.exp(rest))
+            return self._aux_function(e, 'exp')
+        if isinstance(e, (sp.sin, sp.cos)):
+            g = e.args[0]
+            s = self._aux_function(sp.sin(g), 'sin')
+            c = self._aux_function(sp.cos(g), 'cos')
+            return s if isinstance(e, sp.sin) else c
+        if isinstance(e, sp.tan):
+            g = e.args[0]
+            return self.rewrite(sp.sin(g)) * self.rewrite(1 / sp.cos(g))
+        if isinstance(e, (sp.sinh, sp.cosh)):
+            return self.rewrite(e.rewrite(sp.exp))
+        if isinstance(e, sp.Function) or isinstance(e, sp.log):
+            return self._aux_function(e, type(e).__name__)
+        raise LiftError(f'cannot polynomialize {e}')
+
+    def _aux_function(self, e, rule):
+        if e.free_symbols & set(self.m.input_symbols):
+            return self._mixed(e)
+        return self._new(('f', e), e, rule)
+
+    def _mixed(self, e):
+        """A non-polynomial term in both states and inputs: the derivative of each input that is a
+        known function of time (or held) is added as an input; otherwise the term is an input."""
+        ins = [i for i in self.m.inputs if i['symbol'] in e.free_symbols]
+        if all(i['kind'] in ('time', 'variable') and not (i['expr'].free_symbols & self.state_set) for i in ins):
+            self.input_free = False
+            self.notes.append(f'{e}: depends on states and inputs; the inputs\' derivatives are inputs')
+            return self._new(('f', e), e, 'mixed')
+        self.notes.append(f'{e}: depends on states and an input that depends on the states; the term is an input')
+        self.input_free = False
+        return self.m.new_input(e, 'nonpolynomial_term', switch_variables=sorted(
+            str(s) for s in e.free_symbols & self.state_set))
+
+    def ddt(self, T):
+        """dT/dt along the model, as an expression in the states and inputs (and input derivatives)."""
+        out = sp.Integer(0)
+        for s in T.free_symbols & self.state_set:
+            out += sp.diff(T, s) * self.m.rhs[s]
+        for i in list(self.m.inputs):
+            u = i['symbol']
+            if u in T.free_symbols:
+                du = self._input_derivative(i)
+                out += sp.diff(T, u) * du
+        return out
+
+    def _input_derivative(self, i):
+        name = f'd{i["name"]}_dt'
+        for j in self.m.inputs:
+            if j['name'] == name:
+                return j['symbol']
+        if i['kind'] == 'time':
+            expr = sp.diff(i['expr'], self.m.time)
+        elif i.get('held'):
+            expr = sp.Integer(0)
+        else:
+            expr = sp.diff(i['expr'], self.m.time)
+        s = sp.Symbol(name, real=True)
+        self.m.inputs.append({'symbol': s, 'name': name, 'expr': expr, 'kind': 'derivative', 'of': i['name']})
+        return s
+
+    def run(self):
+        """{state or auxiliary: polynomial right-hand side}, and the auxiliaries."""
+        poly = {s: self.rewrite(self.m.rhs[s]) for s in self.states}
+        done = 0
+        while done < len(self.aux):
+            a = self.aux[done]
+            poly[a.symbol] = self.rewrite(self.ddt(a.T))
+            done += 1
+        return poly
+
+
+# ---------------------------------------------------------------------------------------------
+# polynomials as {exponent tuple over (V + U): coefficient}
+
+def _to_dict(e, gens):
+    e = sp.expand(e)
+    if e == 0:
+        return {}
+    try:
+        p = sp.Poly(e, *gens)
+    except sp.PolynomialError as err:
+        raise LiftError(f'not polynomial in the lifted variables: {err}') from None
+    out = {}
+    for mono, c in p.terms():
+        if not all(isinstance(k, int) or k.is_Integer for k in mono):
+            raise LiftError('a non-integer power of a lifted variable')
+        out[tuple(int(k) for k in mono)] = c
+    return out
+
+
+def _add_to(acc, mono, c):
+    acc[mono] = acc.get(mono, 0) + c
+
+
+class _Quadratic:
+    """The search for monomial variables W over the polynomial variables V that make every right-hand
+    side quadratic in W (a term with an input: at most one W factor)."""
+
+    def __init__(self, nV, nU, rhs_V):
+        self.nV, self.nU = nV, nU
+        self.rhs_V = rhs_V                       # list over V of {mono over V+U: coeff}
+        self.W = [tuple(1 if i == j else 0 for i in range(nV)) for j in range(nV)]
+        self.Wset = set(self.W)
+        self.Widx = {w: i for i, w in enumerate(self.W)}
+        self.rhs_W = list(rhs_V)
+
+    def rhs_of_monomial(self, m):
+        out = {}
+        for i, e in enumerate(m):
+            if not e:
+                continue
+            base = list(m)
+            base[i] -= 1
+            for mono, c in self.rhs_V[i].items():
+                shifted = tuple(a + b for a, b in zip(base, mono[:self.nV])) + mono[self.nV:]
+                _add_to(out, shifted, e * c)
+        return {k: v for k, v in out.items() if sp.expand(v) != 0}
+
+    def add(self, m):
+        if m in self.Wset:
+            return
+        self.Widx[m] = len(self.W)
+        self.W.append(m)
+        self.Wset.add(m)
+        self.rhs_W.append(self.rhs_of_monomial(m))
+
+    def split(self, mono):
+        """(i,) | (i, j) | () -- indices into W whose product is the state part; None if not quadratic."""
+        ms, mu = mono[:self.nV], mono[self.nV:]
+        if not any(ms):
+            return ()
+        if ms in self.Wset:
+            return (self.Widx[ms],)
+        if any(mu):
+            return None
+        for i, a in enumerate(self.W):
+            if all(x <= y for x, y in zip(a, ms)):
+                rest = tuple(y - x for x, y in zip(a, ms))
+                if rest in self.Wset:
+                    return tuple(sorted((i, self.Widx[rest])))
+        return None
+
+    def bad(self):
+        out = set()
+        for r in self.rhs_W:
+            for mono in r:
+                if self.split(mono) is None:
+                    out.add((mono[:self.nV], any(mono[self.nV:])))
+        return out
+
+    def greedy(self, max_new, deadline=None):
+        while True:
+            bad = self.bad()
+            if not bad:
+                return True
+            if len(self.W) - self.nV >= max_new or (deadline and time.perf_counter() > deadline):
+                return False
+            cands = {}
+            for ms, has_u in bad:
+                if has_u:
+                    cands.setdefault(ms, 0)
+                    continue
+                for i in range(self.nV):
+                    if ms[i]:
+                        d = tuple(x - (1 if k == i else 0) for k, x in enumerate(ms))
+                        cands.setdefault(d, 0)
+                for a in self.W[self.nV:]:
+                    if all(x <= y for x, y in zip(a, ms)):
+                        d = tuple(y - x for x, y in zip(a, ms))
+                        if sum(d) >= 2:
+                            cands.setdefault(d, 0)
+            for d in cands:
+                for ms, has_u in bad:
+                    if ms == d:
+                        cands[d] += 1
+                    elif not has_u and all(x <= y for x, y in zip(d, ms)):
+                        rest = tuple(y - x for x, y in zip(d, ms))
+                        if sum(rest) == 1 or rest in self.Wset:
+                            cands[d] += 1
+            best = max(cands, key=lambda d: (cands[d], -sum(d), d))
+            self.add(best)
+
+
+# ---------------------------------------------------------------------------------------------
+# the lifting
+
+class Lifting:
+    """A quadratic lifting of a model (see :func:`lift`).
+
+    ``names``: the lifted variables, the original states first; ``T``: their expressions in the
+    original states (and parameters); ``rhs``: {lifted index: [(coeff, (), (i,) or (i, j), input feature or None)]}.
+    """
+
+
+def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', max_aux=DEFAULT_MAX_AUX,
+         smoothing_report=None):
+    """Lift a flat CellML model (text or path) to quadratic form.
+
+    Args:
+        inputs: the variables to keep as inputs u ("name", "component/name"): ports, open boundary conditions.
+        time_budget: seconds for each QBee stage before the rule table or the greedy search take over.
+        engine: ``"auto"`` (QBee, then the fallbacks), ``"qbee"`` (no fallback: fails when QBee does) or
+            ``"rules"`` (the rule table and the greedy search only).
+        smoothing_report: the smoothing pass's report (dict or path), for each auxiliary's epsilon and each
+            site's smoothness class.
+
+    Returns:
+        a :class:`Lifting`.
+    """
+    t_start = time.perf_counter()
+    text = model_text
+    if not text.lstrip().startswith('<'):
+        with open(text, encoding='utf-8') as f:
+            text = f.read()
+    m = Model(text, inputs)
+    states = list(m.states)
+    params_all = lambda: list(m.params) + list(m.derived)  # noqa: E731
+    engine_report = {'requested': engine, 'qbee_errors': []}
+    timings = {}
+
+    # 1. polynomialize
+    t0 = time.perf_counter()
+    aux_T, poly = None, None
+    if engine in ('auto', 'qbee'):
+        res = _qbee_polynomialize(m, time_budget)
+        if res[0] == 'ok':
+            aux_T, poly = res[1]
+            engine_report['polynomialize'] = 'qbee'
+        else:
+            engine_report['qbee_errors'].append(f'polynomialize: {res[1]}')
+            if engine == 'qbee':
+                raise LiftError(f'QBee polynomialize: {res[1]}')
+    input_free, notes = True, []
+    if poly is None:
+        p = _Polynomializer(m, max_aux)
+        poly_sym = p.run()
+        aux_T = [(a.symbol, a.T, a.rule) for a in p.aux]
+        poly = poly_sym
+        input_free, notes = p.input_free, p.notes
+        engine_report['polynomialize'] = 'rules'
+    timings['polynomialize'] = time.perf_counter() - t0
+    V = states + [s for s, _, _ in aux_T]
+    U = m.input_symbols
+    gens = V + U
+    rhs_V = [_to_dict(poly[v], gens) for v in V]
+
+    # 2. quadratize
+    t0 = time.perf_counter()
+    q = _Quadratic(len(V), len(U), rhs_V)
+    done = False
+    if engine in ('auto', 'qbee'):
+        res = _qbee_quadratize(V, U, params_all(), rhs_V, time_budget)
+        if res[0] == 'ok':
+            for mono in res[1]:
+                q.add(mono)
+            done = not q.bad()
+            engine_report['quadratize'] = 'qbee' if done else 'qbee+greedy'
+            if not done:
+                engine_report['qbee_errors'].append('quadratize: QBee\'s variables leave terms of degree > 2')
+        else:
+            engine_report['qbee_errors'].append(f'quadratize: {res[1]}')
+            if engine == 'qbee':
+                raise LiftError(f'QBee quadratize: {res[1]}')
+    if not done:
+        deadline = time.perf_counter() + max(time_budget, 30.0) * 4
+        if not q.greedy(max_aux, deadline):
+            raise LiftError(f'the greedy quadratization stopped at {len(q.W) - len(V)} monomials with terms of '
+                            f'degree > 2 left (max_aux {max_aux})')
+        engine_report.setdefault('quadratize', 'greedy')
+    timings['quadratize'] = time.perf_counter() - t0
+
+    # 3. the lifted system
+    T_V = list(states) + [T for _, T, _ in aux_T]
+    names = [str(s) for s in states]
+    used = {str(s) for s in m.reader.sym.values()} | {i['name'] for i in m.inputs} | {str(s) for s in m.derived}
+    aux_names = []
+    for k in range(len(q.W) - len(states)):
+        n = f'w_{k + 1}'
+        while n in used:
+            n = 'lift_' + n
+        aux_names.append(n)
+    names += aux_names
+    T = []
+    for mono in q.W:
+        T.append(sp.Mul(*[T_V[i] ** e for i, e in enumerate(mono) if e]))
+    rules = [None] * len(states) + [r for _, _, r in aux_T] + ['monomial'] * (len(q.W) - len(V))
+    # the right-hand side in W: terms (coeff, W indices, input monomial)
+    terms = []
+    features, feature_index = [], {}
+    for r in q.rhs_W:
+        row = []
+        for mono, c in r.items():
+            idx = q.split(mono)
+            mu = mono[len(V):]
+            f = None
+            if any(mu):
+                if mu not in feature_index:
+                    feature_index[mu] = len(features)
+                    features.append(mu)
+                f = feature_index[mu]
+            row.append((c, idx, f))
+        terms.append(row)
+
+    names, T, rules, terms = _reduce(m, states, names, T, rules, terms)
+
+    L = Lifting()
+    L.model, L.text = m, text
+    names = names[:len(states)] + [aux_names[k] for k in range(len(names) - len(states))]
+    L.states, L.names, L.T, L.rules = states, names, T, rules
+    L.symbols = [sp.Symbol(n, real=True) for n in names]
+    L.n, L.n_w = len(states), len(names)
+    L.terms, L.features = terms, features
+    L.input_symbols = U
+    L.engine = dict(engine_report, input_free=input_free and not any(i['kind'] == 'derivative' for i in m.inputs),
+                    notes=notes, n_polynomial_aux=len(aux_T), n_monomials=len(q.W) - len(V))
+    L.timings = timings
+    L.smoothing_report = _load_json(smoothing_report)
+    L.timings['lift'] = time.perf_counter() - t_start
+    _symbolic_operators(L)
+    return L
+
+
+def _reduce(m, states, names, T, rules, terms):
+    """Drops the auxiliaries whose T is constant (substituted as a coefficient) or equal to an earlier
+    variable's T (replaced by it), e.g. QBee's w = sqrt(g) * (1/sqrt(g)) = 1. The right-hand sides stay
+    quadratic and exact on the manifold. Equality is tested at random states near the initial state."""
+    n = len(states)
+    pv = m.param_values()
+    rng = np.random.default_rng(3)
+    s0 = np.array([m.init[s] for s in states], dtype=float)
+    pts = s0[None, :] * (1 + 0.1 * rng.standard_normal((5, n))) + 0.1 * rng.standard_normal((5, n))
+    vals = []
+    for e in T:
+        try:
+            f = sp.lambdify(states, sp.sympify(e).xreplace({k: sp.Float(v) for k, v in pv.items()}), 'numpy')
+            with np.errstate(all='ignore'):
+                v = np.broadcast_to(np.asarray(f(*pts.T), dtype=float), (len(pts),))
+        except Exception:
+            v = np.full(len(pts), np.nan)
+        vals.append(v)
+    sub = {}
+    for j in range(n, len(T)):
+        v = vals[j]
+        if not np.all(np.isfinite(v)):
+            continue
+        tol = 1e-10 * max(1.0, float(np.max(np.abs(v))))
+        if not (sp.sympify(T[j]).free_symbols & set(states)) or np.ptp(v) <= tol and _const(T[j], states):
+            sub[j] = ('const', sp.simplify(T[j]))
+            continue
+        for k in range(j):
+            if k not in sub and np.all(np.abs(vals[k] - v) <= tol):
+                sub[j] = ('var', k)
+                break
+    if not sub:
+        return names, T, rules, terms
+    keep = [j for j in range(len(T)) if j not in sub]
+    new_index = {j: i for i, j in enumerate(keep)}
+    out_terms = []
+    for j in keep:
+        row = []
+        for c, idx, f in terms[j]:
+            new = []
+            for k in idx:
+                kind, what = sub.get(k, ('keep', k))
+                if kind == 'const':
+                    c = c * what
+                else:
+                    new.append(new_index[what])
+            row.append((c, tuple(sorted(new)), f))
+        out_terms.append(row)
+    return [names[j] for j in keep], [T[j] for j in keep], [rules[j] for j in keep], out_terms
+
+
+def _const(e, states):
+    """Whether e simplifies to an expression free of the states."""
+    try:
+        return not (sp.simplify(e).free_symbols & set(states))
+    except Exception:
+        return False
+
+
+def _load_json(x):
+    if x is None or isinstance(x, dict):
+        return x
+    with open(x) as f:
+        return json.load(f)
+
+
+def _qbee_names(m, V, U, params):
+    vn = {s: f'v{i}' for i, s in enumerate(V)}
+    un = {s: f'u{i}' for i, s in enumerate(U)}
+    pn = {s: f'p{i}' for i, s in enumerate(params)}
+    return vn, un, pn
+
+
+def _qbee_polynomialize(m, budget):
+    """('ok', (aux list, {var: poly rhs})) when QBee's polynomialization is input-free and checks out."""
+    params = list(m.params) + list(m.derived)
+    vn, un, pn = _qbee_names(m, m.states, m.input_symbols, params)
+    ren = {**vn, **un, **pn}
+    inv = {sp.Symbol(v): k for k, v in ren.items()}
+    payload = {'functions': list(vn.values()) + list(un.values()), 'parameters': list(pn.values()),
+               'equations': [(vn[s], str(m.rhs[s].xreplace({k: sp.Symbol(v) for k, v in ren.items()})))
+                             for s in m.states], 'upper_bound': DEFAULT_MAX_AUX}
+    status, out = _run_qbee('polynomialize', payload, budget)
+    if status != 'ok':
+        return status, out
+    aux, aux_sym = [], {}
+    for k, (lhs, rhs) in enumerate(out['introduced']):
+        s = sp.Symbol(f'pw_{k}', real=True)
+        aux_sym[sp.Symbol(lhs.replace('{', '').replace('}', ''))] = s
+    loc = {str(k): k for k in inv}
+    for k, (lhs, rhs) in enumerate(out['introduced']):
+        T = sp.sympify(rhs, locals=loc).xreplace(inv)
+        if T.free_symbols & set(m.input_symbols):
+            return 'error', f'an auxiliary depends on an input: {T}'
+        aux.append((aux_sym[sp.Symbol(lhs.replace('{', '').replace('}', ''))], T, 'qbee'))
+    poly = {}
+    for lhs, rhs in out['equations']:
+        name = lhs.rstrip("'").replace('{', '').replace('}', '')
+        e = sp.sympify(rhs.replace('{', '').replace('}', ''), locals=loc).xreplace(inv)
+        e = e.xreplace({sp.Symbol(str(k)): v for k, v in aux_sym.items()})
+        target = aux_sym.get(sp.Symbol(name)) or inv.get(sp.Symbol(name))
+        poly[target] = e
+    V = list(m.states) + [a for a, _, _ in aux]
+    if set(poly) != set(V):
+        return 'error', 'QBee\'s polynomial system does not match its variables'
+    # check: each variable's polynomial right-hand side is d/dt of its definition
+    subs = {a: T for a, T, _ in aux}
+    rng = np.random.default_rng(0)
+    pv = {k: sp.Float(v) for k, v in m.param_values().items()}
+    for v, T in [(s, s) for s in m.states] + [(a, T) for a, T, _ in aux]:
+        lhs = sp.sympify(sum(sp.diff(T, s) * m.rhs[s] for s in T.free_symbols & set(m.states))).xreplace(pv)
+        diff = sp.sympify(poly[v].xreplace(subs)).xreplace(pv) - lhs
+        for _ in range(3):
+            point = {s: sp.Float(rng.uniform(0.5, 1.5)) for s in m.states}
+            point.update({u: sp.Float(rng.uniform(0.5, 1.5)) for u in m.input_symbols})
+            try:
+                val = complex(diff.xreplace(point).evalf())
+                scale = 1 + abs(complex(lhs.xreplace(point).evalf()))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if abs(val) > 1e-8 * scale:
+                return 'error', f'QBee\'s polynomial right-hand side of {v} fails the chain-rule check'
+    return 'ok', (aux, poly)
+
+
+def _qbee_quadratize(V, U, params, rhs_V, budget):
+    """('ok', [monomial over V]) or an error."""
+    vn = [f'v{i}' for i in range(len(V))]
+    un = [f'u{i}' for i in range(len(U))]
+    pmap = {s: f'p{i}' for i, s in enumerate(params)}
+    gens = [sp.Symbol(n) for n in vn + un]
+    eqs = []
+    for i, r in enumerate(rhs_V):
+        e = sum(sp.sympify(c).xreplace({k: sp.Symbol(v) for k, v in pmap.items()}) *
+                sp.Mul(*[g ** k for g, k in zip(gens, mono)]) for mono, c in r.items())
+        eqs.append((vn[i], str(e)))
+    payload = {'functions': vn + un, 'parameters': list(pmap.values()), 'equations': eqs}
+    status, out = _run_qbee('quadratize', payload, budget)
+    if status != 'ok':
+        return status, out
+    if out is None:
+        return 'error', 'QBee found no quadratization'
+    vsyms = [sp.Symbol(n) for n in vn]
+    monos = []
+    for _lhs, rhs in out['introduced']:
+        e = sp.sympify(rhs.replace('{', '').replace('}', ''))
+        try:
+            p = sp.Poly(e, *vsyms)
+        except sp.PolynomialError:
+            return 'error', f'QBee introduced a non-monomial variable {rhs}'
+        if len(p.terms()) != 1:
+            return 'error', f'QBee introduced a non-monomial variable {rhs}'
+        monos.append(tuple(int(k) for k in p.terms()[0][0]))
+    return 'ok', monos
+
+
+# ---------------------------------------------------------------------------------------------
+# operators
+
+def _symbolic_operators(L):
+    """A, H (upper-triangular pairs), N (per input feature), B, C as {(i, j): coefficient expression}."""
+    n_w = L.n_w
+    A, H, B, C = {}, {}, {}, {}
+    N = [dict() for _ in L.features]
+    for i, row in enumerate(L.terms):
+        for c, idx, f in row:
+            if f is None:
+                if len(idx) == 0:
+                    _add_to(C, (i,), c)
+                elif len(idx) == 1:
+                    _add_to(A, (i, idx[0]), c)
+                else:
+                    _add_to(H, (i, idx[0], idx[1]), c)
+            else:
+                if len(idx) == 0:
+                    _add_to(B, (i, f), c)
+                else:
+                    _add_to(N[f], (i, idx[0]), c)
+    clean = lambda d: {k: v for k, v in d.items() if sp.expand(v) != 0}  # noqa: E731
+    L.A, L.H, L.B, L.C, L.N = clean(A), clean(H), clean(B), clean(C), [clean(x) for x in N]
+    L.feature_names = [_feature_name(L, f) for f in L.features]
+
+
+def _pair_k(i, j, n):
+    """The index of the pair (i, j), i <= j, in numpy.triu_indices(n) order."""
+    return i * n - i * (i - 1) // 2 + (j - i)
+
+
+def _feature_name(L, mu):
+    return str(sp.Mul(*[u ** k for u, k in zip(L.input_symbols, mu) if k]))
+
+
+def numeric_operators(L, values=None):
+    """(A, H_coo, N list, B, C) as numpy arrays at the parameter values (default: the model's).
+    H_coo is (rows, pair indices in numpy.triu_indices(n_w) order, values)."""
+    pv = L.model.param_values()
+    if values:
+        pv.update({sp.Symbol(k, real=True) if isinstance(k, str) else k: v for k, v in values.items()})
+        base = {s: pv[s] for s in L.model.params}
+        for s, e in L.model.derived.items():
+            base[s] = _value(e, base)
+        pv.update(base)
+    ev = lambda c: _value(c, pv)  # noqa: E731
+    n_w, n_f = L.n_w, len(L.features)
+    A = np.zeros((n_w, n_w))
+    for (i, j), c in L.A.items():
+        A[i, j] = ev(c)
+    hr, hk, hv = [], [], []
+    for (i, a, b), c in sorted(L.H.items()):
+        hr.append(i)
+        hk.append(_pair_k(a, b, n_w))
+        hv.append(ev(c))
+    N = [np.zeros((n_w, n_w)) for _ in range(n_f)]
+    for f, Nf in enumerate(L.N):
+        for (i, j), c in Nf.items():
+            N[f][i, j] = ev(c)
+    B = np.zeros((n_w, n_f))
+    for (i, f), c in L.B.items():
+        B[i, f] = ev(c)
+    C = np.zeros(n_w)
+    for (i,), c in L.C.items():
+        C[i] = ev(c)
+    return A, (np.array(hr, dtype=int), np.array(hk, dtype=int), np.array(hv)), N, B, C
+
+
+def apply_operators(ops, W, F):
+    """A w + H (w (x) w) + sum_k N_k w f_k + B f + C for snapshots W (n_snap, n_w) and input features
+    F (n_snap, n_f)."""
+    A, (hr, hk, hv), N, B, C = ops
+    n_w = W.shape[1]
+    rows, cols = np.triu_indices(n_w)
+    out = W @ A.T + C[None, :]
+    if len(hr):
+        prod = W[:, rows[hk]] * W[:, cols[hk]]
+        np.add.at(out.T, hr, (prod * hv[None, :]).T)
+    for f, Nf in enumerate(N):
+        out += (W @ Nf.T) * F[:, f:f + 1]
+    if F.shape[1]:
+        out += F @ B.T
+    return out
+
+
+# ---------------------------------------------------------------------------------------------
+# CellML output
+
+def _mml(e):
+    """Content MathML of a sympy expression (CellML 2.0: every cn in dimensionless)."""
+    def cn(v):
+        if isinstance(v, sp.Rational) and not v.is_Integer:
+            return f'<apply><divide/>{cn(sp.Integer(v.p))}{cn(sp.Integer(v.q))}</apply>'
+        v = float(v)
+        text = str(int(v)) if v.is_integer() and abs(v) < 1e15 else repr(v)
+        return f'<cn cellml:units="dimensionless">{text}</cn>'
+
+    def ap(op, *args):
+        return f'<apply><{op}/>' + ''.join(args) + '</apply>'
+
+    if e.is_Symbol:
+        return f'<ci>{e.name}</ci>'
+    if e is sp.pi:
+        return '<pi/>'
+    if e is sp.E:
+        return '<exponentiale/>'
+    if e is sp.true:
+        return '<true/>'
+    if e is sp.false:
+        return '<false/>'
+    if e.is_Number:
+        return cn(e)
+    if isinstance(e, sp.Add):
+        return ap('plus', *[_mml(a) for a in e.args])
+    if isinstance(e, sp.Mul):
+        num, den = [], []
+        for a in e.args:
+            if isinstance(a, sp.Pow) and a.args[1].is_Number and a.args[1] < 0:
+                den.append(a.args[0] ** (-a.args[1]))
+            elif a.is_Rational and not a.is_Integer:
+                num.append(sp.Integer(a.p))
+                den.append(sp.Integer(a.q))
+            else:
+                num.append(a)
+        n = ap('times', *[_mml(a) for a in num]) if len(num) > 1 else (_mml(num[0]) if num else cn(1))
+        if not den:
+            return n
+        d = ap('times', *[_mml(a) for a in den]) if len(den) > 1 else _mml(den[0])
+        return ap('divide', n, d)
+    if isinstance(e, sp.Pow):
+        b, p = e.args
+        if p == sp.Rational(1, 2):
+            return ap('root', _mml(b))
+        if p.is_Number and p < 0:
+            return ap('divide', cn(1), _mml(b ** (-p)))
+        return ap('power', _mml(b), _mml(p))
+    fmap = {sp.exp: 'exp', sp.log: 'ln', sp.sin: 'sin', sp.cos: 'cos', sp.tan: 'tan', sp.tanh: 'tanh',
+            sp.sinh: 'sinh', sp.cosh: 'cosh', sp.asin: 'arcsin', sp.acos: 'arccos', sp.atan: 'arctan',
+            sp.Abs: 'abs', sp.floor: 'floor', sp.ceiling: 'ceiling', sp.Max: 'max', sp.Min: 'min', sp.Mod: 'rem',
+            sp.And: 'and', sp.Or: 'or', sp.Not: 'not', sp.Xor: 'xor',
+            sp.StrictLessThan: 'lt', sp.StrictGreaterThan: 'gt', sp.LessThan: 'leq', sp.GreaterThan: 'geq',
+            sp.Eq: 'eq', sp.Ne: 'neq'}
+    for cls, op in fmap.items():
+        if isinstance(e, cls):
+            return ap(op, *[_mml(a) for a in e.args])
+    if isinstance(e, sp.Piecewise):
+        out = '<piecewise>'
+        for val, cond in e.args:
+            if cond is sp.true:
+                out += f'<otherwise>{_mml(val)}</otherwise>'
+            else:
+                out += f'<piece>{_mml(val)}{_mml(cond)}</piece>'
+        return out + '</piecewise>'
+    if isinstance(e, sp.sign):
+        x = e.args[0]
+        return _mml(sp.Piecewise((1, x > 0), (-1, x < 0), (0, True)))
+    if isinstance(e, sp.Heaviside):
+        x = e.args[0]
+        return _mml(sp.Piecewise((1, x > 0), (0, True)))
+    raise LiftError(f'cannot write {type(e).__name__} as MathML')
+
+
+def lifted_expression(L, i):
+    """The lifted right-hand side of lifted variable i, in the lifted variables and input features."""
+    W = L.symbols
+    F = [sp.Mul(*[u ** k for u, k in zip(L.input_symbols, mu) if k]) for mu in L.features]
+    out = sp.Integer(0)
+    for c, idx, f in L.terms[i]:
+        out += c * sp.Mul(*[W[j] for j in idx]) * (F[f] if f is not None else 1)
+    return out
+
+
+def lifted_cellml(L, name=None):
+    """The lifted model as CellML 2.0 text: one component, every variable dimensionless; the original
+    states keep their names and initial values, each auxiliary starts at T(s(0))."""
+    from libcellml import Parser, Printer
+    m = L.model
+    pv = m.param_values()
+    s0 = dict(m.init)
+    w0 = [_value(T, s0, pv) for T in L.T]
+    tname = str(m.time)
+    lines = [f'<variable name="{tname}" units="dimensionless"/>']
+    for s, v in m.params.items():
+        lines.append(f'<variable name="{s}" units="dimensionless" initial_value="{v!r}"/>')
+    for s in m.derived:
+        lines.append(f'<variable name="{s}" units="dimensionless"/>')
+    for i in m.inputs:
+        if not (i['kind'] == 'variable' and i.get('held')):
+            lines.append(f'<variable name="{i["name"]}" units="dimensionless"/>')
+    for n, v in zip(L.names, w0):
+        lines.append(f'<variable name="{n}" units="dimensionless" initial_value="{v!r}"/>')
+    eqs = []
+    for s, e in m.derived.items():
+        eqs.append(f'<apply><eq/><ci>{s}</ci>{_mml(e)}</apply>')
+    for i in m.inputs:
+        if i['kind'] == 'variable' and i.get('held'):
+            # a held input is a constant of the lifted model
+            continue
+        eqs.append(f'<apply><eq/><ci>{i["name"]}</ci>{_mml(i["expr"])}</apply>')
+    for k, n in enumerate(L.names):
+        eqs.append(f'<apply><eq/><apply><diff/><bvar><ci>{tname}</ci></bvar><ci>{n}</ci></apply>'
+                   f'{_mml(lifted_expression(L, k))}</apply>')
+    held = [i for i in m.inputs if i['kind'] == 'variable' and i.get('held')]
+    for i in held:
+        lines.append(f'<variable name="{i["name"]}" units="dimensionless" initial_value="{float(i["expr"])!r}"/>')
+    model_name = name or 'lifted'
+    text = (f'<?xml version="1.0" encoding="UTF-8"?>\n<model xmlns="{CELLML2_NS}" name="{model_name}">\n'
+            f'<component name="lifted">\n' + '\n'.join(lines) +
+            f'\n<math xmlns="{MATHML_NS}" xmlns:cellml="{CELLML2_NS}">\n' + '\n'.join(eqs) +
+            '\n</math>\n</component>\n</model>\n')
+    parser = Parser()
+    model = parser.parseModel(text)
+    if parser.errorCount():
+        raise LiftError('libCellML could not parse the lifted model: ' +
+                        '; '.join(parser.error(i).description() for i in range(parser.errorCount())))
+    return Printer().printModel(model)
+
+
+# ---------------------------------------------------------------------------------------------
+# numpy functions
+
+def python_module(L):
+    """Source of a module with vectorised numpy functions of the lifting, at the model's parameters
+    (``p`` overrides them by name): T(X), J(X), inputs(t, X), features(U), rhs_original(X, U),
+    rhs_lifted(W, U), operators()."""
+    from sympy.printing.numpy import NumPyPrinter
+    pr = NumPyPrinter({'fully_qualified_modules': True, 'allow_unknown_functions': False})
+    m = L.model
+    code = lambda e: pr.doprint(sp.sympify(e))  # noqa: E731
+    out = ['"""The lifting of a CellML model to quadratic form (written by libcuflynx.utilities.lift_cellml).',
+           '',
+           'X: (n_snap, n) original states; W: (n_snap, n_w) lifted; U: (n_snap, n_u) inputs, in INPUTS order;',
+           'p: {parameter name: value} overriding PARAMS. features(U) are the input monomials the operators use."""',
+           'import functools  # noqa: F401 (the printer writes functools.reduce for max and min)', 'import numpy', '', '']
+    out.append(f'STATES = {[str(s) for s in L.states]!r}')
+    out.append(f'LIFTED = {L.names!r}')
+    out.append(f'INPUTS = {[i["name"] for i in m.inputs]!r}')
+    out.append(f'FEATURES = {L.feature_names!r}')
+    out.append('PARAMS = {' + ', '.join(f'{str(s)!r}: {v!r}' for s, v in m.params.items()) + '}')
+    out.append('')
+    out.append('')
+    out.append('def _b(v, n):\n    return numpy.broadcast_to(numpy.asarray(v, dtype=float), (n,))')
+    out.append('')
+    out.append('')
+    out.append('def _p(p=None):\n    q = dict(PARAMS)\n    q.update(p or {})')
+    for s, e in m.derived.items():
+        unpack = ''.join(f'{x} = q[{str(x)!r}]; ' for x in sorted(e.free_symbols, key=str))
+        out.append(f'    {unpack}q[{str(s)!r}] = {code(e)}')
+    out.append('    return q')
+
+    def header(args, unpack_states=None, unpack_w=None, unpack_u=None):
+        lines = [f'    q = _p(p)']
+        names = sorted(set(map(str, m.params)) | set(map(str, m.derived)))
+        for n in names:
+            lines.append(f'    {n} = q[{n!r}]')
+        if unpack_states:
+            for k, s in enumerate(L.states):
+                lines.append(f'    {s} = {unpack_states}[:, {k}]')
+        if unpack_w:
+            for k, n in enumerate(L.names):
+                lines.append(f'    {n} = {unpack_w}[:, {k}]')
+        if unpack_u:
+            for k, i in enumerate(m.inputs):
+                lines.append(f'    {i["name"]} = {unpack_u}[:, {k}]')
+        return lines
+
+    out += ['', '', 'def T(X, p=None):', '    """(n_snap, n) -> (n_snap, n_w)."""', '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X')
+    out.append('    n = X.shape[0]')
+    out.append('    return numpy.stack([' + ', '.join(f'_b({code(T)}, n)' for T in L.T) + '], axis=1)')
+
+    out += ['', '', 'def J(X, p=None):', '    """(n_snap, n) -> (n_snap, n_w, n): dT/ds."""', '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X')
+    out.append(f'    n = X.shape[0]\n    out = numpy.zeros((n, {L.n_w}, {L.n}))')
+    for i, T in enumerate(L.T):
+        if i < L.n:
+            out.append(f'    out[:, {i}, {i}] = 1.0')
+            continue
+        for k, s in enumerate(L.states):
+            if s in T.free_symbols:
+                out.append(f'    out[:, {i}, {k}] = {code(sp.diff(T, s))}')
+    out.append('    return out')
+
+    out += ['', '', 'def inputs(t, X, p=None):', '    """(n_snap,) times and (n_snap, n) states -> (n_snap, n_u)."""',
+            '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X')
+    out.append(f'    {m.time} = numpy.asarray(t, dtype=float) * numpy.ones(X.shape[0])')
+    out.append('    n = X.shape[0]')
+    order = _input_order(m)
+    for i in order:
+        out.append(f'    {i["name"]} = _b({code(i["expr"])}, n)')
+    out.append('    return numpy.stack([' + ', '.join(i['name'] for i in m.inputs) + '], axis=1) if '
+               f'{len(m.inputs)} else numpy.zeros((n, 0))')
+
+    out += ['', '', 'def features(U):', '    """(n_snap, n_u) inputs -> (n_snap, n_f) the input monomials B and N use."""',
+            '    U = numpy.atleast_2d(U)']
+    for k, i in enumerate(m.inputs):
+        out.append(f'    {i["name"]} = U[:, {k}]')
+    out.append('    n = U.shape[0]')
+    out.append('    return numpy.stack([' + ', '.join(f'_b({code(sp.sympify(f))}, n)' for f in
+                                                       [sp.Mul(*[u ** k for u, k in zip(L.input_symbols, mu) if k])
+                                                        for mu in L.features]) + '], axis=1) if '
+               f'{len(L.features)} else numpy.zeros((n, 0))')
+
+    out += ['', '', 'def rhs_original(X, U, p=None):', '    """(n_snap, n), (n_snap, n_u) -> (n_snap, n): ds/dt."""',
+            '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X', None, 'U')
+    out.append('    n = X.shape[0]')
+    out.append('    return numpy.stack([' + ', '.join(f'_b({code(m.rhs[s])}, n)' for s in L.states) + '], axis=1)')
+
+    out += ['', '', 'def rhs_lifted(W, U, p=None):', '    """(n_snap, n_w), (n_snap, n_u) -> (n_snap, n_w): dw/dt."""',
+            '    W = numpy.atleast_2d(W)']
+    out += header(None, None, 'W', 'U')
+    out.append('    n = W.shape[0]')
+    out.append('    return numpy.stack([' + ', '.join(f'_b({code(lifted_expression(L, i))}, n)'
+                                                       for i in range(L.n_w)) + '], axis=1)')
+
+    out += ['', '', 'def operators(p=None):',
+            '    """(A, (H rows, H pair indices in numpy.triu_indices(n_w) order, H values), [N_f], B, C)."""']
+    out += header(None)
+    nw, nf = L.n_w, len(L.features)
+    out.append(f'    A = numpy.zeros(({nw}, {nw}))')
+    for (i, j), c in sorted(L.A.items()):
+        out.append(f'    A[{i}, {j}] = {code(c)}')
+    hs = sorted(L.H.items())
+    out.append(f'    Hr = numpy.array({[k[0] for k, _ in hs]!r}, dtype=int)')
+    out.append(f'    Hk = numpy.array({[_pair_k(k[1], k[2], nw) for k, _ in hs]!r}, dtype=int)')
+    out.append('    Hv = numpy.array([' + ', '.join(code(c) for _, c in hs) + '], dtype=float)')
+    out.append(f'    N = [numpy.zeros(({nw}, {nw})) for _ in range({nf})]')
+    for f, Nf in enumerate(L.N):
+        for (i, j), c in sorted(Nf.items()):
+            out.append(f'    N[{f}][{i}, {j}] = {code(c)}')
+    out.append(f'    B = numpy.zeros(({nw}, {nf}))')
+    for (i, f), c in sorted(L.B.items()):
+        out.append(f'    B[{i}, {f}] = {code(c)}')
+    out.append(f'    C = numpy.zeros({nw})')
+    for (i,), c in sorted(L.C.items()):
+        out.append(f'    C[{i}] = {code(c)}')
+    out.append('    return A, (Hr, Hk, Hv), N, B, C')
+    return '\n'.join(out) + '\n'
+
+
+def _input_order(m):
+    """The inputs in an order where each comes after the inputs its expression uses."""
+    done, out = set(), []
+    pending = list(m.inputs)
+    while pending:
+        for i in pending:
+            deps = {j['symbol'] for j in m.inputs} & i['expr'].free_symbols
+            if deps <= done:
+                out.append(i)
+                done.add(i['symbol'])
+                pending.remove(i)
+                break
+        else:
+            raise LiftError('inputs that depend on each other in a loop')
+    return out
+
+
+def load_functions(path):
+    """The generated module of :func:`python_module` at ``path``."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(f'lifting_functions_{abs(hash(path))}', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# ---------------------------------------------------------------------------------------------
+# structure (for the beat-map analysis)
+
+def structure(L, ops=None, values=None):
+    """Clocks, input kinds, block-triangular pattern and conserved linear functionals of a lifting."""
+    m = L.model
+    ops = ops or numeric_operators(L, values)
+    A, (hr, hk, hv), N, B, C = ops
+    n_w = L.n_w
+    out = {'clocks': _clocks(L), 'inputs': [], 'blocks': None, 'conserved': []}
+    # inputs
+    for k, i in enumerate(m.inputs):
+        fs = {f for f, mu in enumerate(L.features) if mu[k]}
+        states_in = sorted(str(s) for s in i['expr'].free_symbols & set(m.states))
+        kind = ('held' if i['kind'] == 'variable' and i.get('held') else
+                'known function of time' if i['kind'] in ('time',) or (
+                    i['kind'] in ('derivative', 'variable', 'input_function') and not states_in) else
+                'state-dependent')
+        out['inputs'].append({'name': i['name'], 'kind': kind, 'source': i['kind'],
+                              'multiplies_state': any(np.any(N[f]) for f in fs),
+                              'expr': str(i['expr']), 'switch_variables': i.get('switch_variables', states_in)})
+    # blocks: strongly connected components of "w_j enters dw_i/dt", in topological order
+    rows, cols = np.triu_indices(n_w)
+    deps = [set() for _ in range(n_w)]
+    for i, j in zip(*np.nonzero(A)):
+        deps[i].add(int(j))
+    for i, k in zip(hr, hk):
+        deps[i].update((int(rows[k]), int(cols[k])))
+    for Nf in N:
+        for i, j in zip(*np.nonzero(Nf)):
+            deps[i].add(int(j))
+    comps = _scc(deps)
+    comp_of = {v: c for c, vs in enumerate(comps) for v in vs}
+    edges = sorted({(comp_of[j], comp_of[i]) for i in range(n_w) for j in deps[i] if comp_of[i] != comp_of[j]})
+    out['blocks'] = {'blocks': [[L.names[v] for v in sorted(c)] for c in comps],
+                     'feeds': [[a, b] for a, b in edges],
+                     'triangular': len(comps) > 1,
+                     'autonomous': [L.names[v] for c, vs in enumerate(comps)
+                                    if not any(b == c for _, b in edges) for v in sorted(vs)]}
+    # driven blocks: is the coupling from upstream only through y (x) y (H)?
+    by_h = {}
+    for i, k in zip(hr, hk):
+        by_h.setdefault(int(i), set()).update((int(rows[k]), int(cols[k])))
+    coupling = []
+    for a, b in edges:
+        linear = any(A[i, j] != 0 for i in comps[b] for j in comps[a])
+        quad = any(j in comps[a] for i in comps[b] for j in by_h.get(i, ()))
+        coupling.append({'from': a, 'to': b, 'linear': bool(linear), 'quadratic': bool(quad)})
+    out['blocks']['coupling'] = coupling
+    # conserved linear functionals: l^T A = 0, l^T H = 0, l^T N_f = 0
+    M = [A]
+    if len(hr):
+        Hd = np.zeros((n_w, len(rows)))
+        np.add.at(Hd, (hr, hk), hv)
+        M.append(Hd[:, np.any(Hd != 0, axis=0)])
+    M += [Nf for Nf in N]
+    M = np.hstack(M)
+    if n_w <= 2000:
+        G = M @ M.T
+        evals, evecs = np.linalg.eigh(G)
+        tol = 1e-10 * max(1.0, float(np.max(np.abs(evals))))
+        Z = evecs[:, evals <= tol]
+        for row in _rref(Z.T):
+            l = {L.names[i]: float(round(v, 12)) for i, v in enumerate(row) if abs(v) > 1e-9}
+            rate_C = float(row @ C)
+            rate_B = {L.feature_names[f]: float(row @ B[:, f]) for f in range(B.shape[1]) if abs(row @ B[:, f]) > 1e-12}
+            out['conserved'].append({'l': l, 'rate_constant': rate_C, 'rate_inputs': rate_B,
+                                     'in_original_states_only': all(n in {str(s) for s in L.states} for n in l)})
+    return out
+
+
+def _rref(Mx, tol=1e-9):
+    M = np.array(Mx, dtype=float)
+    if M.size == 0:
+        return []
+    r = 0
+    for c in range(M.shape[1]):
+        if r >= M.shape[0]:
+            break
+        p = r + int(np.argmax(np.abs(M[r:, c])))
+        if abs(M[p, c]) < tol:
+            continue
+        M[[r, p]] = M[[p, r]]
+        M[r] /= M[r, c]
+        for k in range(M.shape[0]):
+            if k != r:
+                M[k] -= M[k, c] * M[r]
+        r += 1
+    M[np.abs(M) < tol] = 0.0
+    return [row for row in M[:r]]
+
+
+def _scc(deps):
+    """Strongly connected components of the graph j -> i (i depends on j), in topological order."""
+    n = len(deps)
+    succ = [set() for _ in range(n)]
+    for i, ds in enumerate(deps):
+        for j in ds:
+            succ[j].add(i)
+    index, low, on, stack, comps, counter = {}, {}, set(), [], [], [0]
+    sys.setrecursionlimit(max(10000, 4 * n))
+
+    def strong(v):
+        index[v] = low[v] = counter[0]
+        counter[0] += 1
+        stack.append(v)
+        on.add(v)
+        for w in succ[v]:
+            if w not in index:
+                strong(w)
+                low[v] = min(low[v], low[w])
+            elif w in on:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            comp = []
+            while True:
+                w = stack.pop()
+                on.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            comps.append(comp)
+
+    for v in range(n):
+        if v not in index:
+            strong(v)
+    return comps[::-1]
+
+
+def _clocks(L):
+    """State pairs (c, s) with c^2 + s^2 conserved (exactly, or on the unit circle), and their rate."""
+    m = L.model
+    st = L.states
+    if len(st) > 80:
+        return []
+    pv = m.param_values()
+    rng = np.random.default_rng(1)
+    U = m.input_symbols
+    fns = {}
+    for s in st:
+        fns[s] = sp.lambdify(st + U, m.rhs[s].xreplace(pv), 'numpy')
+    out = []
+    pts = rng.uniform(-1.5, 1.5, size=(6, len(st) + len(U)))
+    for a, b in itertools.combinations(range(len(st)), 2):
+        def q(pt):
+            fa, fb = fns[st[a]](*pt), fns[st[b]](*pt)
+            return pt[a] * fa + pt[b] * fb, pt[a] * fb - pt[b] * fa
+        try:
+            vals = [q(pt) for pt in pts]
+        except Exception:
+            continue
+        if not all(np.isfinite(v).all() for v in vals):
+            continue
+        rot = max(abs(v[1]) for v in vals)
+        if rot < 1e-9:
+            continue
+        exact = max(abs(v[0]) for v in vals) < 1e-9 * max(1.0, rot)
+        circle = False
+        if not exact:
+            cpts = pts.copy()
+            th = rng.uniform(0, 2 * np.pi, size=len(cpts))
+            cpts[:, a], cpts[:, b] = np.cos(th), np.sin(th)
+            try:
+                circle = max(abs(q(pt)[0]) for pt in cpts) < 1e-9 * max(1.0, rot)
+            except Exception:
+                circle = False
+        if not (exact or circle):
+            continue
+        c, s = st[a], st[b]
+        omega = sp.simplify((c * m.rhs[s] - s * m.rhs[c]).subs({c: sp.cos(sp.Symbol('th')), s: sp.sin(sp.Symbol('th'))}))
+        fs = omega.free_symbols - set(m.params) - set(m.derived) - {sp.Symbol('th')}
+        time_inputs = {i['symbol'] for i in m.inputs if i['kind'] in ('time', 'derivative')}
+        rate = ('constant' if not fs else 'known function of time' if fs <= time_inputs else
+                'depends on ' + ', '.join(sorted(map(str, fs))))
+        out.append({'c': str(c), 's': str(s), 'invariant': 'c^2 + s^2 conserved' if exact else
+                    'c^2 + s^2 = 1 invariant (attracting limit cycle)' if circle else '',
+                    'rate': str(omega), 'rate_kind': rate,
+                    'section': f'{s} = 0 with {c} > 0 (one beat per crossing)'})
+    return out
+
+
+# ---------------------------------------------------------------------------------------------
+# lifting.json
+
+def lifting_json(L, python_path=None, check=None, scales=None, verification=None, structure_info=None):
+    m = L.model
+    pv = m.param_values()
+    state_set = list(L.states)
+    eps_syms = {s for s in m.params if str(s).startswith('eps_sm')}
+    ops = numeric_operators(L)
+    A, (hr, hk, hv), N, B, C = ops
+    ex = lambda e: str(e)  # noqa: E731
+    aux = []
+    for k in range(L.n, L.n_w):
+        T = L.T[k]
+        eps = sorted(eps_syms & T.free_symbols, key=str)
+        aux.append({'name': L.names[k], 'expr': ex(T), 'jac': [ex(sp.diff(T, s)) for s in state_set],
+                    'exact': not eps, 'epsilon': {str(e): m.params[e] for e in eps},
+                    'rule': L.rules[k], 'scale': (scales or {}).get(L.names[k])})
+    sym_ops = {'A': [[i, j, ex(c)] for (i, j), c in sorted(L.A.items())],
+               'H': [[i, a, b, _pair_k(a, b, L.n_w), ex(c)] for (i, a, b), c in sorted(L.H.items())],
+               'N': [[[i, j, ex(c)] for (i, j), c in sorted(Nf.items())] for Nf in L.N],
+               'B': [[i, f, ex(c)] for (i, f), c in sorted(L.B.items())],
+               'C': [[i, ex(c)] for (i,), c in sorted(L.C.items())]}
+    present = {'A': bool(L.A), 'H': bool(L.H), 'N': any(L.N), 'B': bool(L.B), 'C': bool(L.C)}
+    doc = {
+        'format': 'libcuflynx lift_cellml 1',
+        'parse': 'expressions are sympy strings: sympy.sympify(expr, locals={name: sympy.Symbol(name) for name in '
+                 'symbols}); H pairs (i, j), i <= j, are indexed in numpy.triu_indices(n_w) order',
+        'states': list(m.state_qnames),
+        'state_symbols': [str(s) for s in L.states],
+        'lifted': list(L.names),
+        'reverse': f'w[:{L.n}]',
+        'size': {'n': L.n, 'n_w': L.n_w, 'n_aux': L.n_w - L.n, 'n_inputs': len(m.inputs),
+                 'n_features': len(L.features)},
+        'symbols': {str(s): L.model.reader.qname(k) for k, s in L.model.reader.sym.items()},
+        'time': str(m.time),
+        'auxiliaries': aux,
+        'inputs': [{'name': i['name'], 'expr': ex(i['expr']), 'kind': i['kind'],
+                    **({'qname': i['qname']} if 'qname' in i else {}),
+                    **({'of': i['of']} if 'of' in i else {}),
+                    **({'switch_variables': i['switch_variables']} if 'switch_variables' in i else {})}
+                   for i in m.inputs],
+        'input_features': L.feature_names,
+        'parameters': {str(s): v for s, v in m.params.items()},
+        'derived_parameters': {str(s): ex(e) for s, e in m.derived.items()},
+        'operators': {
+            'present': present,
+            'A': A.tolist(),
+            'H': {'rows': hr.tolist(), 'pairs': hk.tolist(), 'values': hv.tolist(),
+                  'shape': [L.n_w, L.n_w * (L.n_w + 1) // 2]},
+            'N': [Nf.tolist() for Nf in N],
+            'B': B.tolist(), 'C': C.tolist(),
+            'sparsity': {'A': [[i, j] for (i, j) in sorted(L.A)], 'H': [[i, a, b] for (i, a, b) in sorted(L.H)],
+                         'N': [[[i, j] for (i, j) in sorted(Nf)] for Nf in L.N],
+                         'B': [[i, f] for (i, f) in sorted(L.B)], 'C': [i for (i,) in sorted(L.C)]},
+            'symbolic': sym_ops,
+        },
+        'initial': {'w0': [_value(T, m.init, pv) for T in L.T]},
+        'engine': L.engine,
+        'timings': L.timings,
+    }
+    if python_path:
+        doc['python'] = python_path
+    if check is not None:
+        doc['check'] = check
+    if verification is not None:
+        doc['verification'] = verification
+    if structure_info is not None:
+        doc['structure'] = structure_info
+    if scales:
+        vals = [v['max_abs'] for v in scales.values() if v.get('max_abs', 0) > 0]
+        doc['conditioning'] = {
+            'scales': scales,
+            'ratio': (max(vals) / min(vals)) if vals else None,
+            'note': 'max |w| of each lifted variable over the reference run; scale each before POD',
+        }
+    if L.smoothing_report:
+        sites = []
+        for s in L.smoothing_report.get('sites', []):
+            sites.append({'k': s.get('k'), 'rule': s.get('rule', s.get('kind')), 'variable': s.get('variable'),
+                          'component': s.get('component'), 'status': s.get('status'),
+                          'original_class': SMOOTHNESS.get(s.get('rule', s.get('kind')), 'unknown'),
+                          'smoothed_class': 'C-infinity (analytic: sqrt, products, sums and 1/D of positive D)'
+                          if s.get('status') == 'smoothed' else 'as written',
+                          'switch_variables': s.get('switch_variables')})
+        doc['smoothing_sites'] = sites
+    return doc
+
+
+# ---------------------------------------------------------------------------------------------
+# verification
+
+def _simulate(path, sim_time, dt, solver_info, names):
+    import contextlib
+    import io
+    from libcuflynx.solver_wrappers import get_simulation_helper
+    with contextlib.redirect_stdout(io.StringIO()):
+        helper = get_simulation_helper(model_path=path, solver='CVODE_myokit', model_type='cellml', dt=dt,
+                                       sim_time=sim_time, solver_info=solver_info, pre_time=0.0)
+        ok = helper.run()
+    if not ok:
+        raise LiftError(f'the simulation of {path} failed')
+    res = helper.get_results([[n] for n in names], flatten=True)
+    t = np.asarray(helper.get_time(), dtype=float).ravel() if hasattr(helper, 'get_time') else None
+    if hasattr(helper, 'close_simulation'):
+        helper.close_simulation()
+    return t, [np.asarray(r, dtype=float).ravel() for r in res]
+
+
+def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_info=None, n_samples=200, seed=0):
+    """The lifted model against the model it lifts (both CVODE_myokit, from t = 0).
+
+    Returns (verification dict, check dict, scales): ``states``: the largest error of each original
+    state over its scale max(range, |mean|, atol); ``manifold``: max |w - T(s)| of each auxiliary over its
+    scale along the lifted run; ``jf``: max |J f - rhs_lifted(T(s))| over |J f| at sampled states;
+    ``check``: the operator form against J f on the reference trajectory, per equation. The J f and operator
+    errors are relative to the larger of max |dw/dt| and max |w| of each variable.
+    """
+    solver_info = dict({'rtol': 1e-10, 'atol': 1e-12, 'MaximumStep': dt}, **(solver_info or {}))
+    m = L.model
+    qn = [q.replace('.', '/') for q in m.state_qnames]
+    t, ref = _simulate(model_path, sim_time, dt, solver_info, qn)
+    X = np.stack(ref, axis=1)
+    _, lif = _simulate(lifted_path, sim_time, dt, solver_info, [f'lifted/{n}' for n in L.names])
+    Wl = np.stack(lif, axis=1)
+    if t is None or len(t) != len(X):
+        t = np.linspace(0.0, sim_time, len(X))
+    atol = float(solver_info.get('atol', 1e-12))
+    out = {'sim_time': sim_time, 'dt': dt, 'solver_info': solver_info, 'states': {}, 'manifold': {}}
+    for k, s in enumerate(L.states):
+        scale = max(float(np.ptp(X[:, k])), abs(float(np.mean(X[:, k]))), atol)
+        out['states'][str(s)] = float(np.max(np.abs(Wl[:, k] - X[:, k]))) / scale
+    Tl = funcs.T(Wl[:, :L.n])
+    Tref = funcs.T(X)
+    scales = {}
+    for k, n in enumerate(L.names):
+        col = Tref[:, k]
+        scales[n] = {'min': float(np.min(col)), 'max': float(np.max(col)), 'max_abs': float(np.max(np.abs(col)))}
+        if k >= L.n:
+            sc = max(float(np.ptp(col)), float(np.max(np.abs(col))), atol)
+            out['manifold'][n] = float(np.max(np.abs(Wl[:, k] - Tl[:, k]))) / sc
+    out['max_state_error'] = max(out['states'].values()) if out['states'] else 0.0
+    out['max_manifold_defect'] = max(out['manifold'].values()) if out['manifold'] else 0.0
+    out['defect_growth'] = _defect_growth(L, t, X, Wl, Tl, atol)
+    # J f = rhs_lifted(T(s)) at sampled states: the run, and the run perturbed by 5 % of each state's range
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(X), size=min(n_samples, len(X)), replace=False)
+    Xs = X[idx]
+    spread = np.maximum(np.ptp(X, axis=0), 1e-3 * np.maximum(np.abs(X).max(axis=0), 1e-12))
+    Xs = np.vstack([Xs, Xs + 0.05 * spread * rng.standard_normal(Xs.shape)])
+    ts = np.concatenate([t[idx], t[idx]])
+    Us = funcs.inputs(ts, Xs)
+    Jf = np.einsum('kij,kj->ki', funcs.J(Xs), funcs.rhs_original(Xs, Us))
+    R = funcs.rhs_lifted(funcs.T(Xs), Us)
+    ok = np.all(np.isfinite(Jf), axis=1) & np.all(np.isfinite(R), axis=1)
+    Ts = funcs.T(Xs)
+    denom = np.maximum(np.maximum(np.max(np.abs(Jf[ok]), axis=0), np.max(np.abs(Ts[ok]), axis=0)), 1e-12) \
+        if ok.any() else np.ones(L.n_w)
+    jf = np.max(np.abs(Jf[ok] - R[ok]), axis=0) / denom if ok.any() else np.full(L.n_w, np.inf)
+    out['jf'] = {'max': float(np.max(jf)), 'n_points': int(ok.sum()), 'per_variable': dict(zip(L.names, map(float, jf)))}
+    # the operator form on the reference trajectory
+    U = funcs.inputs(t, X)
+    dW = np.einsum('kij,kj->ki', funcs.J(X), funcs.rhs_original(X, U))
+    ops = funcs.operators()
+    op = apply_operators(ops, Tref, funcs.features(U))
+    den = np.maximum(np.maximum(np.max(np.abs(dW), axis=0), np.max(np.abs(Tref), axis=0)), 1e-12)
+    res = np.max(np.abs(op - dW), axis=0) / den
+    check = {'max_relative_residual': float(np.max(res)), 'per_equation': dict(zip(L.names, map(float, res))),
+             'trajectory': 'the model run of the verification, dw/dt = J(s) f(s)'}
+    # conserved functionals: drift along the lifted run
+    return out, check, scales, (t, X, Wl)
+
+
+def _defect_growth(L, t, X, Wl, Tl, atol):
+    """When the lifted run leaves the manifold and the original states: the first time the largest relative
+    defect (and state error) passes 1e-8, 1e-6 and 1e-3, and the defect's exponential growth rate between
+    1e-10 and 1e-3 (the manifold is invariant but need not attract: solver error grows along it at that rate)."""
+    def scaled(Y, Z, cols):
+        sc = np.maximum(np.maximum(np.ptp(Z[:, cols], axis=0), np.max(np.abs(Z[:, cols]), axis=0)), atol)
+        return np.max(np.abs(Y[:, cols] - Z[:, cols]) / sc, axis=1)
+    out = {}
+    series = {'state_error': scaled(Wl, X, list(range(L.n)))}
+    if L.n_w > L.n:
+        series['defect'] = scaled(Wl, Tl, list(range(L.n, L.n_w)))
+    for name, d in series.items():
+        out[name] = {f'{th:g}': (float(t[np.argmax(d > th)]) if np.any(d > th) else None) for th in (1e-8, 1e-6, 1e-3)}
+    d = series.get('defect')
+    if d is not None:
+        ok = (d > 1e-10) & (d < 1e-3)
+        if ok.sum() >= 5 and np.ptp(t[ok]) > 0:
+            out['rate'] = float(np.polyfit(t[ok], np.log(d[ok]), 1)[0])
+    return out
+
+
+def conserved_drift(L, info, run, funcs):
+    """Each conserved functional's max |l.w(t) - l.w(0) - integral of l.(B f + C)| along the lifted run."""
+    t, X, Wl = run
+    U = funcs.inputs(t, Wl[:, :L.n])
+    F = funcs.features(U)
+    _, _, _, B, C = funcs.operators()
+    for c in info.get('conserved', []):
+        lvec = np.array([c['l'].get(n, 0.0) for n in L.names])
+        rate = F @ (B.T @ lvec) + float(C @ lvec)
+        integral = np.concatenate([[0.0], np.cumsum(0.5 * (rate[1:] + rate[:-1]) * np.diff(t))])
+        val = Wl @ lvec
+        scale = max(float(np.max(np.abs(val))), 1e-12)
+        c['drift'] = float(np.max(np.abs(val - val[0] - integral))) / scale
+
+
+# ---------------------------------------------------------------------------------------------
+# files
+
+def write_outputs(L, output_dir, name='model'):
+    """Writes ``<name>_lifted.cellml`` and ``lifting_functions.py``; returns their paths."""
+    os.makedirs(output_dir, exist_ok=True)
+    cellml_path = os.path.join(output_dir, f'{name}_lifted.cellml')
+    with open(cellml_path, 'w', encoding='utf-8') as f:
+        f.write(lifted_cellml(L, f'{name}_lifted' if name[:1].isalpha() else 'lifted'))
+    py_path = os.path.join(output_dir, 'lifting_functions.py')
+    with open(py_path, 'w', encoding='utf-8') as f:
+        f.write(python_module(L))
+    return cellml_path, py_path
+
+
+def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=None, time_budget=DEFAULT_TIME_BUDGET,
+                     engine='auto', max_aux=DEFAULT_MAX_AUX, sim_time=10.0, dt=0.01, solver_info=None,
+                     do_verify=True):
+    """Lifts a (smoothed) flat CellML model and writes the lifted CellML model, ``lifting_functions.py`` and
+    ``lifting.json`` (with the verification, the operator check and the structure) into ``output_dir``.
+    Returns the lifting.json dict."""
+    from libcuflynx.utilities.smooth_cellml import libcellml_issues
+    t0 = time.perf_counter()
+    name = os.path.splitext(os.path.basename(model_path))[0]
+    output_dir = output_dir or os.path.join(os.path.dirname(os.path.abspath(model_path)), 'lifting')
+    L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report)
+    cellml_path, py_path = write_outputs(L, output_dir, name)
+    with open(cellml_path, encoding='utf-8') as f:
+        issues = libcellml_issues(f.read())
+    funcs = load_functions(py_path)
+    verification = check = scales = None
+    struct = structure(L)
+    if do_verify:
+        verification, check, scales, run = verify(L, model_path, cellml_path, funcs, sim_time, dt, solver_info)
+        conserved_drift(L, struct, run, funcs)
+    L.timings['total'] = time.perf_counter() - t0
+    doc = lifting_json(L, os.path.abspath(py_path), check, scales, verification, struct)
+    doc['model'] = os.path.abspath(model_path)
+    doc['lifted_model'] = os.path.abspath(cellml_path)
+    doc['libcellml'] = issues
+    with open(os.path.join(output_dir, 'lifting.json'), 'w') as f:
+        json.dump(doc, f, indent=2, default=str)
+    return doc
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog='cuflynx-lift',
+        description='Lift a smooth flat CellML 2.0 model (e.g. from cuflynx-smooth) to quadratic form for Operator '
+                    'Inference: writes <name>_lifted.cellml, lifting_functions.py and lifting.json. Does not read '
+                    'user_inputs.yaml.')
+    parser.add_argument('model', help='flat CellML 2.0 model, smoothed')
+    parser.add_argument('--output-dir', help='where to write (default: lifting/ next to the model)')
+    parser.add_argument('--inputs', default='', help='comma-separated variables kept as inputs u ([component/]name)')
+    parser.add_argument('--smoothing-report', help="the smoothing pass's smoothing_report.json")
+    parser.add_argument('--time-budget', type=float, default=DEFAULT_TIME_BUDGET, help='s for each QBee stage')
+    parser.add_argument('--engine', choices=('auto', 'qbee', 'rules'), default='auto')
+    parser.add_argument('--max-aux', type=int, default=DEFAULT_MAX_AUX)
+    parser.add_argument('--sim-time', type=float, default=10.0, help='verification run length')
+    parser.add_argument('--dt', type=float, default=0.01)
+    parser.add_argument('--no-verify', action='store_true')
+    args = parser.parse_args(argv)
+    doc = lift_cellml_file(args.model, args.output_dir, [s for s in args.inputs.split(',') if s],
+                           args.smoothing_report, args.time_budget, args.engine, args.max_aux, args.sim_time,
+                           args.dt, do_verify=not args.no_verify)
+    e = doc['engine']
+    print(f'{doc["size"]["n"]} -> {doc["size"]["n_w"]} lifted variables ({e.get("polynomialize")}, '
+          f'{e.get("quadratize")}); operators: {", ".join(k for k, v in doc["operators"]["present"].items() if v)}')
+    if 'verification' in doc:
+        v = doc['verification']
+        print(f'state error {v["max_state_error"]:.3g}, manifold defect {v["max_manifold_defect"]:.3g}, '
+              f'J f check {v["jf"]["max"]:.3g}, operator residual {doc["check"]["max_relative_residual"]:.3g}')
+    print(doc['lifted_model'])
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

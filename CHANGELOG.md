@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — the quadratic lifting of a smooth CellML model, for Operator Inference
+
+- `cuflynx-lift model_smooth.cellml` writes `<name>_lifted.cellml`, `lifting.json` and `lifting_functions.py`:
+  auxiliary states w = T(s) that make the model exactly quadratic in w and affine in its inputs (Lift & Learn),
+  the operators A, H, N, B, C (numeric and symbolic), and vectorised T, J and right-hand sides
+  (`tutorial/docs/lifting.md`). In Python: `libcuflynx.utilities.lift_cellml`.
+- QBee polynomializes and quadratizes within a time budget; a rule table and a greedy monomial search take over
+  when it fails, and `engine` reports which ran.
+- The verification simulates the lifted and the original model, and reports the state error, the distance from
+  the manifold and its growth rate, J f against the lifted right-hand side and the operator residual.
+- A new extra, `libcuflynx[lift]` (sympy, qbee), in `[dev]` and `[all]`.
+
 ### Added — a smooth copy of a CellML model, for gradient-based solvers and Operator Inference
 
 - `cuflynx-smooth model.cellml --runs runs.json` (or `--ranges ranges.json`) writes

@@ -384,6 +384,17 @@ def _files_that_can_carry_install_instructions():
 
 
 @pytest.mark.unit
+@pytest.mark.unit
+def test_the_lifting_without_sympy_names_the_lift_extra():
+    proc = _run_without('sympy', """
+        try:
+            import libcuflynx.utilities.lift_cellml
+        except ModuleNotFoundError as e:
+            print(e)
+    """)
+    assert 'pip install "libcuflynx[lift]"' in proc.stdout, proc.stdout + proc.stderr
+
+
 def test_no_message_still_advertises_the_old_package_name():
     """The distribution is `libcuflynx`; `pip install "circulatory_autogen[emulation]"` would
     install something else entirely, or nothing."""
@@ -433,6 +444,8 @@ def test_every_extra_the_epic_names_exists():
     ('casadi', 'casadi'),
     ('uq', 'pymc'),
     ('emulation', 'autoemulate'),
+    ('lift', 'qbee'),
+    ('lift', 'sympy'),
     ('aadc', 'aadc>'),
     ('aadc', 'aadc-ode'),
 ])
@@ -454,7 +467,7 @@ def test_dev_installs_everything_the_suite_imports():
     extras = _load_pyproject()['project']['optional-dependencies']
     referenced = {spec.split('[', 1)[1].rstrip(']') for spec in extras['dev']
                   if spec.startswith('libcuflynx[')}
-    assert {'mpi', 'casadi'} <= referenced, extras['dev']
+    assert {'mpi', 'casadi', 'lift'} <= referenced, extras['dev']
     # Every member of a referenced extra therefore arrives, mpi4py and schwimmbad included.
     assert any(spec.startswith('mpi4py') for spec in extras['mpi']), extras['mpi']
     assert any(spec.startswith('schwimmbad') for spec in extras['mpi']), extras['mpi']
@@ -467,7 +480,7 @@ def test_all_is_every_runtime_extra():
     extras = _load_pyproject()['project']['optional-dependencies']
     referenced = {spec.split('[', 1)[1].rstrip(']') for spec in extras['all']
                   if spec.startswith('libcuflynx[')}
-    assert referenced == {'mpi', 'casadi', 'uq', 'emulation', 'cpp'}
+    assert referenced == {'mpi', 'casadi', 'uq', 'emulation', 'cpp', 'lift'}
 
 
 @pytest.mark.unit

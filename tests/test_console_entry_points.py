@@ -46,6 +46,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-run-predictions",
     "cuflynx-couple",
     "cuflynx-smooth",
+    "cuflynx-lift",
 }
 
 
@@ -368,6 +369,7 @@ NON_STAGE_COMMANDS = {
     # user_inputs.yaml by cuflynx-generate
     "cuflynx-couple",
     "cuflynx-smooth",
+    "cuflynx-lift",
 }
 
 

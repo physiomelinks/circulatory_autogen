@@ -33,6 +33,7 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
 | `libcuflynx[emulation]` | **+750 MB or more** | training and using surrogate models (`do_emulation` / `use_emulator`) |
 | `libcuflynx[cpp]` | +0 MB | `model_type: cpp` — needs a C++ toolchain, which pip cannot install |
+| `libcuflynx[lift]` | **+180 MB** | `cuflynx-lift`: quadratic lifting for Operator Inference (sympy, QBee and its pyarrow) |
 | `libcuflynx[all]` | **≈ 1.6 GB** | all of the above |
 
 `[emulation]` is the one to think about before typing: `autoemulate` pulls in **torch**, which
@@ -110,6 +111,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
 | `cuflynx-couple` | run a generated C++ model coupled to its external Python models (e.g. FEniCS); `--check` lists what is exchanged |
 | `cuflynx-run-predictions` | run an obs_data's prediction items on a model with no calibration: traces, features and validation (`run_prediction_items`) |
+| `cuflynx-lift` | lift a smooth flat CellML model to quadratic form for Operator Inference (Lift & Learn): a lifted CellML model, `lifting.json` (the lifting map T, its Jacobian, the operators A, H, N, B, C) and vectorised numpy functions, verified against the model (`[lift]` extra) |
 | `cuflynx-smooth` | write a smooth copy of a flat CellML model (`abs`, `max`, `min`, piecewise as square-root forms) and `smoothing_report.json`, with eps from reference runs (`--runs`) or given ranges (`--ranges`) |
 | `cuflynx-calibration-workflow` | run a `calibration_workflow.json`: ordered calibrations of module-library parameterisations merged into a supermodule (takes the workflow path) |
 | `cuflynx-variable-mapping` | write a model's `<prefix>_variable_mapping.csv`: the LaTeX symbol of every variable (takes the model or a workflow) |
