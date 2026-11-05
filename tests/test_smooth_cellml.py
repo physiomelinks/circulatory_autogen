@@ -150,7 +150,7 @@ def test_eps_of_an_argument_that_keeps_one_sign_stays_below_its_smallest_value()
     assert report['sites'][0]['eps'] == pytest.approx(2e-3)
     # a comparison keeps rel x range: never seen to switch, it may switch between samples
     _, report = sc.smooth(_model(PIECEWISE_GEQ), {'sm1_x': {'min': 1.5e-4, 'max': 0.245, 'min_abs': 1.5e-4}})
-    assert report['sites'][0]['eps'] == pytest.approx(2.45e-4)
+    assert report['sites'][0]['eps'] == pytest.approx(1e-3 * (0.245 - 1.5e-4))
 
 
 def test_less_than_swaps_the_sign_of_x_and_and_is_a_product():
