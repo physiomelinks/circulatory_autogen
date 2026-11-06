@@ -84,6 +84,13 @@ def test_each_kind_lifts_to_quadratic_form_and_verifies(tmp_path, name, rhs, ini
     assert doc['size']['n_w'] == len(doc['lifted'])
 
 
+def test_a_reciprocal_of_a_rational_expression_lifts_in_its_natural_form(tmp_path):
+    """1/(1 + x/(K + x)) = (K + x)/(K + 2x): one reciprocal of a polynomial, not 1/(K + x) inside another reciprocal
+    (the drug combiners 1/(1 + Delta_R))."""
+    doc = _lift(tmp_path, _model({x: 1 - x, y: -y / (1 + x / (K + x))}, {x: 0.2, y: 1.0}, {'K': 0.5}), engine='rules')
+    assert [a['expr'] for a in doc['auxiliaries']][0] == '1/(K + 2*x)'
+
+
 def test_rules_engine_gives_a_lifting_that_verifies_when_qbee_is_not_used(tmp_path):
     doc = _lift(tmp_path, _model({x: -sp.log(x) + sp.sqrt(x)}, {x: 2.0}, {}), engine='rules')
     assert doc['engine']['polynomialize'] == 'rules' and doc['engine']['quadratize'] == 'greedy'
@@ -196,16 +203,48 @@ def test_a_site_whose_argument_is_a_sum_lifts_the_argument_too(tmp_path):
 
 
 def test_held_inputs_lift_an_input_inside_tanh_and_are_marked(tmp_path):
-    """dx/dt = -x + tanh(k (u - x)): with u an input there is no finite input-affine lift; held (du/dt = 0 within a
-    chunk) u is a state, the system has no inputs and lifts: t = tanh(.), dt/dt = (1 - t^2) k (u' - x')."""
+    """dx/dt = -x + tanh(k (u - x)) with u held (du/dt = 0 within a chunk) as a state: t = tanh(.),
+    dt/dt = (1 - t^2) k (u' - x') with u' = 0; u is marked as a held input at its index in w."""
     k_ = sp.Symbol('k')
     text = _model({x: -x + sp.tanh(k_ * (u - x))}, {x: 0.1}, {'u': 0.5, 'k': 2})
-    with pytest.raises(lc.LiftError):
-        lc.lift(text, inputs=['u'], engine='rules', max_aux=20)
     doc = _lift(tmp_path, text, inputs=['u'], held_inputs=True)
     assert doc['lifted'][:2] == ['x', 'u'] and doc['inputs'] == []
     assert doc['held_inputs'][0]['name'] == 'u' and doc['held_inputs'][0]['index'] == 1
     assert doc['reverse'] == 'w[:1]' and doc['size']['n_held'] == 1
+
+
+def test_stabilize_adds_minus_kappa_times_each_quadratic_identity(tmp_path):
+    """x' = 1 - x - x/(1 + x): w = 1/(1 + x), identity w (1 + x) - 1; with kappa the equation of w gets
+    -kappa (w + w x - 1), which is zero on the manifold, so the checks still hold."""
+    text = _model({x: 1 - x - x / (1 + x)}, {x: 0.2}, {})
+    doc = _lift(tmp_path, text, engine='rules', stabilize=1e3)
+    st = doc['stabilization']
+    assert st['kappa'] == 1e3 and 'w_1' in [i['variable'] for i in st['identities']]
+    i = doc['lifted'].index('w_1')
+    assert doc['operators']['C'][i] == pytest.approx(1e3)
+    assert doc['operators']['A'][i][i] <= -1e3 + 1e-9
+
+
+def test_tanh_in_exp_form_has_an_identity_to_stabilize(tmp_path):
+    doc = _lift(tmp_path, _model({x: -x + sp.tanh(2 * x)}, {x: 0.3}, {}), tanh_form='exp', stabilize=10.0)
+    exprs = [a['expr'] for a in doc['auxiliaries']]
+    assert 'exp(4*x)' in exprs and any(e.startswith('1/(exp(4*x) + 1)') for e in exprs)
+    assert any(d['variable'] for d in doc['stabilization']['identities'])
+
+
+def test_held_inputs_as_inputs_give_b_and_n_terms_without_products(tmp_path):
+    """A dose rate d (a parameter driven as an input) into C' = d - C, an effect compartment Ce' = C - Ce, and an Emax
+    output Ce/(K + Ce): held as an input, d enters through B (the C row) and N (d times auxiliaries), with no monomials
+    of it."""
+    C_, Ce_, d_, K_ = sp.symbols('C Ce d K')
+    path = tmp_path / 'm.cellml'
+    path.write_text(_model({C_: d_ - C_, Ce_: C_ - Ce_}, {C_: 0.0, Ce_: 0.0}, {'d': 0.5, 'K': 1.0},
+                           alg={'E': Ce_ / (K_ + Ce_)}))
+    doc = lc.lift_cellml_file(str(path), str(tmp_path / 'out'), inputs=['d'], held_inputs='inputs', outputs=['E'],
+                              sim_time=2.0, dt=0.01, time_budget=5.0, engine='rules')
+    assert [i['name'] for i in doc['inputs']] == ['d'] and doc['held_inputs'] == []
+    assert doc['operators']['present']['B'] and doc['operators']['present']['N']
+    assert doc['verification']['jf']['max'] < 1e-12
 
 
 def test_keep_cuts_the_other_states_as_inputs_from_data(tmp_path):

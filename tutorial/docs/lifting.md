@@ -54,6 +54,7 @@ problems against this table (`LIFTING_JSON_FIELDS` in the module).
 | `engine` | dict | yes | which engine ran each stage, QBee errors, input_free, notes, sizes of the polynomial system |
 | `timings` | dict | yes | seconds of each stage |
 | `invariants` | list | yes | g(w) = 0 exactly: {expr, degree, origin (definition, conserved, oscillator), variable, max_reference, relative_reference, max_lifted_run, relative_lifted_run}, or {variable, skipped, origin} where a definition has no polynomial identity |
+| `stabilization` | dict or NoneType | yes | null, or {kappa, identities: [{variable, expr}], skipped, note}: the -kappa g(w) terms added to the auxiliaries' equations; the operators include them, so OpInf and Galerkin must use the same |
 | `python` | str | no | the generated module: T, J, JU, inputs, features, rhs_original, rhs_lifted, operators |
 | `check` | dict | no | the operator form against J f on the model's trajectory: {max_relative_residual, per_equation} |
 | `verification` | dict | no | simulated, states, manifold, max_state_error, max_manifold_defect, defect_growth (times past 1e-8, 1e-6, 1e-3 and the rate), jf |
@@ -80,6 +81,12 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
   inputs left the system is polynomial without inputs, so an input inside a square root or a tanh lifts.
 - `--outputs a,b`: variables lifted with the states (e.g. a drug effect that feeds no rate here): their non-polynomial
   parts become auxiliaries, and `outputs` gives each as a polynomial in the lifted variables.
+- `--params-as-inputs a,b`: parameters the user drives (e.g. dose rates), as `--inputs`.
+- `--held-inputs inputs`: held inputs stay inputs (B and N terms) with du/dt = 0, instead of states: the search adds
+  no products with them.
+- `--tanh-form exp`: tanh(g) as 1 - 2 q with q = 1/(E + 1), E = exp(2 g): q has a quadratic identity to stabilise.
+- `--stabilize kappa`: -kappa g(w) added to each auxiliary's equation whose identity g = 0 is at most quadratic; zero
+  on the manifold, it damps the directions off it (recorded in `stabilization`; the operators include it).
 - `--no-sites`: polynomialize the smoothing sites' square roots instead of lifting the sites in closed form.
 
 ## Smoothing sites

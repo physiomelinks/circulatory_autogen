@@ -445,7 +445,13 @@ class Model:
         self._input_by_expr = {}
         # held inputs: states with du/dt = 0, before abstraction, so a function of them is not an input
         self.held = []
-        if held_inputs:
+        self.held_mode = 'inputs' if held_inputs == 'inputs' else ('states' if held_inputs else None)
+        if self.held_mode == 'inputs':
+            # held inputs stay inputs (B and N terms) with du/dt = 0
+            for i in self.inputs:
+                if i['kind'] == 'cut' or (i['kind'] == 'variable' and i.get('held')):
+                    i['held'] = True
+        elif held_inputs:
             for i in [i for i in self.inputs if i['kind'] in ('variable', 'cut')]:
                 if i['kind'] == 'variable' and not i.get('held'):
                     continue
@@ -513,6 +519,10 @@ class Model:
         while f'u_{k}' in names:
             k += 1
         s = sp.Symbol(f'u_{k}', real=True)
+        held = {i['symbol'] for i in self.inputs if i.get('held')}
+        fs = sp.sympify(e).free_symbols - set(self.params) - set(self.derived)
+        if fs and fs <= held:
+            extra = dict(extra, held=True)      # a function of held inputs alone is held too
         self.inputs.append(dict({'symbol': s, 'name': f'u_{k}', 'expr': e, 'kind': kind}, **extra))
         self._input_by_expr[key] = s
         return s
@@ -739,8 +749,9 @@ class _Aux:
 class _Polynomializer:
     """Rewrites expressions in the states as polynomials in the states and auxiliaries."""
 
-    def __init__(self, model, max_aux=DEFAULT_MAX_AUX):
+    def __init__(self, model, max_aux=DEFAULT_MAX_AUX, tanh_form='tanh'):
         self.m = model
+        self.tanh_form = tanh_form
         self.states = list(model.states)
         self.sites = dict(model.sites)
         self.state_set = set(self.states) | set(self.sites)
@@ -807,6 +818,12 @@ class _Polynomializer:
             if p.is_Rational:
                 if (g.free_symbols & set(self.m.input_symbols)) and not self._mixed_ok(e):
                     return self._mixed_input(e)
+                if p.is_Integer and p < 0 and not _is_poly_in(g, list(g.free_symbols & self.state_set)):
+                    # a reciprocal of a rational expression in its natural form: g = n/d, g^-k = d^k (1/n)^k with n
+                    # a polynomial (1/(1 + a C/(K + C)) = (K + C)/((1 + a) C + K)): a short rate, not a chain
+                    num, den = sp.fraction(sp.together(g))
+                    if den != 1 and _is_poly_in(num, list(num.free_symbols & self.state_set)):
+                        return self.rewrite(den ** (-p)) * self._pow_aux(sp.expand(num), p)
                 return self._pow_aux(g, p)
             if g.free_symbols & set(self.m.input_symbols):
                 return self._mixed(e)
@@ -826,6 +843,9 @@ class _Polynomializer:
                     rest = sp.Add(*[a for a in g.args if a.free_symbols & self.state_set])
                     return self.rewrite(sp.exp(sp.Add(*free))) * self.rewrite(sp.exp(rest))
             return self._aux_function(e, 'exp')
+        if isinstance(e, sp.tanh) and self.tanh_form == 'exp':
+            # tanh(g) = 1 - 2 q, q = 1/(E + 1), E = exp(2 g): q has the identity q (E + 1) - 1 = 0
+            return self.rewrite(1 - 2 / (sp.exp(2 * e.args[0]) + 1))
         if isinstance(e, (sp.sin, sp.cos)):
             g = e.args[0]
             s = self._aux_function(sp.sin(g), 'sin')
@@ -849,8 +869,10 @@ class _Polynomializer:
         """Whether a non-polynomial term in both states and inputs can take the inputs' derivatives as inputs:
         each input in it is a known function of time or held. Records that the lift is not input-free."""
         ins = [i for i in self.m.inputs if i['symbol'] in e.free_symbols]
-        ok = all(i['kind'] in ('time', 'variable', 'input_function') and not (i['expr'].free_symbols & self.state_set)
-                 for i in ins)
+        ok = all(i.get('held') or (i['kind'] in ('time', 'variable', 'input_function')
+                                   and not (i['expr'].free_symbols & self.state_set)) for i in ins)
+        if ok and all(i.get('held') for i in ins):
+            return True                 # held inputs: du/dt = 0, still input-free
         if ok:
             self.input_free = False
             note = (f'{", ".join(i["name"] for i in ins)} enter a non-polynomial term with the states: their '
@@ -886,14 +908,13 @@ class _Polynomializer:
         return out
 
     def _input_derivative(self, i):
+        if i.get('held'):
+            return sp.Integer(0)        # constant within a chunk
         name = f'd{i["name"]}_dt'
         for j in self.m.inputs:
             if j['name'] == name:
                 return j['symbol']
-        if i.get('held'):
-            expr = sp.Integer(0)
-        else:
-            expr = _time_derivative(i['expr'], self.m.time)
+        expr = _time_derivative(i['expr'], self.m.time)
         s = sp.Symbol(name, real=True)
         self.m.inputs.append({'symbol': s, 'name': name, 'expr': expr, 'kind': 'derivative', 'of': i['name']})
         return s
@@ -1107,6 +1128,18 @@ class _Quadratic:
                     return tuple(sorted((i, self.Widx[rest])))
         return None
 
+    def _new_bad(self, d):
+        """How many terms of the rate of the monomial d would not be quadratic, were d added."""
+        self.W.append(d)
+        self.Wset.add(d)
+        self.Widx[d] = len(self.W) - 1
+        try:
+            return sum(1 for mono in self._numeric_row(d) if self.split(mono) is None)
+        finally:
+            self.W.pop()
+            self.Wset.discard(d)
+            del self.Widx[d]
+
     def bad(self):
         return {(mono[:self.nV], any(mono[self.nV:])) for mono in self.bad_set}
 
@@ -1188,7 +1221,10 @@ class _Quadratic:
                 for d in proposals:
                     if sum(d) >= 2 or (has_u and d == ms):
                         cands[d] = cands.get(d, 0) + 1
-            best = max(cands, key=lambda d: (cands[d], -sum(d), d))
+            # look one step ahead: of the best-scoring candidates, the one whose own rate adds the fewest new terms
+            # of degree > 2 (a square that fixes two terms can start a chain that never closes)
+            top = sorted(cands, key=lambda d: (-cands[d], sum(d), d))[:10]
+            best = max(top, key=lambda d: (cands[d] - self._new_bad(d), -sum(d), d))
             self.add(best)
 
 
@@ -1205,7 +1241,7 @@ class Lifting:
 
 def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', max_aux=DEFAULT_MAX_AUX,
          smoothing_report=None, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False, sites=True,
-         outputs=()):
+         outputs=(), tanh_form='tanh', stabilize=None):
     """Lift a flat CellML model (text or path) to quadratic form.
 
     Args:
@@ -1219,8 +1255,14 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
             raises LiftError with its size.
         as_inputs: variables (or ``component/*`` globs) cut from the model: inputs whose values come from data.
         keep: component globs whose states are kept; every other state is cut (an input from data).
-        held_inputs: the named and cut inputs become states with du/dt = 0 (held within a chunk), so an input
-            inside a non-polynomial function lifts with the states.
+        held_inputs: True or ``"states"``: the named and cut inputs become states with du/dt = 0 (held within a
+            chunk), so an input inside a non-polynomial function lifts with the states. ``"inputs"``: they stay
+            inputs (B and N terms) with du/dt = 0, so the search adds no products with them.
+        tanh_form: ``"tanh"`` (t = tanh(g), dt/dt = (1 - t^2) g') or ``"exp"`` (E = exp(2 g), q = 1/(E + 1),
+            t = 1 - 2 q, with the identity q (E + 1) - 1 = 0 for ``stabilize``).
+        stabilize: kappa [1/time]: -kappa g(w) is added to each auxiliary's equation whose identity g = 0 is at most
+            quadratic (w z - 1, w^2 - x^2 - eps^2, q (d^2 + eps^2) - 1, w - x y, ...): zero on the manifold, it damps
+            the directions off it. The operators then include these terms.
         sites: the smoothing sites (``sm<k>_w``, ``sm<k>_z``, ``sm<k>_q``) are lifted variables with closed-form
             rates, rather than their nested square roots polynomialized.
         outputs: variables lifted with the states: their non-polynomial parts become auxiliaries, and each is
@@ -1243,7 +1285,7 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     # 1. polynomialize
     t0 = time.perf_counter()
     aux_T, poly = None, None
-    if engine == 'auto' and (m.sites or m.outputs):
+    if engine == 'auto' and (m.sites or m.outputs or tanh_form != 'tanh' or m.held_mode == 'inputs'):
         engine_report['qbee_errors'].append(f'polynomialize: not tried, {len(m.sites)} smoothing sites lifted in '
                                             f'closed form, {len(m.outputs)} outputs')
     elif engine in ('auto', 'qbee'):
@@ -1257,7 +1299,7 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
                 raise LiftError(f'QBee polynomialize: {res[1]}')
     input_free, notes, output_poly = True, [], []
     if poly is None:
-        p = _Polynomializer(m, max_aux)
+        p = _Polynomializer(m, max_aux, tanh_form)
         poly_sym = p.run()
         aux_T = [(a.symbol, a.T, a.rule) for a in p.aux]
         poly = poly_sym
@@ -1360,6 +1402,9 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     n_named = len(states) + len([j for j in kept if len(states) <= j < len(states) + len(site_syms)])
     names = names[:n_named] + [aux_names[k] for k in range(len(names) - n_named)]
     L.invariant_definitions = _map_identities(definitions, pre_names, kept, sub, names)
+    L.stabilization = None
+    if stabilize:
+        L.stabilization = _stabilize(terms, L.invariant_definitions, names, len(states), float(stabilize))
     L.outputs = _map_outputs(m, output_poly, V, U, q, pre_names, kept, sub, names)
     L.states, L.names, L.T, L.rules = states, names, T, rules
     L.n_orig = m.n_orig
@@ -1537,6 +1582,34 @@ def _equal(a, b):
         return False
 
 
+def _stabilize(terms, identities, names, n, kappa):
+    """Adds -kappa g(w) to the equation of each auxiliary whose identity g = 0 is at most quadratic in the lifted
+    variables (and free of inputs); returns {kappa, identities: [{variable, expr}], skipped: [...]}."""
+    syms = [sp.Symbol(x, real=True) for x in names]
+    index = {x: i for i, x in enumerate(syms)}
+    used, skipped = [], []
+    for d in identities:
+        v = d.get('variable')
+        if 'expr' not in d or v not in names or names.index(v) < n:
+            continue
+        g = sp.sympify(d['expr'], locals={x.name: x for x in syms})
+        lifted = [x for x in g.free_symbols if x in index]
+        try:
+            poly = sp.Poly(sp.expand(g), *lifted) if lifted else None
+        except sp.PolynomialError:
+            poly = None
+        if poly is None or poly.total_degree() > 2:
+            skipped.append({'variable': v, 'reason': 'identity of degree > 2' if poly is not None else 'not polynomial'})
+            continue
+        row = terms[names.index(v)]
+        for mono, c in poly.terms():
+            idx = tuple(sorted(i for x, e in zip(lifted, mono) for i in [index[x]] * e))
+            row.append((-kappa * c, idx, None))
+        used.append({'variable': v, 'expr': d['expr']})
+    return {'kappa': kappa, 'identities': used, 'skipped': skipped,
+            'note': 'the operators include these -kappa g(w) terms: OpInf and Galerkin must use the same ones'}
+
+
 def _map_outputs(m, output_poly, V, U, q, pre_names, kept, sub, names):
     """Each output as a polynomial in the lifted names: each term through the lifted variables found (quadratic
     where they allow), else as a product of the polynomial-level variables."""
@@ -1645,15 +1718,14 @@ def _qbee_quadratize(V, U, params, rhs_V, budget):
     """('ok', [monomial over V]) or an error."""
     vn = [f'v{i}' for i in range(len(V))]
     un = [f'u{i}' for i in range(len(U))]
-    pmap = {s: f'p{i}' for i, s in enumerate(params)}
     gens = [sp.Symbol(n) for n in vn + un]
     eqs = []
-    ren = {k: sp.Symbol(v) for k, v in pmap.items()}
+    # the search depends only on which monomials occur (each row's are distinct): coefficient 1 on every term, so
+    # QBee's coefficient field needs no parameters, pi or floats
     for i, r in enumerate(rhs_V):
-        e = sp.Add(*[sp.sympify(c).xreplace(ren) * sp.Mul(*[g ** k for g, k in zip(gens, mono)])
-                     for mono, c in r.items()])
+        e = sp.Add(*[sp.Mul(*[g ** k for g, k in zip(gens, mono)]) for mono in r])
         eqs.append((vn[i], str(e)))
-    payload = {'functions': vn + un, 'parameters': list(pmap.values()), 'equations': eqs}
+    payload = {'functions': vn + un, 'parameters': [], 'equations': eqs}
     status, out = _run_qbee('quadratize', payload, budget)
     if status != 'ok':
         return status, out
@@ -2146,13 +2218,17 @@ def structure(L, ops=None, values=None):
         def holds(lv):
             return bool(np.all(np.abs(lv @ M) <= 1e-9 * np.maximum(np.abs(lv) @ np.abs(M), 1e-300)))
         rows_ = [row for row in _rref(Z.T) if holds(row)]
+        held_names = {h['name'] for h in getattr(m, 'held', [])}
         for row in rows_:
             big = float(np.max(np.abs(row)))
             l = {L.names[i]: float(f'{v:.12g}') for i, v in enumerate(row) if abs(v) > 1e-12 * big}
+            if set(l) <= held_names:
+                continue  # a held input is constant within a chunk by construction (held_inputs), not conserved
             rate_C = float(row @ C)
             rate_B = {L.feature_names[f]: float(row @ B[:, f]) for f in range(B.shape[1]) if abs(row @ B[:, f]) > 1e-12}
             out['conserved'].append({'l': l, 'rate_constant': rate_C, 'rate_inputs': rate_B,
-                                     'in_original_states_only': all(n in {str(s) for s in L.states} for n in l)})
+                                     'in_original_states_only': all(n in {str(s) for s in L.states[:m.n_orig]}
+                                                                    for n in l)})
     return out
 
 
@@ -2310,6 +2386,9 @@ LIFTING_JSON_FIELDS = [
     ('structure', dict, False, 'clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved'),
     ('conditioning', dict, False, '{scales: each variable\'s min, max, max_abs over the run, ratio, note}'),
     ('smoothing_sites', list, False, 'each smoothing site: rule, smoothness class before and after'),
+    ('stabilization', (dict, type(None)), True, 'null, or {kappa, identities: [{variable, expr}], skipped, note}: the '
+                                                '-kappa g(w) terms added to the auxiliaries\' equations; the operators '
+                                                'include them, so OpInf and Galerkin must use the same'),
     ('outputs', list, False, 'named variables lifted with the states: {name, qname, expr (a polynomial in the lifted '
                              'names and inputs: quadratic where the lifted variables allow), degree, original}'),
     ('model', str, False, 'the model lifted'),
@@ -2327,7 +2406,7 @@ def check_lifting_json(doc):
             if required:
                 problems.append(f'missing {field}')
         elif not isinstance(doc[field], kind):
-            problems.append(f'{field} is {type(doc[field]).__name__}, not {kind.__name__}')
+            problems.append(f'{field} is {type(doc[field]).__name__}, not {getattr(kind, "__name__", kind)}')
     problems += [f'unknown field {k}' for k in doc if k not in known]
     if doc.get('schema_version') != SCHEMA_VERSION:
         problems.append(f'schema_version {doc.get("schema_version")} is not {SCHEMA_VERSION}')
@@ -2675,7 +2754,7 @@ def write_outputs(L, output_dir, name='model'):
 def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=None, time_budget=DEFAULT_TIME_BUDGET,
                      engine='auto', max_aux=DEFAULT_MAX_AUX, sim_time=10.0, dt=0.01, solver_info=None,
                      do_verify=True, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False,
-                     sites=True, outputs=()):
+                     sites=True, outputs=(), tanh_form='tanh', stabilize=None):
     """Lifts a (smoothed) flat CellML model and writes the lifted CellML model, ``lifting_functions.py`` and
     ``lifting.json`` (with the verification, the operator check, the structure and the invariants) into
     ``output_dir``. ``as_inputs``, ``keep``, ``held_inputs``, ``sites``: as :func:`lift`. Returns the lifting.json
@@ -2685,7 +2764,7 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     name = os.path.splitext(os.path.basename(model_path))[0]
     output_dir = output_dir or os.path.join(os.path.dirname(os.path.abspath(model_path)), 'lifting')
     L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report, max_terms, as_inputs=as_inputs,
-             keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs)
+             keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs, tanh_form=tanh_form, stabilize=stabilize)
     cellml_path, py_path = write_outputs(L, output_dir, name)
     with open(cellml_path, encoding='utf-8') as f:
         issues = libcellml_issues(f.read())
@@ -2700,6 +2779,7 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     L.timings['total'] = time.perf_counter() - t0
     doc = lifting_json(L, os.path.abspath(py_path), check, scales, verification, struct)
     doc['invariants'] = invs
+    doc['stabilization'] = L.stabilization
     if L.outputs:
         doc['outputs'] = L.outputs
     doc['model'] = os.path.abspath(model_path)
@@ -2732,17 +2812,23 @@ def main(argv=None):
                                                         'the model as inputs whose values come from data')
     parser.add_argument('--keep', default='', help='comma-separated component globs whose states are kept; every '
                                                    'other state is cut as an input')
-    parser.add_argument('--held-inputs', action='store_true',
-                        help='named and cut inputs are states with du/dt = 0 (held within a chunk)')
+    parser.add_argument('--params-as-inputs', default='', help='comma-separated parameters driven as inputs (as --inputs)')
+    parser.add_argument('--held-inputs', nargs='?', const='states', choices=('states', 'inputs'),
+                        help='named and cut inputs are held (du/dt = 0 within a chunk): as states (default) or as '
+                             'inputs (B and N terms)')
+    parser.add_argument('--tanh-form', choices=('tanh', 'exp'), default='tanh')
+    parser.add_argument('--stabilize', type=float, help='kappa: add -kappa g(w) for each quadratic identity')
     parser.add_argument('--outputs', default='', help='comma-separated variables lifted with the states')
     parser.add_argument('--no-sites', action='store_true',
                         help='polynomialize the smoothing sites rather than lifting them in closed form')
     args = parser.parse_args(argv)
-    doc = lift_cellml_file(args.model, args.output_dir, [s for s in args.inputs.split(',') if s],
+    doc = lift_cellml_file(args.model, args.output_dir,
+                           [s for s in (args.inputs + ',' + args.params_as_inputs).split(',') if s],
                            args.smoothing_report, args.time_budget, args.engine, args.max_aux, args.sim_time,
                            args.dt, do_verify=not args.no_verify, max_terms=args.max_terms,
                            as_inputs=[s for s in args.as_inputs.split(',') if s], keep=[s for s in args.keep.split(',') if s],
-                           held_inputs=args.held_inputs, sites=not args.no_sites,
+                           held_inputs=args.held_inputs or False, sites=not args.no_sites,
+                           tanh_form=args.tanh_form, stabilize=args.stabilize,
                            outputs=[s for s in args.outputs.split(',') if s])
     e = doc['engine']
     print(f'{doc["size"]["n"]} -> {doc["size"]["n_w"]} lifted variables ({e.get("polynomialize")}, '
