@@ -1519,7 +1519,17 @@ def _definition_identities(V, T_atomic, m, q, rules):
     for j, mono in enumerate(q.W):
         w = vsym[j]
         if j >= nV:
-            out.append((j, w - sp.Mul(*[vsym[i] ** e for i, e in enumerate(mono) if e]), None))
+            # a monomial as the product of two other lifted variables where it can be (a quadratic identity, which
+            # stabilize can use), else of the polynomial variables
+            pair = None
+            for a_i, a in enumerate(q.W):
+                if a_i != j and all(x <= y for x, y in zip(a, mono)):
+                    rest = tuple(y - x for x, y in zip(a, mono))
+                    if rest in q.Widx and q.Widx[rest] != j:
+                        pair = (a_i, q.Widx[rest])
+                        break
+            out.append((j, w - vsym[pair[0]] * vsym[pair[1]] if pair else
+                        w - sp.Mul(*[vsym[i] ** e for i, e in enumerate(mono) if e]), None))
             continue
         v = V[j]
         if v in m.sites:
