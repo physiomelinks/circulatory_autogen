@@ -116,6 +116,15 @@ def test_an_input_times_a_square_has_no_input_affine_lift_and_the_search_says_so
         lc.lift(str(path), inputs=['u'], engine='rules', max_aux=12)
 
 
+def test_variables_equal_near_the_initial_state_are_not_merged_unless_equal_symbolically():
+    """tanh(50 x) and tanh(60 x) are both -1 to rounding at x0 = -1 (saturated valves), but not elsewhere."""
+    m = lc.Model(_model({x: -x}, {x: -1.0}, {}), myokit_order=False)
+    xs = m.states[0]
+    T = [xs, sp.tanh(50 * xs), sp.tanh(60 * xs)]
+    names, T2, _, _, kept, sub = lc._reduce(m, m.states, ['x', 'a', 'b'], T, [None] * 3, [[], [], []])
+    assert names == ['x', 'a', 'b'] and sub == {}
+
+
 def test_a_polynomial_system_over_max_terms_stops_with_its_size():
     """(1 + x + y)^30 has 496 terms: over max_terms, the lift stops before any quadratization and says why."""
     with pytest.raises(lc.LiftError, match='too large to quadratize'):
@@ -163,6 +172,42 @@ def test_a_time_input_inside_a_root_with_a_state_takes_its_derivative_as_an_inpu
                 engine='rules', max_aux=20)
 
 
+def test_held_inputs_lift_an_input_inside_tanh_and_are_marked(tmp_path):
+    """dx/dt = -x + tanh(k (u - x)): with u an input there is no finite input-affine lift; held (du/dt = 0 within a
+    chunk) u is a state, the system has no inputs and lifts: t = tanh(.), dt/dt = (1 - t^2) k (u' - x')."""
+    k_ = sp.Symbol('k')
+    text = _model({x: -x + sp.tanh(k_ * (u - x))}, {x: 0.1}, {'u': 0.5, 'k': 2})
+    with pytest.raises(lc.LiftError):
+        lc.lift(text, inputs=['u'], engine='rules', max_aux=20)
+    doc = _lift(tmp_path, text, inputs=['u'], held_inputs=True)
+    assert doc['lifted'][:2] == ['x', 'u'] and doc['inputs'] == []
+    assert doc['held_inputs'][0]['name'] == 'u' and doc['held_inputs'][0]['index'] == 1
+    assert doc['reverse'] == 'w[:1]' and doc['size']['n_held'] == 1
+
+
+def test_keep_cuts_the_other_states_as_inputs_from_data(tmp_path):
+    """Two components; keeping one makes the other's state an input whose values come from the model run."""
+    text = f"""<?xml version="1.0"?><model xmlns="{C2}" name="m">
+<component name="a"><variable name="t" units="dimensionless" interface="public_and_private"/>
+<variable name="x" units="dimensionless" initial_value="1" interface="public_and_private"/>
+<variable name="y" units="dimensionless" interface="public_and_private"/>
+<math xmlns="{MML}"><apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+<apply><minus/><apply><power/><ci>y</ci><cn xmlns:cellml="{C2}" cellml:units="dimensionless">3</cn></apply><ci>x</ci></apply></apply></math></component>
+<component name="b"><variable name="t" units="dimensionless" interface="public_and_private"/>
+<variable name="y" units="dimensionless" initial_value="0.5" interface="public_and_private"/>
+<variable name="x" units="dimensionless" interface="public_and_private"/>
+<math xmlns="{MML}"><apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>y</ci></apply><apply><minus/><ci>x</ci></apply></apply></math></component>
+<connection component_1="a" component_2="b"><map_variables variable_1="t" variable_2="t"/>
+<map_variables variable_1="x" variable_2="x"/><map_variables variable_1="y" variable_2="y"/></connection></model>"""
+    path = tmp_path / 'm.cellml'
+    path.write_text(text)
+    doc = lc.lift_cellml_file(str(path), str(tmp_path / 'out'), keep=['a'], sim_time=1.0, dt=0.01, time_budget=5.0)
+    assert doc['states'] == ['a.x'] and [(i['name'], i['kind']) for i in doc['inputs']] == [('y', 'cut')]
+    assert not doc['verification']['simulated'] and doc['verification']['jf']['max'] < 1e-12
+    assert doc['check']['max_relative_residual'] < 1e-12
+    assert doc['operators']['present']['B']
+
+
 def test_a_function_of_time_becomes_an_input(tmp_path):
     doc = _lift(tmp_path, _model({x: -x + sp.sin(2 * sp.Symbol('t'))}, {x: 0.0}, {}))
     assert [(i['kind'], i['expr']) for i in doc['inputs']] == [('time', 'sin(2*t)')]
@@ -179,7 +224,13 @@ def test_a_smoothed_rectifier_lifts_with_its_eps_and_is_not_exact(tmp_path):
     smoothed, report = sc.smooth(text, {'sm1_x': {'min': -1.0, 'max': 1.0, 'min_abs': 0.0}}, rel=1e-2)
     assert report['sites'][0]['rule'] == 'rectifier'
     doc = _lift(tmp_path, smoothed, smoothing_report=report)
-    assert not doc['engine']['qbee_errors'] or doc['engine']['polynomialize'] == 'rules'
+    # the site's w and z are lifted variables in closed form, with their identities
+    assert doc['engine']['polynomialize'] == 'sites+rules'
+    assert {'sm1_w', 'sm1_z'} <= set(doc['lifted']) and [s['kind'] for s in doc['sites']] == ['w', 'z']
+    defs = {d['variable']: d for d in doc['invariants'] if d['origin'] == 'definition' and 'expr' in d}
+    assert sp.sympify(defs['sm1_w']['expr']) == sp.sympify('sm1_w**2 - x**2 - eps_sm1**2')
+    assert sp.sympify(defs['sm1_z']['expr']) == sp.sympify('sm1_w*sm1_z - 1')
+    assert all(d['relative_reference'] < 1e-12 for d in defs.values())
     inexact = [a for a in doc['auxiliaries'] if not a['exact']]
     assert inexact and all(a['epsilon'] == {'eps_sm1': pytest.approx(0.02)} for a in inexact)
     assert doc['inputs'] == []
@@ -244,6 +295,19 @@ def test_python_functions_have_the_documented_shapes(tmp_path):
     T = [sp.sympify(a['expr'], locals=syms) for a in doc['auxiliaries']]
     assert T == [sp.exp(sp.Symbol('x'))]
     json.dumps(doc)
+
+
+def test_lifting_json_conforms_to_its_schema_and_the_docs_describe_every_field(tmp_path):
+    """lifting.json is read by OpInf and by cuflynx-rom: its fields are only ever added, never renamed."""
+    import pathlib
+    doc = _lift(tmp_path, _model({x: -k * sp.exp(x) + y, y: -y}, {x: 0.1, y: 1.0}, {'k': 1}))
+    assert doc['schema_version'] == lc.SCHEMA_VERSION == 1
+    assert lc.check_lifting_json(json.loads(json.dumps(doc, default=str))) == []
+    docs = (pathlib.Path(__file__).resolve().parents[1] / 'tutorial' / 'docs' / 'lifting.md').read_text()
+    assert [f for f, *_ in lc.LIFTING_JSON_FIELDS if f'`{f}`' not in docs] == []
+    bad = dict(doc)
+    del bad['lifted']
+    assert 'missing lifted' in lc.check_lifting_json(bad)
 
 
 def test_cli_writes_the_three_files(tmp_path):

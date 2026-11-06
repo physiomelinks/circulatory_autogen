@@ -24,7 +24,80 @@ It needs `pip install "libcuflynx[lift]"`. In Python: `libcuflynx.utilities.lift
 | `lifting.json` | `states` (myokit qnames, in myokit's order), `lifted` (the original states, then the auxiliaries), `auxiliaries` (`expr` = T, `jac` = dT/ds, `exact`, `epsilon`, `scale`), `inputs`, `operators` (A dense, H as COO over pairs i ≤ j in `numpy.triu_indices(n_w)` order, N per input feature, B, C; also `symbolic`, in the parameters), `engine`, `verification`, `check`, `structure`, `conditioning` |
 | `lifting_functions.py` | vectorised numpy: `T(X)` (n_snap, n) → (n_snap, n_w), `J(X)` → (n_snap, n_w, n), `inputs(t, X)`, `features(U)`, `rhs_original(X, U)`, `rhs_lifted(W, U)`, `operators()`; each takes `p` to override parameters |
 
+## lifting.json (schema version 1)
+
+`lifting.json` is read by Operator Inference and by POD-Galerkin reduction. Its fields are stable: a later version
+only adds fields and raises `schema_version`; none is renamed or removed. `check_lifting_json(doc)` lists a document's
+problems against this table (`LIFTING_JSON_FIELDS` in the module).
+
+| field | type | always | meaning |
+|---|---|---|---|
+| `format` | str | yes | always "libcuflynx lift_cellml" |
+| `schema_version` | int | yes | the schema version (1); later versions only add fields |
+| `parse` | str | yes | how to parse the expression strings and the H pair indices |
+| `states` | list | yes | the original states kept, as myokit qnames, in myokit's order: the first n entries of w |
+| `state_symbols` | list | yes | their names in the expressions |
+| `lifted` | list | yes | the names of w in order: the original states, the held inputs, the smoothing sites, the auxiliaries |
+| `reverse` | str | yes | the reverse map, w[:n] |
+| `held_inputs` | list | yes | inputs held as states (du/dt = 0 within a chunk): {name, qname, kind, index, expr (a held function), note} |
+| `sites` | list | yes | smoothing sites lifted in closed form: {name, kind (w, z or q), k, qname, x, epsilon} |
+| `size` | dict | yes | {n, n_held, n_sites, n_w, n_aux, n_inputs, n_features} |
+| `symbols` | dict | yes | {expression name: component.variable} |
+| `time` | str | yes | the name of time |
+| `auxiliaries` | list | yes | each lifted variable after the states: {name, expr (T), jac (dT/d states and held inputs), jac_inputs (dT/du, when it depends on an input), exact, epsilon, rule, scale} |
+| `inputs` | list | yes | {name, expr, kind (variable, cut, time, input_function, nonsmooth, derivative, nonpolynomial_term), qname, of, switch_variables} |
+| `input_features` | list | yes | the input monomials the B and N operators use, in order |
+| `parameters` | dict | yes | {name: value} at which the numeric operators are evaluated |
+| `derived_parameters` | dict | yes | {name: expression in the parameters} |
+| `operators` | dict | yes | present (which of A, H, N, B, C are non-zero), A (n_w x n_w), H ({rows, pairs, values, shape}: COO over the pairs i <= j in numpy.triu_indices(n_w) order), N (one n_w x n_w per input feature), B (n_w x n_f), C (n_w), sparsity, symbolic (the same in the parameters) |
+| `initial` | dict | yes | {w0}: T at the initial state and the parameters |
+| `engine` | dict | yes | which engine ran each stage, QBee errors, input_free, notes, sizes of the polynomial system |
+| `timings` | dict | yes | seconds of each stage |
+| `invariants` | list | yes | g(w) = 0 exactly: {expr, degree, origin (definition, conserved, oscillator), variable, max_reference, relative_reference, max_lifted_run, relative_lifted_run}, or {variable, skipped, origin} where a definition has no polynomial identity |
+| `python` | str | no | the generated module: T, J, JU, inputs, features, rhs_original, rhs_lifted, operators |
+| `check` | dict | no | the operator form against J f on the model's trajectory: {max_relative_residual, per_equation} |
+| `verification` | dict | no | simulated, states, manifold, max_state_error, max_manifold_defect, defect_growth (times past 1e-8, 1e-6, 1e-3 and the rate), jf |
+| `structure` | dict | no | clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved |
+| `conditioning` | dict | no | {scales: each variable's min, max, max_abs over the run, ratio, note} |
+| `smoothing_sites` | list | no | each smoothing site: rule, smoothness class before and after |
+| `model` | str | no | the model lifted |
+| `lifted_model` | str | no | the lifted CellML model |
+| `libcellml` | dict | no | Validator and Analyser issues of the lifted CellML model |
+
 Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sympy.Symbol(name) for name in symbols})`.
+
+## Options
+
+- `--inputs a,b`: variables kept as inputs u (ports, open boundary conditions).
+- `--as-inputs a,b` (or `component/*`): variables cut from the model; their values come from data (kind `cut`). The
+  lifted CellML holds them at their value at t = 0, so the verification checks the lifting on the model's own run
+  instead of simulating it.
+- `--keep comp1,comp2`: keep only the states of these components; every other state they read is cut. Sites and cut
+  inputs the kept states do not reach are dropped.
+- `--held-inputs`: named and cut inputs become states with du/dt = 0, held within a chunk or beat (`held_inputs`); a
+  function of held inputs alone becomes one held variable `h_k` (`kind: held_function`, with its `expr`). With no
+  inputs left the system is polynomial without inputs, so an input inside a square root or a tanh lifts.
+- `--no-sites`: polynomialize the smoothing sites' square roots instead of lifting the sites in closed form.
+
+## Smoothing sites
+
+The smoothing pass's `sm<k>_w = sqrt(x^2 + eps^2)`, `sm<k>_z = 1/w` and `sm<k>_q = 1/(x^2 + eps^2)` are kept whole:
+lifted variables with closed-form rates, dw/dt = x x' z, dz/dt = -x x' z^3, dq/dt = -2 x x' q^2, where x is the site's
+argument in the states and other sites. The lifted size then grows with the number of sites, not with the depth of
+the curves inside them. `H = (1 + x z)/2` is a polynomial in x and z.
+
+## Invariants
+
+`invariants` lists polynomial identities g(w) = 0 that hold exactly among the lifted variables, so that a data
+matrix built from lifted snapshots is known to be collinear along them:
+
+- `definition`: each lifted variable's own: a monomial w - x y; a site's w^2 - x^2 - eps^2, z w - 1, q (x^2 + eps^2) - 1;
+  a power g^(a/b) as w^b - g^a (w^b g^(-a) - 1 for a < 0); sin and cos as s^2 + c^2 - 1. An exp, log, tanh or
+  symbolic power has none and is recorded as `skipped`.
+- `conserved`: linear functionals with no rate, l.w - l.w(0).
+- `oscillator`: clock norms c^2 + s^2 - r^2.
+
+Each is checked on T of the model's run and on the lifted run: max |g| and max |g| over the sum of |its terms|.
 
 ## How
 
