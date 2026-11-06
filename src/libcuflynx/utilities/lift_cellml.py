@@ -66,6 +66,7 @@ MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
 DEFAULT_TIME_BUDGET = 60.0          # s for each QBee stage
 DEFAULT_MAX_AUX = 400               # auxiliaries either fallback may add
 DEFAULT_MAX_TERMS = 20000           # terms of the polynomial system beyond which no quadratization is attempted
+QBEE_MAX_TERMS = 2000               # terms beyond which QBee's branch-and-bound is not tried (its examples are ~12 states)
 #: smoothness class of each smoothing rule's original operation, and of its smooth form
 SMOOTHNESS = {'abs': 'C0 (Lipschitz, kink at x = 0)', 'maxmin': 'C0 (Lipschitz, kink where a = b)',
               'rectifier': 'C0 (Lipschitz, kink at x = 0)',
@@ -1024,7 +1025,9 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     t0 = time.perf_counter()
     q = _Quadratic(len(V), len(U), rhs_V, m.param_values())
     done = False
-    if engine in ('auto', 'qbee'):
+    if engine == 'auto' and n_terms > QBEE_MAX_TERMS:
+        engine_report['qbee_errors'].append(f'quadratize: not tried, {n_terms} terms (over {QBEE_MAX_TERMS})')
+    elif engine in ('auto', 'qbee'):
         res = _qbee_quadratize(V, U, params_all(), rhs_V, time_budget)
         if res[0] == 'ok':
             for mono in res[1]:
@@ -1234,9 +1237,10 @@ def _qbee_quadratize(V, U, params, rhs_V, budget):
     pmap = {s: f'p{i}' for i, s in enumerate(params)}
     gens = [sp.Symbol(n) for n in vn + un]
     eqs = []
+    ren = {k: sp.Symbol(v) for k, v in pmap.items()}
     for i, r in enumerate(rhs_V):
-        e = sum(sp.sympify(c).xreplace({k: sp.Symbol(v) for k, v in pmap.items()}) *
-                sp.Mul(*[g ** k for g, k in zip(gens, mono)]) for mono, c in r.items())
+        e = sp.Add(*[sp.sympify(c).xreplace(ren) * sp.Mul(*[g ** k for g, k in zip(gens, mono)])
+                     for mono, c in r.items()])
         eqs.append((vn[i], str(e)))
     payload = {'functions': vn + un, 'parameters': list(pmap.values()), 'equations': eqs}
     status, out = _run_qbee('quadratize', payload, budget)

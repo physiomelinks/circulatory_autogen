@@ -133,6 +133,13 @@ def test_a_right_hand_side_that_stays_at_zero_is_judged_on_its_terms_not_on_roun
     assert doc['verification']['jf']['max'] < 1e-12
 
 
+def test_qbee_is_not_tried_on_a_system_over_its_size(monkeypatch):
+    monkeypatch.setattr(lc, 'QBEE_MAX_TERMS', 0)
+    L = lc.lift(_model({x: -x ** 3}, {x: 1.0}, {}), time_budget=5.0)
+    assert L.engine['quadratize'] == 'greedy'
+    assert any('not tried' in e for e in L.engine['qbee_errors'])
+
+
 def test_auxiliaries_identically_constant_or_equal_are_removed():
     """QBee may add w = sqrt(g) * (1/sqrt(g)) = 1 or two monomials with one T: the lift drops them."""
     L = lc.lift(_model({x: 2 - sp.sqrt(x ** 2 + 1)}, {x: 0.0}, {}), time_budget=5.0)
