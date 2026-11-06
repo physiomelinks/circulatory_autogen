@@ -455,6 +455,40 @@ def input_values(m, t, states):
     return out
 
 
+class _Evaluator:
+    """Floats of parameter expressions at one point, caching every subexpression: the coefficients of a lifted
+    system share most of their subexpressions."""
+    _F = {sp.exp: math.exp, sp.log: math.log, sp.sin: math.sin, sp.cos: math.cos, sp.tan: math.tan,
+          sp.tanh: math.tanh, sp.sinh: math.sinh, sp.cosh: math.cosh, sp.atan: math.atan, sp.Abs: abs}
+
+    def __init__(self, values):
+        self.memo = {k: float(v) for k, v in values.items()}
+
+    def __call__(self, e):
+        e = sp.sympify(e)
+        got = self.memo.get(e)
+        if got is not None:
+            return got
+        if e.is_Number:
+            out = float(e)
+        elif e is sp.pi or e is sp.E:
+            out = float(e)
+        elif isinstance(e, sp.Add):
+            out = math.fsum(self(a) for a in e.args)
+        elif isinstance(e, sp.Mul):
+            out = 1.0
+            for a in e.args:
+                out *= self(a)
+        elif isinstance(e, sp.Pow):
+            out = self(e.args[0]) ** self(e.args[1])
+        elif type(e) in self._F:
+            out = self._F[type(e)](*[self(a) for a in e.args])
+        else:
+            out = float(e.xreplace({k: sp.Float(v) for k, v in self.memo.items() if isinstance(k, sp.Symbol)}))
+        self.memo[e] = out
+        return out
+
+
 def _value(e, *values):
     """A float of an expression with the symbols of ``values`` (dicts {symbol: float}) replaced."""
     subs = {k: sp.Float(v) for d in values for k, v in d.items()}
@@ -772,7 +806,8 @@ def _drop_cancelled(d, points, rel=1e-13):
     largest coefficient of ``d`` there: a term that cancels symbolically is left with rounding residue only."""
     if not d:
         return d
-    vals = {k: [_value(c, pt) for pt in points] for k, c in d.items()}
+    evs = [_Evaluator(pt) for pt in points]
+    vals = {k: [ev(c) for ev in evs] for k, c in d.items()}
     scales = [max(abs(v[i]) for v in vals.values()) for i in range(len(points))]
     return {k: c for k, c in d.items()
             if any(abs(vals[k][i]) > rel * scales[i] for i in range(len(points)))}
@@ -800,9 +835,8 @@ class _Quadratic:
         self.nV, self.nU = nV, nU
         self.rhs_V = rhs_V                       # list over V of {mono over V+U: coeff}
         self.points = _parameter_points(values or {})
-        values, other = self.points
-        num = [{mono: (_value(c, values), _value(c, other)) if sp.sympify(c).free_symbols else
-                (float(c), float(c)) for mono, c in r.items()} for r in rhs_V]
+        ev1, ev2 = (_Evaluator(pt) for pt in self.points)
+        num = [{mono: (ev1(c), ev2(c)) for mono, c in r.items()} for r in rhs_V]
         self.num_V = [{k: v for k, v in r.items() if v != (0.0, 0.0)} for r in num]
         self.rhs_V = rhs_V = [{k: c for k, c in r.items() if k in nr} for r, nr in zip(rhs_V, self.num_V)]
         self.W = [tuple(1 if i == j else 0 for i in range(nV)) for j in range(nV)]
@@ -856,7 +890,9 @@ class _Quadratic:
         self.Wset.add(m)
         row = self._numeric_row(m)
         self.rows.append(row)
-        self.bad_set = {b for b in self.bad_set if self.split(b) is None}
+        # only a term whose state part the new monomial divides can become quadratic
+        self.bad_set = {b for b in self.bad_set
+                        if not all(x <= y for x, y in zip(m, b[:self.nV])) or self.split(b) is None}
         self._check(row)
 
     def split(self, mono):
@@ -885,28 +921,24 @@ class _Quadratic:
                 return True
             if len(self.W) - self.nV >= max_new or (deadline and time.perf_counter() > deadline):
                 return False
+            # every monomial d that would make a bad term quadratic on its own: the term's state part itself, or it
+            # less one variable, or it less an existing monomial. A d fixes exactly the terms that propose it, so
+            # its score is the number of terms proposing it.
             cands = {}
-            for ms, has_u in bad:
-                if has_u:
-                    cands.setdefault(ms, 0)
-                    continue
-                for i in range(self.nV):
-                    if ms[i]:
-                        d = tuple(x - (1 if k == i else 0) for k, x in enumerate(ms))
-                        cands.setdefault(d, 0)
-                for a in self.W[self.nV:]:
-                    if all(x <= y for x, y in zip(a, ms)):
-                        d = tuple(y - x for x, y in zip(a, ms))
-                        if sum(d) >= 2:
-                            cands.setdefault(d, 0)
-            for d in cands:
-                for ms, has_u in bad:
-                    if ms == d:
-                        cands[d] += 1
-                    elif not has_u and all(x <= y for x, y in zip(d, ms)):
-                        rest = tuple(y - x for x, y in zip(d, ms))
-                        if sum(rest) == 1 or rest in self.Wset:
-                            cands[d] += 1
+            for count, (ms, has_u) in enumerate(bad):
+                if deadline and count % 500 == 0 and time.perf_counter() > deadline:
+                    return False
+                proposals = {ms}
+                if not has_u:
+                    for i in range(self.nV):
+                        if ms[i]:
+                            proposals.add(tuple(x - (1 if k == i else 0) for k, x in enumerate(ms)))
+                    for a in self.W[self.nV:]:
+                        if all(x <= y for x, y in zip(a, ms)):
+                            proposals.add(tuple(y - x for x, y in zip(a, ms)))
+                for d in proposals:
+                    if sum(d) >= 2 or (has_u and d == ms):
+                        cands[d] = cands.get(d, 0) + 1
             best = max(cands, key=lambda d: (cands[d], -sum(d), d))
             self.add(best)
 
@@ -1008,8 +1040,10 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     if not done:
         deadline = time.perf_counter() + max(time_budget, 30.0) * 4
         if not q.greedy(max_aux, deadline):
-            raise LiftError(f'the greedy quadratization stopped at {len(q.W) - len(V)} monomials with terms of '
-                            f'degree > 2 left (max_aux {max_aux})')
+            raise LiftError(f'the greedy quadratization stopped at {len(q.W) - len(V)} monomials with {len(q.bad_set)} '
+                            f'terms of degree > 2 left (max_aux {max_aux}; polynomial system: {len(V)} variables, '
+                            f'{len(aux_T)} of them auxiliaries from {engine_report["polynomialize"]}, {n_terms} terms, '
+                            f'degree {degree})')
         engine_report.setdefault('quadratize', 'greedy')
     timings['quadratize'] = time.perf_counter() - t0
 
