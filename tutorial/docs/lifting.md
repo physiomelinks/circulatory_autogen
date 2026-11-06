@@ -58,7 +58,7 @@ problems against this table (`LIFTING_JSON_FIELDS` in the module).
 | `python` | str | no | the generated module: T, J, JU, inputs, features, rhs_original, rhs_lifted, operators |
 | `check` | dict | no | the operator form against J f on the model's trajectory: {max_relative_residual, per_equation} |
 | `verification` | dict | no | simulated, states, manifold, max_state_error, max_manifold_defect, defect_growth (times past 1e-8, 1e-6, 1e-3 and the rate), jf |
-| `structure` | dict | no | clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved |
+| `structure` | dict | no | clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved, spectrum (the lifted Jacobian at states of the run: leading real part, count above 1e3/time, the leading eigenvectors' fraction in the tangent space) |
 | `conditioning` | dict | no | {scales: each variable's min, max, max_abs over the run, ratio, note} |
 | `smoothing_sites` | list | no | each smoothing site: rule, smoothness class before and after |
 | `outputs` | list | no | named variables lifted with the states: {name, qname, expr (a polynomial in the lifted names and inputs: quadratic where the lifted variables allow), degree, original} |
@@ -150,6 +150,15 @@ stops at `--max-aux` and says so.
 - `jf`: J(s) f(s) against `rhs_lifted(T(s))` at sampled states, relative to the size of the terms that cancel
   (|J| |f|) or |w|, whichever is larger;
 - `check` (top level): the operator form against J f on the reference trajectory, per equation.
+
+## Stability off the manifold
+
+The manifold w = T(s) is invariant but need not attract. `structure.spectrum` gives the lifted Jacobian's eigenvalues
+at states of the model's run (on the manifold): the leading real part, how many exceed 1e3/time, and the fraction of
+the leading eigenvectors' norm in the tangent space span(J) (near 0: transverse). `simulate_lifted(funcs, x0, u0,
+t_end, relift_every=None)` integrates the lifted system with the inputs held and reports whether it gets through and
+its defect, optionally re-lifting w <- T(w[:n]) at intervals. `--stabilize kappa` damps the transverse directions
+with the auxiliaries' quadratic identities.
 
 ## Structure
 

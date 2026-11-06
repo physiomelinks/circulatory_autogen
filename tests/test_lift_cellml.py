@@ -247,6 +247,20 @@ def test_held_inputs_as_inputs_give_b_and_n_terms_without_products(tmp_path):
     assert doc['verification']['jf']['max'] < 1e-12
 
 
+def test_spectrum_and_simulation_show_fitzhugh_nagumos_transverse_instability(tmp_path):
+    """w = V^2 is not attracting: the leading eigenvalue at states on the manifold is positive somewhere along the run,
+    and simulate_lifted reports the defect off the manifold (smaller with re-lifting)."""
+    V, R, a, b, c = sp.symbols('V R a b c')
+    doc = _lift(tmp_path, _model({V: c * (V - V ** 3 / 3 + R), R: -(V - a + b * R) / c}, {V: -1, R: 1},
+                                 {'a': 0.2, 'b': 0.2, 'c': 3}))
+    sp_ = doc['structure']['spectrum']
+    assert sp_['n_points'] > 10 and sp_['leading_re_max'] > 0
+    f = lc.load_functions(doc['python'])
+    free = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0)
+    relifted = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0, relift_every=0.5)
+    assert free['success'] and relifted['success'] and relifted['max_defect'] < free['max_defect']
+
+
 def test_keep_cuts_the_other_states_as_inputs_from_data(tmp_path):
     """Two components; keeping one makes the other's state an input whose values come from the model run."""
     text = f"""<?xml version="1.0"?><model xmlns="{C2}" name="m">

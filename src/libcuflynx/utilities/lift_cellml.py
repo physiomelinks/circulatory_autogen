@@ -2383,7 +2383,9 @@ LIFTING_JSON_FIELDS = [
     ('check', dict, False, 'the operator form against J f on the model\'s trajectory: {max_relative_residual, per_equation}'),
     ('verification', dict, False, 'simulated, states, manifold, max_state_error, max_manifold_defect, defect_growth '
                                   '(times past 1e-8, 1e-6, 1e-3 and the rate), jf'),
-    ('structure', dict, False, 'clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved'),
+    ('structure', dict, False, 'clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved, '
+                               'spectrum (the lifted Jacobian at states of the run: leading real part, count above '
+                               '1e3/time, the leading eigenvectors\' fraction in the tangent space)'),
     ('conditioning', dict, False, '{scales: each variable\'s min, max, max_abs over the run, ratio, note}'),
     ('smoothing_sites', list, False, 'each smoothing site: rule, smoothness class before and after'),
     ('stabilization', (dict, type(None)), True, 'null, or {kappa, identities: [{variable, expr}], skipped, note}: the '
@@ -2672,6 +2674,73 @@ def _defect_growth(L, t, X, Wl, Tl, atol):
     return out
 
 
+def lifted_jacobian(ops, w, f):
+    """d(rhs_lifted)/dw at one lifted state w (n_w,) with input features f (n_f,), from the operators."""
+    A, (hr, hk, hv), N, B, C = ops
+    rows, cols = np.triu_indices(len(w))
+    J = np.array(A, dtype=float)
+    a, b = rows[hk], cols[hk]
+    np.add.at(J, (hr, a), hv * w[b])
+    np.add.at(J, (hr, b), hv * w[a])
+    for k, Nk in enumerate(N):
+        J = J + Nk * f[k]
+    return J
+
+
+def spectrum(funcs, X, U, n_points=40, threshold=1e3, n_vectors=5):
+    """The lifted Jacobian's eigenvalues at ``n_points`` states of a trajectory on the manifold (w = T(x)): the
+    leading real part, how many exceed ``threshold`` (1/time), and the fraction of each leading eigenvector's norm in
+    the tangent space span(J), where 0 means transverse to the manifold."""
+    ops = funcs.operators()
+    idx = np.unique(np.linspace(0, len(X) - 1, min(n_points, len(X))).astype(int))
+    W = funcs.T(X[idx], U=U[idx])
+    F = funcs.features(U[idx])
+    Js = funcs.J(X[idx], U=U[idx])
+    lead, count, frac = [], [], []
+    for k in range(len(idx)):
+        ev, vec = np.linalg.eig(lifted_jacobian(ops, W[k], F[k]))
+        order = np.argsort(-ev.real)
+        lead.append(float(ev.real[order[0]]))
+        count.append(int(np.sum(ev.real > threshold)))
+        u_, s_, _ = np.linalg.svd(Js[k], full_matrices=False)
+        Q = u_[:, s_ > 1e-12 * (s_[0] if s_.size else 1.0)]
+        for j in order[:n_vectors]:
+            v = vec[:, j]
+            frac.append(float(np.linalg.norm(Q.T @ v) / max(np.linalg.norm(v), 1e-300)))
+    return {'n_points': len(idx), 'threshold': threshold, 'leading_re_max': max(lead), 'leading_re_median': float(np.median(lead)),
+            'count_above_max': max(count), 'count_above_median': float(np.median(count)),
+            'leading_vectors_in_tangent_median': float(np.median(frac)) if frac else None,
+            'leading_vectors_in_tangent_min': float(np.min(frac)) if frac else None}
+
+
+def simulate_lifted(funcs, x0, u0, t_end, relift_every=None, rtol=1e-6, atol=1e-9, max_step=np.inf):
+    """Integrates the lifted system dw/dt = rhs_lifted(w, u0) (inputs held at ``u0``) from w = T(x0) with SciPy's BDF,
+    optionally re-lifting w <- T(w[:n]) every ``relift_every``. Returns {success, t_reached, max_defect}: the
+    largest |w - T(w[:n])| over max |w| at the segment ends."""
+    from scipy.integrate import solve_ivp
+    U0 = np.atleast_2d(np.asarray(u0, dtype=float))
+    F0 = funcs.features(U0)[0]
+    ops = funcs.operators()
+    n = len(funcs.STATES)
+    w = funcs.T(np.atleast_2d(x0), U=U0)[0]
+    t, defect = 0.0, 0.0
+    step = relift_every or t_end
+    while t < t_end - 1e-12:
+        t1 = min(t + step, t_end)
+        with np.errstate(all='ignore'):
+            sol = solve_ivp(lambda _t, y: funcs.rhs_lifted(y[None, :], U0)[0], (t, t1), w, method='BDF', rtol=rtol,
+                            atol=atol, max_step=max_step, jac=lambda _t, y: lifted_jacobian(ops, y, F0))
+        if not sol.success or not np.all(np.isfinite(sol.y[:, -1])):
+            return {'success': False, 't_reached': float(sol.t[-1]), 'max_defect': defect, 'message': sol.message}
+        w = sol.y[:, -1]
+        Tw = funcs.T(w[None, :n], U=U0)[0]
+        defect = max(defect, float(np.max(np.abs(w - Tw)) / max(float(np.max(np.abs(Tw))), 1e-300)))
+        if relift_every:
+            w = Tw
+        t = t1
+    return {'success': True, 't_reached': float(t), 'max_defect': defect}
+
+
 def conserved_drift(L, info, run, funcs):
     """Each conserved functional's max |l.w(t) - l.w(0) - integral of l.(B f + C)| along the lifted run (along
     T of the model's run when the lifted model is not simulated)."""
@@ -2776,6 +2845,11 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
         verification, check, scales, run = verify(L, model_path, cellml_path, funcs, sim_time, dt, solver_info)
         conserved_drift(L, struct, run, funcs)
         invs = invariants(L, struct, run)
+        if L.n_w <= 400:
+            try:
+                struct['spectrum'] = spectrum(funcs, run[1], run[3])
+            except Exception as e:  # noqa: BLE001 -- informational
+                struct['spectrum'] = {'error': f'{type(e).__name__}: {e}'}
     L.timings['total'] = time.perf_counter() - t0
     doc = lifting_json(L, os.path.abspath(py_path), check, scales, verification, struct)
     doc['invariants'] = invs
