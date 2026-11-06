@@ -61,7 +61,8 @@ stops at `--max-aux` and says so.
 - `defect_growth`: when the defect and the state error first pass 1e-8, 1e-6 and 1e-3, and the defect's exponential
   rate. The manifold w = T(s) is invariant but need not attract: for FitzHugh–Nagumo with w = V², solver error grows
   off it at about 2c(1 − 2V²/3), so a long lifted run leaves the original trajectory while J f still matches;
-- `jf`: J(s) f(s) against `rhs_lifted(T(s))` at sampled states, relative to max(|dw/dt|, |w|);
+- `jf`: J(s) f(s) against `rhs_lifted(T(s))` at sampled states, relative to the size of the terms that cancel
+  (|J| |f|) or |w|, whichever is larger;
 - `check` (top level): the operator form against J f on the reference trajectory, per equation.
 
 ## Structure

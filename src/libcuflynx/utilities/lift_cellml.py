@@ -1857,7 +1857,9 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     state over its scale max(range, |mean|, atol); ``manifold``: max |w - T(s)| of each auxiliary over its
     scale along the lifted run; ``jf``: max |J f - rhs_lifted(T(s))| over |J f| at sampled states;
     ``check``: the operator form against J f on the reference trajectory, per equation. The J f and operator
-    errors are relative to the larger of max |dw/dt| and max |w| of each variable.
+    errors are relative to the size of the terms that cancel (|J| |f|, or the operators applied in absolute value
+    to |w|) or max |w|, whichever is larger, so an equation whose right-hand side stays near 0 is not judged
+    on rounding alone.
     """
     solver_info = dict({'rtol': 1e-10, 'atol': 1e-12, 'MaximumStep': dt}, **(solver_info or {}))
     m = L.model
@@ -1893,11 +1895,14 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     Xs = np.vstack([Xs, Xs + 0.05 * spread * rng.standard_normal(Xs.shape)])
     ts = np.concatenate([t[idx], t[idx]])
     Us = funcs.inputs(ts, Xs)
-    Jf = np.einsum('kij,kj->ki', funcs.J(Xs), funcs.rhs_original(Xs, Us))
+    Js, fs = funcs.J(Xs), funcs.rhs_original(Xs, Us)
+    Jf = np.einsum('kij,kj->ki', Js, fs)
     R = funcs.rhs_lifted(funcs.T(Xs), Us)
     ok = np.all(np.isfinite(Jf), axis=1) & np.all(np.isfinite(R), axis=1)
     Ts = funcs.T(Xs)
-    denom = np.maximum(np.maximum(np.max(np.abs(Jf[ok]), axis=0), np.max(np.abs(Ts[ok]), axis=0)), 1e-12) \
+    # each variable's scale: the larger of |J| |f| (the size of the terms that cancel in J f) and |w|
+    size = np.einsum('kij,kj->ki', np.abs(Js), np.abs(fs))
+    denom = np.maximum(np.maximum(np.max(size[ok], axis=0), np.max(np.abs(Ts[ok]), axis=0)), 1e-300) \
         if ok.any() else np.ones(L.n_w)
     jf = np.max(np.abs(Jf[ok] - R[ok]), axis=0) / denom if ok.any() else np.full(L.n_w, np.inf)
     out['jf'] = {'max': float(np.max(jf)), 'n_points': int(ok.sum()), 'per_variable': dict(zip(L.names, map(float, jf)))}
@@ -1905,8 +1910,12 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     U = funcs.inputs(t, X)
     dW = np.einsum('kij,kj->ki', funcs.J(X), funcs.rhs_original(X, U))
     ops = funcs.operators()
-    op = apply_operators(ops, Tref, funcs.features(U))
-    den = np.maximum(np.maximum(np.max(np.abs(dW), axis=0), np.max(np.abs(Tref), axis=0)), 1e-12)
+    F = funcs.features(U)
+    op = apply_operators(ops, Tref, F)
+    A, (hr, hk, hv), N, B, C = ops
+    size = apply_operators((np.abs(A), (hr, hk, np.abs(hv)), [np.abs(x) for x in N], np.abs(B), np.abs(C)),
+                           np.abs(Tref), np.abs(F))
+    den = np.maximum(np.maximum(np.max(size, axis=0), np.max(np.abs(Tref), axis=0)), 1e-300)
     res = np.max(np.abs(op - dW), axis=0) / den
     check = {'max_relative_residual': float(np.max(res)), 'per_equation': dict(zip(L.names, map(float, res))),
              'trajectory': 'the model run of the verification, dw/dt = J(s) f(s)'}

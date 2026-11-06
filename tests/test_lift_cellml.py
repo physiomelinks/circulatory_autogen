@@ -122,6 +122,17 @@ def test_a_polynomial_system_over_max_terms_stops_with_its_size():
         lc.lift(_model({x: -x + (1 + x + y) ** 30 * 1e-30, y: -y}, {x: 0.1, y: 0.1}, {}), engine='rules', max_terms=400)
 
 
+def test_a_right_hand_side_that_stays_at_zero_is_judged_on_its_terms_not_on_rounding(tmp_path):
+    """dz/dt = 10 (x - y/3)(x + y/3) with y = 3 x throughout is 0, but the operator form's terms 10 x^2 and
+    -(10/9) y^2 are not, and round differently from the model's product: the checks are relative to the terms, so
+    that rounding does not fail them (Burgers' middle node)."""
+    path = tmp_path / 'm.cellml'
+    path.write_text(_model({x: -x, y: -y, z: 10 * (x - y / 3) * (x + y / 3)}, {x: 0.1, y: 0.3, z: 0.0}, {}))
+    doc = lc.lift_cellml_file(str(path), str(tmp_path / 'out'), sim_time=2.0, dt=0.01, time_budget=5.0)
+    assert doc['check']['per_equation']['z'] < 1e-12
+    assert doc['verification']['jf']['max'] < 1e-12
+
+
 def test_auxiliaries_identically_constant_or_equal_are_removed():
     """QBee may add w = sqrt(g) * (1/sqrt(g)) = 1 or two monomials with one T: the lift drops them."""
     L = lc.lift(_model({x: 2 - sp.sqrt(x ** 2 + 1)}, {x: 0.0}, {}), time_budget=5.0)
