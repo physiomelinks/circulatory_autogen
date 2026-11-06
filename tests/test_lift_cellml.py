@@ -208,6 +208,23 @@ def test_block_triangular_pattern_and_a_conserved_functional(tmp_path):
     assert cons and cons[0]['drift'] < 1e-8
 
 
+def test_the_quadratic_heart_has_a_reflex_clock_a_drug_n_term_and_conserved_volume(tmp_path):
+    """ICUHealthy's QHEART (CAM benchmarks/quadratic_heart): quadratic already, so no auxiliaries; the clock (c, s) is
+    found with a rate that depends on V_a, the drug u enters through N, and V_lv + V_a + V_v is conserved."""
+    lv, a, v, c, s_, u_ = sp.symbols('V_lv V_a V_v c s u')
+    Plv = (sp.Float(0.06) + sp.Float(2.44) * (1 - c) / 2) * (lv - 10)
+    Pa, Pv = (a - 700) / sp.Float(1.5), (v - 2400) / sp.Float(60)
+    w = sp.Float(7.85) * (1 + sp.Float(0.3) * (Pa - 90) / 90)
+    qin, qout, qs = (Pv - Plv) / sp.Float(0.05), (Plv - Pa) / sp.Float(0.05), (1 + u_) * (Pa - Pv)
+    doc = _lift(tmp_path, _model({lv: qin - qout, a: qout - qs, v: qs - qin, c: -w * s_, s_: w * c},
+                                 {lv: 120, a: 760, v: 2620, c: 1, s_: 0}, {'u': 0.1}), inputs=['u'])
+    assert doc['size']['n_aux'] == 0 and doc['operators']['present']['N']
+    clock = doc['structure']['clocks'][0]
+    assert (clock['c'], clock['s'], clock['rate_kind']) == ('c', 's', 'depends on V_a')
+    assert {'V_lv': 1.0, 'V_a': 1.0, 'V_v': 1.0} in [c['l'] for c in doc['structure']['conserved']]
+    assert doc['structure']['inputs'][0]['multiplies_state']
+
+
 def test_python_functions_have_the_documented_shapes(tmp_path):
     doc = _lift(tmp_path, _model({x: -k * sp.exp(x) + y, y: -y}, {x: 0.1, y: 1.0}, {'k': 1}))
     f = lc.load_functions(doc['python'])
