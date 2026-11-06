@@ -259,6 +259,8 @@ def test_spectrum_and_simulation_show_fitzhugh_nagumos_transverse_instability(tm
     free = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0)
     relifted = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0, relift_every=0.5)
     assert free['success'] and relifted['success'] and relifted['max_defect'] < free['max_defect']
+    cut_short = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 1e6, max_wall=0.5)
+    assert not cut_short['success'] and 'max_wall' in cut_short['message']
 
 
 def test_keep_cuts_the_other_states_as_inputs_from_data(tmp_path):

@@ -2739,10 +2739,20 @@ def spectrum(funcs, X, U, n_points=40, threshold=1e3, n_vectors=5):
             'leading_vectors_in_tangent_min': float(np.min(frac)) if frac else None}
 
 
-def simulate_lifted(funcs, x0, u0, t_end, relift_every=None, rtol=1e-6, atol=1e-9, max_step=np.inf):
+def simulate_lifted(funcs, x0, u0, t_end, relift_every=None, rtol=1e-6, atol=1e-9, max_step=np.inf, max_wall=None):
     """Integrates the lifted system dw/dt = rhs_lifted(w, u0) (inputs held at ``u0``) from w = T(x0) with SciPy's BDF,
     optionally re-lifting w <- T(w[:n]) every ``relift_every``. Returns {success, t_reached, max_defect}: the
-    largest |w - T(w[:n])| over max |w| at the segment ends."""
+    largest |w - T(w[:n])| over max |w| at the segment ends. ``max_wall``: seconds of computing before it stops
+    (``success`` False, with the time reached)."""
+    wall_end = None if max_wall is None else time.perf_counter() + max_wall
+
+    class _OutOfTime(Exception):
+        pass
+
+    def guard(y):
+        if wall_end is not None and time.perf_counter() > wall_end:
+            raise _OutOfTime()
+        return y
     from scipy.integrate import solve_ivp
     U0 = np.atleast_2d(np.asarray(u0, dtype=float))
     F0 = funcs.features(U0)[0]
@@ -2753,9 +2763,18 @@ def simulate_lifted(funcs, x0, u0, t_end, relift_every=None, rtol=1e-6, atol=1e-
     step = relift_every or t_end
     while t < t_end - 1e-12:
         t1 = min(t + step, t_end)
-        with np.errstate(all='ignore'):
-            sol = solve_ivp(lambda _t, y: funcs.rhs_lifted(y[None, :], U0)[0], (t, t1), w, method='BDF', rtol=rtol,
-                            atol=atol, max_step=max_step, jac=lambda _t, y: lifted_jacobian(ops, y, F0))
+        reached = [t]
+
+        def rhs(_t, y):
+            reached[0] = max(reached[0], _t)
+            return guard(funcs.rhs_lifted(y[None, :], U0)[0])
+        try:
+            with np.errstate(all='ignore'):
+                sol = solve_ivp(rhs, (t, t1), w, method='BDF', rtol=rtol, atol=atol, max_step=max_step,
+                                jac=lambda _t, y: lifted_jacobian(ops, y, F0))
+        except _OutOfTime:
+            return {'success': False, 't_reached': float(reached[0]), 'max_defect': defect,
+                    'message': f'over max_wall ({max_wall} s)'}
         if not sol.success or not np.all(np.isfinite(sol.y[:, -1])):
             return {'success': False, 't_reached': float(sol.t[-1]), 'max_defect': defect, 'message': sol.message}
         w = sol.y[:, -1]
