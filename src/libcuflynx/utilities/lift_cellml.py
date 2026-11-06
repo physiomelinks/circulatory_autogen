@@ -349,6 +349,24 @@ class Model:
 
         for key in alg_raw:
             resolve(key, True)
+        # a site is kept whole only when its argument reaches a state the lift keeps; one of inputs alone (held or
+        # not) is a function of the inputs
+        dyn_syms = {r.sym[k] for k in set(state_keys_all) - cut_keys}
+        for key in list(site_keys):
+            k_, kind, xk, ek, c = site_keys[key]
+            x_full = resolved_full[xk] if xk in resolved_full else r.sym[xk]
+            if not (x_full.free_symbols & dyn_syms):
+                del site_keys[key]
+        site_keys = {key: v for key, v in site_keys.items()
+                     if v[1] != 'z' or r.find((v[4], f'sm{v[0]}_w')) in site_keys}
+        # each kept site's argument sm<k>_x is lifted too, so a site's rate is x z times x', not a product of sums
+        # (not when the argument is a single term already: a state or a monomial)
+        for key, (k_, kind, xk, ek, c) in list(site_keys.items()):
+            if kind in ('w', 'q') and xk in alg_raw and xk not in stop:
+                x_full = resolved_full[xk]
+                if len(sp.Add.make_args(x_full)) > 1 or not _is_poly_in(x_full, list(x_full.free_symbols)):
+                    site_keys[xk] = (k_, 'x', xk, ek, c)
+        for key in alg_raw:
             resolve(key, False)
         for key, value in consts.items():
             if key not in input_keys:
@@ -409,7 +427,14 @@ class Model:
         self.n_orig = len(self.states)
         self.sites = {}
         for key, (k, kind, xk, ek, c) in site_keys.items():
-            x = resolve(xk, False) if xk in alg_raw else r.sym[xk]
+            if kind == 'x':
+                x = alg_raw[xk].xreplace({v: resolved_atomic[self._key_of(v)] for v in alg_raw[xk].free_symbols
+                                          if self._key_of(v) in resolved_atomic and self._key_of(v) not in stop
+                                          and self._key_of(v) not in site_keys})
+            elif xk in site_keys:
+                x = r.sym[xk]
+            else:
+                x = resolve(xk, False) if xk in alg_raw else r.sym[xk]
             zk = r.find((c, f'sm{k}_z'))
             self.sites[r.sym[key]] = {'kind': kind, 'k': k, 'x': x, 'eps': r.sym[ek], 'T': resolved_full[key],
                                       'z': r.sym[zk] if kind == 'w' and zk in site_keys else None,
@@ -460,6 +485,7 @@ class Model:
         self.sites = {k: v for k, v in self.sites.items() if k in reach}
         self.inputs = [i for i in self.inputs if i['kind'] != 'cut' or i['symbol'] in reach]
         self.held_all = list(self.held)
+        self.held_init = {h['symbol']: self.init[h['symbol']] for h in self.held_all}
         self.held = [h for h in self.held if h['symbol'] in reach]
         for h in self.held:
             self.states.append(h['symbol'])
@@ -880,7 +906,12 @@ class _Polynomializer:
             return self._site_rate[sym]
         info = self.sites[sym]
         x = info['x']
-        xd = self.ddt(x)
+        if info['kind'] == 'x':
+            out = self.ddt(x)
+            self._site_rate[sym] = out
+            return out
+        # with x a lifted variable (the site's sm<k>_x), x z x' has as many terms as x', not their product
+        xd = self.site_rate(x) if x in self.sites else self.ddt(x)
         if info['kind'] == 'w':
             z = info['z'] if info['z'] is not None else self._pow_aux(sym, -1)
             out = x * xd * z
@@ -1079,6 +1110,59 @@ class _Quadratic:
     def bad(self):
         return {(mono[:self.nV], any(mono[self.nV:])) for mono in self.bad_set}
 
+    def complete(self, max_new):
+        """The quadratization every polynomial system without inputs has: all monomials of degree 2 to d - 1 in the
+        variables (d the largest degree), then those not needed removed one at a time. False if over max_new."""
+        # from the polynomial variables alone, not on top of a greedy search's monomials
+        self._rebuild(self.W[:self.nV])
+        for r in self.rows:
+            self._check(r)
+        d = max((sum(k[:self.nV]) for r in self.rows for k in r), default=0)
+        used = sorted({i for r in self.rows for k in r for i, e in enumerate(k[:self.nV]) if e})
+        cands = []
+        for deg in range(2, d):
+            for combo in itertools.combinations_with_replacement(used, deg):
+                mono = [0] * self.nV
+                for i in combo:
+                    mono[i] += 1
+                cands.append(tuple(mono))
+        cands = [c for c in cands if c not in self.Wset]
+        if len(self.W) - self.nV + len(cands) > max_new:
+            return False
+        for c in cands:
+            self.add(c)
+        if self.bad_set:
+            return False
+        # remove each added monomial, highest degree first, while the rest stays quadratic
+        for c in sorted(cands, key=lambda m: -sum(m)):
+            keep = [w for w in self.W if w != c]
+            if self._quadratic_without(keep):
+                self._rebuild(keep)
+        return not self.bad_set
+
+    def _quadratic_without(self, W):
+        Wset = set(W)
+        idx = [i for i, w in enumerate(self.W) if w in Wset]
+        for i in idx:
+            for mono in self.rows[i]:
+                ms, mu = mono[:self.nV], mono[self.nV:]
+                if not any(ms) or ms in Wset:
+                    continue
+                if any(mu):
+                    return False
+                if not any(all(x <= y for x, y in zip(a, ms)) and tuple(y - x for x, y in zip(a, ms)) in Wset
+                           for a in W):
+                    return False
+        return True
+
+    def _rebuild(self, W):
+        rows = {w: r for w, r in zip(self.W, self.rows)}
+        self.W = list(W)
+        self.Wset = set(W)
+        self.Widx = {w: i for i, w in enumerate(W)}
+        self.rows = [rows[w] for w in W]
+        self.bad_set = set()
+
     def greedy(self, max_new, deadline=None):
         while True:
             bad = self.bad()
@@ -1219,7 +1303,9 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
                 raise LiftError(f'QBee quadratize: {res[1]}')
     if not done:
         deadline = time.perf_counter() + max(time_budget, 30.0) * 4
-        if not q.greedy(max_aux, deadline):
+        if not q.greedy(max_aux, deadline) and not U and q.complete(max_aux):
+            engine_report['quadratize'] = 'complete'
+        elif q.bad_set:
             raise LiftError(f'the greedy quadratization stopped at {len(q.W) - len(V)} monomials with {len(q.bad_set)} '
                             f'terms of degree > 2 left (max_aux {max_aux}; polynomial system: {len(V)} variables, '
                             f'{len(aux_T)} of them auxiliaries from {engine_report["polynomialize"]}, {n_terms} terms, '
@@ -1380,6 +1466,8 @@ def _definition_identities(V, T_atomic, m, q, rules):
             x = poly_in_v(info['x'])
             if x is None:
                 out.append((j, None, 'the site argument is not polynomial in the lifted variables'))
+            elif info['kind'] == 'x':
+                out.append((j, w - x, None))
             elif info['kind'] == 'w':
                 out.append((j, w ** 2 - x ** 2 - info['eps'] ** 2, None))
             elif info['kind'] == 'q':
@@ -2194,7 +2282,8 @@ LIFTING_JSON_FIELDS = [
     ('lifted', list, True, 'the names of w in order: the original states, the held inputs, the smoothing sites, the auxiliaries'),
     ('reverse', str, True, 'the reverse map, w[:n]'),
     ('held_inputs', list, True, 'inputs held as states (du/dt = 0 within a chunk): {name, qname, kind, index, expr (a held function), note}'),
-    ('sites', list, True, 'smoothing sites lifted in closed form: {name, kind (w, z or q), k, qname, x, epsilon}'),
+    ('sites', list, True, 'smoothing sites lifted in closed form: {name, kind (w, z, q, or x: a site\'s argument when '
+                          'it is a sum), k, qname, x, epsilon}'),
     ('size', dict, True, '{n, n_held, n_sites, n_w, n_aux, n_inputs, n_features}'),
     ('symbols', dict, True, '{expression name: component.variable}'),
     ('time', str, True, 'the name of time'),
@@ -2287,7 +2376,9 @@ def lifting_json(L, python_path=None, check=None, scales=None, verification=None
                          'note': 'an input held as a state: du/dt = 0 within a chunk (beat); set it from the data at '
                                  'each chunk start'} for k, h in enumerate(m.held)],
         'sites': [{'name': str(sym), 'kind': info['kind'], 'k': info['k'], 'qname': info['qname'],
-                   'x': str(info['x']), 'epsilon': str(info['eps'])} for sym, info in m.sites.items()],
+                   'x': str(m.full(info['x']) if info['kind'] == 'x' else info['x']),
+                   'epsilon': None if info['eps'] is None or info['kind'] == 'x' else str(info['eps'])}
+                  for sym, info in m.sites.items()],
         'size': {'n': m.n_orig, 'n_held': len(m.held), 'n_sites': len(m.sites), 'n_w': L.n_w,
                  'n_aux': L.n_w - L.n, 'n_inputs': len(m.inputs), 'n_features': len(L.features)},
         'symbols': {str(s): L.model.reader.qname(k) for k, s in L.model.reader.sym.items()},
@@ -2394,7 +2485,7 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
         if h['kind'] == 'cut':
             held_vals[h['symbol']] = data_vals[h['name']]
         elif h['kind'] == 'variable':
-            held_vals[h['symbol']] = np.full(len(t), m.init[h['symbol']])
+            held_vals[h['symbol']] = np.full(len(t), getattr(m, 'held_init', m.init)[h['symbol']])
         else:
             e = sp.sympify(h['expr']).xreplace(pv_)
             args = sorted(e.free_symbols, key=str)

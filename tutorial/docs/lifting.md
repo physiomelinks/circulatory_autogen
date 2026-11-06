@@ -40,7 +40,7 @@ problems against this table (`LIFTING_JSON_FIELDS` in the module).
 | `lifted` | list | yes | the names of w in order: the original states, the held inputs, the smoothing sites, the auxiliaries |
 | `reverse` | str | yes | the reverse map, w[:n] |
 | `held_inputs` | list | yes | inputs held as states (du/dt = 0 within a chunk): {name, qname, kind, index, expr (a held function), note} |
-| `sites` | list | yes | smoothing sites lifted in closed form: {name, kind (w, z or q), k, qname, x, epsilon} |
+| `sites` | list | yes | smoothing sites lifted in closed form: {name, kind (w, z, q, or x: a site's argument when it is a sum), k, qname, x, epsilon} |
 | `size` | dict | yes | {n, n_held, n_sites, n_w, n_aux, n_inputs, n_features} |
 | `symbols` | dict | yes | {expression name: component.variable} |
 | `time` | str | yes | the name of time |
@@ -86,7 +86,8 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
 
 The smoothing pass's `sm<k>_w = sqrt(x^2 + eps^2)`, `sm<k>_z = 1/w` and `sm<k>_q = 1/(x^2 + eps^2)` are kept whole:
 lifted variables with closed-form rates, dw/dt = x x' z, dz/dt = -x x' z^3, dq/dt = -2 x x' q^2, where x is the site's
-argument in the states and other sites. The lifted size then grows with the number of sites, not with the depth of
+argument in the states and other sites. When the argument is a sum, it is a lifted variable too (`sm<k>_x`, kind
+`x`), so that x z x' has as many terms as x', not their product. The lifted size then grows with the number of sites, not with the depth of
 the curves inside them. `H = (1 + x z)/2` is a polynomial in x and z.
 
 ## Invariants

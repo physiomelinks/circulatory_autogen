@@ -125,6 +125,15 @@ def test_variables_equal_near_the_initial_state_are_not_merged_unless_equal_symb
     assert names == ['x', 'a', 'b'] and sub == {}
 
 
+def test_the_complete_quadratization_closes_a_system_the_greedy_search_does_not():
+    """With no inputs every polynomial system quadratizes with the monomials of degree up to d - 1; the search
+    falls back to them (pruned) when the greedy one stops."""
+    q = lc._Quadratic(2, 0, [lc._to_dict(-x ** 3 + x * y ** 2, [x, y]), lc._to_dict(-y ** 3 + x ** 2 * y, [x, y])])
+    assert not q.greedy(0)
+    assert q.complete(10) and not q.bad()
+    assert 1 <= len(q.W) - 2 <= 3
+
+
 def test_a_polynomial_system_over_max_terms_stops_with_its_size():
     """(1 + x + y)^30 has 496 terms: over max_terms, the lift stops before any quadratization and says why."""
     with pytest.raises(lc.LiftError, match='too large to quadratize'):
@@ -170,6 +179,20 @@ def test_a_time_input_inside_a_root_with_a_state_takes_its_derivative_as_an_inpu
     with pytest.raises(lc.LiftError, match='degree > 2 left'):
         lc.lift(_model({x: 1 - sp.sqrt(1 + (sp.Symbol('E') * x) ** 2)}, {x: 0.5}, {}, alg={'E': 1 + sp.sin(tt) / 2}),
                 engine='rules', max_aux=20)
+
+
+def test_a_site_whose_argument_is_a_sum_lifts_the_argument_too(tmp_path):
+    """z' = |x - y| - z: the site's argument x - y is a lifted variable, so w' = x z x' has as many terms as x'."""
+    text = _model({x: -y, y: x}, {x: 1, y: 0}, {}, alg={'r': '<apply><abs/><apply><minus/><ci>x</ci><ci>y</ci></apply></apply>'},
+                  extra_math='<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>z</ci></apply>'
+                             '<apply><minus/><ci>r</ci><ci>z</ci></apply></apply>')
+    text = text.replace('<variable name="r"', '<variable name="z" units="dimensionless" initial_value="0"/><variable name="r"')
+    smoothed, report = sc.smooth(text, {'sm1_x': {'min': -1.5, 'max': 1.5, 'min_abs': 0.0}}, rel=1e-2)
+    doc = _lift(tmp_path, smoothed)
+    kinds = {s['name']: s['kind'] for s in doc['sites']}
+    assert kinds.get('sm1_x') == 'x' and 'sm1_w' in kinds
+    defs = {d['variable']: d['expr'] for d in doc['invariants'] if d['origin'] == 'definition' and 'expr' in d}
+    assert sp.sympify(defs['sm1_x']) == sp.sympify('sm1_x - x + y')
 
 
 def test_held_inputs_lift_an_input_inside_tanh_and_are_marked(tmp_path):
