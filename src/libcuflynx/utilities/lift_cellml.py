@@ -1146,12 +1146,12 @@ class _Quadratic:
     def complete(self, max_new):
         """The quadratization every polynomial system without inputs has: all monomials of degree 2 to d - 1 in the
         variables (d the largest degree), then those not needed removed one at a time. False if over max_new."""
-        # from the polynomial variables alone, not on top of a greedy search's monomials
-        self._rebuild(self.W[:self.nV])
-        for r in self.rows:
-            self._check(r)
-        d = max((sum(k[:self.nV]) for r in self.rows for k in r), default=0)
-        used = sorted({i for r in self.rows for k in r for i, e in enumerate(k[:self.nV]) if e})
+        base = self.rows[:self.nV]
+        d = max((sum(k[:self.nV]) for r in base for k in r), default=0)
+        used = sorted({i for r in base for k in r for i, e in enumerate(k[:self.nV]) if e})
+        n_cands = sum(math.comb(len(used) + deg - 1, deg) for deg in range(2, d))
+        if n_cands > max_new:
+            return False        # too many: the greedy search's state is left as it is
         cands = []
         for deg in range(2, d):
             for combo in itertools.combinations_with_replacement(used, deg):
@@ -1159,9 +1159,10 @@ class _Quadratic:
                 for i in combo:
                     mono[i] += 1
                 cands.append(tuple(mono))
-        cands = [c for c in cands if c not in self.Wset]
-        if len(self.W) - self.nV + len(cands) > max_new:
-            return False
+        # from the polynomial variables alone, not on top of a greedy search's monomials
+        self._rebuild(self.W[:self.nV])
+        for r in self.rows:
+            self._check(r)
         for c in cands:
             self.add(c)
         if self.bad_set:
@@ -1196,7 +1197,13 @@ class _Quadratic:
         self.rows = [rows[w] for w in W]
         self.bad_set = set()
 
-    def greedy(self, max_new, deadline=None):
+    def reset(self):
+        """Back to the polynomial variables alone."""
+        self._rebuild(self.W[:self.nV])
+        for r in self.rows:
+            self._check(r)
+
+    def greedy(self, max_new, deadline=None, lookahead=True):
         while True:
             bad = self.bad()
             if not bad:
@@ -1223,8 +1230,11 @@ class _Quadratic:
                         cands[d] = cands.get(d, 0) + 1
             # look one step ahead: of the best-scoring candidates, the one whose own rate adds the fewest new terms
             # of degree > 2 (a square that fixes two terms can start a chain that never closes)
-            top = sorted(cands, key=lambda d: (-cands[d], sum(d), d))[:10]
-            best = max(top, key=lambda d: (cands[d] - self._new_bad(d), -sum(d), d))
+            if lookahead:
+                top = sorted(cands, key=lambda d: (-cands[d], sum(d), d))[:10]
+                best = max(top, key=lambda d: (cands[d] - self._new_bad(d), -sum(d), d))
+            else:
+                best = max(cands, key=lambda d: (cands[d], -sum(d), d))
             self.add(best)
 
 
@@ -1344,8 +1354,14 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
             if engine == 'qbee':
                 raise LiftError(f'QBee quadratize: {res[1]}')
     if not done:
-        deadline = time.perf_counter() + max(time_budget, 30.0) * 4
-        if not q.greedy(max_aux, deadline) and not U and q.complete(max_aux):
+        half = max(time_budget, 30.0) * 5
+        found = q.greedy(max_aux, time.perf_counter() + half)
+        if not found:
+            q.reset()
+            found = q.greedy(max_aux, time.perf_counter() + half, lookahead=False)
+            if found:
+                engine_report['quadratize'] = 'greedy (no lookahead)'
+        if not found and not U and q.complete(max_aux):
             engine_report['quadratize'] = 'complete'
         elif q.bad_set:
             raise LiftError(f'the greedy quadratization stopped at {len(q.W) - len(V)} monomials with {len(q.bad_set)} '
