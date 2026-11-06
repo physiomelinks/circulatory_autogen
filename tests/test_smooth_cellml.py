@@ -285,9 +285,10 @@ def test_eps_is_rel_times_the_range_with_an_absolute_fallback():
     _, report = sc.smooth(_model(ABS), ranges, rel={'abs': 1e-2})
     assert report['sites'][0]['eps'] == pytest.approx(0.08)
     assert report['sites'][0]['rel'] == 1e-2
-    # constant in the nominal run, moved in another (a swept input at rest): rel x its range over all runs
-    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 0.0, 'max': 0.0, 'any_min': -1.0, 'any_max': 3.0}}, rel=1e-2)
-    assert report['sites'][0]['eps'] == pytest.approx(0.04) and 'zero_range' in report['sites'][0]['flags']
+    # 0 in the nominal run, moved in others (a swept input at rest): rel x the median of each run's max |x|
+    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 0.0, 'max': 0.0, 'any_min': -1.0, 'any_max': 3.0,
+                                                  'any_abs_median': 0.5}}, rel=1e-2)
+    assert report['sites'][0]['eps'] == pytest.approx(5e-3) and 'zero_range' in report['sites'][0]['flags']
     _, report = sc.smooth(_model(ABS), {}, abs_eps=1e-5)
     assert report['sites'][0]['eps'] == 1e-5 and 'no_range' in report['sites'][0]['flags']
     _, report = sc.smooth(_model(ABS + MAX.replace('<ci>y</ci>', '<ci>q</ci>'), '<variable name="q" units="mmHg"/>'),
@@ -321,6 +322,20 @@ def test_a_comparison_constant_in_every_run_takes_its_outcome_and_the_piecewise_
     assert v_site['status'] == 'smoothed' and not v_site['collapsed']
     assert w_site['collapsed'] and 'not_exercised' in w_site['flags'] and w_site['constant_value'] == 2.0
     assert 'piecewise' not in _equation(smoothed, 'y') and 'sm1_H' in _equation(smoothed, 'y')
+
+
+def test_eps_of_a_site_constant_in_the_nominal_run_is_not_set_by_an_extreme_sweep_point():
+    # nominal x = 3.8e-4 throughout (a saturation margin); one sweep point moves x to 225: eps stays rel x |x|
+    # at the nominal, not rel x the range over all runs
+    ranges = {'sm1_x': {'min': 3.8e-4, 'max': 3.8e-4, 'any_min': -1.0, 'any_max': 225.0, 'any_abs_median': 1.0}}
+    _, report = sc.smooth(_model(ABS), ranges, rel=1e-3)
+    assert report['sites'][0]['eps'] == pytest.approx(3.8e-7)
+    # x = 0 at the nominal (f_cc at rest), swept to 0.25 ... 1 and one point at 2e9: the median of the runs'
+    # max |x|, not the outlier
+    runs = [0.0, 0.25, 0.5, 0.75, 1.0, 2e9]
+    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 0.0, 'max': 0.0, 'any_min': 0.0, 'any_max': 2e9,
+                                                  'any_abs_median': float(np.median(runs))}}, rel=1e-3)
+    assert report['sites'][0]['eps'] == pytest.approx(1e-3 * 0.625)
 
 
 def _simulate(text, tmp_path, name, variables, sim_time=2.0):
@@ -575,7 +590,8 @@ def test_reference_ranges_start_at_t0_and_include_pre_time(tmp_path):
     assert each[1]['sm1_x']['max'] == pytest.approx(2.0)          # r = 3 for 1 s from v = -1
     assert ranges['sm1_x'] == {'min': pytest.approx(-1.0), 'max': pytest.approx(2.0), 'min_abs': pytest.approx(0.0, abs=1e-12),
                                'nan': False, 'any_min_abs': pytest.approx(0.0, abs=1e-12), 'any_sign_change': True,
-                               'any_min': pytest.approx(-1.0), 'any_max': pytest.approx(2.0)}
+                               'any_min': pytest.approx(-1.0), 'any_max': pytest.approx(2.0),
+                               'any_abs_median': pytest.approx(2.0)}
 
 
 def test_eps_comes_from_the_nominal_run_unless_union_is_asked_for(tmp_path):

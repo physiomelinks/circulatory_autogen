@@ -35,7 +35,9 @@ next release; add to that section as you land a change.
   `maxmin_form="xH"` writes max and min as `b + (a - b) H`. An argument that keeps one sign in every run
   takes eps = rel × min(range, smallest |x|).
 - A site whose argument is the same constant in every reference run is left as written (`not_needed`,
-  flag `not_exercised`, `constant_value`); `reference_ranges` records `any_min` and `any_max` over all runs.
+  flag `not_exercised`, `constant_value`); `reference_ranges` records `any_min`, `any_max` and
+  `any_abs_median` (the median of each run's largest |x|) over all runs. A site at 0 in the nominal run but moved in
+  others takes eps = rel × that median.
 - `maxmin_form="auto"` writes a rectifier (`max(x, 0)`, `min(x, 0)`) as `x H` and other max/min as
   `(a + b ± w)/2`. `x H` had the smaller error on the CVS-ANS gas clamps and SN_simple's NE release,
   but it dips below the clamp (to −0.15 eps), so `"w"` stays the default.

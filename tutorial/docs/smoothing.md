@@ -39,6 +39,9 @@ the sampled runs never see switch may still switch between samples (a spike's up
 A site whose x is the same constant in every reference run (an afferent input at rest) is left as written: status
 `not_needed`, flag `not_exercised`, and its `constant_value`. No run says how wide its switch should be, and a
 smoothed `max(0, 0)` would sit at eps/2. Give the reference runs a sweep that moves it to smooth it.
+A site constant in the nominal run but moved in others keeps the nominal scale, `rel × |x|`; one at 0 there (a swept
+input at rest) takes `rel ×` the median over the runs of each run's largest |x|, so one extreme sweep point does not
+set eps.
 
 **Report flags.** `floor_upstream`, `branch_domain`, `one_sided`, `nan_in_runs`, `nan_at_init`, `zero_range` (constant in the nominal run only), `not_exercised`, and
 `jump_candidate` (a piecewise with a constant branch that differs from another, whose result is only a state

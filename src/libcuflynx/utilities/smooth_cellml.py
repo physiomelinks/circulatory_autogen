@@ -509,14 +509,18 @@ class _Pass:
             record['eps_rule'] = 'rel x range'
         else:
             record['flags'].append('zero_range')
-            any_span = float(r.get('any_max', hi)) - float(r.get('any_min', lo)) if isinstance(r, dict) else 0.0
-            if any_span > 0.0:
-                # constant in the nominal run, moved in another (a swept input at rest)
-                record['eps'] = rel * any_span
-                record['eps_rule'] = 'rel x range over all runs (x constant in the nominal run)'
-            else:
-                record['eps'] = rel * abs(lo) if lo != 0.0 else self.abs_eps
+            typical = float(r.get('any_abs_median', 0.0)) if isinstance(r, dict) else 0.0
+            if lo != 0.0:
+                record['eps'] = rel * abs(lo)
                 record['eps_rule'] = 'rel x |x| (x constant)'
+            elif typical > 0.0:
+                # 0 in the nominal run, moved in others (a swept input at rest): the median over the runs
+                # of each run's largest |x|, so one extreme sweep point does not set eps
+                record['eps'] = rel * typical
+                record['eps_rule'] = 'rel x median over runs of max |x| (x = 0 in the nominal run)'
+            else:
+                record['eps'] = self.abs_eps
+                record['eps_rule'] = 'abs_eps (x = 0)'
         eps, m = record['eps'], float(min_abs)
         w_dev = math.hypot(m, eps) - m
         record['max_deviation'] = {'abs': w_dev, 'maxmin': 0.5 * w_dev, 'division': None,
@@ -1086,9 +1090,11 @@ def reference_ranges(probed_path, runs, per_run=False, over='nominal'):
         m['any_min_abs'] = min(r[k]['min_abs'] for r in each if k in r)
         m['any_sign_change'] = any(r[k]['min'] < 0.0 < r[k]['max'] for r in each if k in r)
         m['any_min'], m['any_max'] = m['min'], m['max']
+        m['any_abs_median'] = float(np.median([max(abs(r[k]['min']), abs(r[k]['max'])) for r in each if k in r]))
     if over == 'nominal':
         # a NaN or Inf in any run is still recorded
-        merged = {k: dict(r, **{f: merged[k][f] for f in ('nan', 'any_min_abs', 'any_sign_change', 'any_min', 'any_max')})
+        over_all = ('nan', 'any_min_abs', 'any_sign_change', 'any_min', 'any_max', 'any_abs_median')
+        merged = {k: dict(r, **{f: merged[k][f] for f in over_all})
                   for k, r in each[0].items()}
     elif over != 'union':
         raise ValueError(f"over: 'nominal' or 'union', not {over!r}")
