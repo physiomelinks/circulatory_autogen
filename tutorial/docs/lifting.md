@@ -85,6 +85,8 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
 - `--held-inputs inputs`: held inputs stay inputs (B and N terms) with du/dt = 0, instead of states: the search adds
   no products with them.
 - `--tanh-form exp`: tanh(g) as 1 - 2 q with q = 1/(E + 1), E = exp(2 g): q has a quadratic identity to stabilise.
+  E overflows where |2 g| > 709: a steep valve law (k dP in the hundreds, as in the ICUHealthy heart) needs the
+  tanh form.
 - `--stabilize kappa`: -kappa g(w) added to each auxiliary's equation whose identity g = 0 is at most quadratic; zero
   on the manifold, it damps the directions off it (recorded in `stabilization`; the operators include it).
 - `--no-sites`: polynomialize the smoothing sites' square roots instead of lifting the sites in closed form.
