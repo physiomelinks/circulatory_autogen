@@ -33,6 +33,10 @@ run (an ``abs(tau)`` guard) takes ``rel x min(range, smallest |x|)`` instead, so
 smallest value. A comparison keeps the range rule: one never seen to switch in the sampled runs may
 still switch between samples. A division is guarded only when its denominator reaches or crosses 0 in some reference run;
 denominators of constants alone are not probed. No site is collapsed unless ``collapse`` says so.
+A site whose x is the same constant in every reference run (flag ``not_exercised``, with
+``constant_value``) is left as written (``not_needed``): no run says how wide its switch should be. A
+comparison among them that is never 0 takes its constant outcome (``collapsed``), so the rest of its
+piecewise is still smoothed.
 
 ``floor`` and piecewise conditions using ``eq``, ``neq``, ``xor`` or ``floor`` are left as written
 and reported as not smoothed. Rewrites go bottom-up, so nested operations become separate sites.
@@ -421,6 +425,20 @@ class _Pass:
             self.floor_tainted.update((site.component, n) for n in names.values())
         if self.mode == 'smooth':
             self._set_eps(site)
+            constant = self._constant_value(site)
+            if constant is not None:
+                site.record['flags'].append('not_exercised')
+                site.record['constant_value'] = constant
+                if kind == 'piecewise' and constant != 0.0:
+                    # a comparison whose outcome never changes takes that outcome, so the rest of its
+                    # piecewise is still smoothed
+                    site.record['collapsed'] = True
+                    site.record['sign'] = 1 if constant > 0.0 else -1
+                    site.record['max_deviation'] = 0.0
+                    return site
+                site.record['status'] = 'not_needed'
+                site.record['reason'] = 'x is constant in every reference run: nothing to smooth there'
+                return None
             if kind == 'division' and not self._reaches_zero(site):
                 site.record['status'] = 'not_needed'
                 site.record['reason'] = 'the denominator does not reach 0 in any reference run'
@@ -491,13 +509,30 @@ class _Pass:
             record['eps_rule'] = 'rel x range'
         else:
             record['flags'].append('zero_range')
-            record['eps'] = rel * abs(lo) if lo != 0.0 else self.abs_eps
-            record['eps_rule'] = 'rel x |x| (x constant)'
+            any_span = float(r.get('any_max', hi)) - float(r.get('any_min', lo)) if isinstance(r, dict) else 0.0
+            if any_span > 0.0:
+                # constant in the nominal run, moved in another (a swept input at rest)
+                record['eps'] = rel * any_span
+                record['eps_rule'] = 'rel x range over all runs (x constant in the nominal run)'
+            else:
+                record['eps'] = rel * abs(lo) if lo != 0.0 else self.abs_eps
+                record['eps_rule'] = 'rel x |x| (x constant)'
         eps, m = record['eps'], float(min_abs)
         w_dev = math.hypot(m, eps) - m
         record['max_deviation'] = {'abs': w_dev, 'maxmin': 0.5 * w_dev, 'division': None,
                                    'piecewise': 0.5 * (1.0 - m / math.hypot(m, eps))}[site.kind]
         record['deviation_of'] = 'sm_H' if site.kind == 'piecewise' else 'value'
+
+    def _constant_value(self, site):
+        """x's value when it is the same in every reference run (min = max over all of them), else None."""
+        r = self.ranges.get(site.names['x'])
+        if r is None:
+            return None
+        if isinstance(r, dict):
+            lo, hi = float(r.get('any_min', r['min'])), float(r.get('any_max', r['max']))
+        else:
+            lo, hi = float(r[0]), float(r[1])
+        return lo if lo == hi else None
 
     def _collapses(self, site):
         """Whether the site never switches in the reference runs and collapse is on for it."""
@@ -1050,10 +1085,11 @@ def reference_ranges(probed_path, runs, per_run=False, over='nominal'):
         # over all runs, whatever ``over``: where x reaches or crosses 0 (a division's guard)
         m['any_min_abs'] = min(r[k]['min_abs'] for r in each if k in r)
         m['any_sign_change'] = any(r[k]['min'] < 0.0 < r[k]['max'] for r in each if k in r)
+        m['any_min'], m['any_max'] = m['min'], m['max']
     if over == 'nominal':
         # a NaN or Inf in any run is still recorded
-        merged = {k: dict(r, nan=merged[k]['nan'], any_min_abs=merged[k]['any_min_abs'],
-                          any_sign_change=merged[k]['any_sign_change']) for k, r in each[0].items()}
+        merged = {k: dict(r, **{f: merged[k][f] for f in ('nan', 'any_min_abs', 'any_sign_change', 'any_min', 'any_max')})
+                  for k, r in each[0].items()}
     elif over != 'union':
         raise ValueError(f"over: 'nominal' or 'union', not {over!r}")
     return (merged, each) if per_run else merged

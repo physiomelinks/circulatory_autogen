@@ -285,14 +285,42 @@ def test_eps_is_rel_times_the_range_with_an_absolute_fallback():
     _, report = sc.smooth(_model(ABS), ranges, rel={'abs': 1e-2})
     assert report['sites'][0]['eps'] == pytest.approx(0.08)
     assert report['sites'][0]['rel'] == 1e-2
-    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 0.0, 'max': 0.0}}, abs_eps=1e-5)
-    assert report['sites'][0]['eps'] == 1e-5 and 'zero_range' in report['sites'][0]['flags']
-    _, report = sc.smooth(_model(ABS), {})
-    assert 'no_range' in report['sites'][0]['flags']
+    # constant in the nominal run, moved in another (a swept input at rest): rel x its range over all runs
+    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 0.0, 'max': 0.0, 'any_min': -1.0, 'any_max': 3.0}}, rel=1e-2)
+    assert report['sites'][0]['eps'] == pytest.approx(0.04) and 'zero_range' in report['sites'][0]['flags']
+    _, report = sc.smooth(_model(ABS), {}, abs_eps=1e-5)
+    assert report['sites'][0]['eps'] == 1e-5 and 'no_range' in report['sites'][0]['flags']
     _, report = sc.smooth(_model(ABS + MAX.replace('<ci>y</ci>', '<ci>q</ci>'), '<variable name="q" units="mmHg"/>'),
                           {'sm1_x': {'min': -1.0, 'max': 1.0}, 'sm2_x': {'min': -1.0, 'max': 1.0}},
                           rel={'abs': 1e-2, 'variables': {'c/q': 1e-4}})
     assert [s['eps'] for s in report['sites']] == [pytest.approx(0.02), pytest.approx(2e-4)]
+
+
+def test_a_site_whose_argument_is_constant_in_every_run_is_left_as_written_and_flagged():
+    # max(x, 0) with x = 0 in every reference run (an afferent input at rest): eps from abs_eps would
+    # offset the output by eps/2 for nothing, and no run says how wide the switch should be
+    for r in ({'min': 0.0, 'max': 0.0, 'any_min': 0.0, 'any_max': 0.0}, [0.0, 0.0]):
+        smoothed, report = sc.smooth(_model(MAX), {'sm1_x': r})
+        site = report['sites'][0]
+        assert site['status'] == 'not_needed' and 'not_exercised' in site['flags'], r
+        assert site['constant_value'] == 0.0
+        assert _equation(smoothed, 'y') == _equation(_model(MAX), 'y')
+        assert report['counts'] == {} and report['lifted_estimate'] == 0
+    _, report = sc.smooth(_model(MAX), {'sm1_x': {'min': 0.48, 'max': 0.48, 'any_min': 0.48, 'any_max': 0.48}})
+    assert report['sites'][0]['constant_value'] == 0.48 and report['sites'][0]['status'] == 'not_needed'
+
+
+def test_a_comparison_constant_in_every_run_takes_its_outcome_and_the_piecewise_is_still_smoothed():
+    # v >= 0 and w >= 0, with w at 2 throughout: the piecewise is smoothed on v alone
+    text = _model(_y('<piecewise><piece><ci>v</ci><apply><and/><apply><geq/><ci>v</ci><ci>zero</ci></apply>'
+                     '<apply><geq/><ci>w</ci><ci>zero</ci></apply></apply></piece><otherwise><ci>zero</ci></otherwise></piecewise>'),
+                  '<variable name="w" units="mmHg" initial_value="2"/>')
+    smoothed, report = sc.smooth(text, {'sm1_x': {'min': -1.0, 'max': 1.0},
+                                        'sm2_x': {'min': 2.0, 'max': 2.0, 'any_min': 2.0, 'any_max': 2.0}})
+    v_site, w_site = report['sites']
+    assert v_site['status'] == 'smoothed' and not v_site['collapsed']
+    assert w_site['collapsed'] and 'not_exercised' in w_site['flags'] and w_site['constant_value'] == 2.0
+    assert 'piecewise' not in _equation(smoothed, 'y') and 'sm1_H' in _equation(smoothed, 'y')
 
 
 def _simulate(text, tmp_path, name, variables, sim_time=2.0):
@@ -546,7 +574,8 @@ def test_reference_ranges_start_at_t0_and_include_pre_time(tmp_path):
     assert each[0]['sm1_x']['min'] == pytest.approx(-1.0) and each[0]['sm1_x']['max'] == pytest.approx(2.0)
     assert each[1]['sm1_x']['max'] == pytest.approx(2.0)          # r = 3 for 1 s from v = -1
     assert ranges['sm1_x'] == {'min': pytest.approx(-1.0), 'max': pytest.approx(2.0), 'min_abs': pytest.approx(0.0, abs=1e-12),
-                               'nan': False, 'any_min_abs': pytest.approx(0.0, abs=1e-12), 'any_sign_change': True}
+                               'nan': False, 'any_min_abs': pytest.approx(0.0, abs=1e-12), 'any_sign_change': True,
+                               'any_min': pytest.approx(-1.0), 'any_max': pytest.approx(2.0)}
 
 
 def test_eps_comes_from_the_nominal_run_unless_union_is_asked_for(tmp_path):
