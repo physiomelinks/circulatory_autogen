@@ -208,6 +208,19 @@ def test_keep_cuts_the_other_states_as_inputs_from_data(tmp_path):
     assert doc['operators']['present']['B']
 
 
+def test_an_output_is_lifted_with_the_states(tmp_path):
+    """x (linear PK) feeds no rate, but its Emax effect E = x/(1 + x) is an output: w = 1/(1 + x) is lifted, and
+    dw/dt = -w^2 (1 - x) needs x w, which is E itself: E is one lifted variable."""
+    path = tmp_path / 'm.cellml'
+    path.write_text(_model({x: 1 - x}, {x: 0.0}, {}, alg={'E': x / (1 + x)}))
+    doc = lc.lift_cellml_file(str(path), str(tmp_path / 'out'), outputs=['E'], sim_time=2.0, dt=0.01, time_budget=5.0)
+    assert [a['expr'] for a in doc['auxiliaries']] == ['1/(x + 1)', 'x/(x + 1)']
+    out = doc['outputs'][0]
+    assert out['name'] == 'E_' and out['degree'] == 1 and out['expr'] == 'w_2' 
+    assert doc['verification']['jf']['max'] < 1e-12
+    assert lc.check_lifting_json(json.loads(json.dumps(doc, default=str))) == []
+
+
 def test_a_function_of_time_becomes_an_input(tmp_path):
     doc = _lift(tmp_path, _model({x: -x + sp.sin(2 * sp.Symbol('t'))}, {x: 0.0}, {}))
     assert [(i['kind'], i['expr']) for i in doc['inputs']] == [('time', 'sin(2*t)')]

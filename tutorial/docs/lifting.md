@@ -60,6 +60,7 @@ problems against this table (`LIFTING_JSON_FIELDS` in the module).
 | `structure` | dict | no | clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved |
 | `conditioning` | dict | no | {scales: each variable's min, max, max_abs over the run, ratio, note} |
 | `smoothing_sites` | list | no | each smoothing site: rule, smoothness class before and after |
+| `outputs` | list | no | named variables lifted with the states: {name, qname, expr (a polynomial in the lifted names and inputs: quadratic where the lifted variables allow), degree, original} |
 | `model` | str | no | the model lifted |
 | `lifted_model` | str | no | the lifted CellML model |
 | `libcellml` | dict | no | Validator and Analyser issues of the lifted CellML model |
@@ -77,6 +78,8 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
 - `--held-inputs`: named and cut inputs become states with du/dt = 0, held within a chunk or beat (`held_inputs`); a
   function of held inputs alone becomes one held variable `h_k` (`kind: held_function`, with its `expr`). With no
   inputs left the system is polynomial without inputs, so an input inside a square root or a tanh lifts.
+- `--outputs a,b`: variables lifted with the states (e.g. a drug effect that feeds no rate here): their non-polynomial
+  parts become auxiliaries, and `outputs` gives each as a polynomial in the lifted variables.
 - `--no-sites`: polynomialize the smoothing sites' square roots instead of lifting the sites in closed form.
 
 ## Smoothing sites

@@ -261,7 +261,8 @@ class Model:
         time: the time symbol.
     """
 
-    def __init__(self, text, inputs=(), myokit_order=True, as_inputs=(), keep=(), held_inputs=False, sites=True):
+    def __init__(self, text, inputs=(), myokit_order=True, as_inputs=(), keep=(), held_inputs=False, sites=True,
+                 outputs=()):
         import fnmatch
         import re as _re
         root = _read(text)
@@ -431,10 +432,19 @@ class Model:
         dynamic = set(self.states) | set(self.sites) | set(held_syms)
         for s_ in self.states:
             self.rhs[s_] = self._abstract(rhs[s_], dynamic)
+        # outputs: named variables lifted with the states (their non-polynomial parts become auxiliaries)
+        out_keys, missing = matching(outputs or ())
+        if missing:
+            raise LiftError(f'outputs not in the model: {sorted(missing)}')
+        self.outputs = []
+        for key in sorted(out_keys, key=lambda k: r.qname(k)):
+            e = resolve(key, False) if key in alg_raw else r.sym[key]
+            self.outputs.append({'name': r.name[key], 'qname': r.qname(key), 'expr': self._abstract(e, dynamic)})
         for s_, info in self.sites.items():
             info['x'] = self._abstract(info['x'], dynamic)
         # only the sites and cut inputs the kept states reach
-        reach, todo = set(), set().union(*[self.rhs[s_].free_symbols for s_ in self.states]) if self.states else set()
+        reach, todo = set(), set().union(*[self.rhs[s_].free_symbols for s_ in self.states],
+                                         *[o['expr'].free_symbols for o in self.outputs]) if self.states else set()
         while todo:
             x = todo.pop()
             if x in reach:
@@ -884,6 +894,7 @@ class _Polynomializer:
     def run(self):
         """{state, site or auxiliary: polynomial right-hand side}, and the auxiliaries."""
         poly = {s: self.rewrite(self.m.rhs[s]) for s in self.states}
+        self.output_poly = [self.rewrite(o['expr']) for o in self.m.outputs]
         for s in self.sites:
             poly[s] = self.rewrite(self.site_rate(s))
         done = 0
@@ -1109,7 +1120,8 @@ class Lifting:
 
 
 def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', max_aux=DEFAULT_MAX_AUX,
-         smoothing_report=None, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False, sites=True):
+         smoothing_report=None, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False, sites=True,
+         outputs=()):
     """Lift a flat CellML model (text or path) to quadratic form.
 
     Args:
@@ -1127,6 +1139,8 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
             inside a non-polynomial function lifts with the states.
         sites: the smoothing sites (``sm<k>_w``, ``sm<k>_z``, ``sm<k>_q``) are lifted variables with closed-form
             rates, rather than their nested square roots polynomialized.
+        outputs: variables lifted with the states: their non-polynomial parts become auxiliaries, and each is
+            reported as a polynomial in the lifted variables (``L.outputs``).
 
     Returns:
         a :class:`Lifting`.
@@ -1136,7 +1150,7 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     if not text.lstrip().startswith('<'):
         with open(text, encoding='utf-8') as f:
             text = f.read()
-    m = Model(text, inputs, as_inputs=as_inputs, keep=keep, held_inputs=held_inputs, sites=sites)
+    m = Model(text, inputs, as_inputs=as_inputs, keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs)
     states = list(m.states)
     params_all = lambda: list(m.params) + list(m.derived)  # noqa: E731
     engine_report = {'requested': engine, 'qbee_errors': []}
@@ -1145,9 +1159,9 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     # 1. polynomialize
     t0 = time.perf_counter()
     aux_T, poly = None, None
-    if engine == 'auto' and m.sites:
-        engine_report['qbee_errors'].append(f'polynomialize: not tried, {len(m.sites)} smoothing sites are lifted in '
-                                            f'closed form')
+    if engine == 'auto' and (m.sites or m.outputs):
+        engine_report['qbee_errors'].append(f'polynomialize: not tried, {len(m.sites)} smoothing sites lifted in '
+                                            f'closed form, {len(m.outputs)} outputs')
     elif engine in ('auto', 'qbee'):
         res = _qbee_polynomialize(m, time_budget)
         if res[0] == 'ok':
@@ -1157,13 +1171,13 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
             engine_report['qbee_errors'].append(f'polynomialize: {res[1]}')
             if engine == 'qbee':
                 raise LiftError(f'QBee polynomialize: {res[1]}')
-    input_free, notes = True, []
+    input_free, notes, output_poly = True, [], []
     if poly is None:
         p = _Polynomializer(m, max_aux)
         poly_sym = p.run()
         aux_T = [(a.symbol, a.T, a.rule) for a in p.aux]
         poly = poly_sym
-        input_free, notes = p.input_free, p.notes
+        input_free, notes, output_poly = p.input_free, p.notes, p.output_poly
         engine_report['polynomialize'] = 'sites+rules' if m.sites else 'rules'
     timings['polynomialize'] = time.perf_counter() - t0
     site_syms = list(m.sites)
@@ -1260,6 +1274,7 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     n_named = len(states) + len([j for j in kept if len(states) <= j < len(states) + len(site_syms)])
     names = names[:n_named] + [aux_names[k] for k in range(len(names) - n_named)]
     L.invariant_definitions = _map_identities(definitions, pre_names, kept, sub, names)
+    L.outputs = _map_outputs(m, output_poly, V, U, q, pre_names, kept, sub, names)
     L.states, L.names, L.T, L.rules = states, names, T, rules
     L.n_orig = m.n_orig
     L.symbols = [sp.Symbol(n, real=True) for n in names]
@@ -1432,6 +1447,36 @@ def _equal(a, b):
         return sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0
     except Exception:
         return False
+
+
+def _map_outputs(m, output_poly, V, U, q, pre_names, kept, sub, names):
+    """Each output as a polynomial in the lifted names: each term through the lifted variables found (quadratic
+    where they allow), else as a product of the polynomial-level variables."""
+    gens = list(V) + list(U)
+    final = {}
+    for j in range(len(pre_names)):
+        if j in kept:
+            final[j] = sp.Symbol(names[kept.index(j)], real=True)
+        else:
+            kind, what = sub[j]
+            final[j] = what if kind == 'const' else sp.Symbol(names[kept.index(what)], real=True)
+    out = []
+    for o, e in zip(m.outputs, output_poly):
+        terms, degree = [], 0
+        for mono, c in _to_dict(e, gens).items():
+            idx = q.split(mono)
+            if idx is None:
+                factors = [final[i] ** k for i, k in enumerate(mono[:len(V)]) if k]
+                d = sum(mono[:len(V)])
+            else:
+                factors = [final[i] for i in idx]
+                d = len(idx)
+            factors += [u ** k for u, k in zip(U, mono[len(V):]) if k]
+            degree = max(degree, d)
+            terms.append(c * sp.Mul(*factors))
+        out.append({'name': o['name'], 'qname': o['qname'], 'expr': str(sp.Add(*terms)), 'degree': degree,
+                    'original': str(m.full(o['expr']))})
+    return out
 
 
 def _const(e, states):
@@ -2176,6 +2221,8 @@ LIFTING_JSON_FIELDS = [
     ('structure', dict, False, 'clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved'),
     ('conditioning', dict, False, '{scales: each variable\'s min, max, max_abs over the run, ratio, note}'),
     ('smoothing_sites', list, False, 'each smoothing site: rule, smoothness class before and after'),
+    ('outputs', list, False, 'named variables lifted with the states: {name, qname, expr (a polynomial in the lifted '
+                             'names and inputs: quadratic where the lifted variables allow), degree, original}'),
     ('model', str, False, 'the model lifted'),
     ('lifted_model', str, False, 'the lifted CellML model'),
     ('libcellml', dict, False, 'Validator and Analyser issues of the lifted CellML model'),
@@ -2537,7 +2584,7 @@ def write_outputs(L, output_dir, name='model'):
 def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=None, time_budget=DEFAULT_TIME_BUDGET,
                      engine='auto', max_aux=DEFAULT_MAX_AUX, sim_time=10.0, dt=0.01, solver_info=None,
                      do_verify=True, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False,
-                     sites=True):
+                     sites=True, outputs=()):
     """Lifts a (smoothed) flat CellML model and writes the lifted CellML model, ``lifting_functions.py`` and
     ``lifting.json`` (with the verification, the operator check, the structure and the invariants) into
     ``output_dir``. ``as_inputs``, ``keep``, ``held_inputs``, ``sites``: as :func:`lift`. Returns the lifting.json
@@ -2547,7 +2594,7 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     name = os.path.splitext(os.path.basename(model_path))[0]
     output_dir = output_dir or os.path.join(os.path.dirname(os.path.abspath(model_path)), 'lifting')
     L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report, max_terms, as_inputs=as_inputs,
-             keep=keep, held_inputs=held_inputs, sites=sites)
+             keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs)
     cellml_path, py_path = write_outputs(L, output_dir, name)
     with open(cellml_path, encoding='utf-8') as f:
         issues = libcellml_issues(f.read())
@@ -2562,6 +2609,8 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     L.timings['total'] = time.perf_counter() - t0
     doc = lifting_json(L, os.path.abspath(py_path), check, scales, verification, struct)
     doc['invariants'] = invs
+    if L.outputs:
+        doc['outputs'] = L.outputs
     doc['model'] = os.path.abspath(model_path)
     doc['lifted_model'] = os.path.abspath(cellml_path)
     doc['libcellml'] = issues
@@ -2594,6 +2643,7 @@ def main(argv=None):
                                                    'other state is cut as an input')
     parser.add_argument('--held-inputs', action='store_true',
                         help='named and cut inputs are states with du/dt = 0 (held within a chunk)')
+    parser.add_argument('--outputs', default='', help='comma-separated variables lifted with the states')
     parser.add_argument('--no-sites', action='store_true',
                         help='polynomialize the smoothing sites rather than lifting them in closed form')
     args = parser.parse_args(argv)
@@ -2601,7 +2651,8 @@ def main(argv=None):
                            args.smoothing_report, args.time_budget, args.engine, args.max_aux, args.sim_time,
                            args.dt, do_verify=not args.no_verify, max_terms=args.max_terms,
                            as_inputs=[s for s in args.as_inputs.split(',') if s], keep=[s for s in args.keep.split(',') if s],
-                           held_inputs=args.held_inputs, sites=not args.no_sites)
+                           held_inputs=args.held_inputs, sites=not args.no_sites,
+                           outputs=[s for s in args.outputs.split(',') if s])
     e = doc['engine']
     print(f'{doc["size"]["n"]} -> {doc["size"]["n_w"]} lifted variables ({e.get("polynomialize")}, '
           f'{e.get("quadratize")}); operators: {", ".join(k for k, v in doc["operators"]["present"].items() if v)}')
