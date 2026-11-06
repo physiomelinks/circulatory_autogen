@@ -1251,7 +1251,7 @@ class Lifting:
 
 def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', max_aux=DEFAULT_MAX_AUX,
          smoothing_report=None, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False, sites=True,
-         outputs=(), tanh_form='tanh', stabilize=None):
+         outputs=(), tanh_form='tanh', stabilize=None, stabilize_scaling='uniform'):
     """Lift a flat CellML model (text or path) to quadratic form.
 
     Args:
@@ -1273,6 +1273,8 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
         stabilize: kappa [1/time]: -kappa g(w) is added to each auxiliary's equation whose identity g = 0 is at most
             quadratic (w z - 1, w^2 - x^2 - eps^2, q (d^2 + eps^2) - 1, w - x y, ...): zero on the manifold, it damps
             the directions off it. The operators then include these terms.
+        stabilize_scaling: ``"uniform"`` (kappa on every identity) or ``"normalized"`` (kappa / |dg/dw| at the initial
+            state for each, so every auxiliary is damped at the rate kappa whatever its scale).
         sites: the smoothing sites (``sm<k>_w``, ``sm<k>_z``, ``sm<k>_q``) are lifted variables with closed-form
             rates, rather than their nested square roots polynomialized.
         outputs: variables lifted with the states: their non-polynomial parts become auxiliaries, and each is
@@ -1420,7 +1422,13 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     L.invariant_definitions = _map_identities(definitions, pre_names, kept, sub, names)
     L.stabilization = None
     if stabilize:
-        L.stabilization = _stabilize(terms, L.invariant_definitions, names, len(states), float(stabilize))
+        point = None
+        if stabilize_scaling == 'normalized':
+            pv0 = m.param_values()
+            iv0 = input_values(m, 0.0, m.init)
+            point = {sp.Symbol(nm, real=True): _value(Tk, m.init, pv0, iv0) for nm, Tk in zip(names, T)}
+            point.update({k: float(v) for k, v in pv0.items()})
+        L.stabilization = _stabilize(terms, L.invariant_definitions, names, len(states), float(stabilize), point)
     L.outputs = _map_outputs(m, output_poly, V, U, q, pre_names, kept, sub, names)
     L.states, L.names, L.T, L.rules = states, names, T, rules
     L.n_orig = m.n_orig
@@ -1608,7 +1616,7 @@ def _equal(a, b):
         return False
 
 
-def _stabilize(terms, identities, names, n, kappa):
+def _stabilize(terms, identities, names, n, kappa, point=None):
     """Adds -kappa g(w) to the equation of each auxiliary whose identity g = 0 is at most quadratic in the lifted
     variables (and free of inputs); returns {kappa, identities: [{variable, expr}], skipped: [...]}."""
     syms = [sp.Symbol(x, real=True) for x in names]
@@ -1627,12 +1635,18 @@ def _stabilize(terms, identities, names, n, kappa):
         if poly is None or poly.total_degree() > 2:
             skipped.append({'variable': v, 'reason': 'identity of degree > 2' if poly is not None else 'not polynomial'})
             continue
+        k_v = kappa
+        if point is not None:
+            # normalised: kappa over |dg/dw_v| at the initial state, so the damping rate of w_v is kappa
+            dv = abs(_value(sp.diff(g, syms[names.index(v)]), point))
+            k_v = kappa / dv if dv > 0 else kappa
         row = terms[names.index(v)]
         for mono, c in poly.terms():
             idx = tuple(sorted(i for x, e in zip(lifted, mono) for i in [index[x]] * e))
-            row.append((-kappa * c, idx, None))
-        used.append({'variable': v, 'expr': d['expr']})
-    return {'kappa': kappa, 'identities': used, 'skipped': skipped,
+            row.append((-k_v * c, idx, None))
+        used.append({'variable': v, 'expr': d['expr'], 'kappa': k_v})
+    return {'kappa': kappa, 'scaling': 'normalized' if point is not None else 'uniform', 'identities': used,
+            'skipped': skipped,
             'note': 'the operators include these -kappa g(w) terms: OpInf and Galerkin must use the same ones'}
 
 
@@ -2411,7 +2425,7 @@ LIFTING_JSON_FIELDS = [
                                   '(times past 1e-8, 1e-6, 1e-3 and the rate), jf'),
     ('structure', dict, False, 'clocks, inputs (kind, multiplies_state), blocks (block-triangular pattern), conserved, '
                                'spectrum (the lifted Jacobian at states of the run: leading real part, count above '
-                               '1e3/time, the leading eigenvectors\' fraction in the tangent space)'),
+                               '1e3/time, tangent_share_scaled and tangent_share_unscaled of the leading eigenvector)'),
     ('conditioning', dict, False, '{scales: each variable\'s min, max, max_abs over the run, ratio, note}'),
     ('smoothing_sites', list, False, 'each smoothing site: rule, smoothness class before and after'),
     ('stabilization', (dict, type(None)), True, 'null, or {kappa, identities: [{variable, expr}], skipped, note}: the '
@@ -2715,26 +2729,47 @@ def lifted_jacobian(ops, w, f):
 
 def spectrum(funcs, X, U, n_points=40, threshold=1e3, n_vectors=5):
     """The lifted Jacobian's eigenvalues at ``n_points`` states of a trajectory on the manifold (w = T(x)): the
-    leading real part, how many exceed ``threshold`` (1/time), and the fraction of each leading eigenvector's norm in
-    the tangent space span(J), where 0 means transverse to the manifold."""
+    leading real part, how many exceed ``threshold`` (1/time), and the tangent share of the leading eigenvector v,
+    ||Q^T v|| / ||v|| with Q an orthonormal basis of span(dT/dx) (1: along the manifold, 0: transverse):
+
+    - ``tangent_share_scaled``: in scaled coordinates w / scale (scale = max |w| of each variable over the
+      trajectory), so no variable dominates by its units; v and dT/dx are scaled alike.
+    - ``tangent_share_unscaled``: in w itself, where the largest variables dominate.
+
+    Each is given as the median and minimum over the states, with the fraction of states where the share is below
+    0.5 (mostly transverse). ``leading_vectors_in_tangent_*`` (unscaled, over the ``n_vectors`` leading vectors)
+    are kept from schema version 1."""
     ops = funcs.operators()
     idx = np.unique(np.linspace(0, len(X) - 1, min(n_points, len(X))).astype(int))
     W = funcs.T(X[idx], U=U[idx])
     F = funcs.features(U[idx])
     Js = funcs.J(X[idx], U=U[idx])
-    lead, count, frac = [], [], []
+    scale = np.max(np.abs(funcs.T(X, U=U)), axis=0)
+    scale[scale == 0] = 1.0
+    lead, count, frac, sh_s, sh_u = [], [], [], [], []
+
+    def share(v, M):
+        u_, s_, _ = np.linalg.svd(M, full_matrices=False)
+        Q = u_[:, s_ > 1e-12 * (s_[0] if s_.size else 1.0)]
+        return float(np.linalg.norm(Q.T @ v) / max(np.linalg.norm(v), 1e-300))
     for k in range(len(idx)):
         ev, vec = np.linalg.eig(lifted_jacobian(ops, W[k], F[k]))
         order = np.argsort(-ev.real)
         lead.append(float(ev.real[order[0]]))
         count.append(int(np.sum(ev.real > threshold)))
-        u_, s_, _ = np.linalg.svd(Js[k], full_matrices=False)
-        Q = u_[:, s_ > 1e-12 * (s_[0] if s_.size else 1.0)]
         for j in order[:n_vectors]:
-            v = vec[:, j]
-            frac.append(float(np.linalg.norm(Q.T @ v) / max(np.linalg.norm(v), 1e-300)))
+            frac.append(share(vec[:, j], Js[k]))
+        v = vec[:, order[0]]
+        sh_u.append(share(v, Js[k]))
+        # the same eigenvector in scaled coordinates: v / scale, against span(dT/dx / scale)
+        sh_s.append(share(v / scale, Js[k] / scale[:, None]))
+
+    def summary(x):
+        return {'median': float(np.median(x)), 'min': float(np.min(x)),
+                'fraction_below_0.5': float(np.mean(np.asarray(x) < 0.5))}
     return {'n_points': len(idx), 'threshold': threshold, 'leading_re_max': max(lead), 'leading_re_median': float(np.median(lead)),
             'count_above_max': max(count), 'count_above_median': float(np.median(count)),
+            'tangent_share_scaled': summary(sh_s), 'tangent_share_unscaled': summary(sh_u),
             'leading_vectors_in_tangent_median': float(np.median(frac)) if frac else None,
             'leading_vectors_in_tangent_min': float(np.min(frac)) if frac else None}
 
@@ -2868,7 +2903,7 @@ def write_outputs(L, output_dir, name='model'):
 def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=None, time_budget=DEFAULT_TIME_BUDGET,
                      engine='auto', max_aux=DEFAULT_MAX_AUX, sim_time=10.0, dt=0.01, solver_info=None,
                      do_verify=True, max_terms=DEFAULT_MAX_TERMS, as_inputs=(), keep=(), held_inputs=False,
-                     sites=True, outputs=(), tanh_form='tanh', stabilize=None):
+                     sites=True, outputs=(), tanh_form='tanh', stabilize=None, stabilize_scaling='uniform'):
     """Lifts a (smoothed) flat CellML model and writes the lifted CellML model, ``lifting_functions.py`` and
     ``lifting.json`` (with the verification, the operator check, the structure and the invariants) into
     ``output_dir``. ``as_inputs``, ``keep``, ``held_inputs``, ``sites``: as :func:`lift`. Returns the lifting.json
@@ -2878,7 +2913,8 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     name = os.path.splitext(os.path.basename(model_path))[0]
     output_dir = output_dir or os.path.join(os.path.dirname(os.path.abspath(model_path)), 'lifting')
     L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report, max_terms, as_inputs=as_inputs,
-             keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs, tanh_form=tanh_form, stabilize=stabilize)
+             keep=keep, held_inputs=held_inputs, sites=sites, outputs=outputs, tanh_form=tanh_form, stabilize=stabilize,
+             stabilize_scaling=stabilize_scaling)
     cellml_path, py_path = write_outputs(L, output_dir, name)
     with open(cellml_path, encoding='utf-8') as f:
         issues = libcellml_issues(f.read())
@@ -2937,6 +2973,8 @@ def main(argv=None):
                              'inputs (B and N terms)')
     parser.add_argument('--tanh-form', choices=('tanh', 'exp'), default='tanh')
     parser.add_argument('--stabilize', type=float, help='kappa: add -kappa g(w) for each quadratic identity')
+    parser.add_argument('--stabilize-scaling', choices=('uniform', 'normalized'), default='uniform',
+                        help='kappa on every identity, or kappa / |dg/dw| so each auxiliary is damped at the rate kappa')
     parser.add_argument('--outputs', default='', help='comma-separated variables lifted with the states')
     parser.add_argument('--no-sites', action='store_true',
                         help='polynomialize the smoothing sites rather than lifting them in closed form')
@@ -2948,6 +2986,7 @@ def main(argv=None):
                            as_inputs=[s for s in args.as_inputs.split(',') if s], keep=[s for s in args.keep.split(',') if s],
                            held_inputs=args.held_inputs or False, sites=not args.no_sites,
                            tanh_form=args.tanh_form, stabilize=args.stabilize,
+                           stabilize_scaling=args.stabilize_scaling,
                            outputs=[s for s in args.outputs.split(',') if s])
     e = doc['engine']
     print(f'{doc["size"]["n"]} -> {doc["size"]["n_w"]} lifted variables ({e.get("polynomialize")}, '

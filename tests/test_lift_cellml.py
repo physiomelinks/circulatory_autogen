@@ -217,6 +217,11 @@ def test_stabilize_adds_minus_kappa_times_each_quadratic_identity(tmp_path):
     """x' = 1 - x - x/(1 + x): w = 1/(1 + x), identity w (1 + x) - 1; with kappa the equation of w gets
     -kappa (w + w x - 1), which is zero on the manifold, so the checks still hold."""
     text = _model({x: 1 - x - x / (1 + x)}, {x: 0.2}, {})
+    normed = lc.lift(text, engine='rules', stabilize=1e3, stabilize_scaling='normalized')
+    assert normed.stabilization['scaling'] == 'normalized'
+    # w_1 = 1/(1 + x) with identity w_1 (1 + x) - 1: dg/dw_1 = 1 + x0 = 1.2, so kappa_1 = 1e3 / 1.2
+    k1 = [i['kappa'] for i in normed.stabilization['identities'] if i['variable'] == 'w_1'][0]
+    assert k1 == pytest.approx(1e3 / 1.2)
     doc = _lift(tmp_path, text, engine='rules', stabilize=1e3)
     st = doc['stabilization']
     assert st['kappa'] == 1e3 and 'w_1' in [i['variable'] for i in st['identities']]
@@ -255,6 +260,8 @@ def test_spectrum_and_simulation_show_fitzhugh_nagumos_transverse_instability(tm
                                  {'a': 0.2, 'b': 0.2, 'c': 3}))
     sp_ = doc['structure']['spectrum']
     assert sp_['n_points'] > 10 and sp_['leading_re_max'] > 0
+    for key in ('tangent_share_scaled', 'tangent_share_unscaled'):
+        assert 0 <= sp_[key]['min'] <= sp_[key]['median'] <= 1 and 0 <= sp_[key]['fraction_below_0.5'] <= 1
     f = lc.load_functions(doc['python'])
     free = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0)
     relifted = lc.simulate_lifted(f, [-1.0, 1.0], np.zeros((1, 0)), 10.0, relift_every=0.5)

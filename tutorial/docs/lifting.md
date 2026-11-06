@@ -87,6 +87,8 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
 - `--tanh-form exp`: tanh(g) as 1 - 2 q with q = 1/(E + 1), E = exp(2 g): q has a quadratic identity to stabilise.
   E overflows where |2 g| > 709: a steep valve law (k dP in the hundreds, as in the ICUHealthy heart) needs the
   tanh form.
+- `--stabilize-scaling normalized`: each identity g of a variable w takes kappa / |dg/dw| at the initial state, so
+  every auxiliary is damped at the rate kappa whatever its scale (`uniform`, the default, uses kappa on all).
 - `--stabilize kappa`: -kappa g(w) added to each auxiliary's equation whose identity g = 0 is at most quadratic; zero
   on the manifold, it damps the directions off it (recorded in `stabilization`; the operators include it).
 - `--no-sites`: polynomialize the smoothing sites' square roots instead of lifting the sites in closed form.
@@ -156,8 +158,12 @@ stops at `--max-aux` and says so.
 ## Stability off the manifold
 
 The manifold w = T(s) is invariant but need not attract. `structure.spectrum` gives the lifted Jacobian's eigenvalues
-at states of the model's run (on the manifold): the leading real part, how many exceed 1e3/time, and the fraction of
-the leading eigenvectors' norm in the tangent space span(J) (near 0: transverse). `simulate_lifted(funcs, x0, u0,
+at states of the model's run (on the manifold): the leading real part, how many exceed 1e3/time, and the tangent share
+of the leading eigenvector v, ||Q^T v|| / ||v|| with Q an orthonormal basis of span(dT/dx) (1: along the manifold,
+0: transverse). `tangent_share_scaled` measures it in w / scale (scale = max |w| of each variable over the run, v and
+dT/dx scaled alike), which is what a reduced model built on scaled snapshots sees; `tangent_share_unscaled` measures it
+in w, where the largest variables (1e16 in the ICUHealthy heart) dominate. Each gives the median and minimum over the
+states and the fraction of states below 0.5. `simulate_lifted(funcs, x0, u0,
 t_end, relift_every=None)` integrates the lifted system with the inputs held and reports whether it gets through and
 its defect, optionally re-lifting w <- T(w[:n]) at intervals. `--stabilize kappa` damps the transverse directions
 with the auxiliaries' quadratic identities.
