@@ -432,6 +432,29 @@ class Model:
         return vals
 
 
+def _time_derivative(e, t):
+    """d e/dt of an input's expression, with floor and ceiling (piecewise constant) held constant."""
+    steps = {f: sp.Dummy() for f in e.atoms(sp.floor, sp.ceiling)}
+    d = sp.diff(e.xreplace(steps), t)
+    return d.xreplace({v: k for k, v in steps.items()})
+
+
+def input_values(m, t, states):
+    """{input symbol: value} of a Model's inputs at time t and the states {symbol: value}."""
+    vals = {k: sp.Float(v) for k, v in m.param_values().items()}
+    vals.update({k: sp.Float(v) for k, v in states.items()})
+    vals[m.time] = sp.Float(t)
+    out = {}
+    for i in _input_order(m):
+        v = sp.sympify(i['expr']).xreplace(vals)
+        try:
+            out[i['symbol']] = float(v)
+        except TypeError:
+            out[i['symbol']] = float(v.evalf())
+        vals[i['symbol']] = sp.Float(out[i['symbol']])
+    return out
+
+
 def _value(e, *values):
     """A float of an expression with the symbols of ``values`` (dicts {symbol: float}) replaced."""
     subs = {k: sp.Float(v) for d in values for k, v in d.items()}
@@ -586,11 +609,9 @@ class _Polynomializer:
                 if float(r) == float(p):
                     p = r
             if p.is_Rational:
-                if g.is_Symbol and p.is_Integer:
-                    return self._pow_aux(g, p)
-                if g.is_Symbol or not (g.free_symbols & set(self.m.input_symbols)):
-                    return self._pow_aux(g, p)
-                return self._mixed(e)
+                if (g.free_symbols & set(self.m.input_symbols)) and not self._mixed_ok(e):
+                    return self._mixed_input(e)
+                return self._pow_aux(g, p)
             if g.free_symbols & set(self.m.input_symbols):
                 return self._mixed(e)
             # a symbolic or irrational exponent: g^(c + r) = g^c g^r with c rational; w = g^r, dw/dt = r w z dg/dt
@@ -628,18 +649,33 @@ class _Polynomializer:
             return self._mixed(e)
         return self._new(('f', e), e, rule)
 
-    def _mixed(self, e):
-        """A non-polynomial term in both states and inputs: the derivative of each input that is a
-        known function of time (or held) is added as an input; otherwise the term is an input."""
+    def _mixed_ok(self, e):
+        """Whether a non-polynomial term in both states and inputs can take the inputs' derivatives as inputs:
+        each input in it is a known function of time or held. Records that the lift is not input-free."""
         ins = [i for i in self.m.inputs if i['symbol'] in e.free_symbols]
-        if all(i['kind'] in ('time', 'variable') and not (i['expr'].free_symbols & self.state_set) for i in ins):
+        ok = all(i['kind'] in ('time', 'variable', 'input_function') and not (i['expr'].free_symbols & self.state_set)
+                 for i in ins)
+        if ok:
             self.input_free = False
-            self.notes.append(f'{e}: depends on states and inputs; the inputs\' derivatives are inputs')
-            return self._new(('f', e), e, 'mixed')
+            note = (f'{", ".join(i["name"] for i in ins)} enter a non-polynomial term with the states: their '
+                    f'derivatives are inputs')
+            if note not in self.notes:
+                self.notes.append(note)
+        return ok
+
+    def _mixed_input(self, e):
+        """A non-polynomial term in the states and an input that itself depends on the states: an input."""
         self.notes.append(f'{e}: depends on states and an input that depends on the states; the term is an input')
         self.input_free = False
         return self.m.new_input(e, 'nonpolynomial_term', switch_variables=sorted(
             str(s) for s in e.free_symbols & self.state_set))
+
+    def _mixed(self, e):
+        """A non-polynomial function of states and inputs: an auxiliary (with the inputs' derivatives as inputs)
+        when :meth:`_mixed_ok`, else an input."""
+        if self._mixed_ok(e):
+            return self._new(('f', e), e, 'mixed')
+        return self._mixed_input(e)
 
     def ddt(self, T):
         """dT/dt along the model, as an expression in the states and inputs (and input derivatives)."""
@@ -658,12 +694,10 @@ class _Polynomializer:
         for j in self.m.inputs:
             if j['name'] == name:
                 return j['symbol']
-        if i['kind'] == 'time':
-            expr = sp.diff(i['expr'], self.m.time)
-        elif i.get('held'):
+        if i.get('held'):
             expr = sp.Integer(0)
         else:
-            expr = sp.diff(i['expr'], self.m.time)
+            expr = _time_derivative(i['expr'], self.m.time)
         s = sp.Symbol(name, real=True)
         self.m.inputs.append({'symbol': s, 'name': name, 'expr': expr, 'kind': 'derivative', 'of': i['name']})
         return s
@@ -1371,7 +1405,7 @@ def lifted_cellml(L, name=None):
     m = L.model
     pv = m.param_values()
     s0 = dict(m.init)
-    w0 = [_value(T, s0, pv) for T in L.T]
+    w0 = [_value(T, s0, pv, input_values(m, 0.0, s0)) for T in L.T]
     tname = str(m.time)
     lines = [f'<variable name="{tname}" units="dimensionless"/>']
     for s, v in m.params.items():
@@ -1458,13 +1492,22 @@ def python_module(L):
                 lines.append(f'    {i["name"]} = {unpack_u}[:, {k}]')
         return lines
 
-    out += ['', '', 'def T(X, p=None):', '    """(n_snap, n) -> (n_snap, n_w)."""', '    X = numpy.atleast_2d(X)']
-    out += header(None, 'X')
+    needs_u = any(sp.sympify(T).free_symbols & set(L.input_symbols) for T in L.T)
+    unpack_u = []
+    if needs_u:
+        unpack_u = ['    if U is None:', '        U = inputs(numpy.zeros(X.shape[0]) if t is None else t, X, p)',
+                    '    U = numpy.atleast_2d(U)'] + [f'    {i["name"]} = U[:, {k}]' for k, i in enumerate(m.inputs)]
+    out.append(f'NEEDS_INPUTS = {needs_u!r}  # T and J depend on the inputs: pass t (or U) with X')
+    out += ['', '', 'def T(X, p=None, t=None, U=None):',
+            '    """(n_snap, n) -> (n_snap, n_w). t (n_snap,) or U (n_snap, n_u): the inputs, when NEEDS_INPUTS."""',
+            '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X') + unpack_u
     out.append('    n = X.shape[0]')
     out.append('    return numpy.stack([' + ', '.join(f'_b({code(T)}, n)' for T in L.T) + '], axis=1)')
 
-    out += ['', '', 'def J(X, p=None):', '    """(n_snap, n) -> (n_snap, n_w, n): dT/ds."""', '    X = numpy.atleast_2d(X)']
-    out += header(None, 'X')
+    out += ['', '', 'def J(X, p=None, t=None, U=None):', '    """(n_snap, n) -> (n_snap, n_w, n): dT/ds."""',
+            '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X') + unpack_u
     out.append(f'    n = X.shape[0]\n    out = numpy.zeros((n, {L.n_w}, {L.n}))')
     for i, T in enumerate(L.T):
         if i < L.n:
@@ -1473,6 +1516,18 @@ def python_module(L):
         for k, s in enumerate(L.states):
             if s in T.free_symbols:
                 out.append(f'    out[:, {i}, {k}] = {code(sp.diff(T, s))}')
+    out.append('    return out')
+
+    n_u = len(m.inputs)
+    out += ['', '', 'def JU(X, p=None, t=None, U=None):',
+            '    """(n_snap, n) -> (n_snap, n_w, n_u): dT/du, nonzero only where an auxiliary depends on an input\n'
+            '    (then dT/dt = J f + JU du/dt, with du/dt the input d<u>_dt)."""', '    X = numpy.atleast_2d(X)']
+    out += header(None, 'X') + unpack_u
+    out.append(f'    n = X.shape[0]\n    out = numpy.zeros((n, {L.n_w}, {n_u}))')
+    for i, T in enumerate(L.T):
+        for k, inp in enumerate(m.inputs):
+            if inp['symbol'] in sp.sympify(T).free_symbols:
+                out.append(f'    out[:, {i}, {k}] = {code(sp.diff(T, inp["symbol"]))}')
     out.append('    return out')
 
     out += ['', '', 'def inputs(t, X, p=None):', '    """(n_snap,) times and (n_snap, n) states -> (n_snap, n_u)."""',
@@ -1756,7 +1811,9 @@ def lifting_json(L, python_path=None, check=None, scales=None, verification=None
     for k in range(L.n, L.n_w):
         T = L.T[k]
         eps = sorted(eps_syms & T.free_symbols, key=str)
+        dep = [i for i in m.inputs if i['symbol'] in sp.sympify(T).free_symbols]
         aux.append({'name': L.names[k], 'expr': ex(T), 'jac': [ex(sp.diff(T, s)) for s in state_set],
+                    **({'jac_inputs': {i['name']: ex(sp.diff(T, i['symbol'])) for i in dep}} if dep else {}),
                     'exact': not eps, 'epsilon': {str(e): m.params[e] for e in eps},
                     'rule': L.rules[k], 'scale': (scales or {}).get(L.names[k])})
     sym_ops = {'A': [[i, j, ex(c)] for (i, j), c in sorted(L.A.items())],
@@ -1798,7 +1855,7 @@ def lifting_json(L, python_path=None, check=None, scales=None, verification=None
                          'B': [[i, f] for (i, f) in sorted(L.B)], 'C': [i for (i,) in sorted(L.C)]},
             'symbolic': sym_ops,
         },
-        'initial': {'w0': [_value(T, m.init, pv) for T in L.T]},
+        'initial': {'w0': [_value(T, m.init, pv, input_values(m, 0.0, m.init)) for T in L.T]},
         'engine': L.engine,
         'timings': L.timings,
     }
@@ -1872,11 +1929,13 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
         t = np.linspace(0.0, sim_time, len(X))
     atol = float(solver_info.get('atol', 1e-12))
     out = {'sim_time': sim_time, 'dt': dt, 'solver_info': solver_info, 'states': {}, 'manifold': {}}
+    # a state that stays near 0 (by symmetry) is judged against 1e-8 of the largest state, not against rounding
+    floor = max(atol, 1e-8 * float(np.max(np.abs(X)))) if X.size else atol
     for k, s in enumerate(L.states):
-        scale = max(float(np.ptp(X[:, k])), abs(float(np.mean(X[:, k]))), atol)
+        scale = max(float(np.ptp(X[:, k])), abs(float(np.mean(X[:, k]))), floor)
         out['states'][str(s)] = float(np.max(np.abs(Wl[:, k] - X[:, k]))) / scale
-    Tl = funcs.T(Wl[:, :L.n])
-    Tref = funcs.T(X)
+    Tl = funcs.T(Wl[:, :L.n], t=t)
+    Tref = funcs.T(X, t=t)
     scales = {}
     for k, n in enumerate(L.names):
         col = Tref[:, k]
@@ -1895,11 +1954,11 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     Xs = np.vstack([Xs, Xs + 0.05 * spread * rng.standard_normal(Xs.shape)])
     ts = np.concatenate([t[idx], t[idx]])
     Us = funcs.inputs(ts, Xs)
-    Js, fs = funcs.J(Xs), funcs.rhs_original(Xs, Us)
-    Jf = np.einsum('kij,kj->ki', Js, fs)
-    R = funcs.rhs_lifted(funcs.T(Xs), Us)
+    Js, fs = funcs.J(Xs, U=Us), funcs.rhs_original(Xs, Us)
+    Jf = np.einsum('kij,kj->ki', Js, fs) + _input_rate_term(L, funcs, Xs, Us)
+    Ts = funcs.T(Xs, U=Us)
+    R = funcs.rhs_lifted(Ts, Us)
     ok = np.all(np.isfinite(Jf), axis=1) & np.all(np.isfinite(R), axis=1)
-    Ts = funcs.T(Xs)
     # each variable's scale: the larger of |J| |f| (the size of the terms that cancel in J f) and |w|
     size = np.einsum('kij,kj->ki', np.abs(Js), np.abs(fs))
     denom = np.maximum(np.maximum(np.max(size[ok], axis=0), np.max(np.abs(Ts[ok]), axis=0)), 1e-300) \
@@ -1908,7 +1967,7 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     out['jf'] = {'max': float(np.max(jf)), 'n_points': int(ok.sum()), 'per_variable': dict(zip(L.names, map(float, jf)))}
     # the operator form on the reference trajectory
     U = funcs.inputs(t, X)
-    dW = np.einsum('kij,kj->ki', funcs.J(X), funcs.rhs_original(X, U))
+    dW = np.einsum('kij,kj->ki', funcs.J(X, U=U), funcs.rhs_original(X, U)) + _input_rate_term(L, funcs, X, U)
     ops = funcs.operators()
     F = funcs.features(U)
     op = apply_operators(ops, Tref, F)
@@ -1923,12 +1982,23 @@ def verify(L, model_path, lifted_path, funcs, sim_time=10.0, dt=0.01, solver_inf
     return out, check, scales, (t, X, Wl)
 
 
+def _input_rate_term(L, funcs, X, U):
+    """JU du/dt: the part of dT/dt from auxiliaries that depend on inputs (0 for an input-free lift)."""
+    names = [i['name'] for i in L.model.inputs]
+    rates = np.zeros_like(U)
+    for k, n in enumerate(names):
+        if f'd{n}_dt' in names:
+            rates[:, k] = U[:, names.index(f'd{n}_dt')]
+    return np.einsum('kij,kj->ki', funcs.JU(X, U=U), rates) if U.shape[1] else 0.0
+
+
 def _defect_growth(L, t, X, Wl, Tl, atol):
     """When the lifted run leaves the manifold and the original states: the first time the largest relative
     defect (and state error) passes 1e-8, 1e-6 and 1e-3, and the defect's exponential growth rate between
     1e-10 and 1e-3 (the manifold is invariant but need not attract: solver error grows along it at that rate)."""
     def scaled(Y, Z, cols):
-        sc = np.maximum(np.maximum(np.ptp(Z[:, cols], axis=0), np.max(np.abs(Z[:, cols]), axis=0)), atol)
+        floor = max(atol, 1e-8 * float(np.max(np.abs(Z[:, cols])))) if Z[:, cols].size else atol
+        sc = np.maximum(np.maximum(np.ptp(Z[:, cols], axis=0), np.max(np.abs(Z[:, cols]), axis=0)), floor)
         return np.max(np.abs(Y[:, cols] - Z[:, cols]) / sc, axis=1)
     out = {}
     series = {'state_error': scaled(Wl, X, list(range(L.n)))}

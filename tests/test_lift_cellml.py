@@ -141,6 +141,21 @@ def test_auxiliaries_identically_constant_or_equal_are_removed():
     assert all(T.free_symbols for T in L.T)
 
 
+def test_a_time_input_inside_a_root_with_a_state_takes_its_derivative_as_an_input():
+    """dx/dt = 1 - sqrt(1 + (E x)^2), E = 1 + sin(t)/2 (an elastance times a volume inside a valve law). The rule
+    table stops at w = sqrt(.) and z = 1/w, with dE/dt an input (not input-free). The input-affine form has no finite
+    lift of it (dw/dt has E dE/dt x^2 z), so the search stops at max_aux and says so."""
+    tt = sp.Symbol('t')
+    m = lc.Model(_model({x: 1 - sp.sqrt(1 + (sp.Symbol('E') * x) ** 2)}, {x: 0.5}, {}, alg={'E': 1 + sp.sin(tt) / 2}))
+    p = lc._Polynomializer(m, max_aux=20)
+    p.run()
+    assert sorted(a.rule for a in p.aux) == ['reciprocal root', 'root']
+    assert not p.input_free and [i['kind'] for i in m.inputs] == ['time', 'derivative']
+    with pytest.raises(lc.LiftError, match='degree > 2 left'):
+        lc.lift(_model({x: 1 - sp.sqrt(1 + (sp.Symbol('E') * x) ** 2)}, {x: 0.5}, {}, alg={'E': 1 + sp.sin(tt) / 2}),
+                engine='rules', max_aux=20)
+
+
 def test_a_function_of_time_becomes_an_input(tmp_path):
     doc = _lift(tmp_path, _model({x: -x + sp.sin(2 * sp.Symbol('t'))}, {x: 0.0}, {}))
     assert [(i['kind'], i['expr']) for i in doc['inputs']] == [('time', 'sin(2*t)')]

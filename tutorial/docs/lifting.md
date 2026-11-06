@@ -49,14 +49,16 @@ dissociation curve give terms of degree 24).
 
 Input-free: the auxiliaries depend on the states only. A non-polynomial term that mixes states and inputs takes
 the inputs' derivatives as further inputs (`d<u>_dt`) when they are known functions of time, and `engine.input_free`
-is false. Some systems have no finite input-affine quadratic lift (u x² needs x³, then u x⁴, ...); the search then
+is false; such auxiliaries depend on the inputs, so `T`, `J` and `JU` (dT/du) take `t` or `U` (`NEEDS_INPUTS`) and
+`auxiliaries[].jac_inputs` gives dT/du. Some systems have no finite input-affine quadratic lift (u x² needs x³, then u x⁴, ...); the search then
 stops at `--max-aux` and says so.
 
 ## Verification
 
 `verify` runs the lifted and the original model with CVODE_myokit (rtol 1e-10) from t = 0:
 
-- `states`: the largest error of each original state, over its scale max(range, |mean|, atol);
+- `states`: the largest error of each original state, over its scale max(range, |mean|, atol, 1e-8 x the largest
+  state);
 - `manifold`: max |w − T(s)| of each auxiliary along the lifted run, over its scale;
 - `defect_growth`: when the defect and the state error first pass 1e-8, 1e-6 and 1e-3, and the defect's exponential
   rate. The manifold w = T(s) is invariant but need not attract: for FitzHugh–Nagumo with w = V², solver error grows
