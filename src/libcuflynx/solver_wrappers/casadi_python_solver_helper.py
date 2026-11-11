@@ -1,7 +1,6 @@
 import importlib.util
 import os
 import shutil
-import tempfile
 import warnings
 
 import numpy as np
@@ -27,14 +26,12 @@ _INTEGRATORS = {}
 def jit_options(solver_info):
     """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
     right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
-    'shell' by default) and ``jit_options`` (default flags -O2, temporary files in the temp
-    directory). Raises RuntimeError when the
+    'shell' by default) and ``jit_options`` (default flags -O2). CasADi writes its C and objects in
+    the working directory while it compiles and removes them after. Raises RuntimeError when the
     'shell' plugin's C compiler is not on PATH."""
     compiler = solver_info.get('compiler') or 'shell'
     options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
     if compiler == 'shell':
-        # its temporary C and objects go here rather than into the working directory
-        options.setdefault('directory', os.path.join(tempfile.gettempdir(), ''))
         executable = options.get('compiler', 'gcc')
         if shutil.which(executable) is None:
             raise RuntimeError(
