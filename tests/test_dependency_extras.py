@@ -1,6 +1,6 @@
 """What must happen when an optional dependency is *absent* (issue #435).
 
-`pip install libcuflynx` deliberately does not bring casadi (221 MB), autoemulate (750 MB,
+`pip install libcuflynx` deliberately does not bring autoemulate (750 MB,
 mostly torch), pymc, or mpi4py. mpi4py is the awkward one: it is only 5 MB, but it compiles
 against a system MPI toolchain at install time, which is the commonest pip failure on macOS
 and Windows -- and a serial calibration needs none of it.
@@ -414,9 +414,17 @@ def test_the_heavy_packages_are_not_required():
     """The list a `pip install libcuflynx` resolves. Each of these has a guarded import and a
     message naming its extra; putting any of them back here would undo that."""
     required = ' '.join(_load_pyproject()['project']['dependencies']).lower()
-    for package in ('mpi4py', 'casadi', 'pymc', 'autoemulate', 'schwimmbad', 'aadc'):
+    for package in ('mpi4py', 'pymc', 'autoemulate', 'schwimmbad', 'aadc'):
         assert package not in required, (
             '%s is an optional extra, but it is in [project] dependencies' % package)
+
+
+@pytest.mark.unit
+def test_casadi_is_required_because_it_runs_the_default_model_type():
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_MODEL_TYPE
+    assert DEFAULT_MODEL_TYPE == 'casadi_python'
+    required = ' '.join(_load_pyproject()['project']['dependencies']).lower()
+    assert 'casadi' in required
 
 
 @pytest.mark.unit

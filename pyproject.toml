@@ -40,8 +40,9 @@ classifiers = [
 
 # What a plain `pip install libcuflynx` must bring: everything a generate + simulate +
 # calibrate run imports, and nothing else. Measured at about 540 MB of site-packages in a
-# fresh venv. The expensive things are kept out of it -- casadi (+221 MB), autoemulate/torch
-# (+750 MB), pymc (+65 MB) -- along with mpi4py, which is only 5 MB but needs a system MPI
+# fresh venv before casadi (+221 MB) joined it as the default model_type's backend. The other
+# expensive things are kept out of it -- autoemulate/torch (+750 MB), pymc (+65 MB) -- along
+# with mpi4py, which is only 5 MB but needs a system MPI
 # toolchain at install time and is the commonest pip failure on macOS and Windows. See
 # [project.optional-dependencies] and the size table in README.md. Issue #435.
 dependencies = [
@@ -55,6 +56,9 @@ dependencies = [
     # Renders the C++ for model_type: cpp (libcuflynx/generators/cpp/templates).
     "jinja2>=3.0",
     "myokit>=1.39.1",
+    # The default model_type, casadi_python, integrates with CasADi's CVODES and takes CasADi
+    # AD gradients, so a plain install has to run it.
+    "casadi>=3.7.2",
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
     "SALib==1.5.1",
@@ -157,11 +161,9 @@ mpi = [
     "mpi4py>=3.0.0",
     "schwimmbad>=0.3.0",
 ]
-# Symbolic model type and AD gradients -- `model_type: casadi_python`, `solver:
-# casadi_integrator`, and the symbolic-adjoint arm of do_ad. Optional because it is 221 MB,
-# the largest single dependency after autoemulate's torch. Every use site is guarded
-# (param_id/casadi_backend.py, param_id/math_backend.py, solver_wrappers/), so importing CA
-# without it is fine; asking for the model type or the solver names this extra.
+# casadi is a core dependency (the default model_type's backend); the extra is kept so that
+# `libcuflynx[casadi]` in existing requirements still resolves. The use sites stay guarded, so
+# an environment without casadi still imports CA and names this extra when it is needed.
 casadi = [
     "casadi>=3.7.2",
 ]

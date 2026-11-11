@@ -27,9 +27,9 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 
 | install | on disk | what it buys |
 |---|---|---|
-| `libcuflynx` | **≈ 540 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
+| `libcuflynx` | **≈ 760 MB** | generation, simulation (CasADi CVODES by default, or Myokit), calibration with CasADi AD gradients, Sobol SA, emcee MCMC, Laplace identifiability |
 | `libcuflynx[mpi]` | **+5 MB**, and a system MPI toolchain | multi-rank runs under `mpiexec` |
-| `libcuflynx[casadi]` | **+221 MB** | `model_type: casadi_python`, `solver: casadi_integrator`, symbolic AD gradients |
+| `libcuflynx[casadi]` | +0 MB | kept for old requirements: casadi (221 MB) is in the default install |
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
 | `libcuflynx[emulation]` | **+750 MB or more** | training and using surrogate models (`do_emulation` / `use_emulator`) |
 | `libcuflynx[cpp]` | +0 MB | `model_type: cpp` — needs a C++ toolchain, which pip cannot install |

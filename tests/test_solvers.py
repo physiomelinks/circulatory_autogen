@@ -1270,7 +1270,7 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
 
 
 _SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+    "SN_simple's CellML initialises states from *_init computed constants. libCellML 0.7.2's Analyser accepts that, and its generated Python sets those states in computeComputedConstants; PythonGenerator rewrites that function to compute_computed_constants(variables), with no states array, so the generated module raises NameError: name 'state' is not defined (#151). cellml + Myokit run the same model, so SN models need model_type: cellml. strict=True on purpose: when this is fixed the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
 )
 
 

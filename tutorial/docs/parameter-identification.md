@@ -725,13 +725,19 @@ Note:
 
 Before doing calibration, a solver for the model needs to be chosen
 
-- **solver** defines the solver family. Options depend on `model_type`:
-    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
+- **model_type** defaults to `casadi_python`: the CellML model is generated as a CasADi Python
+  module and integrated with CasADi's CVODES (`solver: casadi_integrator`, `method: cvodes`).
+  Set `model_type: cellml` to run the CellML in Myokit instead. A config that names a solver but
+  no model_type takes that solver's model_type, so `solver: CVODE_myokit` alone is a `cellml` run.
+- **solver** defines the solver family. Options depend on `model_type`; each model_type's first
+  listed solver is its default:
+    - CasADi Python (`model_type: casadi_python`, the default): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace.
+    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
-    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`.
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
-    - **dt_solver**: solver time step (for CVODE this sets `MaximumStep` when provided)
+    - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
+      `casadi_integrator` when those are not given
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_opencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_opencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
@@ -765,15 +771,19 @@ Before doing calibration, a solver for the model needs to be chosen
     `phase`) observables cannot be differentiated yet, and raise rather than silently
     contributing nothing to the cost.
 
-!!! note "CasADi `semi_implicit_euler` — enables automatic differentiation on stiff models (verify with a convergence study)"
-    When using gradient-based parameter identification (`param_id_method: sp_minimize` with
-    `do_ad: true`) on a **very stiff** model, the adaptive `cvodes` integrator can solve the
-    forward problem but its **adjoint-sensitivity gradient fails** (e.g. CasADi raises
-    `CVodeF returned "CV_ERR_FAILURE"`). The full 3compartment cardiovascular model — whose
-    valve dynamics are extremely stiff and contain discontinuous (`floor`-driven) heart
-    activation — is a typical case.
+!!! note "Gradients: `do_ad` and the default CasADi AD"
+    `do_ad` defaults to `true`: the gradient-based methods take the model's analytic gradient.
+    On the default `casadi_python` model that is CasADi AD; with `cvodes` or `idas` it is
+    computed by CVODES forward sensitivities (one per calibrated parameter), which match finite
+    differences on the stiff 3compartment model, warm-up included. (The CVODES adjoint, CasADi's
+    reverse mode, fails there with `CV_TOO_MUCH_WORK`, so it is not used.) A `cellml` model on
+    `CVODE_myokit` gets Myokit CVODES forward sensitivities (FSA) instead. `do_ad: false` uses
+    finite differences. `gradient_sources(model_type, solver)` lists the choices for a model and
+    marks the default; `default_gradient_source()` returns it.
 
-    For these models set `solver_info.method: semi_implicit_euler`. This is a fixed-step,
+!!! note "CasADi `semi_implicit_euler` — a fixed-step AD method (verify with a convergence study)"
+    `semi_implicit_euler` differentiates by reverse mode through a fixed-step graph rather than
+    by CVODES sensitivities. To use it set `solver_info.method: semi_implicit_euler`. This is a fixed-step,
     **linearly-implicit (semi-implicit) Euler** scheme with diagonal-Jacobian damping:
 
     ```
@@ -782,9 +792,7 @@ Before doing calibration, a solver for the model needs to be chosen
 
     The damping term stabilises the stiff modes at the model `dt`, and because the whole
     integrator is built as a single symbolic graph, CasADi differentiates the cost by ordinary
-    reverse-mode AD — there is **no adjoint ODE solver to fail**. This makes exact gradients
-    (and gradient-based optimisation) available for stiff models where `cvodes` cannot produce
-    a gradient.
+    reverse-mode AD, with no ODE solver in the gradient.
 
     ```yaml
     model_type: casadi_python
@@ -798,24 +806,20 @@ Before doing calibration, a solver for the model needs to be chosen
         `semi_implicit_euler` is a **first-order, fixed-step** scheme that damps using only
         the **diagonal** of the Jacobian, so it is **less accurate than the adaptive `cvodes`
         integrator** and, on a stiff model, can noticeably differ from the true (CVODE)
-        trajectory at a practical `dt`. It is provided so that AD gradients are *available*
-        on stiff models where `cvodes` cannot produce one — not because it is the accurate
-        choice.
+        trajectory at a practical `dt`. It is not the accurate choice.
 
         **Do not trust the results at a single `dt`.** Perform a convergence study: rerun
         with progressively smaller `dt` (e.g. halve it) and confirm the trajectories and the
-        identified parameters stop changing meaningfully before relying on them. Where
-        `cvodes` works, it remains the more accurate default.
+        identified parameters stop changing meaningfully before relying on them. `cvodes`
+        remains the more accurate default.
 
-!!! tip "CasADi `bdf` — a more accurate stiff AD method that also supports a long `pre_time`"
+!!! tip "CasADi `bdf` — a fixed-step AD method for stiff models"
     `bdf` is a fixed-step, symbolic implicit **BDF2** scheme (a rootfinder per step, differentiated
     through the implicit-function theorem). Like `semi_implicit_euler` it is built as a single
-    symbolic graph, so CasADi produces exact gradients by reverse-mode AD with no adjoint solver to
-    fail — but it is **second order and full-Jacobian implicit**, so it tracks a stiff trajectory
-    far more accurately than the first-order, diagonally-damped `semi_implicit_euler` at the same
-    `dt`. It also handles a nonzero `pre_time` warmup (unlike `cvodes`, whose adjoint typically
-    fails with `CV_TOO_MUCH_WORK` over a long warmup). Prefer `bdf` over `semi_implicit_euler` for
-    stiff models; still do a convergence study in `dt`.
+    symbolic graph, so CasADi produces exact gradients by reverse-mode AD — but it is **second
+    order and full-Jacobian implicit**, so it tracks a stiff trajectory far more accurately than
+    the first-order, diagonally-damped `semi_implicit_euler` at the same `dt`. Prefer `bdf` over
+    `semi_implicit_euler`; still do a convergence study in `dt`.
 
     ```yaml
     model_type: casadi_python
