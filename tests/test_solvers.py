@@ -816,6 +816,48 @@ def test_casadi_cvodes_integrates_the_output_grid_in_one_solve(
     assert h.F is F, "the grid integrator was rebuilt for a sub-experiment with the same timeline"
 
 
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_cvodes_jit_matches_the_interpreted_integrator(
+        generated_cellml_model_factory, temp_model_dir):
+    """solver_info jit: true compiles the right-hand side; the trajectory is the same, and a
+    second helper on the same model reuses the compiled integrator rather than compiling again.
+    """
+    import shutil as _shutil
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    ca = pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    dt, T = 0.01, 5.0
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit", casadi_compat=True).generate()
+
+    def run(jit):
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=dt, sim_time=T, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": jit})
+        assert h.run()
+        return h
+
+    plain, jitted = run(False), run(True)
+    assert jitted.F is not plain.F
+    np.testing.assert_allclose(jitted.state_traj_dm, plain.state_traj_dm, rtol=1e-12, atol=1e-12)
+    assert run(True).F is jitted.F, "a second helper compiled the same integrator again"
+
+
+@pytest.mark.unit
+def test_casadi_jit_without_a_compiler_says_so(monkeypatch):
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="not on PATH"):
+        helper_module.jit_options({"jit": True})
+    # the compiler named in jit_options is the one looked for
+    with pytest.raises(RuntimeError, match="'clang'"):
+        helper_module.jit_options({"jit": True, "jit_options": {"compiler": "clang"}})
+
+
 _TIME_FORCED_CELLML = """<?xml version='1.0' encoding='UTF-8'?>
 <model name="forced" xmlns="http://www.cellml.org/cellml/2.0#">
   <component name="main">

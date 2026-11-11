@@ -1,4 +1,7 @@
 import importlib.util
+import os
+import shutil
+import tempfile
 import warnings
 
 import numpy as np
@@ -14,6 +17,31 @@ from libcuflynx.utilities.protocol_shapes import materialise_shapes
 
 #: The SUNDIALS methods, integrated once over the whole output grid (see _run_sundials_grid).
 _GRID_METHODS = ('cvodes', 'idas')
+
+#: Integrators built by _run_sundials_grid, shared by every helper in the process:
+#: {(model path, model mtime, integrator key): integrator}. A jit integrator compiles its C
+#: when it is built, so this is what makes it compile once per model, grid and options.
+_INTEGRATORS = {}
+
+
+def jit_options(solver_info):
+    """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
+    right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
+    'shell' by default) and ``jit_options`` (default flags -O2, temporary files in the temp
+    directory). Raises RuntimeError when the
+    'shell' plugin's C compiler is not on PATH."""
+    compiler = solver_info.get('compiler') or 'shell'
+    options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
+    if compiler == 'shell':
+        # its temporary C and objects go here rather than into the working directory
+        options.setdefault('directory', os.path.join(tempfile.gettempdir(), ''))
+        executable = options.get('compiler', 'gcc')
+        if shutil.which(executable) is None:
+            raise RuntimeError(
+                f"solver_info jit: true compiles the model with a C compiler, but "
+                f"{executable!r} is not on PATH. Install gcc or clang, name one with "
+                f"jit_options: {{compiler: <path>}}, or set jit: false.")
+    return {'jit': True, 'compiler': compiler, 'jit_options': options}
 
 class SimulationHelper(ExperimentTimeMixin):
     """
@@ -80,6 +108,8 @@ class SimulationHelper(ExperimentTimeMixin):
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
+        if self.solver_info.get('jit'):
+            integrator_opts.update(jit_options(self.solver_info))
         integrator_opts.update(self.solver_info.get('options', {}))
         return integrator_opts
 
@@ -755,17 +785,15 @@ class SimulationHelper(ExperimentTimeMixin):
         bounds = [0.0] + sorted(steps) + [grid[-1]]
 
         integrator_opts = self._build_integrator_opts()
-        cache = getattr(self, '_grid_integrator_cache', None)
-        if not isinstance(cache, dict):
-            cache = self._grid_integrator_cache = {}
+        model_key = (os.path.abspath(self.model_path), os.path.getmtime(self.model_path))
         segments = []  # (integrator, start tau, control matrix or None)
         for lo, hi in zip(bounds[:-1], bounds[1:]):
             seg_grid = [g for g in grid if lo < g <= hi]
             local = [g - lo for g in seg_grid]
-            key = (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
-                   tuple(traced), repr(integrator_opts))
-            if key not in cache:
-                cache[key] = self._sundials_integrator(local, len(traced), integrator_opts)
+            key = model_key + (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
+                               tuple(traced), repr(integrator_opts))
+            if key not in _INTEGRATORS:
+                _INTEGRATORS[key] = self._sundials_integrator(local, len(traced), integrator_opts)
             U = None
             if traced:
                 # Rows (intercept, slope) per grid interval, in the segment's own time.
@@ -777,7 +805,7 @@ class SimulationHelper(ExperimentTimeMixin):
                         U[2 * j, i] = a + b * (lo - sim_start)
                         U[2 * j + 1, i] = b
                 U = ca.DM(U)
-            segments.append((cache[key], lo, U))
+            segments.append((_INTEGRATORS[key], lo, U))
         self.F = segments[0][0]
         self.F_map = None
 

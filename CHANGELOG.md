@@ -5,34 +5,33 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Changed — the default is casadi_python on CasADi CVODES, with CasADi AD gradients
+### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
 
-- **Breaking:** with no `model_type`, a run is `casadi_python`: the CellML model is generated as
-  a CasADi Python module and integrated by `casadi_integrator` with method `cvodes`. A config
-  that names a solver but no model_type takes the solver's own (`solver: CVODE_myokit` alone is
-  still a `cellml` run). `model_type: cellml` with `CVODE_myokit` stays available. SN_simple /
-  SN_full do not generate as Python yet (see *Backend caveats* in `CLAUDE.md`): give them
-  `model_type: cellml`.
-- **Breaking:** `do_ad` defaults to `true`, so the gradient-based methods take the model's
-  analytic gradient: CasADi AD on casadi_python, Myokit CVODES forward sensitivities (FSA) on
-  cellml + CVODE_myokit. `do_ad: false` gives finite differences.
-- casadi (221 MB) is a core dependency; the `[casadi]` extra is kept and adds nothing.
 - `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
   output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
   3compartment (2000 steps). The model is given the true time, so a model whose rates read the
   variable of integration now runs correctly on them; the fixed-step methods warn that they hold
   it at the run's start.
-- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
-  differences on the stiff 3compartment model, warm-up included; the adjoint fails there with
-  `CV_TOO_MUCH_WORK`. Every casadi_integrator method is now in `ad_suitable_methods`, and the
-  warning about a nonzero pre_time with an adjoint integrator is gone.
 - casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
-  from `protocol_shapes`), as CVODE_myokit does: linear between points, end values held, the
-  first value held through pre_time. It used to refuse a trace.
-- For front-ends: `SOLVER_SCHEMA['default_model_type']`, `['default_do_ad']`,
-  `default_method_by_solver['casadi_integrator'] == 'cvodes'` (was `bdf`),
-  `default_gradient_source(model_type, solver)`, and a `default` flag on each
-  `gradient_sources()` entry; constants `DEFAULT_MODEL_TYPE` and `DEFAULT_DO_AD`.
+  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
+  them, end values held, the first value held through pre_time. CVODES restarts only where a
+  trace steps. It used to refuse a trace.
+- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
+  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
+  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
+  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
+  adjoint integrator is gone.
+- `solver_info: {jit: true}` (with optional `compiler` and `jit_options`) compiles the
+  casadi_integrator's right-hand side and derivatives to C, once per process per model,
+  timeline and options. Off by default; a clear error when the C compiler is missing.
+- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
+  when none is named.
+- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
+  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
+- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
+  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
+  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
+  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
 
 ### Added — profile likelihood for identifiability analysis (#519)
 

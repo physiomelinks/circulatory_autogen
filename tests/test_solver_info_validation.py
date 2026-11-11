@@ -141,7 +141,7 @@ def test_solver_integrator_keys_derived_from_schema():
         'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
-        'options'}
+        'options', 'jit', 'compiler', 'jit_options'}
     # 'max_step' comes with the stiff BDF methods (bdf_newton / semi_implicit_signed).
     # 'gradient_strategy' selects tape vs kernel for semi_implicit_signed (issue #346).
     assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {
@@ -967,20 +967,21 @@ def test_myokit_default_solver_info_needs_no_migration():
     validate_solver_info('CVODE_opencor', opencor)
 
 
-def test_defaults_are_casadi_cvodes_with_casadi_ad():
-    """The default model_type is casadi_python on casadi_integrator / cvodes, and its default
-    gradient is CasADi AD; all of it readable from the schema for a front-end (CUFLynx)."""
+def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
+    """The defaults a front-end (CUFLynx) reads rather than hardcodes: cellml on CVODE_myokit,
+    do_ad off, and per model the gradient to pre-select -- Myokit FSA for cellml + CVODE_myokit,
+    CasADi AD for casadi_python (cvodes, its default method, included)."""
     from libcuflynx.parsers.PrimitiveParsers import (DEFAULT_DO_AD, DEFAULT_MODEL_TYPE,
                                                      default_gradient_source)
-    assert DEFAULT_MODEL_TYPE == SOLVER_SCHEMA['default_model_type'] == 'casadi_python'
-    assert SOLVER_SCHEMA['default_solver_by_model_type'][DEFAULT_MODEL_TYPE] == 'casadi_integrator'
+    assert DEFAULT_MODEL_TYPE == SOLVER_SCHEMA['default_model_type'] == 'cellml'
+    assert SOLVER_SCHEMA['default_solver_by_model_type'][DEFAULT_MODEL_TYPE] == 'CVODE_myokit'
+    assert DEFAULT_DO_AD is False and SOLVER_SCHEMA['default_do_ad'] is False
     assert SOLVER_SCHEMA['default_method_by_solver']['casadi_integrator'] == 'cvodes'
-    assert DEFAULT_DO_AD is True and SOLVER_SCHEMA['default_do_ad'] is True
-    assert default_gradient_source() == 'AD'
+    assert default_gradient_source() == 'FSA'
+    assert default_gradient_source('casadi_python') == 'AD'
     assert default_gradient_source('casadi_python', 'casadi_integrator', 'cvodes') == 'AD'
-    # Myokit FSA stays the analytic gradient of cellml + CVODE_myokit.
-    assert default_gradient_source('cellml') == 'FSA'
     assert default_gradient_source('python') == 'FD'
+    assert default_gradient_source('cellml', 'CVODE_opencor') == 'FD'
     assert default_gradient_source('casadi_python', use_emulator=True) == 'FD'
     # Exactly one default per menu.
     for mt, sv in [('casadi_python', 'casadi_integrator'), ('cellml', 'CVODE_myokit'),
@@ -989,15 +990,15 @@ def test_defaults_are_casadi_cvodes_with_casadi_ad():
 
 
 @pytest.mark.parametrize("given,expected", [
-    ({}, 'casadi_python'),
+    ({}, 'cellml'),
     ({'solver': 'CVODE_myokit'}, 'cellml'),
     ({'solver': 'CVODE'}, 'cellml'),
     ({'solver_info': {'solver': 'solve_ivp'}}, 'python'),
     ({'solver': 'casadi_integrator'}, 'casadi_python'),
 ])
 def test_model_type_defaults_from_the_named_solver(given, expected):
-    """With no model_type, the named solver picks it, so `solver: CVODE_myokit` alone still
-    runs a cellml model; with neither, the default model_type."""
+    """With no model_type, the named solver picks it (`solver: casadi_integrator` alone is a
+    casadi_python run); with neither, the default model_type."""
     from libcuflynx.parsers.PrimitiveParsers import default_model_type_for
     assert default_model_type_for(given) == expected
 

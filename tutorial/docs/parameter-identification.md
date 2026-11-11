@@ -725,15 +725,12 @@ Note:
 
 Before doing calibration, a solver for the model needs to be chosen
 
-- **model_type** defaults to `casadi_python`: the CellML model is generated as a CasADi Python
-  module and integrated with CasADi's CVODES (`solver: casadi_integrator`, `method: cvodes`).
-  Set `model_type: cellml` to run the CellML in Myokit instead. A config that names a solver but
-  no model_type takes that solver's model_type, so `solver: CVODE_myokit` alone is a `cellml` run.
-- **solver** defines the solver family. Options depend on `model_type`; each model_type's first
-  listed solver is its default:
-    - CasADi Python (`model_type: casadi_python`, the default): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace.
-    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
+- **model_type** defaults to `cellml`. A config that names a solver but no model_type takes
+  that solver's model_type, so `solver: casadi_integrator` alone is a `casadi_python` run.
+- **solver** defines the solver family. Options depend on `model_type`:
+    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
+    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit: true` compiles the model to C (see below).
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
@@ -741,6 +738,11 @@ Before doing calibration, a solver for the model needs to be chosen
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_opencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_opencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
+    - **jit** (`casadi_integrator`, default `false`): generate C for the model's right-hand side
+      and its derivatives and compile it, once per process per model, timeline and options.
+      Needs a C compiler (gcc by default); `compiler` (`shell` or `clang`) and `jit_options`
+      (e.g. `{compiler: clang, flags: ['-O3']}`) choose it. Compiling costs seconds to minutes on
+      a large model, so it pays off over many runs (a calibration), not one.
 
 !!! note "Choosing a batched solver (`BE_batched_c`, `CVODES_batched_c`)"
     `CVODE_myokit` is the more general-purpose solver, and the one to start with. `BE_batched_c` and
@@ -771,15 +773,15 @@ Before doing calibration, a solver for the model needs to be chosen
     `phase`) observables cannot be differentiated yet, and raise rather than silently
     contributing nothing to the cost.
 
-!!! note "Gradients: `do_ad` and the default CasADi AD"
-    `do_ad` defaults to `true`: the gradient-based methods take the model's analytic gradient.
-    On the default `casadi_python` model that is CasADi AD; with `cvodes` or `idas` it is
-    computed by CVODES forward sensitivities (one per calibrated parameter), which match finite
-    differences on the stiff 3compartment model, warm-up included. (The CVODES adjoint, CasADi's
-    reverse mode, fails there with `CV_TOO_MUCH_WORK`, so it is not used.) A `cellml` model on
-    `CVODE_myokit` gets Myokit CVODES forward sensitivities (FSA) instead. `do_ad: false` uses
-    finite differences. `gradient_sources(model_type, solver)` lists the choices for a model and
-    marks the default; `default_gradient_source()` returns it.
+!!! note "Gradients: `do_ad`, Myokit FSA and CasADi AD"
+    With `do_ad: true` the gradient-based methods take the model's analytic gradient: Myokit
+    CVODES forward sensitivities (FSA) for `cellml` on `CVODE_myokit`, CasADi AD for
+    `casadi_python`. On `cvodes` or `idas` CasADi AD is computed by CVODES forward sensitivities
+    (one per calibrated parameter), which match finite differences on the stiff 3compartment
+    model, warm-up included. (The CVODES adjoint, CasADi's reverse mode, fails there with
+    `CV_TOO_MUCH_WORK`, so it is not used.) `do_ad: false`, the default, uses finite
+    differences. `gradient_sources(model_type, solver)` lists the choices for a model and marks
+    the one to pre-select; `default_gradient_source(model_type, solver)` returns it.
 
 !!! note "CasADi `semi_implicit_euler` — a fixed-step AD method (verify with a convergence study)"
     `semi_implicit_euler` differentiates by reverse mode through a fixed-step graph rather than

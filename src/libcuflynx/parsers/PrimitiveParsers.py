@@ -116,16 +116,12 @@ AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed'
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 
 #: The model_type of a run whose user_inputs names neither a model_type nor a solver: the CellML
-#: model generated as a CasADi Python module and integrated by CasADi's CVODES (solver
-#: casadi_integrator, method cvodes). 'cellml' (Myokit CVODES) stays selectable.
-DEFAULT_MODEL_TYPE = 'casadi_python'
+#: model run by Myokit's CVODES (solver CVODE_myokit).
+DEFAULT_MODEL_TYPE = 'cellml'
 
-#: The do_ad of a run whose user_inputs does not set it. True: gradient-based methods take the
-#: model_type's analytic gradient (gradient_sources marks it 'default'): CasADi AD for
-#: casadi_python, so CasADi AD on the default model_type; Myokit CVODES FSA for cellml +
-#: CVODE_myokit; AADC AD for aadc_python. Model types with no analytic gradient use finite
-#: differences. False makes finite differences the default everywhere.
-DEFAULT_DO_AD = True
+#: The do_ad of a run whose user_inputs does not set it: finite-difference gradients. With do_ad
+#: true the gradient is the model_type's default analytic source (default_gradient_source).
+DEFAULT_DO_AD = False
 
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
@@ -194,7 +190,8 @@ SOLVER_SCHEMA = {
     },
     # The model_type used when none is specified (see DEFAULT_MODEL_TYPE); its solver is
     # default_solver_by_model_type[default_model_type], and the do_ad used when none is
-    # specified is default_do_ad. default_gradient_source(model_type, solver) names the gradient.
+    # specified is default_do_ad. default_gradient_source(model_type, solver) names the
+    # analytic gradient do_ad: true takes.
     'default_model_type': DEFAULT_MODEL_TYPE,
     'default_do_ad': DEFAULT_DO_AD,
     # Default solver for each model_type (used when none is specified).
@@ -461,6 +458,18 @@ SOLVER_INFO_FIELDS = {
          'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
         {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
          'description': 'Extra options passed straight through to the CasADi integrator.'},
+        {'name': 'jit', 'type': 'bool', 'default': False, 'required': False,
+         'description': ('Generate C for the model right-hand side and its derivatives and '
+                         'compile it (methods cvodes, idas, collocation, rk). Each integrator '
+                         'compiles once per process; needs a C compiler.')},
+        {'name': 'compiler', 'type': 'enum', 'default': 'shell', 'required': False,
+         'choices': ['shell', 'clang'],
+         'description': ("CasADi's JIT compiler plugin: 'shell' runs a system C compiler "
+                         "(gcc by default), 'clang' uses CasADi's built-in clang where it has "
+                         "one. Read only with jit.")},
+        {'name': 'jit_options', 'type': 'dict', 'default': None, 'required': False,
+         'description': ("Options for the JIT compiler plugin, e.g. {compiler: clang, flags: "
+                         "['-O3']} for 'shell'. Default flags ['-O2']. Read only with jit.")},
     ],
     'aadc_semi_implicit': [
         {'name': 'tol', 'type': 'float', 'default': 1e-8, 'required': False,
@@ -1713,9 +1722,10 @@ def _gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     differentiate, and FSA for a non-FSA method. ``method=None`` leaves the source ungated.
     Issue #298.
 
-    Each descriptor also carries ``default``: True for the one source a run gets when
-    user_inputs does not set do_ad (DEFAULT_DO_AD) -- the analytic source when DEFAULT_DO_AD is
-    True and there is one, else FD. ``default_gradient_source`` returns its value.
+    Each descriptor also carries ``default``: True for the one source to pre-select for this
+    model -- its analytic source when it has one (CasADi AD for casadi_python, Myokit FSA for
+    cellml + CVODE_myokit, AADC AD for aadc_python), else FD. ``default_gradient_source``
+    returns its value.
     """
     sources = [{
         'value': 'FD', 'label': 'Finite difference', 'do_ad': False,
@@ -1768,7 +1778,7 @@ def _gradient_sources(model_type, solver=None, method=None, use_emulator=False):
 
 def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     sources = _gradient_sources(model_type, solver, method, use_emulator)
-    default = sources[-1] if DEFAULT_DO_AD else sources[0]
+    default = sources[-1]  # the analytic source when there is one, else FD
     for source in sources:
         source['default'] = source is default
     return sources
@@ -1779,8 +1789,8 @@ gradient_sources.__doc__ = _gradient_sources.__doc__
 
 def default_gradient_source(model_type=DEFAULT_MODEL_TYPE, solver=None, method=None,
                             use_emulator=False):
-    """The value ('AD', 'FSA' or 'FD') of the gradient source a run of this model gets when
-    user_inputs does not set do_ad. Defaults to the default model_type and its solver."""
+    """The value ('AD', 'FSA' or 'FD') of the default gradient source of this model (see
+    gradient_sources). Defaults to the default model_type and its solver."""
     if solver is None:
         solver = SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type)
     return next(src['value'] for src in gradient_sources(model_type, solver, method, use_emulator)
@@ -2175,7 +2185,7 @@ def refuse_removed_user_inputs(inp_data_dict):
 def default_model_type_for(inp_data_dict):
     """The model_type for user_inputs that name none: the model_type whose solvers include the
     named solver (``solver`` or ``solver_info.solver``, shorthands included), else
-    DEFAULT_MODEL_TYPE. So ``solver: CVODE_myokit`` alone still means a cellml model."""
+    DEFAULT_MODEL_TYPE. So ``solver: casadi_integrator`` alone means a casadi_python model."""
     solver = (inp_data_dict.get('solver_info') or {}).get('solver', inp_data_dict.get('solver'))
     if solver is not None:
         owners = [mt for mt, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items()
