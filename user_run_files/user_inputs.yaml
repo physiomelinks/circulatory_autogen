@@ -15,15 +15,16 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.json
 
 # cpp generation inputs
-# model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
-# external_python.
+# model_type can be casadi_python (the default), cellml, python, cpp, aadc_python or
+# external_python. casadi_python generates the CellML model as a CasADi Python module and
+# integrates it with CasADi's CVODES; cellml runs the CellML in Myokit's CVODES.
 # The first five are generated from the vessel/module CSV arrays; external_python is the one way
 # to bring a model of your own -- a Python class that owns its time stepping, registered as
 # SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
 # and funcs_user/example_model_scipy/ for a small worked example.
 # model_type: cpp
-model_type: cellml
-# model_type: casadi_python
+model_type: casadi_python
+# model_type: cellml
 # model_type: external_python
 
 #__________ parameter identification inputs __________
@@ -33,11 +34,14 @@ param_id_method: genetic_algorithm
 # param_id_method: sp_minimize
 # multi_start_sp_minimize runs L-BFGS-B from many scattered starts, so it uses the gradient
 # but still escapes local minima. It works for any model_type: AD gradients for casadi_python
-# and aadc_python models, finite differences otherwise.
+# and aadc_python models, FSA for cellml + CVODE_myokit, finite differences otherwise.
 # param_id_method: multi_start_sp_minimize
 
 #_______ Automatic Differentiation __________
-do_ad: false
+# do_ad: true (the default) gives the gradient-based methods the model's analytic gradient:
+# CasADi AD for casadi_python, Myokit CVODES forward sensitivities (FSA) for cellml with
+# CVODE_myokit. false uses finite differences.
+do_ad: true
 
 # pre_time is the amount of time simulated to get to steady state
 # TODO this is not important if it is specified in the obs_data.json file
@@ -90,14 +94,18 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
-solver: CVODE_myokit
+# solver defaults to the model_type's own: casadi_integrator for casadi_python, CVODE_myokit
+# for cellml. Other options: CVODE_opencor (uses OpenCOR) for cellml, RK4_cpp (RK4 in cpp),
+# solve_ivp for Python models, or external for external_python models.
+# solver: casadi_integrator
+# solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:
-  # Maximum time step for solver
-  MaximumStep: 0.0001
+  # Maximum time step for solver (read as max_step_size for casadi_integrator, MaximumStep for
+  # CVODE_myokit)
+  dt_solver: 0.0001
+  # method: cvodes # the default for casadi ('cvodes', 'idas', 'collocation', 'rk', 'bdf', 'semi_implicit_euler')
   # method: RK45 # any method for solve_ivp
-  # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
 # param_id_obs_path needs to be an absolute path.
 # This for 3compartment

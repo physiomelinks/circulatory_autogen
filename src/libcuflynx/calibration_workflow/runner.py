@@ -44,6 +44,7 @@ import warnings
 import numpy as np
 
 from libcuflynx.calibration_workflow import naming
+from libcuflynx.parsers.PrimitiveParsers import DEFAULT_DO_AD, DEFAULT_MODEL_TYPE
 from libcuflynx.utilities import cuflynx_study
 from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
                                                            StoredDistribution,
@@ -84,7 +85,7 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'identifiability': ('laplace',)}
 
 # what a step's user_inputs get unless the workflow's settings say otherwise
-STEP_DEFAULTS = {'model_type': 'cellml', 'DEBUG': False, 'do_ad': False, 'do_ia': False,
+STEP_DEFAULTS = {'model_type': DEFAULT_MODEL_TYPE, 'DEBUG': False, 'do_ad': DEFAULT_DO_AD, 'do_ia': False,
                  'UQ_options': {}}
 
 
@@ -831,7 +832,7 @@ class _Run:
             generated = generate_model(
                 self.workflow.target, os.path.join(target_dir, 'model'), TARGET_PREFIX, overrides,
                 library_inputs=self.resolved.library_inputs,
-                model_type=self.workflow.settings.get('model_type', 'cellml'),
+                model_type=self.workflow.settings.get('model_type', STEP_DEFAULTS['model_type']),
                 solver=self.workflow.settings.get('solver'))
             names = {r['variable_name'] for r in read_parameter_rows(generated['parameters_path'])}
             missing = sorted(r['model_name'] for r in workflow_result['merged_parameters']

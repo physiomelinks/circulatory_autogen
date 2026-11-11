@@ -77,11 +77,6 @@ class SimulationHelper(ExperimentTimeMixin):
         if self.solve_ivp_method in ('cvodes', 'idas'):
             integrator_opts['reltol'] = self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8))
             integrator_opts['abstol'] = self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10))
-            # A checkpoint at every step for the adjoint (reverse-mode AD) pass. With the
-            # default 20, the backward problem interpolates the forward state across the
-            # if_else switches of a valve model and fails with CV_TOO_MUCH_WORK over a whole
-            # output grid. Only a gradient stores checkpoints; a forward run does not.
-            integrator_opts['steps_per_checkpoint'] = 1
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
