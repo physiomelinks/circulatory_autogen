@@ -763,6 +763,91 @@ def test_casadi_ad_mode_carries_state_across_sub_experiments(
 
 @pytest.mark.integration
 @pytest.mark.solver
+def test_casadi_cvodes_integrates_the_output_grid_in_one_solve(
+        generated_cellml_model_factory, temp_model_dir):
+    """casadi_python + cvodes integrates a run() as ONE CVODES solve over the output grid.
+
+    A CVODES integrator over a single output step, accumulated with mapaccum, restarts CVODES at
+    every output time: each restart throws away the step size and BDF history and starts again
+    from a tiny step, which made a run ~20x slower than one solve on Lotka-Volterra at 5000
+    output steps. The helper builds the integrator with the output times as its grid instead.
+
+    Checks the integrator spans the whole grid, is reused by a later sub-experiment with the same
+    timeline, and gives the trajectory of the per-step restart to solver tolerance.
+    """
+    ca = pytest.importorskip("casadi")
+    dt, T = 0.01, 5.0
+    h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "casadi_python", dt, T)
+    assert h.run()
+    n_out = len(h.t_eval) - 1
+    assert h.F.size_out(h.F.index_out("xf")) == (h.STATE_COUNT, n_out), (
+        "the CVODES integrator does not span the output grid, so CVODES restarts at every "
+        "output step")
+
+    # The per-step restart, integrated here as the reference.
+    step = ca.integrator("step", "cvodes",
+                         {"x": h.states_symb, "p": h.variables_symb_integrator,
+                          "ode": h.rates_symb},
+                         0, dt, h._build_integrator_opts())
+    x0, p = h._x0_numeric(), h._integrator_p_numeric()
+    ref = np.array(ca.horzcat(ca.DM(x0), step.mapaccum(n_out)(x0=x0, p=p)["xf"]))
+    scale = np.max(np.abs(ref), axis=1, keepdims=True)
+    assert np.max(np.abs(h.state_traj_dm - ref) / scale) < 1e-5
+
+    # A second sub-experiment on the same timeline reuses the integrator.
+    F = h.F
+    h.update_times(dt, T, T, 0.0)
+    assert h.run()
+    assert h.F is F, "the grid integrator was rebuilt for a sub-experiment with the same timeline"
+
+
+_TIME_FORCED_CELLML = """<?xml version='1.0' encoding='UTF-8'?>
+<model name="forced" xmlns="http://www.cellml.org/cellml/2.0#">
+  <component name="main">
+    <variable name="t" units="dimensionless"/>
+    <variable name="x" units="dimensionless" initial_value="0"/>
+    <variable name="a" units="dimensionless" initial_value="1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><times/><ci>a</ci><apply><cos/><ci>t</ci></apply></apply>
+      </apply>
+    </math>
+  </component>
+</model>
+"""
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.parametrize("method", ["cvodes", "idas"])
+def test_casadi_sundials_passes_time_to_the_model(method, temp_model_dir):
+    """dx/dt = cos(t), x(0) = 0, so x = sin(t), over two sub-experiments [0, 3] and [3, 6].
+
+    The model reads the variable of integration, so the integrator must give it the true time,
+    including the start time of a later sub-experiment. A time held at the run's start gives
+    x = t instead.
+    """
+    pytest.importorskip("casadi")
+    cellml = os.path.join(temp_model_dir, "forced.cellml")
+    with open(cellml, "w") as f:
+        f.write(_TIME_FORCED_CELLML)
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir, module_name="forced_casadi",
+                                 casadi_compat=True).generate()
+    dt, T = 0.01, 3.0
+    h = get_simulation_helper(model_path=model_path, model_type="casadi_python",
+                              solver="casadi_integrator", dt=dt, sim_time=T,
+                              solver_info={"method": method}, pre_time=0.0)
+    for start in (0.0, T):
+        h.update_times(dt, start, T, 0.0)
+        assert h.run()
+        x = np.asarray(h.get_results(["main/x"], flatten=True)[0]).ravel()
+        np.testing.assert_allclose(x, np.sin(h.tSim), atol=1e-5,
+                                   err_msg=f"x != sin(t) on the sub-experiment from t={start}")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
 def test_myokit_set_constant_preserved_after_rebind():
     """
     Regression test for issue #219: cost mismatch when two protocol_traces are active.

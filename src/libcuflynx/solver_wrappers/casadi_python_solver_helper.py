@@ -11,6 +11,9 @@ except ImportError:
 from .name_resolver import VariableNameResolver
 from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
+#: The SUNDIALS methods, integrated once over the whole output grid (see _run_sundials_grid).
+_GRID_METHODS = ('cvodes', 'idas')
+
 class SimulationHelper(ExperimentTimeMixin):
     """
     CasADi-based solver for libCellML-generated Python modules.
@@ -42,6 +45,10 @@ class SimulationHelper(ExperimentTimeMixin):
         # Must precede update_times below, which branches on it to choose the symbolic or the
         # numeric carry. Set True by _create_param_subset; cleared by reset_and_clear.
         self._do_ad = False
+        self._state_traj_symb = None
+        self._state_traj_symb_builder = None
+        self._var_traj_symb = None
+        self._var_traj_symb_builder = None
         self._load_model()
         self.update_times(dt, 0.0, sim_time, pre_time)
         self._init_state()
@@ -62,6 +69,11 @@ class SimulationHelper(ExperimentTimeMixin):
         if self.solve_ivp_method in ('cvodes', 'idas'):
             integrator_opts['reltol'] = self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8))
             integrator_opts['abstol'] = self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10))
+            # A checkpoint at every step for the adjoint (reverse-mode AD) pass. With the
+            # default 20, the backward problem interpolates the forward state across the
+            # if_else switches of a valve model and fails with CV_TOO_MUCH_WORK over a whole
+            # output grid. Only a gradient stores checkpoints; a forward run does not.
+            integrator_opts['steps_per_checkpoint'] = 1
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
@@ -215,9 +227,18 @@ class SimulationHelper(ExperimentTimeMixin):
         # rates symbolically (#389). variables_all_symb stays primitive -- see
         # _with_computed_constants -- so every ca.Function signature is unchanged.
         self._symbolic_variables_with_computed = self._with_computed_constants(self.variables)
-        self.model.compute_rates(self.start_time, self.states, self.rates,
+        # The rates are built against a time symbol, so the SUNDIALS grid integrator can give a
+        # model that reads the variable of integration (voi) the true time. rates_symb is the
+        # same expression at t = start_time: the fixed-step methods and the diagnostics take an
+        # autonomous (x, p) right-hand side.
+        self.t_symb = ca.SX.sym('t')
+        self.model.compute_rates(self.t_symb, self.states, self.rates,
                                  self._symbolic_variables_with_computed)
-        return ca.vertcat(*self.variables), ca.vertcat(*self.rates)
+        self.rates_symb_t = ca.vertcat(*self.rates)
+        self.rates_depend_on_time = bool(ca.depends_on(self.rates_symb_t, self.t_symb))
+        rates_autonomous = ca.substitute(self.rates_symb_t, self.t_symb,
+                                         ca.SX(float(self.start_time)))
+        return ca.vertcat(*self.variables), rates_autonomous
 
     def _discover_init_var_state_links(self):
         """Map *_init parameters to the state they initialise (see initialise_variables)."""
@@ -452,14 +473,15 @@ class SimulationHelper(ExperimentTimeMixin):
         magnitude slower than it is. Mapping the single function is ~80x faster and
         produces bit-identical values.
 
-        The result is still an SX expression in ``(states_symb, variables_symb)``, so AD
-        through the algebraic outputs is unaffected.
+        ``var_traj_dm`` is the map evaluated on the numeric state trajectory.
+        ``var_traj_symb`` is the same map applied to ``state_traj_symb``, an SX expression in
+        ``(states_symb, variables_symb)`` for AD; it is built on first access.
         """
         var_names = list(self.var_name_to_idx.keys())
         n_times = len(self.tSim)
 
         if n_times == 0:
-            self.var_traj_symb = ca.SX(len(var_names), 0)
+            self._var_traj_symb = ca.SX(len(var_names), 0)
             self.var_traj_dm = np.zeros((len(var_names), 0))
             return
 
@@ -474,26 +496,51 @@ class SimulationHelper(ExperimentTimeMixin):
         self.model.compute_variables(t_symb, self.states_symb, rates, vars_symb_copy)
         alg_vec = ca.vertcat(*[vars_symb_copy[self.var_name_to_idx[name]] for name in var_names])
         alg_func = ca.Function('alg_map', [t_symb, self.states_symb, self.variables_symb], [alg_vec])
+        alg_map = alg_func.map(n_times)
 
-        # state_traj_symb spans the full pre_time+sim_time horizon, but tSim is the
+        # The state trajectory spans the full pre_time+sim_time horizon, but tSim is the
         # sim-time window (t_eval[pre_steps:]). Align them by dropping the pre_time
         # warmup columns — otherwise the algebraic-variable trajectory is built from
         # the initial-transient states (t≈0) instead of the settled sim window, so a
         # nonzero pre_time returns the wrong (pre-warmup) values. States are already
         # sliced with [pre_steps:] in _extract; this makes the algebraic vars match.
-        state_cols = self.state_traj_symb[:, self.pre_steps:]
-
-        # --- Symbolic pass (preserved for AD) ---
+        pre_steps = self.pre_steps
         t_row = np.asarray(self.tSim, dtype=float).reshape(1, n_times)
-        self.var_traj_symb = alg_func.map(n_times)(
-            t_row, state_cols, ca.repmat(self.variables_symb, 1, n_times)
-        )  # SX: shape (n_vars, n_times)
 
         # --- Numeric pass (for get_results / get_all_results) ---
-        # Evaluate the symbolic trajectory at current numeric param values
-        x0 = self._x0_numeric()
-        var_func = ca.Function('var_traj', [self.states_symb, self.variables_symb], [self.var_traj_symb])
-        self.var_traj_dm = np.array(var_func(ca.DM(x0), ca.DM(self.variables)))  # (n_vars, n_times)
+        self.var_traj_dm = np.array(alg_map(
+            t_row, ca.DM(self.state_traj_dm[:, pre_steps:]),
+            ca.repmat(ca.DM(self.variables), 1, n_times)))  # (n_vars, n_times)
+
+        # --- Symbolic pass (for AD), on first access ---
+        self._var_traj_symb = None
+        self._var_traj_symb_builder = lambda: alg_map(
+            t_row, self.state_traj_symb[:, pre_steps:],
+            ca.repmat(self.variables_symb, 1, n_times))  # SX: shape (n_vars, n_times)
+
+    @property
+    def state_traj_symb(self):
+        """The state trajectory of the last run() as SX in (states_symb, variables_symb)."""
+        if self._state_traj_symb is None and self._state_traj_symb_builder is not None:
+            self._state_traj_symb = self._state_traj_symb_builder()
+        return self._state_traj_symb
+
+    @state_traj_symb.setter
+    def state_traj_symb(self, value):
+        self._state_traj_symb = value
+        self._state_traj_symb_builder = None
+
+    @property
+    def var_traj_symb(self):
+        """The algebraic-variable trajectory of the last run() as SX, over the sim window."""
+        if self._var_traj_symb is None and self._var_traj_symb_builder is not None:
+            self._var_traj_symb = self._var_traj_symb_builder()
+        return self._var_traj_symb
+
+    @var_traj_symb.setter
+    def var_traj_symb(self, value):
+        self._var_traj_symb = value
+        self._var_traj_symb_builder = None
 
     # ---- simulation ----
     def _run_semi_implicit_euler(self, total_steps):
@@ -598,17 +645,88 @@ class SimulationHelper(ExperimentTimeMixin):
         out_idx = [k * n_sub for k in range(1, total_steps + 1)]
         return full[:, out_idx]  # x at output steps 1..total_steps
 
+    def _run_sundials_grid(self, total_steps):
+        """One CVODES/IDAS integration over the whole output grid; sets state_traj_dm.
+
+        The integrator is built with the output times as its grid, so SUNDIALS keeps its step
+        size and history from one output time to the next and reports the state at each.
+        Parameters are constant within a run(), which is one sub-experiment, so nothing
+        between two output times needs a restart; a sub-experiment boundary is a new run().
+        The result is a CasADi call node in (x0, p), so a jacobian or gradient of anything
+        built from it differentiates through the integrator.
+
+        The integrator runs in time since the start of the run, with the start time as an
+        extra parameter (the model sees ``t = start + tau``), so one integrator serves every
+        run() with the same step, step count and options -- each sub-experiment of a
+        protocol included. It is cached on those.
+        """
+        x0_symb = self.x0_symb
+        x0_p = ca.Function('x0_p', [self.states_symb, self.variables_symb],
+                           [x0_symb, self.variables_symb_integrator])
+        x0_num, p_num = x0_p(ca.DM(self._x0_numeric()), ca.DM(self.variables))
+        if total_steps <= 0:
+            self.state_traj_dm = np.array(x0_num)
+            self.state_traj_symb = x0_symb
+            return
+        t0 = float(self.t_eval[0])
+        grid = [float(t) - t0 for t in self.t_eval[1:total_steps + 1]]
+        integrator_opts = self._build_integrator_opts()
+        key = (self.solve_ivp_method, float(self.dt), total_steps, repr(integrator_opts))
+        cached = getattr(self, '_grid_integrator_cache', None)
+        if cached is not None and cached[0] == key:
+            self.F = cached[1]
+        else:
+            tau = ca.SX.sym('tau')
+            t_start = ca.SX.sym('t_start')
+            ode = {
+                "x": self.states_symb,
+                "p": ca.vertcat(self.variables_symb_integrator, t_start),
+                "ode": ca.substitute(self.rates_symb_t, self.t_symb, t_start + tau),
+                "t": tau,
+            }
+            self.F = ca.integrator("F", self.solve_ivp_method, ode, 0.0, grid, integrator_opts)
+            self._grid_integrator_cache = (key, self.F)
+        self.F_map = None
+
+        # Numeric pass: the initial state and integrator parameters at the current values,
+        # then one call of the integrator on numbers. x0_symb may be the symbolic end state of
+        # the previous sub-experiment (AD mode), so it is evaluated rather than read.
+        xf_num = self.F(x0=x0_num, p=ca.vertcat(p_num, t0))["xf"]
+        self.state_traj_dm = np.array(ca.horzcat(x0_num, xf_num))  # (n_states, total_steps+1)
+
+        # Symbolic pass, built on first access of state_traj_symb: calling the integrator on SX
+        # makes one output node per state and output time, which costs more than the solve.
+        p_symb = ca.vertcat(self.variables_symb_integrator, t0)
+        F = self.F
+        self._state_traj_symb = None
+        self._state_traj_symb_builder = lambda: ca.horzcat(x0_symb, F(x0=x0_symb, p=p_symb)["xf"])
+
+    def _warn_if_time_dependent(self):
+        """The fixed-step methods integrate the autonomous rates_symb (t = start_time)."""
+        if self.rates_depend_on_time:
+            warnings.warn(
+                f"this model's rates depend on the variable of integration, but solver_info "
+                f"method {self.solve_ivp_method!r} integrates them with time held at "
+                f"{self.start_time}. Use method 'cvodes' or 'idas', which pass the time to "
+                f"the model.")
+
     def run(self):
         # Integrate full pre_time + sim_time horizon so slicing by pre_steps
         # returns the expected sim-time segment.
         total_steps = int(max(0, len(self.t_eval) - 1))
 
         if self.solve_ivp_method == 'semi_implicit_euler':
+            self._warn_if_time_dependent()
             res_xf = self._run_semi_implicit_euler(total_steps)
         elif self.solve_ivp_method in ('bdf', 'BDF'):
+            self._warn_if_time_dependent()
             # Symbolic implicit BDF (rootfinder per step) — supports CasADi AD.
             res_xf = self._run_symbolic_bdf(total_steps)
+        elif self.solve_ivp_method in _GRID_METHODS:
+            res_xf = None
+            self._run_sundials_grid(total_steps)
         else:
+            self._warn_if_time_dependent()
             ode = {
                 "x": self.states_symb,
                 "p": self.variables_symb_integrator,
@@ -619,14 +737,14 @@ class SimulationHelper(ExperimentTimeMixin):
             self.F_map = self.F.mapaccum(total_steps)
             res_xf = self.F_map(x0=self.x0_symb, p=self.variables_symb_integrator)["xf"]
 
-        # Symbolic trajectory — SX function of (states_symb, variables_symb); required for AD
-        self.state_traj_symb = ca.horzcat(self.x0_symb, res_xf)
+        if res_xf is not None:
+            # Symbolic trajectory — SX function of (states_symb, variables_symb); required for AD
+            self.state_traj_symb = ca.horzcat(self.x0_symb, res_xf)
 
-        # Numeric trajectory — evaluate symbolic graph at current param values for get_results()
-        x0 = self._x0_numeric()
-        p_int = self._integrator_p_numeric()
-        traj_func = ca.Function('state_traj', [self.states_symb, self.variables_symb], [self.state_traj_symb])
-        self.state_traj_dm = np.array(traj_func(ca.DM(x0), ca.DM(self.variables)))  # (n_states, total_steps+1)
+            # Numeric trajectory — evaluate symbolic graph at current param values for get_results()
+            x0 = self._x0_numeric()
+            traj_func = ca.Function('state_traj', [self.states_symb, self.variables_symb], [self.state_traj_symb])
+            self.state_traj_dm = np.array(traj_func(ca.DM(x0), ca.DM(self.variables)))  # (n_states, total_steps+1)
 
         self._has_run = True
         self._post_process()
