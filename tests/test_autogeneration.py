@@ -334,17 +334,23 @@ def test_casadi_if_else_transform_replaces_ternaries():
     assert transformed.count("ca.if_else") == 3
 
 
-def test_casadi_division_guard_wraps_denominators():
-    """Unit test: divisions become guarded with ca.fmax(fabs(denom), 1e-300) in casadi_compat mode."""
+@pytest.mark.parametrize("denominator", [-2.0, 4.0, 0.0])
+def test_casadi_division_guard_keeps_the_denominator(denominator):
+    """casadi_compat guards every denominator away from zero, and leaves any other denominator
+    as it is -- its sign included. The guard once used max(|d|, 1e-300), which turned every
+    negative denominator positive (the CO2 chemoreflex of control_phys_asd divided by one)."""
+    ca = pytest.importorskip("casadi")
     from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
-        "    rate.x = numerator / denominator\n"
+        "    return numerator / denominator\n"
     )
     transformed = PythonGenerator._apply_casadi_if_else_transform(source)
-    assert "ca.fmax" in transformed
-    assert "fabs(denominator)" in transformed
+    namespace = {"ca": ca, "fabs": ca.fabs, "numerator": 3.0, "denominator": denominator}
+    exec(transformed, namespace)
+    value = float(namespace["compute_rates"](None, None, None, None))
+    assert value == (3.0 / denominator if denominator else 3.0 / 1e-300)
 
 
 def test_casadi_compat_utilities_use_if_else_helpers():

@@ -7,7 +7,8 @@ For every model in resources/ that generates as CellML (a ``<prefix>_module_arra
 2. generates the casadi_python module (PythonGenerator, casadi_compat);
 3. runs it on casadi_integrator / cvodes with jit off and with jit on;
 
-over the same timeline from the model's initial state, and records whether each step worked
+over the same timeline from the model's initial state (casadi at reltol 1e-8 and ``--abstol``,
+Myokit at rtol = atol = 1e-8, both with a 1 ms maximum step), and records whether each step worked
 (the error if not), the wall times (generation, helper load, first run -- which for jit includes
 compiling -- and a repeat run) and the worst state error against Myokit:
 ``max over states of max_t |casadi - myokit| / max_t |myokit|``.
@@ -111,13 +112,13 @@ def _worst_error(reference, other):
     return worst, worst_name
 
 
-def run_one(name, sim_time, dt, jit_modes):
+def run_one(name, sim_time, dt, jit_modes, abstol=1e-10):
     """One model's row of the report."""
     from libcuflynx.generators.PythonGenerator import PythonGenerator
     from libcuflynx.solver_wrappers import get_simulation_helper
 
     row = {'model': os.path.basename(name).replace('.cellml', ''), 'sim_time': sim_time,
-           'dt': dt}
+           'dt': dt, 'abstol': abstol}
     workdir = tempfile.mkdtemp(prefix=f'casadi_cov_{row["model"]}_')
     step = 'generate CellML'
     try:
@@ -146,7 +147,7 @@ def run_one(name, sim_time, dt, jit_modes):
                 model_path=module, model_type='casadi_python', solver='casadi_integrator',
                 dt=dt, sim_time=sim_time, pre_time=0.0,
                 solver_info={'method': 'cvodes', 'max_step_size': 0.001,
-                             'max_num_steps': 100000, 'jit': jit}))
+                             'max_num_steps': 100000, 'abstol': abstol, 'jit': jit}))
             _, row[f'{tag}_first_run_s'] = _timed(helper.run)
             casadi_states = _states(helper, list(helper.state_name_to_idx))
             _, row[f'{tag}_repeat_run_s'] = _timed(helper.run)
@@ -171,7 +172,8 @@ def run_one(name, sim_time, dt, jit_modes):
 
 def _child(args):
     try:
-        row = run_one(args.one, args.sim_time, args.dt, [False] + ([True] if args.jit else []))
+        row = run_one(args.one, args.sim_time, args.dt, [False] + ([True] if args.jit else []),
+                      abstol=args.abstol)
     except Exception:
         row = {'model': args.one, 'error': traceback.format_exc()[-400:]}
     print('CASADI_COVERAGE_ROW ' + json.dumps(row), flush=True)
@@ -179,7 +181,8 @@ def _child(args):
 
 def _spawn(name, args):
     cmd = [sys.executable, os.path.abspath(__file__), '--one', name, '--sim-time',
-           str(args.sim_time), '--dt', str(args.dt)] + ([] if args.jit else ['--no-jit'])
+           str(args.sim_time), '--dt', str(args.dt), '--abstol', str(args.abstol)] + (
+               [] if args.jit else ['--no-jit'])
     env = dict(os.environ, OMP_NUM_THREADS=os.environ.get('OMP_NUM_THREADS', '1'))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, env=env)
@@ -229,6 +232,8 @@ def main():
                         help='extra CellML file to include')
     parser.add_argument('--sim-time', type=float, default=2.0)
     parser.add_argument('--dt', type=float, default=0.01)
+    parser.add_argument('--abstol', type=float, default=1e-10,
+                        help="casadi_integrator abstol (CA's default 1e-10; Myokit runs at 1e-8)")
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--no-jit', dest='jit', action='store_false')
