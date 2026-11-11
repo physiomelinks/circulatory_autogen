@@ -1338,15 +1338,9 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
             assert len(var_result) > 0, f"Empty result for variable {var_name}"
 
 
-_SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init computed constants. libCellML 0.7.2's Analyser accepts that, and its generated Python sets those states in computeComputedConstants; PythonGenerator rewrites that function to compute_computed_constants(variables), with no states array, so the generated module raises NameError: name 'state' is not defined (#151). cellml + Myokit run the same model, so SN models need model_type: cellml. strict=True on purpose: when this is fixed the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
-)
-
-
 @pytest.mark.parametrize("model_name,input_param_file", [
     ("3compartment", "3compartment_parameters.json"),
-    pytest.param("SN_simple", "SN_simple_parameters.json",
-                 marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
+    ("SN_simple", "SN_simple_parameters.json"),
 ])
 def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generated_cellml_model_factory):
     """

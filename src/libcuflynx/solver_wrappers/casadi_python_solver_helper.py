@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import inspect
 import os
 import tempfile
 import shutil
@@ -13,6 +14,7 @@ try:
 except ImportError:
     ca = None
 from .name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.computed_states import computed_initial_states
 from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 from libcuflynx.utilities.protocol_shapes import materialise_shapes
 
@@ -189,7 +191,8 @@ class SimulationHelper(ExperimentTimeMixin):
         _r0 = self.model.create_states_array()
         _v0 = self.model.create_variables_array()
         self.model.initialise_variables(_s0, _r0, _v0)
-        self.model.compute_computed_constants(_v0)
+        for idx, val in computed_initial_states(self.model, _v0).items():
+            _s0[idx] = val
         self._numeric_x0 = np.array([self._as_float(v) for v in _s0], dtype=float)
         self._numeric_variables_all = np.array(
             [self._as_float(v) for v in _v0], dtype=float
@@ -209,7 +212,8 @@ class SimulationHelper(ExperimentTimeMixin):
         self._build_integrator_symbols()
 
         self.model.initialise_variables(self.states, self.rates, self.variables)
-        self.model.compute_computed_constants(self.variables)
+        for idx, val in computed_initial_states(self.model, self.variables).items():
+            self.states[idx] = val
         self._store_constants_defaults()
         self._store_variable_defaults()
 
@@ -260,7 +264,7 @@ class SimulationHelper(ExperimentTimeMixin):
         return getattr(self, '_primitive_variables_symb', None) or [
             self.variables_all_symb[i] for i in range(self.variables_all_symb.numel())]
 
-    def _with_computed_constants(self, variables):
+    def _with_computed_constants(self, variables, states_out=None):
         """A copy of ``variables`` with every COMPUTED_CONSTANT replaced by its expression.
 
         libCellML splits constants into CONSTANT (a literal initial value) and
@@ -280,10 +284,21 @@ class SimulationHelper(ExperimentTimeMixin):
         ``ca.Function`` **input** and CasADi requires inputs to be symbolic primitives, not
         expressions. Computed constants simply stop appearing in the graph; their primitive
         symbols remain in the input vector, unused, which CasADi allows.
+
+        If ``states_out`` is a dict, it receives ``{state index: expression}`` for the states
+        the model computes from constants (``computed_states``), so an initial state follows
+        the constants it is computed from.
         """
         substituted = list(variables)
         try:
-            self.model.compute_computed_constants(substituted)
+            if "states" in inspect.signature(self.model.compute_computed_constants).parameters:
+                states = self.model.create_states_array()
+                self.model.compute_computed_constants(substituted, states)
+                if states_out is not None:
+                    states_out.update({i: v for i, v in enumerate(states)
+                                       if not (isinstance(v, float) and v != v)})
+            else:
+                self.model.compute_computed_constants(substituted)
         except Exception as exc:
             # A model whose computed constants are not symbolically evaluable keeps the old
             # behaviour rather than failing to load; say so, because the cost of it is a
@@ -299,7 +314,9 @@ class SimulationHelper(ExperimentTimeMixin):
         # Computed constants first, so a parameter that only feeds one still reaches the
         # rates symbolically (#389). variables_all_symb stays primitive -- see
         # _with_computed_constants -- so every ca.Function signature is unchanged.
-        self._symbolic_variables_with_computed = self._with_computed_constants(self.variables)
+        self._computed_initial_states_symb = {}
+        self._symbolic_variables_with_computed = self._with_computed_constants(
+            self.variables, self._computed_initial_states_symb)
         # The rates are built against a time symbol, so the SUNDIALS grid integrator can give a
         # model that reads the variable of integration (voi) the true time. rates_symb is the
         # same expression at t = start_time: the fixed-step methods and the diagnostics take an
@@ -342,6 +359,8 @@ class SimulationHelper(ExperimentTimeMixin):
                 x0_parts.append(self.variables_all_symb[init_var_idx])
             else:
                 x0_parts.append(state_sym)
+        for state_idx, expr in self._computed_initial_states_symb.items():
+            x0_parts[state_idx] = expr
         self.x0_symb = ca.vertcat(*x0_parts)
         # Pristine root of the symbolic trajectory. In AD mode a sub-experiment boundary
         # re-roots x0_symb at the previous sub's symbolic end state (see update_times), so the
@@ -491,6 +510,7 @@ class SimulationHelper(ExperimentTimeMixin):
                     "set_param_vals(change_states=False) cannot set states directly, but was "
                     f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
                     "updates that must preserve the evolved state.")
+        set_states = set()  # states named directly: not refreshed from computed constants
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
 
@@ -515,6 +535,7 @@ class SimulationHelper(ExperimentTimeMixin):
                 kind, idx_res = self._resolver.resolve(name)
                 if kind == "state":
                     self.states[idx_res] = val
+                    set_states.add(idx_res)
                 elif kind == "var":
                     self._traces.pop(idx_res, None)
                     self.variables[self._var_idx_to_const_pos(idx_res)] = val
@@ -523,7 +544,14 @@ class SimulationHelper(ExperimentTimeMixin):
                         self._sync_numeric_state_for_init_var(idx_res, val)
                 else:
                     raise ValueError(f"parameter name {name} not found in states or variables")
-        self.model.compute_computed_constants(self.variables_model)
+        if change_states:
+            # states computed from constants follow them, except those named in this call
+            for idx, val in computed_initial_states(self.model, self.variables_model).items():
+                if idx not in set_states:
+                    self.states[idx] = val
+                    self.default_state_inits[idx] = val
+        else:
+            self.model.compute_computed_constants(self.variables_model)
 
     def _set_trace(self, name, trace_name):
         """Drive the constant ``name`` from the protocol trace ``trace_name`` (linear between

@@ -73,19 +73,13 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
     assert success, f"Model generation failed for {file_prefix} with {input_param_file}"
 
 
-_SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init computed constants. libCellML 0.7.2's Analyser accepts that, and its generated Python sets those states in computeComputedConstants; PythonGenerator rewrites that function to compute_computed_constants(variables), with no states array, so the generated module raises NameError: name 'state' is not defined (#151). cellml + Myokit run the same model, so SN models need model_type: cellml. strict=True on purpose: when this is fixed the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
-)
-
-
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
         ('3compartment', '3compartment_parameters.json', 'python', 'solve_ivp'),
-        pytest.param('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp',
-                     marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
+        ('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp'),
         ('pid_control', 'pid_control_parameters.json', 'python', 'solve_ivp'),
         ('Lotka_Volterra', 'Lotka_Volterra_parameters.json', 'casadi_python', 'casadi_integrator'),
         ('3compartment', '3compartment_parameters.json', 'casadi_python', 'casadi_integrator'),

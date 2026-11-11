@@ -24,6 +24,7 @@ import copy
 import warnings
 import numpy as np
 
+from libcuflynx.solver_wrappers.computed_states import computed_initial_states
 from libcuflynx.parsers.PrimitiveParsers import AADC_FORWARD_METHODS
 from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
@@ -132,7 +133,8 @@ class SimulationHelper(ExperimentTimeMixin):
         _r0 = self.model.create_states_array()
         _v0 = self.model.create_variables_array()
         self.model.initialise_variables(_s0, _r0, _v0)
-        self.model.compute_computed_constants(_v0)
+        for idx, val in computed_initial_states(self.model, _v0).items():
+            _s0[idx] = val
         self._numeric_x0 = np.array(_s0, dtype=float)
         self._numeric_variables_all = np.array(_v0, dtype=float)
 
