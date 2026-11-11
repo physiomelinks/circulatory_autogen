@@ -27,6 +27,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -62,9 +63,16 @@ def _generate_cellml(name, workdir):
         cfg = yaml.safe_load(f)
     for key in ('user_inputs_path_override', 'param_id_output_dir', 'param_id_obs_path'):
         cfg.pop(key, None)
+    # a copy of the model's resources, since generation writes <name>_parameters_unfinished.json
+    # next to them when parameters are missing
+    resources = os.path.join(workdir, 'resources')
+    os.makedirs(resources, exist_ok=True)
+    for f in os.listdir(RESOURCES):
+        if f.startswith(name):
+            shutil.copy(os.path.join(RESOURCES, f), resources)
     cfg.update(dict(DEBUG=True, file_prefix=name, input_param_file=f'{name}_parameters.json',
                     model_type='cellml', solver='CVODE_myokit', pre_time=0.0, sim_time=0.1,
-                    dt=0.01, resources_dir=RESOURCES, generated_models_dir=workdir,
+                    dt=0.01, resources_dir=resources, generated_models_dir=workdir,
                     solver_info={'MaximumStep': 0.001}))
     if not generate_with_new_architecture(False, cfg):
         raise RuntimeError('CellML generation failed')

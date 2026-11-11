@@ -1,5 +1,7 @@
+import contextlib
 import importlib.util
 import os
+import tempfile
 import shutil
 import warnings
 
@@ -23,11 +25,34 @@ _GRID_METHODS = ('cvodes', 'idas')
 _INTEGRATORS = {}
 
 
+_JIT_DIR = None
+
+
+@contextlib.contextmanager
+def _jit_working_directory(enabled):
+    """With jit, run in a private temporary directory: CasADi writes its generated C, objects
+    and shared libraries to the working directory, and leaves them there if the process is
+    killed."""
+    global _JIT_DIR
+    if not enabled:
+        yield
+        return
+    if _JIT_DIR is None or not os.path.isdir(_JIT_DIR):
+        _JIT_DIR = tempfile.mkdtemp(prefix='libcuflynx_casadi_jit_')
+    cwd = os.getcwd()
+    os.chdir(_JIT_DIR)
+    try:
+        yield
+    finally:
+        os.chdir(cwd)
+
+
 def jit_options(solver_info):
     """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
     right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
     'shell' by default) and ``jit_options`` (default flags -O2). CasADi writes its C and objects in
-    the working directory while it compiles and removes them after. Raises RuntimeError when the
+    the working directory, so the helper builds and runs jit integrators in a private temporary
+    directory (_jit_working_directory). Raises RuntimeError when the
     'shell' plugin's C compiler is not on PATH."""
     compiler = solver_info.get('compiler') or 'shell'
     options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
@@ -813,8 +838,9 @@ class SimulationHelper(ExperimentTimeMixin):
                           if k not in ('jit', 'compiler', 'jit_options')}
             for opts in (integrator_opts, plain_opts):
                 if key + (repr(opts),) not in _INTEGRATORS:
-                    _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
-                        local, len(traced), opts)
+                    with _jit_working_directory(opts.get('jit', False)):
+                        _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
+                            local, len(traced), opts)
             U = None
             if traced:
                 # Rows (intercept, slope) per grid interval, in the segment's own time.
@@ -844,7 +870,8 @@ class SimulationHelper(ExperimentTimeMixin):
         # Numeric pass: the initial state and integrator parameters at the current values,
         # then the integrator on numbers. x0_symb may be the symbolic end state of the
         # previous sub-experiment (AD mode), so it is evaluated rather than read.
-        self.state_traj_dm = np.array(ca.horzcat(x0_num, integrate(x0_num, p_num)))
+        with _jit_working_directory(integrator_opts.get('jit', False)):
+            self.state_traj_dm = np.array(ca.horzcat(x0_num, integrate(x0_num, p_num)))
 
         # Symbolic pass, built on first access of state_traj_symb: calling the integrator on SX
         # makes one output node per state and output time, which costs more than the solve.
@@ -908,8 +935,10 @@ class SimulationHelper(ExperimentTimeMixin):
                 "ode": self.rates_symb,
             }
             integrator_opts = self._build_integrator_opts()
-            self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt, integrator_opts)
-            self.F_map = self.F.mapaccum(total_steps)
+            with _jit_working_directory(integrator_opts.get('jit', False)):
+                self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt,
+                                       integrator_opts)
+                self.F_map = self.F.mapaccum(total_steps)
             res_xf = self.F_map(x0=self.x0_symb, p=self.variables_symb_integrator)["xf"]
 
         if res_xf is not None:
