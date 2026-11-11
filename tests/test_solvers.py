@@ -689,6 +689,21 @@ def test_trace_step_input_equals_discrete_subexperiment_change(
     trace = np.asarray(hT.get_results([[Y]], flatten=True)[0]).flatten()
     hT.close_simulation()
 
+    # CasADi, one sub-experiment, the same step trace (a repeated knot is a step).
+    hC = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "casadi_python",
+                           dt, 2 * T)
+    hC.set_protocol_info({"pre_times": [0.0], "sim_times": [[2 * T]],
+                          "params_to_change": {GAMMA: [["g_step"]]},
+                          "protocol_traces": {"g_step": {"t": [0.0, T, T, 2 * T],
+                                                         "values": [G0, G0, G1, G1]}}})
+    hC.reset_states()
+    hC.update_times(dt, 0.0, 2 * T, 0.0)
+    hC.set_param_vals([GAMMA], ["g_step"])
+    assert hC.run(), "casadi trace-step run failed"
+    casadi_trace = np.asarray(hC.get_results([[Y]], flatten=True)[0]).flatten()
+    np.testing.assert_allclose(casadi_trace, trace, rtol=1e-3, atol=1e-3,
+                               err_msg="casadi step trace differs from the Myokit step trace")
+
     for model_type in ("cellml", "casadi_python"):
         disc = discrete_2sub(model_type)
         n = min(len(trace), len(disc))
@@ -844,6 +859,40 @@ def test_casadi_sundials_passes_time_to_the_model(method, temp_model_dir):
         x = np.asarray(h.get_results(["main/x"], flatten=True)[0]).ravel()
         np.testing.assert_allclose(x, np.sin(h.tSim), atol=1e-5,
                                    err_msg=f"x != sin(t) on the sub-experiment from t={start}")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.parametrize("pre_time", [0.0, 1.0])
+def test_casadi_protocol_trace_matches_myokit(pre_time, generated_cellml_model_factory,
+                                              temp_model_dir):
+    """A protocol trace drives a constant on casadi_python + cvodes as on CVODE_myokit.
+
+    Lotka-Volterra's gamma follows a trace with a ramp, a hold, a steep fall and a hold past its
+    last point, with and without a pre_time (which holds the first value through the warm-up). Both backends interpolate linearly between the points; casadi restarts CVODES at
+    each point, Myokit integrates across them, so they agree to solver tolerance.
+    """
+    pytest.importorskip("casadi")
+    dt, T = 0.01, 4.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
+    protocol = {"pre_times": [pre_time], "sim_times": [[T]],
+                "params_to_change": {GAMMA: [["g"]]},
+                "protocol_traces": {"g": {"t": [0.0, 1.0, 2.0, 2.05, 3.0],
+                                          "values": [3.0, 4.0, 4.0, 2.5, 2.5]}}}
+    ys = {}
+    for model_type in ("cellml", "casadi_python"):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info(protocol)
+        h.reset_states()
+        h.update_times(dt, 0.0, T, pre_time)
+        h.set_param_vals([GAMMA], ["g"])
+        assert h.run(), f"{model_type} trace run failed"
+        ys[model_type] = np.asarray(h.get_results([[Y]], flatten=True)[0]).ravel()
+        h.close_simulation()
+    a, b = ys["cellml"], ys["casadi_python"]
+    assert len(a) == len(b)
+    np.testing.assert_allclose(b, a, rtol=1e-4, atol=1e-4 * np.max(np.abs(a)),
+                               err_msg="casadi_python trace input differs from CVODE_myokit")
 
 
 @pytest.mark.integration
