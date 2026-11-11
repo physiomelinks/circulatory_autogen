@@ -119,6 +119,10 @@ AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 #: model run by Myokit's CVODES (solver CVODE_myokit).
 DEFAULT_MODEL_TYPE = 'cellml'
 
+#: casadi_integrator's solver_info 'jit' when unset: compile the model to C. Without a C compiler
+#: an unset jit falls back to no jit with a warning; an explicit jit: true is an error.
+CASADI_JIT_DEFAULT = True
+
 #: The do_ad of a run whose user_inputs does not set it: finite-difference gradients. With do_ad
 #: true the gradient is the model_type's default analytic source (default_gradient_source).
 DEFAULT_DO_AD = False
@@ -458,10 +462,12 @@ SOLVER_INFO_FIELDS = {
          'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
         {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
          'description': 'Extra options passed straight through to the CasADi integrator.'},
-        {'name': 'jit', 'type': 'bool', 'default': False, 'required': False,
+        {'name': 'jit', 'type': 'bool', 'default': CASADI_JIT_DEFAULT, 'required': False,
          'description': ('Generate C for the model right-hand side and its derivatives and '
-                         'compile it (methods cvodes, idas, collocation, rk). Each integrator '
-                         'compiles once per process; needs a C compiler.')},
+                         'compile it (methods cvodes, idas, collocation, rk); on by default. '
+                         'Each integrator compiles once per process. Needs a C compiler: '
+                         'left unset, it runs without jit (with a warning) when there is none; '
+                         'set to true, it is an error. false turns it off.')},
         {'name': 'compiler', 'type': 'enum', 'default': 'shell', 'required': False,
          'choices': ['shell', 'clang'],
          'description': ("CasADi's JIT compiler plugin: 'shell' runs a system C compiler "

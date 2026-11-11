@@ -730,7 +730,7 @@ Before doing calibration, a solver for the model needs to be chosen
 - **solver** defines the solver family. Options depend on `model_type`:
     - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
-    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit: true` compiles the model to C (see below).
+    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit` (on by default) compiles the model to C (see below).
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
@@ -738,11 +738,14 @@ Before doing calibration, a solver for the model needs to be chosen
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_opencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_opencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
-    - **jit** (`casadi_integrator`, default `false`): generate C for the model's right-hand side
+    - **jit** (`casadi_integrator`, default `true`): generate C for the model's right-hand side
       and its derivatives and compile it, once per process per model, timeline and options.
-      Needs a C compiler (gcc by default); `compiler` (`shell` or `clang`) and `jit_options`
-      (e.g. `{compiler: clang, flags: ['-O3']}`) choose it. Compiling costs seconds to minutes on
-      a large model, so it pays off over many runs (a calibration), not one.
+      Needs a C compiler (gcc by default): with `jit` unset and no compiler, the run continues
+      without jit and warns; `jit: true` with no compiler is an error; `jit: false` turns it
+      off. `compiler` (`shell` or `clang`) and `jit_options` (e.g. `{compiler: clang, flags:
+      ['-O3']}`) choose the compiler. It speeds up forward runs; the AD gradient's symbolic graph
+      uses the interpreted integrator, since CasADi 3.7 does not differentiate through a
+      jit-compiled CVODES integrator.
 
 !!! note "Choosing a batched solver (`BE_batched_c`, `CVODES_batched_c`)"
     `CVODE_myokit` is the more general-purpose solver, and the one to start with. `BE_batched_c` and

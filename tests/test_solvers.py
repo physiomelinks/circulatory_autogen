@@ -820,8 +820,9 @@ def test_casadi_cvodes_integrates_the_output_grid_in_one_solve(
 @pytest.mark.solver
 def test_casadi_cvodes_jit_matches_the_interpreted_integrator(
         generated_cellml_model_factory, temp_model_dir):
-    """solver_info jit: true compiles the right-hand side; the trajectory is the same, and a
-    second helper on the same model reuses the compiled integrator rather than compiling again.
+    """solver_info jit (on by default) compiles the right-hand side; the trajectory is the same
+    as with jit: false, and a second helper on the same model reuses the compiled integrator
+    rather than compiling again.
     """
     import shutil as _shutil
     if _shutil.which("gcc") is None:
@@ -845,6 +846,32 @@ def test_casadi_cvodes_jit_matches_the_interpreted_integrator(
     assert jitted.F is not plain.F
     np.testing.assert_allclose(jitted.state_traj_dm, plain.state_traj_dm, rtol=1e-12, atol=1e-12)
     assert run(True).F is jitted.F, "a second helper compiled the same integrator again"
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_default_falls_back_without_a_compiler(
+        monkeypatch, generated_cellml_model_factory, temp_model_dir):
+    """jit is on by default. With no C compiler an unset jit runs without it and warns once;
+    an explicit jit: true is an error naming the setting that turns it off."""
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_nocc", casadi_compat=True).generate()
+    monkeypatch.setattr(helper_module.shutil, "which", lambda name: None)
+
+    def helper(solver_info):
+        return get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0, solver_info=solver_info)
+
+    h = helper({"method": "cvodes"})
+    with pytest.warns(UserWarning, match="Running without jit"):
+        assert h.run()
+    assert "jit" not in h._build_integrator_opts()
+    with pytest.raises(RuntimeError, match="jit: false"):
+        helper({"method": "cvodes", "jit": True}).run()
 
 
 @pytest.mark.unit

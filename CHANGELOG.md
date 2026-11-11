@@ -21,9 +21,12 @@ next release; add to that section as you land a change.
   trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
   method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
   adjoint integrator is gone.
-- `solver_info: {jit: true}` (with optional `compiler` and `jit_options`) compiles the
+- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
   casadi_integrator's right-hand side and derivatives to C, once per process per model,
-  timeline and options. Off by default; a clear error when the C compiler is missing.
+  timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
+  CasADi 3.7 does not differentiate through a jit-compiled CVODES integrator). With `jit` unset
+  and no C compiler, it runs without jit and warns; an explicit `jit: true` is then an error.
+  `jit: false` turns it off.
 - `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
   when none is named.
 - With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a

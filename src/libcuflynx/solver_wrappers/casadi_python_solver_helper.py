@@ -35,9 +35,10 @@ def jit_options(solver_info):
         executable = options.get('compiler', 'gcc')
         if shutil.which(executable) is None:
             raise RuntimeError(
-                f"solver_info jit: true compiles the model with a C compiler, but "
-                f"{executable!r} is not on PATH. Install gcc or clang, name one with "
-                f"jit_options: {{compiler: <path>}}, or set jit: false.")
+                f"casadi_integrator compiles the model with a C compiler (solver_info jit, "
+                f"on by default), but {executable!r} is not on PATH. Install gcc or clang, "
+                f"name one with solver_info jit_options: {{compiler: <path>}}, or set "
+                f"solver_info jit: false.")
     return {'jit': True, 'compiler': compiler, 'jit_options': options}
 
 class SimulationHelper(ExperimentTimeMixin):
@@ -91,6 +92,24 @@ class SimulationHelper(ExperimentTimeMixin):
             materialise_shapes(protocol_info)
         self.protocol_info = protocol_info
 
+    def _jit_options(self):
+        """jit_options(solver_info) when jit is on (solver_info 'jit', default
+        CASADI_JIT_DEFAULT), else {}. An unset jit with no C compiler warns once and runs
+        without jit; an explicit jit: true raises."""
+        from libcuflynx.parsers.PrimitiveParsers import CASADI_JIT_DEFAULT
+        explicit = 'jit' in self.solver_info
+        if not self.solver_info.get('jit', CASADI_JIT_DEFAULT):
+            return {}
+        try:
+            return jit_options(self.solver_info)
+        except RuntimeError as exc:
+            if explicit:
+                raise
+            if not getattr(self, '_warned_no_compiler', False):
+                warnings.warn(f"{exc} Running without jit.")
+                self._warned_no_compiler = True
+            return {}
+
     def _build_integrator_opts(self):
         """Build CasADi integrator options from validated solver_info.
 
@@ -105,8 +124,7 @@ class SimulationHelper(ExperimentTimeMixin):
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
-        if self.solver_info.get('jit'):
-            integrator_opts.update(jit_options(self.solver_info))
+        integrator_opts.update(self._jit_options())
         integrator_opts.update(self.solver_info.get('options', {}))
         return integrator_opts
 
@@ -788,9 +806,15 @@ class SimulationHelper(ExperimentTimeMixin):
             seg_grid = [g for g in grid if lo < g <= hi]
             local = [g - lo for g in seg_grid]
             key = model_key + (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
-                               tuple(traced), repr(integrator_opts))
-            if key not in _INTEGRATORS:
-                _INTEGRATORS[key] = self._sundials_integrator(local, len(traced), integrator_opts)
+                               tuple(traced))
+            # The symbolic trajectory (AD) calls an integrator without jit: CasADi 3.7 does not
+            # return from ca.forward through a jit-compiled CVODES integrator.
+            plain_opts = {k: v for k, v in integrator_opts.items()
+                          if k not in ('jit', 'compiler', 'jit_options')}
+            for opts in (integrator_opts, plain_opts):
+                if key + (repr(opts),) not in _INTEGRATORS:
+                    _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
+                        local, len(traced), opts)
             U = None
             if traced:
                 # Rows (intercept, slope) per grid interval, in the segment's own time.
@@ -802,13 +826,15 @@ class SimulationHelper(ExperimentTimeMixin):
                         U[2 * j, i] = a + b * (lo - sim_start)
                         U[2 * j + 1, i] = b
                 U = ca.DM(U)
-            segments.append((_INTEGRATORS[key], lo, U))
+            segments.append((_INTEGRATORS[key + (repr(integrator_opts),)],
+                             _INTEGRATORS[key + (repr(plain_opts),)], lo, U))
         self.F = segments[0][0]
         self.F_map = None
 
-        def integrate(x0, p):
+        def integrate(x0, p, symbolic=False):
             columns, x = [], x0
-            for F, lo, U in segments:
+            for F_numeric, F_symbolic, lo, U in segments:
+                F = F_symbolic if symbolic else F_numeric
                 call = {} if U is None else {"u": U}
                 xf = F(x0=x, p=ca.vertcat(p, t0 + lo), **call)["xf"]
                 columns.append(xf)
@@ -824,7 +850,8 @@ class SimulationHelper(ExperimentTimeMixin):
         # makes one output node per state and output time, which costs more than the solve.
         p_symb = self.variables_symb_integrator
         self._state_traj_symb = None
-        self._state_traj_symb_builder = lambda: ca.horzcat(x0_symb, integrate(x0_symb, p_symb))
+        self._state_traj_symb_builder = lambda: ca.horzcat(
+            x0_symb, integrate(x0_symb, p_symb, symbolic=True))
 
     def _sundials_integrator(self, grid, n_traced, integrator_opts):
         """A CVODES/IDAS integrator over ``grid`` (time since its start, tau), with parameters
