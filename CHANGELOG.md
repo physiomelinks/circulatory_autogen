@@ -35,6 +35,13 @@ next release; add to that section as you land a change.
   ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
   solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
   FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
+- SN_simple and other models that initialise a state from `*_init` computed constants now run
+  on `python` and `casadi_python`: libCellML sets those states in `compute_computed_constants`,
+  which the generated module now takes as an optional `states` argument (models without such
+  states keep `compute_computed_constants(variables)`). The solver helpers read the states from
+  it, `set_param_vals` refreshes them, and on casadi_python they stay symbolic in the constants
+  they come from, so the AD gradient through an `*_init`-driving parameter matches finite
+  differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
