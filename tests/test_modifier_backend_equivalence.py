@@ -81,8 +81,8 @@ def _engine(tmp_path, arm, backend, casadi_models=None):
     else:
         model_path = casadi_models[arm]
         model_type = 'casadi_python'
-        # 'bdf' rather than cvodes/idas: the adjoint integrators are excluded from
-        # ad_suitable_methods, so the symbolic gradient needs the symbolic BDF.
+        # 'bdf', differentiated in reverse mode; cvodes (forward sensitivities) is covered by
+        # test_param_id's casadi gradient tests.
         solver_info = {'solver': 'casadi_integrator', 'method': 'bdf',
                        'max_step': 0.01, 'max_num_steps': 100000}
 

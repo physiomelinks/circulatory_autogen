@@ -1908,45 +1908,42 @@ def _build_3compartment_casadi_runner(
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_stiff_casadi_cvodes_gradient_fails(
+def test_3compartment_stiff_casadi_cvodes_gradient_matches_fd(
     base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir
 ):
-    """Document why the damped solver is needed: the *stiff* 3compartment forward-solves
-    under CasADi cvodes, but the cvodes adjoint-sensitivity GRADIENT fails
-    (CVodeF -> CV_ERR_FAILURE) on the stiff, discontinuous valve dynamics.
+    """CasADi AD on the stiff 3compartment with cvodes, the default method, matches central
+    finite differences.
 
-    This is why gradient-based parameter identification cannot use cvodes on the stiff
-    model (the suite otherwise relies on a linearised 3compartment_nonstiff variant), and
-    why test_3compartment_stiff_casadi_semi_implicit_forward_and_gradient exists.
+    cvodes is differentiated by CVODES forward sensitivities. Its reverse mode, the CVODES
+    adjoint, fails here with CV_TOO_MUCH_WORK on the valve switches, which is why AD on cvodes
+    does not use it.
     """
     pytest.importorskip("casadi")
 
     runner, baseline_vals = _build_3compartment_casadi_runner(
         'cvodes', base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir
     )
-
-    # Forward solve succeeds.
-    cost = float(runner.param_id.get_cost_ca(baseline_vals))
+    pid = runner.param_id
+    cost = float(pid.get_cost_ca(baseline_vals))
     assert np.isfinite(cost) and cost >= 0
 
-    # Gradient via cvodes adjoint sensitivity fails on the stiff dynamics.
-    try:
-        gradient = np.asarray(runner.param_id.get_jac_cost_ca(baseline_vals)).ravel()
-    except RuntimeError as exc:
-        assert "CV_" in str(exc) or "cvodes" in str(exc).lower(), (
-            f"Expected a cvodes failure, got: {exc}"
-        )
-        runner.close_simulation()
-        return
+    gradient = np.asarray(pid.get_jac_cost_ca(baseline_vals), dtype=float).ravel()
+    assert gradient.shape == (4,) and np.all(np.isfinite(gradient))
 
-    # If cvodes ever stops failing here, the damped solver is no longer strictly
-    # required for this model — flag it rather than silently passing.
-    if np.all(np.isfinite(gradient)):
-        runner.close_simulation()
-        pytest.skip(
-            "cvodes gradient now succeeds on the stiff 3compartment; the "
-            "semi_implicit_euler workaround may no longer be required."
-        )
+    base = np.asarray(baseline_vals, dtype=float)
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = abs(base[i]) * 1e-4
+        up, down = base.copy(), base.copy()
+        up[i] += dp
+        down[i] -= dp
+        fd[i] = (float(pid.get_cost_ca(up)) - float(pid.get_cost_ca(down))) / (2 * dp)
+    scale = np.abs(fd * base)
+    for i, label in enumerate(['q_lv_init', 'C', 'E_lv_A', 'E_lv_B']):
+        if scale[i] > 1e-6 * max(cost, 1e-12):
+            rel_err = abs(gradient[i] - fd[i]) / abs(fd[i])
+            assert rel_err < 0.05, (
+                f"{label}: AD {gradient[i]:.6e} vs FD {fd[i]:.6e} (rel err {rel_err:.3g})")
     runner.close_simulation()
 
 
@@ -1956,8 +1953,8 @@ def test_3compartment_stiff_casadi_semi_implicit_forward_and_gradient(
     base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir
 ):
     """The stiff 3compartment is solvable AND differentiable with the damped
-    'semi_implicit_euler' CasADi solver, where cvodes adjoint sensitivity fails
-    (see test_3compartment_stiff_casadi_cvodes_gradient_fails).
+    'semi_implicit_euler' CasADi solver, as it is with cvodes
+    (see test_3compartment_stiff_casadi_cvodes_gradient_matches_fd).
 
     The scheme is a fixed-step semi-implicit Euler with diagonal-Jacobian damping,
     built as a single symbolic mapaccum graph so CasADi differentiates it by plain
@@ -5139,13 +5136,11 @@ def test_offline_pre_time_multisub_fsa_gradient(
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.parametrize("method", ["bdf", "cvodes"])
 def test_offline_pre_time_multisub_casadi_ad_gradient(
-        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
-    """Same as the FSA case, for the CasADi AD gradient path.
-
-    Uses method 'bdf': the symbolic fixed-step methods are differentiated by reverse mode and
-    support nonzero warm-up, whereas the adjoint integrators (cvodes/idas) do not.
-    """
+        method, base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Same as the FSA case, for the CasADi AD gradient path: 'bdf' by reverse mode, 'cvodes'
+    (the default) by CVODES forward sensitivities, both through a nonzero warm-up."""
     # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
     # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
     # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
@@ -5159,7 +5154,7 @@ def test_offline_pre_time_multisub_casadi_ad_gradient(
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
         model_type='casadi_python', solver='casadi_integrator',
-        solver_info={'method': 'bdf', 'max_step_size': 0.01, 'max_num_steps': 200000},
+        solver_info={'method': method, 'max_step_size': 0.01, 'max_num_steps': 200000},
         offline_calls=offline_calls)
     inner = runner.param_id
 

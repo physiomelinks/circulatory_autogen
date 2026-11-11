@@ -268,13 +268,14 @@ class SimulationHelper(ExperimentTimeMixin):
                 vals = [vals]
             for name, val in zip(name_or_list, vals):
                 if isinstance(val, str):
-                    # See the CasADi backend: an unchecked string silently corrupts the
-                    # parameter vector rather than failing where the mistake is.
+                    # An unchecked string silently corrupts the parameter vector rather
+                    # than failing where the mistake is.
                     raise NotImplementedError(
                         f"'{name}' was given the protocol trace name '{val}', but the "
                         f"AADC backend cannot drive a variable from a time series. "
                         f"protocol_traces (and the protocol_shapes that expand into them) are "
-                        f"only implemented for solver 'CVODE_myokit'. Use that solver for a "
+                        f"implemented for solver 'CVODE_myokit' and for model_type "
+                        f"'casadi_python' with method 'cvodes' or 'idas'. Use one of those for a "
                         f"paced model, or replace the trace with a per-sub-experiment constant "
                         f"in params_to_change."
                     )

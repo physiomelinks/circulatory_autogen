@@ -58,6 +58,37 @@ Decided by Finbar Argus on 2026-11-06:
   `inputs/system/` beside the parameters file (#619). Docs:
   `tutorial/docs/parameter-derivations.md`.
 
+### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
+
+- `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
+  output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
+  3compartment (2000 steps). The model is given the true time, so a model whose rates read the
+  variable of integration now runs correctly on them; the fixed-step methods warn that they hold
+  it at the run's start.
+- casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
+  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
+  them, end values held, the first value held through pre_time. CVODES restarts only where a
+  trace steps. It used to refuse a trace.
+- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
+  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
+  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
+  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
+  adjoint integrator is gone.
+- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
+  casadi_integrator's right-hand side and derivatives to C, once per process per model,
+  timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
+  CasADi 3.7 does not differentiate through a jit-compiled CVODES integrator). With `jit` unset
+  and no C compiler, it runs without jit and warns; an explicit `jit: true` is then an error.
+  `jit: false` turns it off.
+- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
+  when none is named.
+- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
+  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
+- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
+  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
+  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
+  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds

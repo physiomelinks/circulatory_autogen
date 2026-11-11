@@ -195,7 +195,8 @@ class SimulationHelper(ExperimentTimeMixin):
                         f"'{name}' was given the protocol trace name '{val}', but the "
                         f"python (solve_ivp) backend cannot drive a variable from a time "
                         f"series. protocol_traces (and the protocol_shapes that expand "
-                        f"into them) are only implemented for solver 'CVODE_myokit'."
+                        f"into them) are implemented for solver 'CVODE_myokit' and for "
+                        f"model_type 'casadi_python' with method 'cvodes' or 'idas'."
                     )
                 elif type(val) not in [float, np.float64, int]:
                     raise ValueError(f"Parameter value {param_vals[JJ]} is not a valid type. {type(param_vals[JJ])}" + \

@@ -5,6 +5,7 @@ This class parses a CellML file, resolves imports, analyses the model,
 and emits a ready-to-run Python module.
 """
 import ast
+import copy
 import os
 import re
 
@@ -42,22 +43,33 @@ class _CasadiCompatTransformer(ast.NodeTransformer):
         )
 
     def visit_BinOp(self, node):
+        """``a / d`` -> ``a / ca.if_else(fabs(d) < 1e-300, 1e-300, d)``.
+
+        ca.if_else evaluates both branches, so a division by zero in the branch not taken would
+        still put inf/nan into the graph and its derivatives; the guard keeps every denominator
+        away from zero. It keeps the denominator's sign: a negative denominator is unchanged.
+        """
         self.generic_visit(node)
         if not isinstance(node.op, ast.Div):
             return node
         guarded_denom = ast.Call(
             func=ast.Attribute(
                 value=ast.Name(id="ca", ctx=ast.Load()),
-                attr="fmax",
+                attr="if_else",
                 ctx=ast.Load(),
             ),
             args=[
-                ast.Call(
-                    func=ast.Name(id="fabs", ctx=ast.Load()),
-                    args=[node.right],
-                    keywords=[],
+                ast.Compare(
+                    left=ast.Call(
+                        func=ast.Name(id="fabs", ctx=ast.Load()),
+                        args=[node.right],
+                        keywords=[],
+                    ),
+                    ops=[ast.Lt()],
+                    comparators=[ast.Constant(value=1e-300)],
                 ),
                 ast.Constant(value=1e-300),
+                copy.deepcopy(node.right),
             ],
             keywords=[],
         )

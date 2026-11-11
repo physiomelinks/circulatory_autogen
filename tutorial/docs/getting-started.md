@@ -304,8 +304,8 @@ gradient).
     to ~280% at `dt=1e-4`), because its damping factor `1/(1+dt*lam)` tends to 1 as `dt` shrinks
     and the scheme degenerates into explicit forward Euler on a very stiff system. The AADC
     backend probes the first second of dynamics and warns loudly when it detects a stiff model.
-    **For gradient-based calibration of a stiff model, use CasADi `bdf` or Myokit CVODES forward
-    sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's
+    **For gradient-based calibration of a stiff model, use CasADi `cvodes` (CasADi AD by CVODES
+    forward sensitivities), CasADi `bdf`, or Myokit CVODES forward sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's
     tape gradient is appropriate only for non-stiff, state-observable, single-experiment
     problems.
 

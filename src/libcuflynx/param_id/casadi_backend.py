@@ -121,6 +121,27 @@ def functions_cache_key(pid, param_names, get_all_series):
             data_sig)
 
 
+#: casadi_integrator methods differentiated by forward sensitivities (CVODES/IDAS FSA, one
+#: sensitivity per parameter) rather than reverse mode. Their reverse mode is the SUNDIALS
+#: adjoint, whose backward solve fails with CV_TOO_MUCH_WORK on the valve switches of the
+#: cardiovascular models (3compartment, stiff or not) where forward sensitivities match finite
+#: differences.
+FORWARD_SENSITIVITY_METHODS = ('cvodes', 'idas')
+
+
+def jacobian(pid, expr, arg):
+    """d(expr)/d(arg), (expr.numel() x arg.numel()), by forward sensitivities on the SUNDIALS
+    methods (FORWARD_SENSITIVITY_METHODS) and by ca.jacobian otherwise."""
+    method = getattr(pid.sim_helper, 'solve_ivp_method', None)
+    if method not in FORWARD_SENSITIVITY_METHODS:
+        return ca.jacobian(expr, arg)
+    n = arg.numel()
+    eye = ca.DM.eye(n)
+    seeds = [[eye[:, i]] for i in range(n)]
+    sens = ca.forward([ca.reshape(expr, -1, 1)], [arg], seeds)
+    return ca.horzcat(*[s[0] for s in sens])
+
+
 def flatten_entries(param_id_info):
     """``(flat_member_names, per_entry_[(offset, weight), ...])`` for the params_for_id entries.
 
@@ -226,7 +247,7 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
     # variable after evaluation (fold_entry_rows). The weights are constants, so folding the
     # numbers is identical to substituting theta symbolically and differentiating -- and it
     # keeps one code path for ungrouped rows, groups and modifiers.
-    pid.jac_cost_symb = ca.gradient(pid.cost_symb, pid.sim_helper.variables_symb_subset)
+    pid.jac_cost_symb = jacobian(pid, pid.cost_symb, pid.sim_helper.variables_symb_subset).T
 
     pid.cost_func = ca.Function('cost_func', [pid.sim_helper.states_symb, pid.sim_helper.variables_symb], [pid.cost_symb])
 
@@ -275,7 +296,7 @@ def get_observable_sensitivities(pid, param_vals):
     build_functions(pid, param_names, param_vals)
 
     # jacobian of the flattened observable vector w.r.t. the differentiated parameter subset.
-    jac_symb = ca.jacobian(pid.obs_vec, pid.sim_helper.variables_symb_subset)
+    jac_symb = jacobian(pid, pid.obs_vec, pid.sim_helper.variables_symb_subset)
     jac_func = ca.Function(
         'obs_jac_func',
         [pid.sim_helper.states_symb, pid.sim_helper.variables_symb],
