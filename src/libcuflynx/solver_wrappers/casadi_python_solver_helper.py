@@ -472,11 +472,14 @@ class SimulationHelper(ExperimentTimeMixin):
         kind, idx = self._resolver.resolve(name)
         if kind != "var" or idx not in self.constant_indices:
             raise ValueError(f"protocol trace '{trace_name}' must drive a constant, not {name!r}")
-        t = np.asarray(trace['t'], dtype=float)
-        v = np.asarray(trace['values'], dtype=float)
-        if t.ndim != 1 or t.shape != v.shape or t.size == 0 or np.any(np.diff(t) < 0):
-            raise ValueError(f"Protocol trace '{trace_name}' needs matching, non-decreasing "
-                             f"'t' and 'values'.")
+        if len(trace['t']) != len(trace['values']) or len(trace['t']) == 0:
+            raise ValueError(f"Protocol trace '{trace_name}' needs matching, non-empty 't' and "
+                             f"'values'.")
+        # The (t, value) pairs sorted as myokit.TimeSeriesProtocol sorts them, so a repeated
+        # time (a step) is read the same way on both backends.
+        pairs = sorted(zip((float(x) for x in trace['t']), (float(x) for x in trace['values'])))
+        t = np.array([pt for pt, _ in pairs])
+        v = np.array([pv for _, pv in pairs])
         self._traces[idx] = (t, v)
 
     def _trace_pieces(self, idx, t_left, t_right):
@@ -703,13 +706,17 @@ class SimulationHelper(ExperimentTimeMixin):
         size and history from one output time to the next and reports the state at each.
         Parameters are constant within a run(), which is one sub-experiment, so nothing
         between two output times needs a restart; a sub-experiment boundary is a new run().
-        The result is a CasADi call node in (x0, p), so a jacobian or gradient of anything
-        built from it differentiates through the integrator.
+        The result is a CasADi call node in (x0, p), so a jacobian of anything built from it
+        differentiates through the integrator.
 
-        The integrator runs in time since the start of the run, with the start time as an
-        extra parameter (the model sees ``t = start + tau``), so one integrator serves every
-        run() with the same grid, traced inputs and options -- each sub-experiment of a
-        protocol included. It is cached on those.
+        A constant driven by a protocol trace enters as a control, linear in time between the
+        trace's points, which join the grid. Where a trace steps (a repeated time) the run is
+        split and CVODES restarts from the state at the step; nowhere else.
+
+        Each integrator runs in time since the start of its segment, with the segment's start
+        time as an extra parameter (the model sees ``t = start + tau``), so it serves every
+        segment with the same grid, traced inputs and options -- each sub-experiment of a
+        protocol included. They are cached on those.
         """
         x0_symb = self.x0_symb
         x0_p = ca.Function('x0_p', [self.states_symb, self.variables_symb],
@@ -720,74 +727,98 @@ class SimulationHelper(ExperimentTimeMixin):
             self.state_traj_symb = x0_symb
             return
         t0 = float(self.t_eval[0])
-        out_grid = [k * float(self.dt) for k in range(1, total_steps + 1)]
+        dt = float(self.dt)
+        out_grid = [k * dt for k in range(1, total_steps + 1)]
         traced = sorted(self._traces)
-        # A traced input's knots join the output times in the grid, so each grid interval lies
-        # in one linear piece of every trace; the input enters as a control u = a + b*tau,
-        # constant over an interval, so CVODES restarts only where the input changes.
+        # Trace times, in tau (time since t0): from the end of pre_time.
         sim_start = float(self.pre_time) + (t0 - float(self.start_time))
-        tol = 1e-9 * float(self.dt)
-        out_arr = np.asarray(out_grid)
-        knots = sorted({float(k) + sim_start for idx in traced for k in self._traces[idx][0]
-                        if 0.0 < float(k) + sim_start < out_grid[-1]
-                        and np.min(np.abs(out_arr - (float(k) + sim_start))) > tol})
-        grid = sorted(out_grid + knots) if knots else out_grid
-        out_cols = None
-        if knots:
-            col = {g: i for i, g in enumerate(grid)}
-            out_cols = [col[g] for g in out_grid]
-        integrator_opts = self._build_integrator_opts()
-        key = (self.solve_ivp_method, tuple(grid), tuple(traced), repr(integrator_opts))
-        cached = getattr(self, '_grid_integrator_cache', None)
-        if cached is not None and cached[0] == key:
-            self.F = cached[1]
-        else:
-            tau = ca.SX.sym('tau')
-            t_start = ca.SX.sym('t_start')
-            rates = ca.substitute(self.rates_symb_t, self.t_symb, t_start + tau)
-            ode = {
-                "x": self.states_symb,
-                "p": ca.vertcat(self.variables_symb_integrator, t_start),
-                "t": tau,
-            }
-            if traced:
-                u = ca.SX.sym('u', 2 * len(traced))
-                inputs = ca.vertcat(*[u[2 * j] + u[2 * j + 1] * tau for j in range(len(traced))])
-                prims = ca.vertcat(*[self.variables_all_symb[idx] for idx in traced])
-                rates = ca.substitute(rates, prims, inputs)
-                ode["u"] = u
-            ode["ode"] = rates
-            self.F = ca.integrator("F", self.solve_ivp_method, ode, 0.0, grid, integrator_opts)
-            self._grid_integrator_cache = (key, self.F)
-        self.F_map = None
-        call = {}
-        if traced:
-            # Rows (a_j, b_j) per grid interval, in integrator time tau.
-            lefts = [0.0] + grid[:-1]
-            U = np.zeros((2 * len(traced), len(grid)))
-            for j, idx in enumerate(traced):
-                for i, (lo, hi) in enumerate(zip(lefts, grid)):
-                    a, b = self._trace_pieces(idx, lo - sim_start, hi - sim_start)
-                    U[2 * j, i] = a - b * sim_start
-                    U[2 * j + 1, i] = b
-            call["u"] = ca.DM(U)
+        tol = 1e-9 * dt
 
-        def outputs(xf):
-            return xf if out_cols is None else xf[:, out_cols]
+        def on_grid(tau):
+            """tau, or the output time it coincides with."""
+            k = int(round(tau / dt))
+            return k * dt if 1 <= k <= total_steps and abs(k * dt - tau) <= tol else tau
+
+        knots, steps = set(), set()
+        for idx in traced:
+            t_trace = self._traces[idx][0]
+            for i, tt in enumerate(t_trace):
+                tau = on_grid(float(tt) + sim_start)
+                if 0.0 < tau < out_grid[-1]:
+                    knots.add(tau)
+                    if (i > 0 and t_trace[i - 1] == tt) or (
+                            i + 1 < len(t_trace) and t_trace[i + 1] == tt):
+                        steps.add(tau)
+        grid = sorted(set(out_grid) | knots)
+        col = {g: i for i, g in enumerate(grid)}
+        out_cols = [col[g] for g in out_grid]
+        bounds = [0.0] + sorted(steps) + [grid[-1]]
+
+        integrator_opts = self._build_integrator_opts()
+        cache = getattr(self, '_grid_integrator_cache', None)
+        if not isinstance(cache, dict):
+            cache = self._grid_integrator_cache = {}
+        segments = []  # (integrator, start tau, control matrix or None)
+        for lo, hi in zip(bounds[:-1], bounds[1:]):
+            seg_grid = [g for g in grid if lo < g <= hi]
+            local = [g - lo for g in seg_grid]
+            key = (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
+                   tuple(traced), repr(integrator_opts))
+            if key not in cache:
+                cache[key] = self._sundials_integrator(local, len(traced), integrator_opts)
+            U = None
+            if traced:
+                # Rows (intercept, slope) per grid interval, in the segment's own time.
+                lefts = [lo] + seg_grid[:-1]
+                U = np.zeros((2 * len(traced), len(seg_grid)))
+                for j, idx in enumerate(traced):
+                    for i, (left, right) in enumerate(zip(lefts, seg_grid)):
+                        a, b = self._trace_pieces(idx, left - sim_start, right - sim_start)
+                        U[2 * j, i] = a + b * (lo - sim_start)
+                        U[2 * j + 1, i] = b
+                U = ca.DM(U)
+            segments.append((cache[key], lo, U))
+        self.F = segments[0][0]
+        self.F_map = None
+
+        def integrate(x0, p):
+            columns, x = [], x0
+            for F, lo, U in segments:
+                call = {} if U is None else {"u": U}
+                xf = F(x0=x, p=ca.vertcat(p, t0 + lo), **call)["xf"]
+                columns.append(xf)
+                x = xf[:, -1]
+            return ca.horzcat(*columns)[:, out_cols]
 
         # Numeric pass: the initial state and integrator parameters at the current values,
-        # then one call of the integrator on numbers. x0_symb may be the symbolic end state of
-        # the previous sub-experiment (AD mode), so it is evaluated rather than read.
-        xf_num = outputs(self.F(x0=x0_num, p=ca.vertcat(p_num, t0), **call)["xf"])
-        self.state_traj_dm = np.array(ca.horzcat(x0_num, xf_num))  # (n_states, total_steps+1)
+        # then the integrator on numbers. x0_symb may be the symbolic end state of the
+        # previous sub-experiment (AD mode), so it is evaluated rather than read.
+        self.state_traj_dm = np.array(ca.horzcat(x0_num, integrate(x0_num, p_num)))
 
         # Symbolic pass, built on first access of state_traj_symb: calling the integrator on SX
         # makes one output node per state and output time, which costs more than the solve.
-        p_symb = ca.vertcat(self.variables_symb_integrator, t0)
-        F = self.F
+        p_symb = self.variables_symb_integrator
         self._state_traj_symb = None
-        self._state_traj_symb_builder = lambda: ca.horzcat(
-            x0_symb, outputs(F(x0=x0_symb, p=p_symb, **call)["xf"]))
+        self._state_traj_symb_builder = lambda: ca.horzcat(x0_symb, integrate(x0_symb, p_symb))
+
+    def _sundials_integrator(self, grid, n_traced, integrator_opts):
+        """A CVODES/IDAS integrator over ``grid`` (time since its start, tau), with parameters
+        (constants, start time) and, for ``n_traced`` traced inputs, a control
+        (intercept, slope) per input per grid interval: input = intercept + slope * tau."""
+        tau = ca.SX.sym('tau')
+        t_start = ca.SX.sym('t_start')
+        rates = ca.substitute(self.rates_symb_t, self.t_symb, t_start + tau)
+        ode = {"x": self.states_symb, "p": ca.vertcat(self.variables_symb_integrator, t_start),
+               "t": tau}
+        if n_traced:
+            u = ca.SX.sym('u', 2 * n_traced)
+            traced = sorted(self._traces)
+            inputs = ca.vertcat(*[u[2 * j] + u[2 * j + 1] * tau for j in range(n_traced)])
+            prims = ca.vertcat(*[self.variables_all_symb[idx] for idx in traced])
+            rates = ca.substitute(rates, prims, inputs)
+            ode["u"] = u
+        ode["ode"] = rates
+        return ca.integrator("F", self.solve_ivp_method, ode, 0.0, grid, integrator_opts)
 
     def _warn_if_time_dependent(self):
         """The fixed-step methods integrate the autonomous rates_symb (t = start_time)."""

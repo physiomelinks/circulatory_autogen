@@ -868,8 +868,9 @@ def test_casadi_protocol_trace_matches_myokit(pre_time, generated_cellml_model_f
                                               temp_model_dir):
     """A protocol trace drives a constant on casadi_python + cvodes as on CVODE_myokit.
 
-    Lotka-Volterra's gamma follows a trace with a ramp, a hold, a steep fall and a hold past its
-    last point, with and without a pre_time (which holds the first value through the warm-up). Both backends interpolate linearly between the points; casadi restarts CVODES at
+    Lotka-Volterra's gamma follows a trace with a ramp, a hold, a step up (a repeated time), a
+    fall and a hold past its last point, with and without a pre_time (which holds the first
+    value through the warm-up). Both backends interpolate linearly between the points; casadi restarts CVODES at
     each point, Myokit integrates across them, so they agree to solver tolerance.
     """
     pytest.importorskip("casadi")
@@ -877,8 +878,8 @@ def test_casadi_protocol_trace_matches_myokit(pre_time, generated_cellml_model_f
     GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
     protocol = {"pre_times": [pre_time], "sim_times": [[T]],
                 "params_to_change": {GAMMA: [["g"]]},
-                "protocol_traces": {"g": {"t": [0.0, 1.0, 2.0, 2.05, 3.0],
-                                          "values": [3.0, 4.0, 4.0, 2.5, 2.5]}}}
+                "protocol_traces": {"g": {"t": [0.0, 1.0, 2.0, 2.0, 3.0, 3.5],
+                                          "values": [3.0, 4.0, 4.0, 5.0, 2.5, 2.5]}}}
     ys = {}
     for model_type in ("cellml", "casadi_python"):
         h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
