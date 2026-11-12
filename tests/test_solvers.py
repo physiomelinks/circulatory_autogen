@@ -2129,3 +2129,41 @@ def test_myokit_reads_a_constant_that_was_never_logged():
     expected = sim.qname_to_var[qname].eval()
     assert np.asarray(values).size >= 1
     assert float(np.asarray(values).ravel()[0]) == pytest.approx(expected)
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_default_falls_back_in_a_read_only_working_directory(
+        monkeypatch, tmp_path, generated_cellml_model_factory, temp_model_dir):
+    """CasADi writes the generated C to the working directory. When that is not writable an unset
+    jit warns and runs without jit (same trajectory); an explicit jit: true raises."""
+    import shutil as _shutil
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_rocwd", casadi_compat=True).generate()
+
+    def helper(solver_info):
+        return get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0, solver_info=solver_info)
+
+    plain = helper({"method": "cvodes", "jit": False})
+    assert plain.run()
+    ro = tmp_path / "readonly"
+    ro.mkdir()
+    ro.chmod(0o555)
+    try:
+        if os.geteuid() == 0 or os.access(ro, os.W_OK):
+            pytest.skip("directory stays writable")
+        monkeypatch.chdir(ro)
+        h = helper({"method": "cvodes"})
+        with pytest.warns(UserWarning, match="Running without jit"):
+            assert h.run()
+        np.testing.assert_allclose(h.state_traj_dm, plain.state_traj_dm, rtol=1e-12, atol=1e-12)
+        with pytest.raises(RuntimeError, match="not writable"):
+            helper({"method": "cvodes", "jit": True}).run()
+    finally:
+        ro.chmod(0o755)

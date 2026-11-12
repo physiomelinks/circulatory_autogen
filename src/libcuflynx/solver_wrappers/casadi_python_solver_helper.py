@@ -81,7 +81,7 @@ def jit_options(solver_info):
     libraries go to a private temporary directory (``directory``); its C source goes to the
     working directory under a ``libcuflynx_jit_<pid>_`` name, which _jit_build deletes.
     Raises RuntimeError when the
-    'shell' plugin's C compiler is not on PATH."""
+    'shell' plugin's C compiler is not on PATH or the working directory is not writable."""
     compiler = solver_info.get('compiler') or 'shell'
     options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
     if compiler == 'shell':
@@ -94,6 +94,11 @@ def jit_options(solver_info):
                 f"on by default), but {executable!r} is not on PATH. Install gcc or clang, "
                 f"name one with solver_info jit_options: {{compiler: <path>}}, or set "
                 f"solver_info jit: false.")
+        if not os.access(os.getcwd(), os.W_OK):
+            raise RuntimeError(
+                f"casadi_integrator jit: CasADi writes its generated C source to the working "
+                f"directory, {os.getcwd()!r}, which is not writable. Run from a writable "
+                f"directory or set solver_info jit: false.")
     # jit_cleanup would look for the source under ``directory``; _jit_build removes it.
     return {'jit': True, 'compiler': compiler, 'jit_options': options,
             'jit_name': _JIT_NAME, 'jit_cleanup': False}
