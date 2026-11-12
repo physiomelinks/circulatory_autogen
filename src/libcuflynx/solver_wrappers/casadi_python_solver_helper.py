@@ -59,8 +59,9 @@ def _remove_jit_dir(path):
 @contextlib.contextmanager
 def _jit_build(enabled):
     """Around a step that builds or first calls a jit integrator. CasADi writes the generated C
-    source to the working directory (its name can only be a prefix, not a path), so this
-    serialises jit builds and deletes that source afterwards. The working directory is never changed."""
+    source to the working directory or, in newer versions, to the private jit directory (its name
+    can only be a prefix, not a path), so this serialises jit builds and deletes that source from
+    both afterwards. The working directory is never changed."""
     if not enabled:
         yield
         return
@@ -69,9 +70,10 @@ def _jit_build(enabled):
         try:
             yield
         finally:
-            for path in glob.glob(os.path.join(glob.escape(cwd), _JIT_NAME + '*.c')):
-                with contextlib.suppress(OSError):
-                    os.remove(path)
+            for folder in {cwd, _jit_dir()}:
+                for path in glob.glob(os.path.join(glob.escape(folder), _JIT_NAME + '*.c')):
+                    with contextlib.suppress(OSError):
+                        os.remove(path)
 
 
 def jit_options(solver_info):
