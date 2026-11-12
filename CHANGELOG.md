@@ -21,6 +21,10 @@ next release; add to that section as you land a change.
   trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
   method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
   adjoint integrator is gone.
+- casadi_integrator `cvodes` / `idas` use the `csparse` (sparse LU) linear solver instead of CasADi's
+  default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
+  (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
+  `solver_info.options: {linear_solver: ...}`.
 - `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
   casadi_integrator's right-hand side and derivatives to C, once per process per model,
   timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
