@@ -2167,3 +2167,21 @@ def test_casadi_jit_default_falls_back_in_a_read_only_working_directory(
             helper({"method": "cvodes", "jit": True}).run()
     finally:
         ro.chmod(0o755)
+
+
+@pytest.mark.solver
+def test_jit_build_removes_generated_c_from_the_cwd_and_the_private_jit_dir(tmp_path, monkeypatch):
+    """Depending on the CasADi version the generated C source lands in the working directory or in
+    the private jit directory; _jit_build removes this process's source from both and leaves
+    other files alone."""
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.chdir(tmp_path)
+    private = helper_module._jit_dir()
+    mine = [tmp_path / f"{helper_module._JIT_NAME}abc.c", os.path.join(private, f"{helper_module._JIT_NAME}def.c")]
+    other = tmp_path / "keep.c"
+    other.write_text("x")
+    with helper_module._jit_build(True):
+        for m in mine:
+            open(m, "w").write("x")
+    assert not any(os.path.exists(m) for m in mine)
+    assert other.exists()
