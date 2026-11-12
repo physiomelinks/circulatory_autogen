@@ -1718,3 +1718,22 @@ def test_cvode_for_a_cpp_model_is_unchanged(tmp_path, capsys):
     assert 'using CVODE_myokit' not in capsys.readouterr().out
     assert 'CVODE' in SOLVER_SCHEMA['solvers_by_model_type']['cpp']
     assert SOLVER_SCHEMA['solver_aliases_by_model_type'] == {'cellml': {'CVODE': 'CVODE_myokit'}}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('model_type, solver, method', [
+    ('aadc_python', 'aadc_semi_implicit', 'implicit_newton'),
+    ('casadi_python', 'casadi_integrator', 'cvodes'),
+    # not in default_method_by_solver, not a CellML/CVODE solver: the generic fallback
+    ('python', 'solve_ivp', 'RK45'),
+])
+def test_a_solver_with_no_method_gets_its_default(base_user_inputs, tmp_path,
+                                                  model_type, solver, method):
+    """The parser fills solver_info['method'] from default_method_by_solver, else RK45."""
+    inp = dict(base_user_inputs, model_type=model_type,
+               generated_models_dir=str(tmp_path / 'generated'))
+    inp.pop('solver', None)
+    inp['solver_info'] = {'solver': solver}
+    out = YamlFileParser().parse_user_inputs_file(
+        inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    assert out['solver_info']['method'] == method
