@@ -148,6 +148,10 @@ class SimulationHelper(ExperimentTimeMixin):
         if self.solve_ivp_method in ('cvodes', 'idas'):
             integrator_opts['reltol'] = self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8))
             integrator_opts['abstol'] = self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10))
+            # CasADi's default sparse QR mis-solves the ill-conditioned Newton matrix I - gamma*J of
+            # stiff circulatory models; sparse LU with pivoting (as CVODE_myokit uses) does not.
+            # Override with ``options: {linear_solver: ...}``.
+            integrator_opts['linear_solver'] = 'csparse'
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
