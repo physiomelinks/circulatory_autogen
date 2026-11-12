@@ -1,6 +1,8 @@
 """benchmarks/solver_comparison.py runs on one tiny model with whichever backend is installed."""
 import importlib.util
 import json
+import re
+import sys
 
 import pytest
 
@@ -35,6 +37,13 @@ def test_myokit_alone(tmp_path):
     assert row['max_rel_err'] == 0.0
     assert row['steps'] > 0 and row['rhs_evals'] > 0
     assert '| lotka_volterra | 2 | CVODE_myokit (reference) |' in table
+    # the SUNDIALS build Myokit loaded is recorded, with the optimisation caveat
+    assert set(row['sundials']) == {'path', 'version'}
+    assert report['myokit_sundials'] == row['sundials']
+    if sys.platform.startswith('linux'):
+        assert 'libsundials' in row['sundials']['path']
+        assert re.fullmatch(r'\d+\.\d+\.\d+', row['sundials']['version'])
+    assert 'depend on SUNDIALS being an optimised build' in table
 
 
 @pytest.mark.unit

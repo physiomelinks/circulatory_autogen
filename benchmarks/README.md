@@ -42,6 +42,10 @@ python benchmarks/solver_comparison.py --rtol 1e-8 --atol 1e-10 --max-step 1e-4 
 ```
 
 Results go to `benchmarks/_results/solver_comparison/` (`--out`) as JSON and a Markdown table.
+They record which SUNDIALS library Myokit loaded (path and version, read from the process maps on
+Linux, `unknown` elsewhere). **Myokit's timings depend on SUNDIALS being an optimised build**: one
+built with CMake and no build type (`-O0`) makes Myokit 3-5x slower than a Release build, which
+would flatter the other backends. Point `~/.config/myokit/myokit.ini` (`[sundials]`) at a Release build.
 `tests/test_solver_comparison_benchmark.py` runs it on Lotka-Volterra; the `test-libopencor` CI job
 runs it on all three models and adds the table to the job summary.
 
