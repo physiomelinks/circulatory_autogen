@@ -31,6 +31,8 @@ next release; add to that section as you land a change.
   CasADi 3.7 does not differentiate through a jit-compiled CVODES integrator). With `jit` unset
   and no C compiler, it runs without jit and warns; an explicit `jit: true` is then an error.
   `jit: false` turns it off.
+  A jit build never changes the working directory: objects and library go to a private temp
+  directory and the generated C (which CasADi writes to the cwd) is deleted after the build.
 - `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
   when none is named.
 - With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a

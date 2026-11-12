@@ -850,6 +850,55 @@ def test_casadi_cvodes_jit_matches_the_interpreted_integrator(
 
 @pytest.mark.integration
 @pytest.mark.solver
+def test_casadi_jit_never_changes_the_working_directory(
+        generated_cellml_model_factory, temp_model_dir, tmp_path, monkeypatch):
+    """A jit build and run leaves the process's working directory alone (other threads do
+    relative-path I/O), leaves no generated C or objects in it afterwards, and keeps the objects and
+    library in the private jit directory."""
+    import shutil as _shutil
+    import threading
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    # a module name of its own, so the process-wide integrator cache does not skip the build
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit_cwd", casadi_compat=True).generate()
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    cwd = os.getcwd()
+
+    def refuse(path):
+        raise AssertionError(f"os.chdir({path!r}) during a jit build")
+    monkeypatch.setattr(os, "chdir", refuse)
+
+    seen, stop = set(), threading.Event()
+
+    def sample():
+        while not stop.is_set():
+            seen.add(os.getcwd())
+    sampler = threading.Thread(target=sample)
+    sampler.start()
+    try:
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": True})
+        assert h.run()
+    finally:
+        stop.set()
+        sampler.join()
+    assert seen == {cwd} and os.getcwd() == cwd
+    assert os.listdir(workdir) == [], "jit left files in the working directory"
+    private = helper_module._jit_dir()
+    assert not [f for f in os.listdir(private) if f.endswith(".c")]
+    assert [f for f in os.listdir(private) if f.endswith(".so")], "no library in the private dir"
+
+
+@pytest.mark.integration
+@pytest.mark.solver
 def test_casadi_jit_default_falls_back_without_a_compiler(
         monkeypatch, generated_cellml_model_factory, temp_model_dir):
     """jit is on by default. With no C compiler an unset jit runs without it and warns once;
