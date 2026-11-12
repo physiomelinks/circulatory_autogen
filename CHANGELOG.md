@@ -29,8 +29,10 @@ next release; add to that section as you land a change.
   (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
 - `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
   casadi_integrator's right-hand side and derivatives to C, once per process per model,
-  timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
-  CasADi 3.7 does not differentiate through a jit-compiled CVODES integrator). With `jit` unset
+  timeline and options, for forward runs and, on CasADi >= 3.8, for the AD gradient too
+  (about 2.4x faster per gradient on a 2 s physiological run, after a one-off compile of the
+  sensitivity functions; CasADi 3.7 does not differentiate through a jit-compiled CVODES
+  integrator, so there the AD graph stays interpreted). With `jit` unset
   and no C compiler or a non-writable working directory, it runs without jit and warns; an
   explicit `jit: true` is then an error. `jit: false` turns it off.
   A jit build never changes the working directory: objects and library go to a private temp

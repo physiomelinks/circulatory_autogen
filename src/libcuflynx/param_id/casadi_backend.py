@@ -129,6 +129,25 @@ def functions_cache_key(pid, param_names, get_all_series):
 FORWARD_SENSITIVITY_METHODS = ('cvodes', 'idas')
 
 
+def _jit_in_graph(pid):
+    """True when the symbolic (AD) integrator of ``pid.sim_helper`` is jit-compiled."""
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import jit_supports_ad
+    build = getattr(pid.sim_helper, '_build_integrator_opts', None)
+    return bool(jit_supports_ad() and build is not None and build().get('jit', False))
+
+
+def _jit_scope(pid):
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import _jit_build
+    return _jit_build(_jit_in_graph(pid))
+
+
+def _call_jit(pid, func, *args):
+    """``func(*args)``, serialised and cleaned up like a jit build: the first call of a gradient
+    Function compiles its sensitivity functions."""
+    with _jit_scope(pid):
+        return func(*args)
+
+
 def jacobian(pid, expr, arg):
     """d(expr)/d(arg), (expr.numel() x arg.numel()), by forward sensitivities on the SUNDIALS
     methods (FORWARD_SENSITIVITY_METHODS) and by ca.jacobian otherwise."""
@@ -138,7 +157,9 @@ def jacobian(pid, expr, arg):
     n = arg.numel()
     eye = ca.DM.eye(n)
     seeds = [[eye[:, i]] for i in range(n)]
-    sens = ca.forward([ca.reshape(expr, -1, 1)], [arg], seeds)
+    # With a jit integrator (CasADi >= 3.8) ca.forward compiles the sensitivity functions.
+    with _jit_scope(pid):
+        sens = ca.forward([ca.reshape(expr, -1, 1)], [arg], seeds)
     return ca.horzcat(*[s[0] for s in sens])
 
 
@@ -264,8 +285,8 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
 def get_jac_cost(pid, param_vals):
     param_names = pid.param_id_info["param_names"]
     build_functions(pid, param_names, param_vals)
-    per_member = np.array(
-        pid.jac_cost_func(pid.sim_helper.states, pid.sim_helper.variables)).flatten()
+    per_member = np.array(_call_jit(
+        pid, pid.jac_cost_func, pid.sim_helper.states, pid.sim_helper.variables)).flatten()
     # sum_i (dJ/dp_i) * dp_i/dtheta -- a no-op for ungrouped rows (one member, weight 1).
     return fold_entry_rows(per_member, pid._casadi_entry_map,
                            len(pid.param_id_info["param_names"]))
@@ -301,7 +322,7 @@ def get_observable_sensitivities(pid, param_vals):
         'obs_jac_func',
         [pid.sim_helper.states_symb, pid.sim_helper.variables_symb],
         [jac_symb])
-    jac = np.array(jac_func(pid.sim_helper.states, pid.sim_helper.variables))  # [rows x members]
+    jac = np.array(_call_jit(pid, jac_func, pid.sim_helper.states, pid.sim_helper.variables))  # [rows x members]
     jac = fold_entry_rows(jac, pid._casadi_entry_map, len(flat_names))  # [rows x entries]
 
     # obs_meta slices obs_vec by (field, observable-item, size); the single 'const' entry holds

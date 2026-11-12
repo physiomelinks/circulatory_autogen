@@ -8,6 +8,7 @@ work correctly for various models.
 import os
 import re
 import sys
+import types
 import pytest
 import numpy as np
 import shutil
@@ -895,6 +896,109 @@ def test_casadi_jit_never_changes_the_working_directory(
     private = helper_module._jit_dir()
     assert not [f for f in os.listdir(private) if f.endswith(".c")]
     assert [f for f in os.listdir(private) if f.endswith(".so")], "no library in the private dir"
+
+
+def _spy_integrator_builds(monkeypatch, helper_module):
+    """Record the options of every CVODES integrator the helper builds."""
+    cls = helper_module.SimulationHelper
+    real = cls._sundials_integrator
+    built = []
+
+    def spy(self, grid, n_traced, opts):
+        built.append(dict(opts))
+        return real(self, grid, n_traced, opts)
+    monkeypatch.setattr(cls, "_sundials_integrator", spy)
+    return built
+
+
+@pytest.mark.parametrize("version, expected", [
+    ("3.7.2", False), ("3.7.10", False), ("3.8.0", True), ("3.8.2", True),
+    ("3.10.1", True), ("4.0.0", True), ("3.8.0rc1", True), ("3.8", True), ("3.7", False)])
+def test_casadi_jit_supports_ad_by_version(monkeypatch, version, expected):
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module.ca, "__version__", version)
+    assert helper_module.jit_supports_ad() is expected
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_symbolic_integrator_is_plain_where_jit_cannot_be_differentiated(
+        generated_cellml_model_factory, temp_model_dir, monkeypatch):
+    """Without jit support in ca.forward (CasADi 3.7) the symbolic trajectory's integrator is
+    built without the jit options, and the numeric one with them."""
+    if shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module, "jit_supports_ad", lambda: False)
+    built = _spy_integrator_builds(monkeypatch, helper_module)
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit_plain_sym",
+                                 casadi_compat=True).generate()
+    h = get_simulation_helper(
+        model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+        dt=0.01, sim_time=1.0, pre_time=0.0,
+        solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": True})
+    assert h.run()
+    assert sorted(bool(o.get("jit")) for o in built) == [False, True]
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_ad_gradient_matches_the_interpreted_one(
+        generated_cellml_model_factory, temp_model_dir, tmp_path, monkeypatch):
+    """On CasADi >= 3.8 the symbolic integrator is jit-compiled, the forward-sensitivity gradient
+    through it equals the one through an interpreted integrator, and the generated C is deleted."""
+    import signal
+    if shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    ca = pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    from libcuflynx.param_id import casadi_backend
+    if not helper_module.jit_supports_ad():
+        pytest.skip("CasADi < 3.8 cannot differentiate through a jit integrator")
+    built = _spy_integrator_builds(monkeypatch, helper_module)
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+
+    def gradient(jit, module_name):
+        model_path = PythonGenerator(cellml, output_dir=temp_model_dir, module_name=module_name,
+                                     casadi_compat=True).generate()
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": jit})
+        h._create_param_subset([["Lotka_Volterra/alpha"], ["Lotka_Volterra/gamma"]])
+        assert h.run()
+        pid = types.SimpleNamespace(sim_helper=h)
+        cost = ca.sumsqr(h.state_traj_symb)
+        jac = casadi_backend.jacobian(pid, cost, h.variables_symb_subset)
+        func = ca.Function("g", [h.states_symb, h.variables_symb], [jac])
+        return np.array(casadi_backend._call_jit(pid, func, h.states, h.variables)).ravel()
+
+    def hang(signum, frame):
+        raise TimeoutError("AD gradient through the jit integrator did not return")
+    old = signal.signal(signal.SIGALRM, hang)
+    signal.alarm(240)
+    try:
+        built.clear()
+        plain = gradient(False, "Lotka_Volterra_ad_nojit")
+        assert not any(o.get("jit") for o in built)
+        built.clear()
+        jitted = gradient(True, "Lotka_Volterra_ad_jit")
+        assert built and all(o.get("jit") for o in built), (
+            "the symbolic integrator was not built with the jit options")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+    assert np.all(np.isfinite(plain)) and np.any(plain != 0)
+    np.testing.assert_allclose(jitted, plain, rtol=1e-9, atol=1e-12)
+    assert os.listdir(workdir) == [], "jit left files in the working directory"
+    assert not [f for f in os.listdir(helper_module._jit_dir()) if f.endswith(".c")]
 
 
 @pytest.mark.integration
