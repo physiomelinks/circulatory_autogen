@@ -38,13 +38,38 @@ def _files(*patterns):
     return found
 
 
+def _source_files():
+    return _files('src/**/*.js')
+
+
+def _definition(pattern, what):
+    """The first match of ``pattern`` (whose group 1 is the definition's body) in PhLynx's src
+    JavaScript, found by the definition's name wherever it lives."""
+    for path in _source_files():
+        with open(path, encoding='utf-8') as f:
+            match = re.search(pattern, f.read(), re.S)
+        if match:
+            return match.group(1)
+    raise AssertionError(f'{what} is not defined under src any more: has PhLynx moved it?')
+
+
 def _constant_values(name):
-    """The ``value``s of the option list ``name`` in PhLynx's src/utils/constants.js."""
-    with open(os.path.join(_phlynx(), 'src', 'utils', 'constants.js'), encoding='utf-8') as f:
-        source = f.read()
-    match = re.search(rf'export const {name}\s*=\s*\[(.*?)\]', source, re.S)
-    assert match, f'{name} is not in constants.js any more'
-    return re.findall(r"value:\s*'([^']*)'", match.group(1))
+    """The ``value``s of the option list ``export const name = [...]`` in PhLynx's src."""
+    body = _definition(rf'export const {name}\s*=\s*\[(.*?)\]', name)
+    return re.findall(r"value:\s*'([^']*)'", body)
+
+
+def _multiport_values():
+    """The multi_port values PhLynx offers: the values of ``const TYPES = {...}`` in its
+    multiport.js (None, True, Sum, Multiply)."""
+    for path in _source_files():
+        if os.path.basename(path) != 'multiport.js':
+            continue
+        with open(path, encoding='utf-8') as f:
+            match = re.search(r'const TYPES\s*=\s*\{(.*?)\}', f.read(), re.S)
+        if match:
+            return re.findall(r":\s*'([^']*)'", match.group(1))
+    raise AssertionError('the multiport TYPES map is not in a multiport.js under src any more')
 
 
 @pytest.mark.unit
@@ -80,7 +105,9 @@ def test_phlynx_s_port_lists_are_ca_s():
 
 @pytest.mark.unit
 def test_phlynx_s_multi_port_values_are_accepted_by_ca():
-    for value in _constant_values('MULTIPORT_OPTIONS'):
+    values = _multiport_values()
+    assert {'True', 'Sum'} <= set(values), values
+    for value in values:
         port = {'port_type': 'vessel_port', 'variables': ['u']}
         # 'None' is PhLynx's menu entry for no multi_port: its export leaves the key out
         # (unparseMultiport in src/utils/config.js)
