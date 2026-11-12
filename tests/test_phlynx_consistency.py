@@ -93,14 +93,34 @@ def test_phlynx_s_multi_port_values_are_accepted_by_ca():
         normalise_module_config([entry], source=f'multi_port {value!r}')
 
 
+def _function_body(source, name):
+    """The text of ``function name`` in ``source``, up to its closing brace."""
+    start = re.search(rf'function {name}\b[^{{]*\{{', source)
+    if not start:
+        return None
+    depth, pos = 1, start.end()
+    while depth and pos < len(source):
+        depth += {'{': 1, '}': -1}.get(source[pos], 0)
+        pos += 1
+    return source[start.end():pos]
+
+
 @pytest.mark.unit
 def test_the_config_keys_phlynx_exports_are_in_ca_s_schema():
-    with open(os.path.join(_phlynx(), 'src', 'services', 'export', 'ca.js'),
-              encoding='utf-8') as f:
-        source = f.read()
-    match = re.search(r'function moduleConfigEntry\b.*?return\s*\{(.*?)\n\s*\}', source, re.S)
-    assert match, 'moduleConfigEntry is not in src/services/export/ca.js any more'
-    keys = set(re.findall(r'^\s*(\w+)\s*:', match.group(1), re.M))
+    # moduleConfigEntry builds each module config entry the CA export writes; it is found by name
+    # wherever it lives under src/services
+    body = None
+    for path in _files('src/services/**/*.js'):
+        with open(path, encoding='utf-8') as f:
+            body = _function_body(f.read(), 'moduleConfigEntry')
+        if body:
+            break
+    assert body, 'moduleConfigEntry is not under src/services any more'
+    returned = re.search(r'return\s*\{(.*?)\n  \}', body, re.S)
+    assert returned, 'moduleConfigEntry no longer returns an object literal'
+    # plain keys (``key: value``) and conditional ones (``...(x && { key })`` or ``...(x && { key: v })``)
+    keys = set(re.findall(r'^\s*(\w+)\s*:', returned.group(1), re.M))
+    keys |= set(re.findall(r'\.\.\.\([^\n]*?&&\s*\{\s*(\w+)', returned.group(1)))
     assert keys, 'no keys found in moduleConfigEntry'
     allowed = set(load_schema(MODULE_CONFIG_SCHEMA)['$defs']['phlynxComponent']['properties'])
     assert keys <= allowed, sorted(keys - allowed)
