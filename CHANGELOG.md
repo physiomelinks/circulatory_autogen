@@ -29,7 +29,7 @@ next release; add to that section as you land a change.
   casadi_integrator's right-hand side and derivatives to C, once per process per model,
   timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
   CasADi 3.7 does not differentiate through a jit-compiled CVODES integrator). With `jit` unset
-  and no C compiler, it runs without jit and warns; an explicit `jit: true` is then an error.
+  and no C compiler or a non-writable working directory (CasADi writes its generated C there), it runs without jit and warns; an explicit `jit: true` is then an error.
   `jit: false` turns it off.
   A jit build never changes the working directory: objects and library go to a private temp
   directory and the generated C (which CasADi writes to the cwd) is deleted after the build.
