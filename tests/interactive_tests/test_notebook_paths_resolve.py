@@ -102,7 +102,7 @@ def test_every_repo_path_the_notebook_builds_exists(notebook):
 @pytest.mark.parametrize('notebook', _NOTEBOOKS, ids=os.path.basename)
 def test_the_notebook_does_not_hardcode_an_interpreter_or_a_home_directory(notebook):
     """`/opt/OpenCOR/python` and `/home/<someone>/...` are one machine's layout, and the
-    OpenCOR interpreter is deprecated besides."""
+    notebook runs on whichever interpreter opens it."""
     offenders = []
     for idx, source in _code(notebook):
         for bad in ('/opt/OpenCOR', '/home/', '/hpc/'):

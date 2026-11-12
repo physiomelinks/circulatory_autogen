@@ -19,12 +19,6 @@ def sanitize_for_filename(name):
     safe = re.sub(r'[^A-Za-z0-9.-]+', '_', str(name))
     return safe.strip('_') or 'output'
 import math as math
-try:
-    import opencor as oc
-    opencor_available = True
-except:
-    opencor_available = False
-    pass
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 from SALib.sample import saltelli
@@ -167,7 +161,7 @@ class sobol_SA():
                 "params_to_change": [[None]]
             }
 
-        # set up opencor simulation
+        # set up the simulation helper
         if self.protocol_info['sim_times'][0][0] is not None:
             self.sim_time = self.protocol_info['sim_times'][0][0]
         else:
