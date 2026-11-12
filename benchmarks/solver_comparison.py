@@ -34,6 +34,7 @@ import io
 import json
 import os
 import platform
+import re
 import shutil
 import statistics
 import sys
@@ -154,6 +155,29 @@ def state_names(cellml_path):
     return names
 
 
+def myokit_sundials():
+    """The SUNDIALS library the running Myokit simulation loaded: {'path', 'version'}.
+
+    Read from the process's memory maps (Linux), so call it after a Myokit run; ``'unknown'``
+    for each field elsewhere or when none is mapped. Myokit's timings depend on this build: an
+    unoptimised SUNDIALS (CMake with no build type) makes Myokit several times slower.
+    """
+    found = {'path': 'unknown', 'version': 'unknown'}
+    try:
+        with open('/proc/self/maps') as f:
+            paths = sorted({line.split(None, 5)[5].strip() for line in f
+                            if 'libsundials' in line and len(line.split(None, 5)) > 5})
+    except OSError:
+        return found
+    cores = [p for p in paths if 'libsundials_cvode' in p or 'libsundials_core' in p]
+    if cores:
+        found['path'] = cores[0]
+        match = re.search(r'\.so\.(\d+\.\d+\.\d+)$', os.path.basename(cores[0]))
+        if match:
+            found['version'] = match.group(1)
+    return found
+
+
 def solver_stats(helper):
     """CVODE's step and right-hand-side evaluation counts for the last run, where exposed."""
     simulation = getattr(helper, 'simulation', None)
@@ -192,8 +216,12 @@ def run_backend(backend, cellml_path, work_dir, outputs, args):
     repeats = [one_run() for _ in range(args.repeats)]
     if hasattr(helper, 'close_simulation'):
         helper.close_simulation()
+    if backend == 'myokit':
+        sundials = myokit_sundials()
     row = {'setup_s': setup, 'first_run_s': first, 'run_median_s': statistics.median(repeats),
            'repeats': args.repeats, **stats}
+    if backend == 'myokit':
+        row['sundials'] = sundials
     return row, {name: np.asarray(values, dtype=float) for name, values in results.items()}
 
 
@@ -252,6 +280,10 @@ def markdown(report):
                 f"{row['first_run_s']:.4f} | {row['run_median_s']:.4f} | "
                 f"{fmt(row.get('steps'), 'd')} | {fmt(row.get('rhs_evals'), 'd')} | "
                 f"{row['max_rel_err']:.1e} | {row['worst_state'] or ''} |")
+    sundials = report.get('myokit_sundials')
+    if sundials:
+        lines += ['', f"Myokit loaded SUNDIALS {sundials['version']} ({sundials['path']}). "
+                      'Myokit timings depend on SUNDIALS being an optimised build.']
     skipped = report['skipped_backends']
     if skipped:
         lines += ['', 'Skipped: ' + '; '.join(f'{b} ({why})' for b, why in skipped.items()) + '.']
@@ -323,6 +355,10 @@ def main(argv=None):
         'python': platform.python_version(), 'platform': platform.platform(),
         'skipped_backends': skipped, 'models': models,
     }
+    myokit_rows = [m['backends']['myokit'] for m in models if 'sundials' in
+                   m['backends'].get('myokit', {})]
+    if myokit_rows:
+        report['myokit_sundials'] = myokit_rows[0]['sundials']
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, 'solver_comparison.json'), 'w') as f:
         json.dump(report, f, indent=1)
