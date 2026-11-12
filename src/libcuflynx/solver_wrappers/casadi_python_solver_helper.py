@@ -1,9 +1,13 @@
+import atexit
 import contextlib
+import gc
+import glob
 import importlib.util
 import inspect
 import os
 import tempfile
 import shutil
+import threading
 import warnings
 
 import numpy as np
@@ -28,36 +32,60 @@ _INTEGRATORS = {}
 
 
 _JIT_DIR = None
+_JIT_LOCK = threading.RLock()
+#: Prefix of the C source files CasADi writes for this process's jit builds.
+_JIT_NAME = f'libcuflynx_jit_{os.getpid()}_'
+
+
+def _jit_dir():
+    """The private temporary directory (removed at exit) holding the objects and shared
+    libraries of this process's jit integrators."""
+    global _JIT_DIR
+    with _JIT_LOCK:
+        if _JIT_DIR is None or not os.path.isdir(_JIT_DIR):
+            _JIT_DIR = tempfile.mkdtemp(prefix='libcuflynx_casadi_jit_')
+            atexit.register(_remove_jit_dir, _JIT_DIR)
+        return _JIT_DIR
+
+
+def _remove_jit_dir(path):
+    """Free the jit integrators first: CasADi deletes each one's objects and library when it
+    is destroyed."""
+    _INTEGRATORS.clear()
+    gc.collect()
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @contextlib.contextmanager
-def _jit_working_directory(enabled):
-    """With jit, run in a private temporary directory: CasADi writes its generated C, objects
-    and shared libraries to the working directory, and leaves them there if the process is
-    killed."""
-    global _JIT_DIR
+def _jit_build(enabled):
+    """Around a step that builds or first calls a jit integrator. CasADi writes the generated C
+    source to the working directory (its name can only be a prefix, not a path), so this
+    serialises jit builds and deletes that source afterwards. The working directory is never changed."""
     if not enabled:
         yield
         return
-    if _JIT_DIR is None or not os.path.isdir(_JIT_DIR):
-        _JIT_DIR = tempfile.mkdtemp(prefix='libcuflynx_casadi_jit_')
-    cwd = os.getcwd()
-    os.chdir(_JIT_DIR)
-    try:
-        yield
-    finally:
-        os.chdir(cwd)
+    with _JIT_LOCK:
+        cwd = os.getcwd()
+        try:
+            yield
+        finally:
+            for path in glob.glob(os.path.join(glob.escape(cwd), _JIT_NAME + '*.c')):
+                with contextlib.suppress(OSError):
+                    os.remove(path)
 
 
 def jit_options(solver_info):
     """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
     right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
-    'shell' by default) and ``jit_options`` (default flags -O2). CasADi writes its C and objects in
-    the working directory, so the helper builds and runs jit integrators in a private temporary
-    directory (_jit_working_directory). Raises RuntimeError when the
+    'shell' by default) and ``jit_options`` (default flags -O2). CasADi's objects and shared
+    libraries go to a private temporary directory (``directory``); its C source goes to the
+    working directory under a ``libcuflynx_jit_<pid>_`` name, which _jit_build deletes.
+    Raises RuntimeError when the
     'shell' plugin's C compiler is not on PATH."""
     compiler = solver_info.get('compiler') or 'shell'
     options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
+    if compiler == 'shell':
+        options.setdefault('directory', os.path.join(_jit_dir(), ''))
     if compiler == 'shell':
         executable = options.get('compiler', 'gcc')
         if shutil.which(executable) is None:
@@ -66,7 +94,9 @@ def jit_options(solver_info):
                 f"on by default), but {executable!r} is not on PATH. Install gcc or clang, "
                 f"name one with solver_info jit_options: {{compiler: <path>}}, or set "
                 f"solver_info jit: false.")
-    return {'jit': True, 'compiler': compiler, 'jit_options': options}
+    # jit_cleanup would look for the source under ``directory``; _jit_build removes it.
+    return {'jit': True, 'compiler': compiler, 'jit_options': options,
+            'jit_name': _JIT_NAME, 'jit_cleanup': False}
 
 class SimulationHelper(ExperimentTimeMixin):
     """
@@ -867,10 +897,10 @@ class SimulationHelper(ExperimentTimeMixin):
             # The symbolic trajectory (AD) calls an integrator without jit: CasADi 3.7 does not
             # return from ca.forward through a jit-compiled CVODES integrator.
             plain_opts = {k: v for k, v in integrator_opts.items()
-                          if k not in ('jit', 'compiler', 'jit_options')}
+                          if k not in ('jit', 'compiler', 'jit_options', 'jit_name', 'jit_cleanup')}
             for opts in (integrator_opts, plain_opts):
                 if key + (repr(opts),) not in _INTEGRATORS:
-                    with _jit_working_directory(opts.get('jit', False)):
+                    with _jit_build(opts.get('jit', False)):
                         _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
                             local, len(traced), opts)
             U = None
@@ -902,7 +932,7 @@ class SimulationHelper(ExperimentTimeMixin):
         # Numeric pass: the initial state and integrator parameters at the current values,
         # then the integrator on numbers. x0_symb may be the symbolic end state of the
         # previous sub-experiment (AD mode), so it is evaluated rather than read.
-        with _jit_working_directory(integrator_opts.get('jit', False)):
+        with _jit_build(integrator_opts.get('jit', False)):
             self.state_traj_dm = np.array(ca.horzcat(x0_num, integrate(x0_num, p_num)))
 
         # Symbolic pass, built on first access of state_traj_symb: calling the integrator on SX
@@ -967,7 +997,7 @@ class SimulationHelper(ExperimentTimeMixin):
                 "ode": self.rates_symb,
             }
             integrator_opts = self._build_integrator_opts()
-            with _jit_working_directory(integrator_opts.get('jit', False)):
+            with _jit_build(integrator_opts.get('jit', False)):
                 self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt,
                                        integrator_opts)
                 self.F_map = self.F.mapaccum(total_steps)
