@@ -5,6 +5,30 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
+
+- **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
+  OpenCOR's simulation engine as a Python library: `pip install "libcuflynx[libopencor]"`
+  (wheels for Python 3.12 or later; `[dev]` and `[all]` include it there). `solver_info` takes
+  `MaximumStep`, `MaximumNumberOfSteps`, `rtol` and `atol` (`SOLVER_INFO_FIELDS`). It supports
+  everything `CVODE_opencor` did: `pre_time`, multi-sub-experiment protocols with constant
+  `params_to_change`, `offline_pre_time`, states and `*_init` constants set by calibration,
+  results for states, algebraic variables and constants. It has no time-varying inputs
+  (`protocol_traces` / `protocol_shapes` raise `NotImplementedError`) and no forward
+  sensitivities, so calibrations with it use finite-difference gradients.
+- **Breaking:** `solver: CVODE_opencor`, which needed OpenCOR's bundled Python shell, is removed.
+  Naming it is an error that names `CVODE_libopencor`. The `opencor_helper` module, the
+  `need_opencor` test marker and the disabled `test-with-opencor` CI job are gone;
+  `need_libopencor` tests skip without libopencor and run in the `test-libopencor` job.
+  `user_run_files/python_path.sh` names `venv/bin/python` (it is read by `run_pytest.sh` only).
+- A `cellml` model with no solver named runs on `CVODE_myokit`, the schema's default, in the
+  solver factory too.
+- `benchmarks/solver_comparison.py` runs the same models (built-in, or `--model-file`) through
+  Myokit, libOpenCOR and CasADi cvodes (JIT off and on), whichever are installed, at equal
+  tolerances, maximum step and output grid, and writes setup, first-run and median run times,
+  CVODE step counts where exposed and the error against a reference backend, as JSON and
+  Markdown.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds

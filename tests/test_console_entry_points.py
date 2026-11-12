@@ -192,7 +192,6 @@ _LAUNCHER_DIR = _REPO_ROOT / "user_run_files"
 _SOURCED_HELPERS = {
     "cuflynx_entry_point.sh",
     "python_path.sh",
-    "opencor_pythonshell_path.sh",
     "load_mpi.sh",
 }
 
@@ -276,8 +275,8 @@ def test_launcher_resolves_its_command_through_the_helper(launcher):
         f"{launcher} never runs the command require_cuflynx resolved"
     )
     assert 'source python_path.sh' not in text, (
-        f"{launcher} still sources python_path.sh; that file is for the OpenCOR route only "
-        "and a pip user has no reason to have configured it"
+        f"{launcher} still sources python_path.sh; that file names run_pytest.sh's "
+        "interpreter, and a pip user has no reason to have configured it"
     )
 
 

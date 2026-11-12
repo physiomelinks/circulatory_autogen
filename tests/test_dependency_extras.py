@@ -414,7 +414,8 @@ def test_the_heavy_packages_are_not_required():
     """The list a `pip install libcuflynx` resolves. Each of these has a guarded import and a
     message naming its extra; putting any of them back here would undo that."""
     required = ' '.join(_load_pyproject()['project']['dependencies']).lower()
-    for package in ('mpi4py', 'casadi', 'pymc', 'autoemulate', 'schwimmbad', 'aadc'):
+    for package in ('mpi4py', 'casadi', 'pymc', 'autoemulate', 'schwimmbad', 'aadc',
+                    'libopencor'):
         assert package not in required, (
             '%s is an optional extra, but it is in [project] dependencies' % package)
 
@@ -422,7 +423,7 @@ def test_the_heavy_packages_are_not_required():
 @pytest.mark.unit
 def test_every_extra_the_epic_names_exists():
     extras = _load_pyproject()['project']['optional-dependencies']
-    for name in ('mpi', 'casadi', 'uq', 'emulation', 'cpp', 'dev', 'all'):
+    for name in ('mpi', 'casadi', 'libopencor', 'uq', 'emulation', 'cpp', 'dev', 'all'):
         assert name in extras, name
 
 
@@ -431,6 +432,7 @@ def test_every_extra_the_epic_names_exists():
     ('mpi', 'mpi4py'),
     ('mpi', 'schwimmbad'),
     ('casadi', 'casadi'),
+    ('libopencor', 'libopencor'),
     ('uq', 'pymc'),
     ('emulation', 'autoemulate'),
     ('aadc', 'aadc>'),
@@ -467,7 +469,7 @@ def test_all_is_every_runtime_extra():
     extras = _load_pyproject()['project']['optional-dependencies']
     referenced = {spec.split('[', 1)[1].rstrip(']') for spec in extras['all']
                   if spec.startswith('libcuflynx[')}
-    assert referenced == {'mpi', 'casadi', 'uq', 'emulation', 'cpp'}
+    assert referenced == {'mpi', 'casadi', 'libopencor', 'uq', 'emulation', 'cpp'}
 
 
 @pytest.mark.unit

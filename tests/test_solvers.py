@@ -1,7 +1,7 @@
 """
 Tests for different solver implementations.
 
-These tests verify that OpenCOR (CVODE_opencor), Myokit (CVODE_myokit), and Python BDFsolvers
+These tests verify that libOpenCOR (CVODE_libopencor), Myokit (CVODE_myokit), and Python BDFsolvers
 work correctly for various models.
 
 """
@@ -105,11 +105,11 @@ def _match_variables(ref_vars, ref_type, other_vars, other_type):
 def _check_initial_states(myokit_helper, opencor_helper, model_name):
     """
     Check that all initial STATE variables are correctly defined in the Myokit modified model
-    and compare with OpenCOR initial states.
+    and compare with libOpenCOR initial states.
 
     Args:
         myokit_helper: Myokit SimulationHelper instance
-        opencor_helper: OpenCOR SimulationHelper instance
+        opencor_helper: libOpenCOR SimulationHelper instance
         model_name: Name of the model for reporting
 
     Returns:
@@ -141,15 +141,15 @@ def _check_initial_states(myokit_helper, opencor_helper, model_name):
         for qname, idx in list(myokit_helper.state_index.items())[3:]:
             results["myokit_initial_states"][qname] = float(myokit_state[idx])
 
-    # Get OpenCOR STATE variables - need to reset and use get_init_param_vals
+    # Get libOpenCOR STATE variables - need to reset and use get_init_param_vals
     if hasattr(opencor_helper, 'reset_states') and hasattr(opencor_helper, 'get_init_param_vals'):
         opencor_helper.reset_states()
 
-        # Get all state variable names from OpenCOR
+        # Get all state variable names from libOpenCOR
         all_vars = opencor_helper.get_all_variable_names()
         state_var_names = []
         for var_name in all_vars:
-            if hasattr(opencor_helper, 'data') and hasattr(opencor_helper.data, 'states') and var_name in opencor_helper.data.states():
+            if var_name in opencor_helper._state_set:
                 state_var_names.append(var_name)
 
         # Get initial values for state variables
@@ -170,7 +170,7 @@ def _check_initial_states(myokit_helper, opencor_helper, model_name):
                         except (TypeError, ValueError, AttributeError):
                             pass
             except Exception as e:
-                print(f"Warning: Could not get OpenCOR initial states: {e}")
+                print(f"Warning: Could not get libOpenCOR initial states: {e}")
     
     # Get CellML initial states from processed model
     if hasattr(myokit_helper, 'processed_cellml_path') and myokit_helper.processed_cellml_path:
@@ -209,9 +209,9 @@ def _check_initial_states(myokit_helper, opencor_helper, model_name):
     print(f"INITIAL STATE CHECK - {model_name} model")
     print("="*80)
     print(f"Myokit initial states: {len(results['myokit_initial_states'])}")
-    print(f"OpenCOR initial states: {len(results['opencor_initial_states'])}")
+    print(f"libOpenCOR initial states: {len(results['opencor_initial_states'])}")
 
-    # Create mapping from Myokit names to OpenCOR names for comparison
+    # Create mapping from Myokit names to libOpenCOR names for comparison
     myokit_vars = sorted(results['myokit_initial_states'].keys())
     opencor_vars = sorted(results['opencor_initial_states'].keys())
 
@@ -292,11 +292,10 @@ def _get_python_model_initial_states(model_path):
 def _check_python_family_initial_states(helpers, model_name, tolerance=0.01):
     """
     Compare Python-family helpers (solve_ivp_BDF, casadi_integrator_cvodes) initial
-    states against a reference built from OpenCOR (preferred) or Myokit (fallback).
+    states against a reference built from libOpenCOR (preferred) or Myokit (fallback).
 
-    The reference uses OpenCOR-style component/variable keys. Myokit keys are
-    converted to the same format when OpenCOR is unavailable so CI can still
-    validate Python-family helpers.
+    The reference uses libOpenCOR's component/variable keys. Myokit keys are
+    converted to the same format when libOpenCOR is unavailable.
 
     Returns:
         dict with 'mismatches' list of
@@ -311,12 +310,11 @@ def _check_python_family_initial_states(helpers, model_name, tolerance=0.01):
     # Build reference state map in component/variable format
     ref_state_map = {}
     ref_label = None
-    if "CVODE_opencor" in helpers:
-        oc = helpers["CVODE_opencor"]
-        for name, val in oc.data.states().items():
-            # OpenCOR returns DataStore::DataStoreValue objects; extract numeric value
-            ref_state_map[name] = float(val.value() if hasattr(val, "value") else val)
-        ref_label = "CVODE_opencor"
+    if "CVODE_libopencor" in helpers:
+        lo = helpers["CVODE_libopencor"]
+        for name, (val,) in zip(lo._states, lo.get_init_param_vals(lo._states)):
+            ref_state_map[name] = float(val)
+        ref_label = "CVODE_libopencor"
     elif "CVODE_myokit" in helpers:
         mk = helpers["CVODE_myokit"]
         try:
@@ -940,10 +938,10 @@ def _run_and_get_initial_state(helper, state_name):
 @pytest.mark.parametrize("solver,model_type,solver_info", [
     ("CVODE_myokit", "cellml", {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000}),
     pytest.param(
-        "CVODE_opencor",
+        "CVODE_libopencor",
         "cellml",
         {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
-        marks=pytest.mark.need_opencor,
+        marks=pytest.mark.need_libopencor,
     ),
 ])
 def test_set_param_vals_updates_state_init_for_cellml_solvers(solver, model_type, solver_info, generated_cellml_model_factory):
@@ -1073,23 +1071,23 @@ def temp_model_dir(request):
 ])
 @pytest.mark.parametrize("solver,solver_info", [
     pytest.param(
-        "CVODE_opencor",
+        "CVODE_libopencor",
         {"MaximumStep": 0.0001},
-        marks=pytest.mark.need_opencor,
-    ),  # OpenCOR
+        marks=pytest.mark.need_libopencor,
+    ),  # libOpenCOR
     ("CVODE_myokit", {"MaximumStep": 0.0001}),  # Myokit
 ])
 def test_cellml_solvers(model_name, input_param_file, solver, solver_info, generated_cellml_model_factory):
     """
-    Test CellML solvers (OpenCOR CVODE_opencor and Myokit CVODE).
+    Test CellML solvers (libOpenCOR CVODE_libopencor and Myokit CVODE).
     
     Args:
         model_name: Name of the model for test identification
         model_path: Path to the CellML model file
-        solver: Solver name ('CVODE_opencor' for OpenCOR, 'CVODE_myokit' for Myokit)
+        solver: Solver name ('CVODE_libopencor' for libOpenCOR, 'CVODE_myokit' for Myokit)
         solver_info: Solver configuration dictionary
     """
-    # Skip OpenCOR tests if OpenCOR is not available
+    # Skip libOpenCOR tests if libOpenCOR is not available
     # Check if model file exists
     full_model_path = generated_cellml_model_factory(model_name, input_param_file, solver=solver)
     
@@ -1109,7 +1107,7 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
             pre_time=pre_time,
         )
     except RuntimeError as e:
-        if solver == "CVODE_opencor":
+        if solver == "CVODE_libopencor":
             pytest.skip(f"{solver} solver not available: {e}")
         pytest.fail(f"{solver} solver not available: {e}")
     
@@ -1209,7 +1207,7 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
 
     Backends exercised:
       - CVODE_myokit          (always required)
-      - CVODE_opencor         (skipped gracefully if OpenCOR unavailable)
+      - CVODE_libopencor         (skipped gracefully if libOpenCOR unavailable)
       - solve_ivp_BDF         (Python model, scipy BDF)
       - casadi_integrator_cvodes (Python model, CasADi cvodes; only when include_casadi=True,
                                   skipped gracefully if CasADi unavailable or symbolic eval fails)
@@ -1273,7 +1271,7 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
         # (== the 0.01% comparison gate), so without this the reference trajectory is only
         # converged to the gate and cross-solver agreement is build-dependent (passes locally,
         # fails on CI's sundials build). Both solvers must be well-converged for a stable compare.
-        ("CVODE_opencor",  "CVODE_opencor",    "cellml",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
+        ("CVODE_libopencor",  "CVODE_libopencor",    "cellml",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
         ("CVODE_myokit",   "CVODE_myokit",     "cellml",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
         ("solve_ivp_BDF",  "solve_ivp",        "python",        python_model_path,      {"method": "BDF", "max_step": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
     ]
@@ -1287,7 +1285,7 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
         )
 
     # Backends where unavailability is a graceful skip rather than a test failure
-    skip_on_error = {"CVODE_opencor", "casadi_integrator_cvodes", "aadc_semi_implicit"}
+    skip_on_error = {"CVODE_libopencor", "casadi_integrator_cvodes", "aadc_semi_implicit"}
 
     for helper_key, solver, model_type, model_path, solver_info in backends:
         # Skip Python-family backends if model generation already failed
@@ -1380,7 +1378,7 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
 
     Backends exercised:
     1. CVODE_myokit          — Myokit CVODE (reference)
-    2. CVODE_opencor         — OpenCOR CVODE (skipped if unavailable)
+    2. CVODE_libopencor         — libOpenCOR CVODE (skipped if unavailable)
     3. solve_ivp_BDF         — SciPy BDF on generated Python model
     4. casadi_integrator_cvodes — CasADi cvodes (only for Lotka_Volterra; skipped if unavailable)
 
@@ -1389,8 +1387,8 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
 
     Checks:
     - All active backends agree within 0.01% relative error vs CVODE_myokit.
-    - For 3compartment: Myokit↔OpenCOR initial states match (when OpenCOR present).
-    - Python-family initial states match the reference (OpenCOR or Myokit).
+    - For 3compartment: Myokit↔libOpenCOR initial states match (when libOpenCOR present).
+    - Python-family initial states match the reference (libOpenCOR or Myokit).
     """
     cellml_path = generated_cellml_model_factory(model_name, input_param_file)
     results, comparison_results, helpers = _run_all_solvers_and_compare(
@@ -1398,11 +1396,11 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
         include_casadi=include_casadi,
     )
 
-    # Check Myokit↔OpenCOR initial states when both are available
-    if "CVODE_myokit" in helpers and "CVODE_opencor" in helpers:
+    # Check Myokit↔libOpenCOR initial states when both are available
+    if "CVODE_myokit" in helpers and "CVODE_libopencor" in helpers:
         init_check = _check_initial_states(
             helpers["CVODE_myokit"],
-            helpers["CVODE_opencor"],
+            helpers["CVODE_libopencor"],
             model_name
         )
         mismatches = init_check['mismatches']
@@ -1416,7 +1414,7 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
                 mismatch_summary += f"  ... and {len(significant_mismatches) - 5} more"
             pytest.fail(f"Initial state validation failed for {model_name}:\\n{mismatch_summary}")
         else:
-            print(f"✓ Myokit↔OpenCOR initial states match within 0.01% tolerance ({len(mismatches)} minor differences found)")
+            print(f"✓ Myokit↔libOpenCOR initial states match within 0.01% tolerance ({len(mismatches)} minor differences found)")
 
     # Check Python-family initial states for all models
     py_init_check = _check_python_family_initial_states(helpers, model_name, tolerance=0.01)

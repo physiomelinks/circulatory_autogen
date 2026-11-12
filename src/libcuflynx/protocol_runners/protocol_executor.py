@@ -3,7 +3,7 @@ protocol_executor.py — shared core protocol simulation loop.
 
 ProtocolExecutor owns the multi-experiment / multi-subexperiment loop that is
 common to ProtocolRunner, ParamID, and sobol_SA.  It accepts any
-SimulationHelper (myokit, opencor, python) that has already been constructed by
+SimulationHelper (myokit, libopencor, python) that has already been constructed by
 the caller.
 
 For standalone use (without a pre-built SimulationHelper) use ProtocolRunner
@@ -20,7 +20,7 @@ class ProtocolExecutor:
     Parameters
     ----------
     sim_helper : SimulationHelper
-        Any solver-wrapper instance (myokit, opencor, python, casadi).
+        Any solver-wrapper instance (myokit, libopencor, python, casadi).
         The caller retains ownership; ProtocolExecutor does not close it.
     """
 

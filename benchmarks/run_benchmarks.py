@@ -2,10 +2,10 @@
 
 Examples
 --------
-    # everything, under the OpenCOR Python + MPI wrapper (fixed rank count)
+    # everything, under the venv + MPI wrapper (fixed rank count)
     ./benchmarks/run_benchmarks.sh --update-docs
 
-    # the CI-safe set (no OpenCOR needed), and splice the results into the docs
+    # the set CI runs, and splice the results into the docs
     python benchmarks/run_benchmarks.py --set ci --update-docs
 
     # one benchmark, with regression assertions
@@ -17,7 +17,7 @@ Examples
     ./benchmarks/run_benchmarks.sh --scaling --update-docs
     python benchmarks/run_benchmarks.py --cores 1,2,4,8 --set ci
 
-``--set ci`` selects the benchmarks that run without OpenCOR (currently all of them); that is
+``--set ci`` selects the benchmarks registered to run in CI (currently all of them); that is
 what the GitHub Actions workflow runs. ``--update-docs`` rewrites the marker-delimited results
 region of tutorial/docs/parameter-identification.md.
 """
@@ -270,8 +270,8 @@ def _build_scaling_result(name, cores, per_core):
 
 
 def _child_python():
-    """Interpreter for the mpiexec children. The OpenCOR ``pythonshell`` leaves ``sys.executable``
-    empty, so prefer the path the wrapper exports (BENCH_PYTHON), then a couple of fallbacks."""
+    """Interpreter for the mpiexec children: the path the wrapper exports (BENCH_PYTHON), then
+    a couple of fallbacks."""
     for cand in (os.environ.get("BENCH_PYTHON"), sys.executable,
                  getattr(sys, "_base_executable", None)):
         if cand and os.path.exists(cand):
@@ -393,7 +393,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--set", choices=["all", "ci"], default="all",
-                        help="'ci' = only benchmarks that run without OpenCOR (default: all)")
+                        help="'ci' = only the benchmarks CI runs (default: all)")
     parser.add_argument("--benchmark", default=None,
                         help="run a single benchmark by name (overrides --set)")
     parser.add_argument("--update-docs", action="store_true",

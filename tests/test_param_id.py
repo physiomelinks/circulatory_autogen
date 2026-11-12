@@ -2132,7 +2132,6 @@ def _build_3compartment_fsa_runner(
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.need_opencor
 def test_3compartment_fsa_longrun_gradient(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
     """Myokit CVODES forward-sensitivity gradient for the STIFF 3compartment over a LONG
@@ -2147,6 +2146,9 @@ def test_3compartment_fsa_longrun_gradient(
     correct descent direction needs. The reference FD uses a rel~1e-3 step: a convergence study
     showed rel 1e-4 sits in the integrator noise floor for this stiff oscillatory model.
     """
+    # Single-rank: under mpiexec -n >1 every rank would wait on collectives the others skip.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
     runner, _ = _build_3compartment_fsa_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
         pre_time=20.0, sim_time=2.0)
@@ -2191,7 +2193,6 @@ def test_3compartment_fsa_longrun_gradient(
 
 
 @pytest.mark.slow
-@pytest.mark.need_opencor
 def test_3compartment_fsa_multiple_init_params_chain_rule(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
     """Two parameters feeding *different* state initial values are both handled by the chain
@@ -2202,6 +2203,9 @@ def test_3compartment_fsa_multiple_init_params_chain_rule(
     multi-chain-param path (two distinct init(state) columns) that the single-param longrun test
     does not, alongside one ordinary FSA-eligible constant.
     """
+    # Single-rank: under mpiexec -n >1 every rank would wait on collectives the others skip.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
     params_for_id = [
         {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
         {'vessel_name': 'global',      'param_name': 'q_rv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
@@ -2245,7 +2249,6 @@ def test_3compartment_fsa_multiple_init_params_chain_rule(
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.need_opencor
 def test_3compartment_fsa_cost_and_gradient_combined(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
     """get_cost_and_gradient() returns the same gradient as get_jac_cost_fsa() and a cost that
@@ -2257,6 +2260,9 @@ def test_3compartment_fsa_cost_and_gradient_combined(
     agree to within the integrator noise floor (a wrong normalisation would show a factor, not
     a ~1e-5 difference).
     """
+    # Single-rank: under mpiexec -n >1 every rank would wait on collectives the others skip.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
     runner, _ = _build_3compartment_fsa_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
         pre_time=20.0, sim_time=2.0)
@@ -2321,7 +2327,6 @@ def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, gene
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.need_opencor
 def test_fsa_multisub_gradient_matches_fd(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
     """Myokit CVODES FSA gradient on a MULTI-sub-experiment protocol matches central FD.
@@ -2332,6 +2337,9 @@ def test_fsa_multisub_gradient_matches_fd(
     gradient of the later sub disagree with finite differences. Checked at an arbitrary interior
     point.
     """
+    # Single-rank: under mpiexec -n >1 every rank would wait on collectives the others skip.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
     config = _lotka_multisub_fsa_config(base_user_inputs, resources_dir, temp_output_dir,
                                         temp_generated_models_dir)
     config['param_id_method'] = 'sp_minimize'
@@ -5106,9 +5114,7 @@ def test_offline_pre_time_multisub_fsa_gradient(
     # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
     # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
     # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
-    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
-    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
-    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    # as a 6-hour CI hang with orphaned mpiexec/python processes.
     if MPI.COMM_WORLD.Get_size() > 1:
         pytest.skip("single-rank gradient check; run with one MPI rank")
 
@@ -5149,9 +5155,7 @@ def test_offline_pre_time_multisub_casadi_ad_gradient(
     # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
     # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
     # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
-    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
-    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
-    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    # as a 6-hour CI hang with orphaned mpiexec/python processes.
     if MPI.COMM_WORLD.Get_size() > 1:
         pytest.skip("single-rank gradient check; run with one MPI rank")
 

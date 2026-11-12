@@ -218,7 +218,7 @@ def test_docs_do_not_promise_the_flat_imports_still_work():
 #: How the tutorial names each backend, by solver_wrappers module.
 _BACKEND_DOC_NAMES = {
     "myokit_helper": "CVODE_myokit",
-    "opencor_helper": "CVODE_opencor",
+    "libopencor_helper": "CVODE_libopencor",
     "casadi_python_solver_helper": "casadi_python",
     "python_solver_helper": "solve_ivp",
     "aadc_python_solver_helper": "aadc_python",

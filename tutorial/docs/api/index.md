@@ -12,7 +12,7 @@ The reference pages are generated automatically from the docstrings in
 
 The repository is `circulatory_autogen`; the installable package is **`libcuflynx`**.
 Install it and import from the `libcuflynx` namespace — there is no import path to set up,
-and no checkout or OpenCOR install is required.
+and no checkout is required.
 
 ```
 pip install libcuflynx

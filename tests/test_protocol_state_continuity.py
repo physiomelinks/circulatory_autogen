@@ -3,7 +3,7 @@ Regression tests for state continuity across protocol sub-experiments.
 
 A multi-sub-experiment protocol must carry the model state forward from one
 sub-experiment to the next, exactly as if the whole horizon had been run as a
-single segment.  The OpenCOR and Python (solve_ivp) backends do this correctly;
+single segment.  The libOpenCOR and Python (solve_ivp) backends do this;
 the Myokit backend historically did NOT, because
 ``MyokitSimulationHelper.update_times`` called ``simulation.reset()`` (which
 reverts Myokit to its *default*/initial state) without restoring the carried
@@ -21,7 +21,7 @@ Backends:
 - Myokit vs Python/solve_ivp (always runs; cross-backend check that works in CI,
   since the Python backend ships with circulatory_autogen and carries state forward
   correctly).
-- Myokit vs OpenCOR (skipped when OpenCOR is unavailable, e.g. in CI).
+- libOpenCOR self-consistency and libOpenCOR vs Myokit (skipped without libopencor).
 """
 import os
 import sys
@@ -40,7 +40,7 @@ _DT = 0.1
 # matches to ~0%, while the state-reset bug still diverges by tens of percent.
 _SOLVER_INFO = {"MaximumStep": 0.01, "MaximumNumberOfSteps": 50000, "rtol": 1e-8, "atol": 1e-10}
 # Python (solve_ivp) backend uses a stiff method with matching tight tolerances so
-# its trajectory tracks the Myokit/OpenCOR CVODE solution to ~0%.
+# its trajectory tracks the Myokit/libOpenCOR CVODE solution to ~0%.
 _PY_SOLVER_INFO = {"method": "BDF", "rtol": 1e-10, "atol": 1e-12, "max_step": 0.01}
 # Lotka-Volterra oscillates, so the state at t=T/2 is far from the initial
 # condition; a backend that resets at the sub-experiment boundary diverges hard.
@@ -48,7 +48,7 @@ _STATE_BASES = ["x", "y"]
 
 # Same-backend self-consistency: only integrator cold-restart noise should remain.
 _SELF_TOL_PCT = 0.1
-# Cross-backend (Myokit vs OpenCOR) compares two different adaptive integrators,
+# Cross-backend checks compare two different adaptive integrators,
 # so a looser bound is appropriate; still far below the tens-of-percent bug.
 _CROSS_TOL_PCT = 1.0
 
@@ -94,7 +94,7 @@ def _run_segments(model_path, solver, sim_times, solver_info=_SOLVER_INFO, model
     var2idx = runner.get_var2idx_dict()
 
     def idx(base):
-        # Backend-agnostic: Myokit uses 'Component_module.var', OpenCOR/Python use
+        # Backend-agnostic: Myokit uses 'Component_module.var', libOpenCOR/Python use
         # 'Component/var'. Match the trailing variable name either way.
         for name, i in var2idx.items():
             if name.endswith(f".{base}") or name.endswith(f"/{base}"):
@@ -127,7 +127,6 @@ def _assert_agreement(reference, other, tol_pct, message):
 def test_myokit_state_continuity_across_subexperiments(lotka_volterra_cellml):
     """A [T/2, T/2] two-sub-experiment Myokit run must equal a [T] single segment.
 
-    Pure-Myokit check (no OpenCOR needed) so it runs in circulatory_autogen CI.
     Fails when update_times() resets the carried state between sub-experiments.
     """
     single = _run_segments(lotka_volterra_cellml, "CVODE_myokit", [_SIM_TIME])
@@ -144,7 +143,7 @@ def test_myokit_state_continuity_across_subexperiments(lotka_volterra_cellml):
 def test_myokit_vs_python_state_continuity(lotka_volterra_cellml, lotka_volterra_python):
     """Myokit (CVODE) and Python (solve_ivp) must agree on a multi-sub-experiment protocol.
 
-    Cross-backend check that runs in circulatory_autogen CI (no OpenCOR needed): the
+    Cross-backend check with backends installed with circulatory_autogen: the
     Python backend carries state across sub-experiment boundaries correctly, so it is
     an independent reference for the Myokit fix. Catches the case where Myokit is
     internally self-consistent but still wrong.
@@ -163,21 +162,27 @@ def test_myokit_vs_python_state_continuity(lotka_volterra_cellml, lotka_volterra
 
 @pytest.mark.integration
 @pytest.mark.solver
-@pytest.mark.need_opencor
-def test_myokit_vs_opencor_state_continuity(lotka_volterra_cellml):
-    """Myokit and OpenCOR must agree on a multi-sub-experiment protocol.
+@pytest.mark.need_libopencor
+def test_libopencor_state_continuity_across_subexperiments(lotka_volterra_cellml):
+    """A [T/2, T/2] two-sub-experiment libOpenCOR run must equal a [T] single segment."""
+    single = _run_segments(lotka_volterra_cellml, "CVODE_libopencor", [_SIM_TIME])
+    split = _run_segments(lotka_volterra_cellml, "CVODE_libopencor",
+                          [_SIM_TIME / 2, _SIM_TIME / 2])
+    _assert_agreement(
+        single, split, _SELF_TOL_PCT,
+        "libOpenCOR loses state across sub-experiment boundaries.",
+    )
 
-    Mirrors the original bug report framing. Skipped only when OpenCOR is genuinely
-    unavailable (the construction is attempted before the comparison so a real
-    OpenCOR error is not silently swallowed by a name-resolution failure).
-    """
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.need_libopencor
+def test_myokit_vs_libopencor_state_continuity(lotka_volterra_cellml):
+    """Myokit and libOpenCOR must agree on a multi-sub-experiment protocol."""
     split = [_SIM_TIME / 2, _SIM_TIME / 2]
-    try:
-        opencor = _run_segments(lotka_volterra_cellml, "CVODE_opencor", split)
-    except (RuntimeError, ImportError) as e:
-        pytest.skip(f"OpenCOR backend unavailable: {e}")
+    libopencor = _run_segments(lotka_volterra_cellml, "CVODE_libopencor", split)
     myokit = _run_segments(lotka_volterra_cellml, "CVODE_myokit", split)
     _assert_agreement(
-        myokit, opencor, _CROSS_TOL_PCT,
-        "Myokit and OpenCOR disagree on a multi-sub-experiment protocol.",
+        myokit, libopencor, _CROSS_TOL_PCT,
+        "Myokit and libOpenCOR disagree on a multi-sub-experiment protocol.",
     )

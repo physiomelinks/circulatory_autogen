@@ -1,19 +1,18 @@
 #!/bin/bash
-# Run the optimiser benchmarks with MPI, passing through any run_benchmarks.py arguments. The
-# benchmarks only need Myokit/CasADi (no OpenCOR), so they run under a plain Python venv.
+# Run the optimiser benchmarks with MPI, passing through any run_benchmarks.py arguments, under a
+# plain Python venv.
 #
 #   ./benchmarks/run_benchmarks.sh                 # all benchmarks, 1 rank
 #   ./benchmarks/run_benchmarks.sh -n 8            # all benchmarks, 8 MPI ranks
 #   ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
-#   ./benchmarks/run_benchmarks.sh --set ci        # only the CI-safe (non-OpenCOR) set
+#   ./benchmarks/run_benchmarks.sh --set ci        # only the set CI runs
 #   ./benchmarks/run_benchmarks.sh --scaling       # core-scaling study (1,2,4,8 cores)
 #
 # In --scaling / --cores mode run_benchmarks.py is the orchestrator and launches its own
 # `mpiexec -n C` children per core count, so this wrapper runs it WITHOUT an outer mpiexec.
 #
-# Interpreter selection (in order): $BENCH_PYTHON, then /venv/bin/python, then -- only as a
-# fallback -- OpenCOR's bundled pythonshell (deprecated: it is heavier, ~2 GB of RSS per MPI rank,
-# and on its way out; prefer a venv with `pip install -e ".[dev]"` + myokit/casadi).
+# Interpreter selection (in order): $BENCH_PYTHON, then /venv/bin/python, then the python_path
+# in user_run_files/python_path.sh (a venv with `pip install -e ".[dev]"`).
 #
 # The CI workflow does NOT use this wrapper: it runs `python benchmarks/run_benchmarks.py
 # --set ci` under its own Python with the pip-installed deps.
@@ -21,13 +20,12 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$SCRIPT_DIR"
 
-# Resolve the benchmark Python interpreter. Prefer a normal venv over OpenCOR's pythonshell.
+# Resolve the benchmark Python interpreter.
 if [[ -n "${BENCH_PYTHON}" ]]; then
     PY="${BENCH_PYTHON}"
 elif [[ -x /venv/bin/python ]]; then
     PY=/venv/bin/python
 else
-    # Fallback: OpenCOR's bundled pythonshell (deprecated; see header).
     source user_run_files/python_path.sh
     PY="${python_path}"
 fi
@@ -37,8 +35,7 @@ if [[ ! -x "${PY}" ]] && ! command -v "${PY}" >/dev/null 2>&1; then
     echo "scipy, pyyaml), create /venv, or fix user_run_files/python_path.sh."
     exit 1
 fi
-# Export it so the scaling orchestrator launches its mpiexec children with the same interpreter
-# (also needed because the OpenCOR pythonshell leaves sys.executable empty).
+# Export it so the scaling orchestrator launches its mpiexec children with the same interpreter.
 export BENCH_PYTHON="${PY}"
 
 # Parse -n as the MPI rank count (default 1); everything else passes to run_benchmarks.py.

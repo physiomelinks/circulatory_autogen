@@ -4,13 +4,11 @@ These interactive tutorials show how generation, sensitivity analysis, and calib
 
 # TO RUN Jupyter Notebook 
 
-Ensure OpenCOR>0.8.1 is installed on your computer. Navigate to the OpenCOR dir and run:
+In a venv with libcuflynx installed (`pip install -e ".[dev]"` from the repository root) and
+Jupyter (`pip install jupyter`), run:
 
-`
-./path/to/OpenCOR/jupyternotebook /path/to/circulatory_autogen/tutorial/interactive/generation_and_calibration.ipynb
+```
+jupyter notebook tutorial/interactive/generation_and_calibration.ipynb
+```
 
-OR
-
-./path/to/OpenCOR/jupyternotebook /path/to/circulatory_autogen/tutorial/interactive/image_to_hemodynamics_model.ipynb
-` 
-
+or `tutorial/interactive/image_to_hemodynamics_model.ipynb`.

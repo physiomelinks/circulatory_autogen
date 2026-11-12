@@ -6,14 +6,11 @@ Clone the circulatory_autogen repo into a directory of your choice, create a vir
 
 `python_path={project_dir}/.venv/bin/python`
 
-!!! warning "Deprecated: the shared OpenCOR pythonshell"
-    Earlier versions of this page pointed `python_path` at a pre-installed OpenCOR pythonshell
-    on the ABI HPC (`/hpc/farg967/OpenCOR-0-8-3-Linux/pythonshell`). **Do not use it for new
-    work.** OpenCOR's bundled interpreter is deprecated and will be replaced by
-    `pip install libopencor` into a normal environment; it also ships a dual-ABI `mpi4py` that
-    can mismatch the cluster's `mpiexec` and abort every rank with
-    `unsupported PMI version PMIx`. A venv whose `mpi4py` is built against the module you load
-    below has no such ambiguity.
+!!! note
+    Use a venv, not an OpenCOR `pythonshell`: CA does not run in OpenCOR's bundled Python (its
+    dual-ABI `mpi4py` can mismatch the cluster's `mpiexec` and abort every rank with
+    `unsupported PMI version PMIx`). For the `CVODE_libopencor` solver, make the venv with
+    Python 3.12 or later and `pip install -e ".[libopencor]"`.
 
 To run in parallel you need to load MPI **before installing `mpi4py`** and before each run. Do the following from the `{project_dir}/user_run_files` dir:
 

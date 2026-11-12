@@ -3,7 +3,7 @@ Integration coverage for interactive tutorial notebooks.
 
 These tests export notebooks to Python scripts, apply a few deterministic
 cleanups for notebook-only syntax/manual sections, and execute the resulting
-scripts in the configured OpenCOR Python environment.
+scripts with the interpreter user_run_files/python_path.sh names.
 """
 
 from __future__ import annotations
@@ -137,8 +137,6 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
             inp_data_dict["model_path"] = str((generated_models_dir / file_prefix) / f"{file_prefix}.cellml")
             inp_data_dict["uncalibrated_model_path"] = inp_data_dict["model_path"]
             inp_data_dict["DEBUG"] = True
-            inp_data_dict["solver_info"]["solver"] = "CVODE_opencor"
-            inp_data_dict["solver_info"]["method"] = "CVODE"
             """
         ),
     )
@@ -405,10 +403,9 @@ def _run_script(interpreter: str, script_path: Path, cwd: Path, env: dict[str, s
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.need_opencor
-def test_generation_and_calibration_notebook_executes_as_script(project_root, opencor_python_path, temp_output_dir):
-    if not opencor_python_path:
-        pytest.skip("Interactive notebook execution requires the configured OpenCOR Python shell.")
+def test_generation_and_calibration_notebook_executes_as_script(project_root, configured_python_path, temp_output_dir):
+    if not configured_python_path:
+        pytest.skip("Interactive notebook execution needs the interpreter user_run_files/python_path.sh names.")
 
     temp_root = Path(temp_output_dir)
     script_dir = temp_root / "generated_scripts"
@@ -422,7 +419,7 @@ def test_generation_and_calibration_notebook_executes_as_script(project_root, op
     env["INTERACTIVE_TEST_OUTPUT_DIR"] = str(temp_root.resolve())
 
     completed = _run_script(
-        opencor_python_path,
+        configured_python_path,
         script_path,
         cwd=Path(project_root),
         env=env,
@@ -454,14 +451,13 @@ def test_generation_and_calibration_notebook_executes_as_script(project_root, op
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.need_opencor
 def test_image_to_hemodynamics_notebook_executes_as_script_when_dependencies_exist(
     project_root,
-    opencor_python_path,
+    configured_python_path,
     temp_output_dir,
 ):
-    if not opencor_python_path:
-        pytest.skip("Interactive notebook execution requires the configured OpenCOR Python shell.")
+    if not configured_python_path:
+        pytest.skip("Interactive notebook execution needs the interpreter user_run_files/python_path.sh names.")
 
     temp_root = Path(temp_output_dir)
     script_dir = temp_root / "generated_scripts"
@@ -472,14 +468,14 @@ def test_image_to_hemodynamics_notebook_executes_as_script_when_dependencies_exi
     env["INTERACTIVE_TEST_OUTPUT_DIR"] = str(temp_root.resolve())
 
     required_modules = ["networkx", "tifffile", "h5py"]
-    if not _interpreter_has_modules(opencor_python_path, required_modules, env=env, cwd=temp_root):
-        pytest.skip("Image tutorial execution requires optional OpenCOR-shell modules: networkx, tifffile, and h5py.")
+    if not _interpreter_has_modules(configured_python_path, required_modules, env=env, cwd=temp_root):
+        pytest.skip("Image tutorial execution requires optional modules: networkx, tifffile, and h5py.")
 
     notebook_path = NOTEBOOK_ROOT / "image_to_hemodynamics_model.ipynb"
     script_path = _export_notebook_to_script(notebook_path, script_dir)
 
     completed = _run_script(
-        opencor_python_path,
+        configured_python_path,
         script_path,
         cwd=temp_root,
         env=env,

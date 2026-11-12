@@ -165,6 +165,12 @@ mpi = [
 casadi = [
     "casadi>=3.7.2",
 ]
+# `solver: CVODE_libopencor` -- CellML models run by libOpenCOR, OpenCOR's simulation engine as a
+# library. Its wheels are abi3 for CPython 3.12 and later only, hence the marker: on 3.10/3.11 the
+# extra installs nothing and the solver says how to get it.
+libopencor = [
+    "libopencor>=1.20261111.0; python_version >= '3.12'",
+]
 # Optional UQ backends. Kept out of the core list on purpose: pytensor builds C
 # extensions, and param_id/paramID.py is imported by every calibration run, so a hard
 # dependency would make an ordinary calibration fail to import for anyone not doing UQ.
@@ -234,6 +240,9 @@ dev = [
     # would quietly stop running the CasADi arm of eleven test modules on the jobs that
     # install `.[dev]`. A developer environment covers the code, so it carries the extra.
     "libcuflynx[casadi]",
+    # Installs on 3.12+ only (see the extra), where the CVODE_libopencor tests run; they skip
+    # elsewhere.
+    "libcuflynx[libopencor]",
 ]
 docs = [
     "mkdocs-material>=9.0",
@@ -246,6 +255,7 @@ docs = [
 all = [
     "libcuflynx[mpi]",
     "libcuflynx[casadi]",
+    "libcuflynx[libopencor]",
     "libcuflynx[uq]",
     "libcuflynx[emulation]",
     "libcuflynx[cpp]",
@@ -255,9 +265,8 @@ all = [
 # Pytest configuration
 # Run the suite with ./run_pytest.sh, which starts it under `mpiexec` (the MPI-marked tests
 # need a launcher) using the interpreter named by user_run_files/python_path.sh. Point that at
-# a venv with `pip install -e ".[dev]"` in it. It is NOT the OpenCOR Python shell: that
-# interpreter is deprecated and nothing in the default path needs it -- the default solver is
-# CVODE_myokit, and only the `need_opencor` tests want the OpenCOR backend.
+# a venv with `pip install -e ".[dev]"` in it. The CVODE_libopencor tests skip unless the
+# `libopencor` extra is installed (Python 3.12 or later).
 # Without the script: mpiexec -n 1 venv/bin/python -m pytest -p no:xdist <args>
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -274,7 +283,7 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "mpi: marks tests that require MPI",
-    "need_opencor: marks tests that require OpenCOR backend availability",
+    "need_libopencor: skipped unless libopencor is installed (the libopencor extra, Python 3.12+)",
     "need_autogen: waits for all autogeneration tests to finish before running",
     "solver: marks solver-focused tests",
     "one_rank_task: marks an autogeneration test that signals completion",

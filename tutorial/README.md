@@ -47,7 +47,7 @@ so keep them up to date when you change a public function or class.
   public class/function, add a `:::` line on the appropriate page (and a nav
   entry in `mkdocs.yml` if you add a new page).
 - `mkdocstrings` reads the source statically (it does not import it), so heavy
-  optional dependencies like OpenCOR/libCellML do not need to be installed to
+  optional dependencies like libOpenCOR/libCellML do not need to be installed to
   build the docs.
 
 ## Expected outcome

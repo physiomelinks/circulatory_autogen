@@ -134,7 +134,7 @@ Dependencies are listed in `pyproject.toml`. Installing the package in editable 
     python -m pip install -e .
     ```
 
-    When you choose `solver: CVODE` for CellML models, the project defaults that to the `CVODE_myokit` backend. Use `CVODE_opencor` explicitly only when you want the OpenCOR backend.
+    When you choose `solver: CVODE` for CellML models, the project defaults that to the `CVODE_myokit` backend. To run CellML models with libOpenCOR instead, see [Optional: the libOpenCOR solver](#optional-the-libopencor-solver).
 
 - **With development tools** (pytest, formatters, linters):
 
@@ -171,8 +171,8 @@ The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneratio
     python_path=C:\[project_dir]\.venv\Scripts\python.exe
     ```
 
-!!! warning "Do not point `python_path` at OpenCOR’s `pythonshell`"
-    That is the deprecated setup — see [Deprecated: OpenCOR-based setup](#deprecated-opencor-based-setup). The scripts contain nothing OpenCOR-specific; they only need an interpreter with the project installed. (`python_path.sh` does **not** read `opencor_pythonshell_path.sh` — that file is unused legacy and is scheduled for removal along with `python_path.sh` itself.)
+!!! note
+    `python_path.sh` only names the interpreter `run_pytest.sh` uses; relative paths are from the repository root, and the default is `venv/bin/python`.
 
 **5. Run scripts**
 
@@ -202,15 +202,15 @@ cd [project_dir]
 ./run_pytest.sh
 ```
 
-`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` you set above — no OpenCOR involved.
+`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` you set above.
 
 - `./run_pytest.sh -n 4` — `-n N` is the **MPI rank count**, *not* pytest-xdist (xdist is force-disabled, because its workers conflict with MPI ranks).
 - `./run_pytest.sh -m "not slow"` — skip the expensive tests. `-k <expr>` and any other arguments pass straight through to pytest.
-- `./run_pytest.sh -m "not need_opencor"` — **use this if you have not installed OpenCOR.** A handful of tests exercise the optional `CVODE_opencor` backend; they are marked `need_opencor` but are *not* skipped automatically, so they fail rather than skip when OpenCOR is absent. That is expected, not a broken install.
+- The `CVODE_libopencor` tests are marked `need_libopencor` and skip unless libOpenCOR is installed (see below).
 - Equivalent without the script (handy if `python_path.sh` is set for someone else’s machine):
 
     ```
-    mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist -m "not need_opencor"
+    mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist
     ```
 
 ## Optional third-party backends (not part of Circulatory Autogen)
@@ -336,100 +336,32 @@ You should now have:
 
 ---
 
-## Deprecated: OpenCOR-based setup
+## Optional: the libOpenCOR solver
 
-This section documents the **older workflow** that used **OpenCOR’s bundled Python** and `python_path.sh`. It is **not required** for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.
-
-!!! warning "OpenCOR’s `pythonshell` is deprecated — it will be replaced by `pip install libopencor`"
-    Do not build new workflows on OpenCOR’s bundled interpreter. Once
-    [libOpenCOR](https://opencor.ws/libopencor/) is available on PyPI, the OpenCOR
-    functionality will be obtained with a plain `pip install libopencor` into a
-    normal Python environment, and `pythonshell` / `python_path.sh` /
-    `opencor_pythonshell_path.sh` will be removed.
-
-    Prefer the standard `pip install -e .` setup above. Relying on the bundled
-    interpreter pins you to whatever OpenCOR ships, which causes real problems —
-    e.g. OpenCOR bundles a **dual-ABI `mpi4py`** (both an `MPI.mpich.*.so` and an
-    `MPI.openmpi.*.so`), and the variant chosen at import time may not match the
-    system `mpiexec`, aborting MPI runs with
-    `unsupported PMI version PMIx`. Pin it with `MPI4PY_MPIABI=openmpi` (or
-    `mpich`) to match your installed launcher. A pip-installed `mpi4py` builds
-    against the one system MPI and has no such ambiguity.
-
-### Install OpenCOR (legacy)
-
-Download OpenCOR (e.g. version 0.8.1) from the [OpenCOR downloads page](https://opencor.ws/downloads/index.html). A zip/tarball install in a directory you control (e.g. `~/Desktop`) is typical.
-
-!!! note
-    New to OpenCOR? See the [OpenCOR Tutorial (PDF)](https://tutorial-on-cellml-opencor-and-pmr.readthedocs.io/en/latest/_downloads/d271cfcef7e288704c61320e64d77e2d/OpenCOR-Tutorial-v17.pdf).
-
-### Legacy directory names
-
-- **`[OpenCOR_dir]`**: folder where OpenCOR is installed, e.g. `~/Desktop/OpenCOR-0-8-1-Linux/`.
-
-!!! info
-    On some HPC systems an OpenCOR tree may already exist (example path used historically: `/hpc/farg967/OpenCOR-0-8-1-Linux/`). Use your site’s path if applicable. See also [running on hpc](running-on-hpc.md).
-
-### Installing packages with OpenCOR’s pip (legacy)
-
-From `[OpenCOR_dir]`, use OpenCOR’s pip interface instead of system Python:
-
-!!! Note
-    === "Linux"
-        ```
-        ./pip install <packagename>
-        ```
-    === "Mac"
-        ```
-        ./pythonshell -m pip install <packagename>
-        ```
-    === "Windows"
-        ```
-        ./pythonshell.bat -m pip install <packagename>
-        ```
-
-To install this project from `pyproject.toml` **into OpenCOR’s Python** (editable):
+[libOpenCOR](https://opencor.ws/libopencor/) is OpenCOR's simulation engine as a Python library.
+It runs CellML models as the `CVODE_libopencor` solver, an alternative to the default
+`CVODE_myokit`:
 
 ```
-cd [project_dir]
-[OpenCOR_dir]/pip install -e .
+python -m pip install -e ".[libopencor]"
 ```
 
-(Use `./pythonshell -m pip` / `./pythonshell.bat -m pip` on Mac/Windows as above.) For development tools: `pip install -e ".[dev]"`.
+```yaml
+solver: CVODE_libopencor
+solver_info:
+  MaximumStep: 0.001
+  MaximumNumberOfSteps: 5000
+  rtol: 1.0e-8
+  atol: 1.0e-8
+```
 
-### `python_path.sh` pointed at a pythonshell (legacy)
-
-The shell scripts under `user_run_files/` read `python_path` from `[project_dir]/user_run_files/python_path.sh`. The **legacy** setup set it to an OpenCOR pythonshell:
-
-!!! Note
-    === "Linux and Mac"
-        ```
-        python_path=<OpenCOR_dir>/pythonshell
-        ```
-    === "Windows"
-        ```
-        python_path=C:\<OpenCOR_dir>\pythonshell.bat
-        ```
-        Use Windows path conventions (`C:\`, backslashes).
-
-**Do not do this for new setups** — point `python_path` at your venv instead, as in [step 4 above](#install-python-libraries-from-pyprojecttoml). The scripts still read this file either way; only the interpreter it names has changed. `python_path.sh` itself will be removed once libOpenCOR is on PyPI.
-
-### OpenCOR versions before 0.8 and SSL (legacy)
-
-!!! warning
-    In **OpenCOR versions before 0.8** you may need:
-
-    ```
-    cd [OpenCOR_dir]/python/bin
-    ./python -m pip install <packagename>
-    ```
-
-!!! warning
-    If you see **SSL errors** with OpenCOR before version 0.8 on Linux:
-
-    ```
-    cd [OpenCOR_dir]/python/bin
-    export LD_LIBRARY_PATH=[OpenCOR_dir]/lib
-    ```
-
-    Then retry pip so `libcrypto` can be found.
+- libOpenCOR's wheels need **Python 3.12 or later** (Linux, macOS, Windows). On older Pythons
+  the extra installs nothing and the solver says how to get it.
+- It compiles the model once and is several times faster per run than `CVODE_myokit` on the
+  models in `benchmarks/solver_comparison.py`; calibrations use finite-difference gradients with it.
+- It has no time-varying inputs (`protocol_traces` / `protocol_shapes`) and no forward
+  sensitivities (FSA): use `CVODE_myokit` for those.
+- The OpenCOR desktop application is still a good way to open and run a generated model by
+  hand (see [Model generation and simulation](model-generation-simulation.md)). CA does not
+  run inside OpenCOR's bundled Python: the solver name `CVODE_opencor` is an error that names
+  `CVODE_libopencor`.

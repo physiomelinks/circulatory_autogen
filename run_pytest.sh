@@ -1,17 +1,16 @@
 #!/bin/bash
-# Script to run pytest using OpenCOR's Python shell
-# This ensures tests run with the correct Python environment that includes OpenCOR
+# Runs pytest under mpiexec with the interpreter user_run_files/python_path.sh names.
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
-# Source the OpenCOR Python shell path
+# The interpreter to run the tests with
 source user_run_files/python_path.sh
 
-# Check if pytest is installed in the OpenCOR Python environment
+# Install pytest into that interpreter if it is missing
 if ! ${python_path} -m pytest --version > /dev/null 2>&1; then
-    echo "pytest is not installed in the OpenCOR Python environment."
+    echo "pytest is not installed in ${python_path}."
     echo "Installing pytest and related packages from pyproject.toml..."
     # Try to install from pyproject.toml dev dependencies first
     if [ -f "pyproject.toml" ]; then
@@ -69,7 +68,7 @@ if "${MPIEXEC_BIN}" --version 2>/dev/null | grep -qi "Open MPI"; then
     export OMPI_MCA_orte_abort_on_non_zero_status=0
 fi
 
-# Run pytest with the OpenCOR Python shell
+# Run pytest with that interpreter
 # Pass all arguments to pytest and tee output to a log file
 LOG_FILE="${SCRIPT_DIR}/log_test.log"
 touch "$LOG_FILE"

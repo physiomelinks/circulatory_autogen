@@ -14,15 +14,45 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under a Python venv + MPI (see *Interpreter* below). |
 | `batched_solver_scaling.py` | Solver benchmark (no MPI): `BE_batched_c`, `CVODES_batched_c` and `CVODE_myokit` on colonies of 2 to 512 cells, 1 and 8 threads. See *Batched CellML solvers* below. |
 | `resources/fermenter_colony/` | Its model: AdaptOrDeity's fermenter cell as a module library (licence and provenance in its README). |
+| `solver_comparison.py` | Solver benchmark (no MPI): the same CellML models through Myokit, libOpenCOR and CasADi, whichever are installed, at equal settings. See *Comparing solvers* below. |
+
+## Comparing solvers
+
+`solver_comparison.py` runs the same CellML models through every installed backend, at the same
+relative and absolute tolerance, maximum step and output grid, from the model's initial values:
+
+| Backend | Solver | Needs |
+|---|---|---|
+| `myokit` | `CVODE_myokit` | nothing beyond libcuflynx |
+| `libopencor` | `CVODE_libopencor` | `pip install "libcuflynx[libopencor]"` (Python 3.12+) |
+| `casadi` / `casadi_jit` | `casadi_integrator`, method `cvodes`, JIT off / on | `pip install "libcuflynx[casadi]"` (and a C compiler for the JIT) |
+
+A backend that is not installed is skipped with the reason, so a Myokit-only or libOpenCOR-only
+install runs it too. For each model and backend it reports setup time (flattening and compiling
+the model; for CasADi, generating its Python model first), the first run, the median of
+`--repeats` (at least 3) further runs, CVODE's steps and right-hand-side evaluations where the
+backend exposes them (Myokit), and the largest difference from the reference backend over every
+state, relative to that state's largest magnitude.
+
+```bash
+python benchmarks/solver_comparison.py                                  # lotka_volterra, goodwin, 3compartment
+python benchmarks/solver_comparison.py --models goodwin --backends libopencor
+python benchmarks/solver_comparison.py --models '' --model-file my_model.cellml --sim-time 10
+python benchmarks/solver_comparison.py --rtol 1e-8 --atol 1e-10 --max-step 1e-4 --reference libopencor
+```
+
+Results go to `benchmarks/_results/solver_comparison/` (`--out`) as JSON and a Markdown table.
+`tests/test_solver_comparison_benchmark.py` runs it on Lotka-Volterra; the `test-libopencor` CI job
+runs it on all three models and adds the table to the job summary.
 
 ## Benchmarks
 
-| Name | Model | Needs OpenCOR? | Runs in CI? |
+| Name | Model | Backend | Runs in CI? |
 |---|---|---|---|
-| `fitzhugh_nagumo` | FitzHugh-Nagumo (non-stiff, multi-modal) | no | yes |
-| `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | no (Myokit/CasADi) | yes (slow, ~20+ min) |
-| `goodwin` | Goodwin 1965 oscillator — **external CellML from the Physiome Model Repository** (non-stiff, multimodal) | no (Myokit) | yes (fast) |
-| `teusink` | Teusink 2000 yeast glycolysis — **external PMR CellML** (14 metabolite states, 90 constants, stiff regions); recovers 4 enzyme `v_max` values | no (Myokit) | yes (fast) |
+| `fitzhugh_nagumo` | FitzHugh-Nagumo (non-stiff, multi-modal) | Myokit | yes |
+| `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | Myokit/CasADi | yes (slow, ~20+ min) |
+| `goodwin` | Goodwin 1965 oscillator — **external CellML from the Physiome Model Repository** (non-stiff, multimodal) | Myokit | yes (fast) |
+| `teusink` | Teusink 2000 yeast glycolysis — **external PMR CellML** (14 metabolite states, 90 constants, stiff regions); recovers 4 enzyme `v_max` values | Myokit | yes (fast) |
 
 ### External CellML models (Goodwin)
 
@@ -37,7 +67,7 @@ work on a plain loaded CellML apply — finite differences and Myokit CVODES FSA
 backends need a CA-generated symbolic model and are not offered. To add another PMR model, drop its
 `.cellml` + obs + params-for-id into `resources/` and add a `run_*` spec the same way.
 
-All three benchmarks run on Myokit/CasADi, so none needs OpenCOR and all run in CI. AADC is
+All the benchmarks run on Myokit/CasADi and all run in CI. AADC is
 recorded as a skipped row on the 3compartment benchmark: its tape cost can only represent
 observables whose operand is a state with a reimplemented op (max/min/mean), so 3compartment's
 algebraic-variable observables (`aortic_root/u`) and its `max_minus_min` are dropped — AADC
@@ -60,10 +90,9 @@ Everything, locally with MPI:
 
 ### Interpreter
 
-The benchmarks only need Myokit/CasADi (no OpenCOR), so `run_benchmarks.sh` runs under a plain
-Python venv. It picks the interpreter in this order: **`$BENCH_PYTHON`** (explicit override) →
-**`/venv/bin/python`** (the standard project venv) → OpenCOR's bundled `pythonshell` (a
-**deprecated** fallback — heavier, ~2 GB RSS per MPI rank). Point it at your venv with either:
+`run_benchmarks.sh` runs under a plain Python venv. It picks the interpreter in this order:
+**`$BENCH_PYTHON`** (explicit override) → **`/venv/bin/python`** (the standard project venv) →
+`python_path` in `user_run_files/python_path.sh`. Point it at your venv with either:
 
 ```bash
 BENCH_PYTHON=/path/to/venv/bin/python ./benchmarks/run_benchmarks.sh --scaling
@@ -148,8 +177,8 @@ threads — an oversubscribed leg would report a contended wall-clock, not a rea
 How it works: in this mode `run_benchmarks.py` is an **orchestrator** — it launches its own
 `mpiexec -n C` child per core count (each child runs the benchmark and hands its numbers back as
 JSON), so it must *not* itself be under `mpiexec`. `run_benchmarks.sh` detects `--scaling`/`--cores`
-and drops the outer `mpiexec` automatically (and exports `BENCH_PYTHON`, since the OpenCOR
-`pythonshell` leaves `sys.executable` empty). Each child's numbers are cached under
+and drops the outer `mpiexec` automatically (and exports `BENCH_PYTHON`, so the children use the
+same interpreter). Each child's numbers are cached under
 `benchmarks/_results/<name>/scaling_<C>core.json`; `--from-cache` rebuilds the tables (and can
 `--update-docs`) from those cached JSONs without re-running anything — handy when the benchmarks
 were run separately.

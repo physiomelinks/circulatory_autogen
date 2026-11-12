@@ -1,6 +1,5 @@
-# import opencor as oc
 import numpy as np
-from libcuflynx.solver_wrappers.opencor_helper import SimulationHelper
+from libcuflynx.solver_wrappers.libopencor_helper import SimulationHelper
 import csv
 
 # TODO Finbar

@@ -14,7 +14,7 @@ class SimulationHelper(ExperimentTimeMixin):
     """SciPy-based solver for libCellML-generated Python modules.
 
     This implements the common `SimulationHelper` interface that every backend
-    (OpenCOR, Myokit, SciPy, CasADi) shares. Obtain an instance via
+    (Myokit, libOpenCOR, SciPy, CasADi) shares. Obtain an instance via
     [`get_simulation_helper`][solver_wrappers.get_simulation_helper] rather than
     constructing a backend directly. The methods documented here are available on
     all backends.

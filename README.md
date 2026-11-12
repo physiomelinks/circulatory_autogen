@@ -30,6 +30,7 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 | `libcuflynx` | **≈ 540 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
 | `libcuflynx[mpi]` | **+5 MB**, and a system MPI toolchain | multi-rank runs under `mpiexec` |
 | `libcuflynx[casadi]` | **+221 MB** | `model_type: casadi_python`, `solver: casadi_integrator`, symbolic AD gradients |
+| `libcuflynx[libopencor]` | **+37 MB**, Python 3.12 or later | `solver: CVODE_libopencor` (libOpenCOR) |
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
 | `libcuflynx[emulation]` | **+750 MB or more** | training and using surrogate models (`do_emulation` / `use_emulator`) |
 | `libcuflynx[cpp]` | +0 MB | `model_type: cpp` — needs a C++ toolchain, which pip cannot install |
@@ -147,28 +148,20 @@ Follow the instructions in the tutorial to run the project: https://physiomelink
 
 BETA MODE: This AI-generated tutorial can be used to further understand the code base: https://deepwiki.com/FinbarArgus/circulatory_autogen/1-overview
 
-# The `CVODE_opencor` solver requires OpenCOR
+# The `CVODE_libopencor` solver (optional)
 
-Every solver works from a plain install **except** `CVODE_opencor`. That backend needs the
-`opencor` Python module, which is supplied by an [OpenCOR](https://opencor.ws) installation
-and is not published on PyPI — so it cannot be shipped in a wheel and no `pip install` can
-provide it. Asking for it without OpenCOR raises an error naming the alternative rather than
-a bare `ModuleNotFoundError`.
+`CVODE_libopencor` runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
+OpenCOR's simulation engine as a Python library. Install it with
+`pip install "libcuflynx[libopencor]"`; its wheels need **Python 3.12 or later**. Without it,
+asking for the solver raises an error that says how to install it and names `CVODE_myokit`,
+the default, which needs nothing extra. See
+[Optional: the libOpenCOR solver](https://physiomelinks.github.io/circulatory_autogen/getting-started/#optional-the-libopencor-solver)
+for what it supports. The solver name `CVODE_opencor` (OpenCOR's bundled Python shell) is an
+error that names `CVODE_libopencor`.
 
-- **Use `solver: CVODE_myokit` instead.** It is a drop-in replacement: the same CellML model,
-  integrated by CVODE, with no OpenCOR involved. It is what `user_inputs.yaml` ships with,
-  and nothing else in the project needs OpenCOR.
-- **Or run inside OpenCOR**, whose bundled interpreter provides `opencor`. That route is
-  deprecated — see
-  [Deprecated: OpenCOR-based setup](https://physiomelinks.github.io/circulatory_autogen/getting-started/#deprecated-opencor-based-setup).
-
-This is expected to be replaced by a plain `pip install libopencor` once
-[libOpenCOR](https://opencor.ws/libopencor/) reaches PyPI; the bundled-interpreter route and
-the scripts that support it will be removed then.
-
-The handful of tests that exercise this backend are marked `need_opencor`. They have **no
-auto-skip**, so without OpenCOR they fail rather than skip — deselect them with
-`-m "not need_opencor"`, which is what CI does.
+Its tests are marked `need_libopencor` and skip when libOpenCOR is not installed.
+`benchmarks/solver_comparison.py` runs the same models through Myokit, libOpenCOR and CasADi,
+whichever are installed (see `benchmarks/README.md`).
 
 # Releasing
 

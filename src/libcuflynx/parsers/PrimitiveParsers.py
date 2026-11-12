@@ -23,6 +23,7 @@ except Exception:
 import re
 
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
+from libcuflynx.parsers.solver_names import REMOVED_SOLVERS, removed_solver_message
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
 from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name, DATA_REFERENCE_KEY,
@@ -131,7 +132,7 @@ SOLVER_SCHEMA = {
     'model_types': ['cellml', 'python', 'cpp', 'casadi_python', 'aadc_python',
                     'external_python'],
     'solvers_by_model_type': {
-        'cellml': ['CVODE_opencor', 'CVODE_myokit', 'BE_batched_c', 'CVODES_batched_c'],
+        'cellml': ['CVODE_myokit', 'CVODE_libopencor', 'BE_batched_c', 'CVODES_batched_c'],
         'python': ['solve_ivp'],
         # What the C++ generator (generators/cpp) emits; it reads this list as its SUPPORTED_SOLVERS.
         'cpp': ['CVODE', 'RK4', 'explEul', 'Heun', 'midpoint'],
@@ -145,8 +146,8 @@ SOLVER_SCHEMA = {
     },
     # Methods/plugins valid for each solver.
     'methods_by_solver': {
-        'CVODE_opencor': ['CVODE'],
         'CVODE_myokit': ['CVODE'],
+        'CVODE_libopencor': ['CVODE'],
         # adaptive implicit one-step methods over independent blocks of states, in generated C
         'BE_batched_c': ['backward_euler', 'trbdf2'],
         # one CVODES (BDF) per block of states, on the same generated C
@@ -189,11 +190,8 @@ SOLVER_SCHEMA = {
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
-        # CVODE_myokit, not CVODE_opencor: the default has to be a backend a pip install can
-        # actually provide, and OpenCOR is the one backend it cannot (`opencor` is not on
-        # PyPI). CVODE_opencor stays a *valid* choice everywhere else in this schema so an
-        # explicit `solver: CVODE_opencor` still validates and reaches the runtime message
-        # (or works, inside OpenCOR).
+        # CVODE_myokit: installed with libcuflynx, whereas CVODE_libopencor needs the
+        # `libopencor` extra (Python 3.12 or later).
         'cellml': 'CVODE_myokit',
         'python': 'solve_ivp',
         'cpp': 'CVODE',
@@ -227,12 +225,10 @@ SOLVER_SCHEMA['forward_methods_by_solver'] = {
     for solver, methods in SOLVER_SCHEMA['methods_by_solver'].items()
 }
 # Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml models;
-# its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
-# CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
-# CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
+# its method is 'CVODE'. CVODE_libopencor has no forward sensitivities (libOpenCOR exposes none),
+# so it is absent: its gradient is finite differences.
 SOLVER_SCHEMA['fsa_suitable_methods'] = {
     'CVODE_myokit': ['CVODE'],
-    'CVODE_opencor': ['CVODE'],
 }
 # Which integrators can be trusted on a STIFF model. A tool offering a method menu for a stiff
 # model (the cardiovascular ones are stiff) should restrict to these: the others either fail
@@ -271,7 +267,7 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     # Both L-stable, so stiff-safe.
     'BE_batched_c': ['backward_euler', 'trbdf2'],
     'CVODES_batched_c': ['CVODE'],
-    'CVODE_opencor': ['CVODE'],
+    'CVODE_libopencor': ['CVODE'],
     'CVODE': ['CVODE'],
     'solve_ivp': ['Radau', 'BDF', 'LSODA'],
     'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
@@ -317,13 +313,15 @@ _SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Relative integration tolerance.'}
 _SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Absolute integration tolerance.'}
-# The OpenCOR CVODE backend, which forwards solver_info straight into OpenCOR's own
-# odeSolverProperties() (rtol/atol translated to RelativeTolerance/AbsoluteTolerance).
-_CVODE_FAMILY_SOLVER_INFO = [
+# The libOpenCOR CVODE backend: each setting is a SolverCvode property (maximum_step,
+# maximum_number_of_steps, relative_tolerance, absolute_tolerance). Defaults mirror
+# libopencor_helper.DEFAULT_SOLVER_INFO.
+_LIBOPENCOR_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
-     'description': 'Maximum integrator step size.'},
+     'description': 'Maximum integrator step size (SolverCvode.maximum_step).'},
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
-     'description': 'Maximum number of internal integrator steps per output step.'},
+     'description': 'Maximum number of internal integrator steps per output step '
+                    '(SolverCvode.maximum_number_of_steps).'},
     _SI_RTOL, _SI_ATOL,
 ]
 
@@ -385,8 +383,8 @@ _SOLVE_IVP_SOLVER_INFO = [
 ]
 
 SOLVER_INFO_FIELDS = {
-    'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
     'CVODE_myokit': _MYOKIT_SOLVER_INFO,
+    'CVODE_libopencor': _LIBOPENCOR_SOLVER_INFO,
     # Defaults mirror solver_wrappers/batched_c_helper.py. rtol is looser than CVODE's: backward Euler
     # is first order, so its cost grows as 1/rtol.
     'BE_batched_c': [
@@ -2536,7 +2534,7 @@ class YamlFileParser(object):
             inp_data_dict['sim_time'] = None
 
         # Parse and validate the solver parameter
-        # Supported solvers: CVODE_opencor (OpenCOR), CVODE_myokit (Myokit), solve_ivp (Python), or casadi_integrator (CasADi)
+        # Supported solvers: SOLVER_SCHEMA['solvers_by_model_type']
         
         # Sourced from the module-level SOLVER_SCHEMA (single source of truth).
         _solvers = SOLVER_SCHEMA['solvers_by_model_type']
@@ -2570,6 +2568,9 @@ class YamlFileParser(object):
                       f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
                 exit()
         else:
+            if solver_name in REMOVED_SOLVERS:
+                print(removed_solver_message(solver_name))
+                exit()
             valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
                 solver_name not in valid_cpp_solvers and
@@ -2699,7 +2700,7 @@ class YamlFileParser(object):
         if solver_method in valid_solve_ivp_methods:
             if inp_data_dict.get('model_type') not in ['python', None]:
                 print(f'solve_ivp method {solver_method} requires model_type to be "python"')
-                print('Use CVODE_opencor or CVODE_myokit for CellML models')
+                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
                 print(f'Use {valid_cpp_solvers} for Cpp models')
                 exit()
 
@@ -2745,7 +2746,7 @@ class YamlFileParser(object):
         if solver_method in valid_casadi_solver_plugins:
             if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
                 print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
-                print('Use CVODE_opencor or CVODE_myokit for CellML models')
+                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
                 print(f'Use {valid_cpp_solvers} for Cpp models')
                 exit()
 
@@ -2976,6 +2977,8 @@ def validate_solver_info(solver_name, solver_info):
 
     Raises ValueError listing unsupported keys and the allowed keys for that solver.
     """
+    if solver_name in REMOVED_SOLVERS:
+        raise ValueError(removed_solver_message(solver_name))
     if solver_name not in _SOLVER_INTEGRATOR_KEYS:
         raise ValueError(
             f'Cannot validate solver_info for unknown solver {solver_name!r}. '
@@ -3013,7 +3016,7 @@ def _solver_info_default_for(model_type, solver_name):
     """``get_solver_info_default`` narrowed to the keys ``solver_name`` accepts.
 
     The defaults are per model_type, but a model_type can host backends with
-    different settings: cellml covers both CVODE_opencor (which takes
+    different settings: cellml covers both CVODE_libopencor (which takes
     MaximumNumberOfSteps) and CVODE_myokit (which has no such knob), so only the
     keys validate_solver_info accepts for ``solver_name`` are kept.
     """
