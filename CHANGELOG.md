@@ -25,6 +25,8 @@ next release; add to that section as you land a change.
   default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
   (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
   `solver_info.options: {linear_solver: ...}`.
+- A solver given no `method` gets its default from `SOLVER_SCHEMA['default_method_by_solver']`
+  (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
 - `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
   casadi_integrator's right-hand side and derivatives to C, once per process per model,
   timeline and options, for forward runs (the AD gradient's symbolic graph stays interpreted:
