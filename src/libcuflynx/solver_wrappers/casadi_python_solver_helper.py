@@ -76,6 +76,18 @@ def _jit_build(enabled):
                         os.remove(path)
 
 
+def jit_supports_ad():
+    """True when CasADi can differentiate (``ca.forward``) through a jit-compiled CVODES
+    integrator: 3.8 and newer. 3.7 does not return from that call."""
+    if ca is None:
+        return False
+    parts = []
+    for piece in str(ca.__version__).split('.')[:2]:
+        digits = ''.join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts + [0] * (2 - len(parts))) >= (3, 8)
+
+
 def jit_options(solver_info):
     """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
     right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
@@ -901,11 +913,13 @@ class SimulationHelper(ExperimentTimeMixin):
             local = [g - lo for g in seg_grid]
             key = model_key + (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
                                tuple(traced))
-            # The symbolic trajectory (AD) calls an integrator without jit: CasADi 3.7 does not
-            # return from ca.forward through a jit-compiled CVODES integrator.
-            plain_opts = {k: v for k, v in integrator_opts.items()
-                          if k not in ('jit', 'compiler', 'jit_options', 'jit_name', 'jit_cleanup')}
-            for opts in (integrator_opts, plain_opts):
+            # The symbolic trajectory (AD) uses the jit integrator where CasADi can differentiate
+            # through it (jit_supports_ad); on 3.7 it uses a non-jit one, as ca.forward does not
+            # return from a jit-compiled CVODES integrator there.
+            plain_opts = integrator_opts if jit_supports_ad() else {
+                k: v for k, v in integrator_opts.items()
+                if k not in ('jit', 'compiler', 'jit_options', 'jit_name', 'jit_cleanup')}
+            for opts in ({id(o): o for o in (integrator_opts, plain_opts)}.values()):
                 if key + (repr(opts),) not in _INTEGRATORS:
                     with _jit_build(opts.get('jit', False)):
                         _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
