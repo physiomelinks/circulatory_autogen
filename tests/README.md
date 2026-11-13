@@ -63,6 +63,11 @@ You can pass any pytest arguments to the script:
 pytest -v -s
 ```
 
+The notebook execution tests (`tests/interactive_tests/test_interactive_tutorial_notebooks.py`,
+up to 1800 s each, run with the `python_path.sh` interpreter) are marked `manual`: they are not
+collected unless you pass `--run-manual`, e.g.
+`./run_pytest.sh tests/interactive_tests/test_interactive_tutorial_notebooks.py --run-manual`.
+
 
 ## Manual Setup
 

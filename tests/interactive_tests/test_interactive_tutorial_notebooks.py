@@ -403,6 +403,7 @@ def _run_script(interpreter: str, script_path: Path, cwd: Path, env: dict[str, s
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.manual
 def test_generation_and_calibration_notebook_executes_as_script(project_root, configured_python_path, temp_output_dir):
     if not configured_python_path:
         pytest.skip("Interactive notebook execution needs the interpreter user_run_files/python_path.sh names.")
@@ -451,6 +452,7 @@ def test_generation_and_calibration_notebook_executes_as_script(project_root, co
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.manual
 def test_image_to_hemodynamics_notebook_executes_as_script_when_dependencies_exist(
     project_root,
     configured_python_path,

@@ -5,6 +5,11 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — notebook execution tests are `manual`
+
+- The two tutorial-notebook execution tests (1800 s timeout each, run with the `python_path.sh`
+  interpreter, which now defaults to `venv/bin/python`) run only with `--run-manual`.
+
 ### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
 
 - **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
