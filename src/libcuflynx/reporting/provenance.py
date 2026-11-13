@@ -542,10 +542,11 @@ def provenance_graph(output_dir):
     constants = _fixed_constants(rows, values)
     if constants:
         counts = _counts(constants)
-        extra.append({'id': FIXED_NODE, 'title': 'Fixed constants of derivations',
-                      'kind': 'values', 'mark': _mark(counts),
-                      'lines': [_fixed_line(v) for v in constants], 'status': 'done',
-                      'stale': False, 'counts': counts, 'parameters': constants, 'inputs': []})
+        # first in its row, so its arrow to the derived values (first in the next) crosses none
+        extra.insert(0, {'id': FIXED_NODE, 'title': 'Fixed constants of derivations',
+                         'kind': 'values', 'mark': _mark(counts),
+                         'lines': [_fixed_line(v) for v in constants], 'status': 'done',
+                         'stale': False, 'counts': counts, 'parameters': constants, 'inputs': []})
         edges.append({'from': FIXED_NODE,
                       'to': DERIVED_NODE if any(n['id'] == DERIVED_NODE for n in extra)
                       else TARGET_NODE, 'label': 'constants of', 'style': 'given'})

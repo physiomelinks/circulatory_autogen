@@ -157,6 +157,10 @@ def test_fixed_constants_of_a_derivation_are_drawn_with_value_and_origin(library
         ('k_gain/R', 'measured'), ('k_gain/T', 'set_by_hand'), ('k_gain/F', 'unclassified')]
     assert _edges(graph)[(FIXED_NODE, DERIVED_NODE)]['label'] == 'constants of'
     assert graph['counts']['derived'] == 1       # constants are not values of the target
+    # drawn left of the model source, so its arrow to the derived values crosses no other arrow
+    order = [n['id'] for n in graph['nodes']]
+    assert order.index(FIXED_NODE) < order.index(SOURCE_NODE) and order.index(
+        SOURCE_NODE) < order.index(DERIVED_NODE)
     # the drawing wraps long lines, so compare the text it shows, joined
     svg = ' '.join(re.findall(r'>([^<]*)</text>', provenance_svg(graph)))
     for text in ('k_gain/R', '8.314 J_per_K_per_mol, measured', '[CODATA][2018][gas_constant]',
