@@ -27,6 +27,8 @@ ALL_BACKENDS="myokit,casadi,mpi4py,cmake,sundials,aadc,libopencor"
 
 PYTEST=("$PYTHON" -m pytest -p no:xdist --tb=short -q -p no:cacheprovider)
 MPI_PYTEST=(mpiexec -n "$RANKS" "$PYTHON" -m pytest -p no:xdist --tb=short -q -p no:cacheprovider --with-mpi)
+# One rank for mpi-rest, as in CI (see test-mpi-rest in tests.yml).
+MPI1_PYTEST=(mpiexec -n 1 "$PYTHON" -m pytest -p no:xdist --tb=short -q -p no:cacheprovider --with-mpi)
 MPI_REST_IGNORES=(--ignore=tests/test_param_id.py --ignore=tests/test_sensitivity_analysis.py
                   --ignore=tests/test_profile_likelihood.py --ignore=tests/executable)
 
@@ -38,7 +40,7 @@ check_command() {
         libopencor)     echo "libopencor|${PYTEST[*]} -m 'not mpi' tests/ -k 'libopencor'" ;;
         solver-matrix)  echo "$ALL_BACKENDS|${PYTEST[*]} tests/test_solver_matrix.py" ;;
         main-*)         echo "myokit,casadi,mpi4py,cmake,sundials|${PYTEST[*]} -m 'not mpi' tests/ --ci-shard main:${1#main-}" ;;
-        mpi-rest-*)     echo "myokit,casadi,mpi4py|${MPI_PYTEST[*]} -m 'mpi and not full_scale_model' tests/ ${MPI_REST_IGNORES[*]} --ci-shard mpi-rest:${1#mpi-rest-}" ;;
+        mpi-rest-*)     echo "myokit,casadi,mpi4py|${MPI1_PYTEST[*]} -m 'mpi and not full_scale_model' tests/ ${MPI_REST_IGNORES[*]} --ci-shard mpi-rest:${1#mpi-rest-}" ;;
         param-id-*)     echo "myokit,mpi4py|${MPI_PYTEST[*]} -m 'mpi and not full_scale_model' tests/test_param_id.py tests/test_sensitivity_analysis.py tests/test_profile_likelihood.py --ci-shard param-id:${1#param-id-}" ;;
         notebooks)      echo "myokit|${PYTEST[*]} tests/interactive_tests" ;;
         *)              return 1 ;;
