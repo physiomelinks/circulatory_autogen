@@ -281,8 +281,8 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "default": 0.99,
-          "description": "pca: only the leading modes explaining this fraction of the scaled variance"
+          "default": 1.0,
+          "description": "pca: only the leading modes explaining this fraction of the scaled variance; 1 (default) is no relative cut"
         },
         "min_index": {
           "type": "number",

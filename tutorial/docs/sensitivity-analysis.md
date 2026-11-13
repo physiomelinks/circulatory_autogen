@@ -117,7 +117,17 @@ After successful execution, you will find the SA plots—including the first, se
 
 ## Parameter reduction
 
-A Sobol analysis can choose the parameters to calibrate. With `do_param_reduction: true`,
+A Sobol analysis can choose the parameters to calibrate, for two reasons:
+
+1. **Redundancy.** Parameters that move the data the same way cannot be told apart. Keep one
+   parameter per direction the data can fix. On the 3compartment study
+   (`benchmarks/param_reduction_3compartment`) calibrating all seven parameters is not
+   identifiable (the Fisher information is singular or has condition number about 1e16), while
+   the reduced fits have condition numbers of 12-16 and agree between seeds.
+2. **Noise-blindness.** A large Sobol index on an output that moves by less than its noise is
+   not worth fitting. The reduction measures every effect in units of the obs_data noise.
+
+With `do_param_reduction: true`,
 `run_sensitivity_analysis.sh` follows the Sobol run with a reduction and writes the kept entries
 of your params_for_id file as `reduced_params_for_id.json`, ready to calibrate:
 
@@ -128,7 +138,7 @@ param_reduction_options:
   # n_params: 3          # pca: at most this many; sobol: needed
   # index_type: ST       # ST or S1
   # min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)
-  # variance_fraction: 0.99  # pca
+  # variance_fraction: 1.0  # pca; 1 = no relative cut
   # min_index: 0.05      # pca
   # criterion: max       # sobol
   # threshold: 0.01      # sobol
@@ -146,7 +156,9 @@ and keeps one parameter for each:
    in which the parameters move the data, largest variance first. A mode whose std is at least
    `min_mode_std` (default 1, the noise) is **informative**; the others move the data by less
    than the noise and cannot be fitted. Only the leading modes that together explain
-   `variance_fraction` of the variance are considered.
+   `variance_fraction` of the variance are considered. The default, 1, is no relative cut. A
+   smaller value ignores the noise: a mode that moves the data by several noise stds but has a
+   small share of the variance can be dropped.
 3. Sobol indices are computed for each mode's score, from the same samples.
 4. Going through the informative modes, largest first, the reduction keeps the parameter, not
    kept already, with the largest index for that mode. A mode that no free parameter reaches
