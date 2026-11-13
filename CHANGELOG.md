@@ -23,8 +23,44 @@ next release; add to that section as you land a change.
 - A reduction step's options move from `"reduction": {"top_n": ...}` to
   `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
   is refused. Without `method`, a reduction is now `pca`.
+- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
+  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
+- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
 - `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
   run's directory rather than its indices CSV.
+
+### Added — `set` and `sweep` workflow steps
+
+- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
+  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
+  the values with `fixed_from`, and they are merged into the target. Reports, the target's
+  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
+- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
+  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
+  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
+  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
+  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
+- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
+  values merged as the target merges them, after all of them: each step's own values, in run
+  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
+  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
+  diagram draws it below the merged box, with one box under it naming the files it wrote (their
+  folder once, then each file), done only when every file exists.
+- A workflow's optional `external_figures` declares figure scripts that run outside it: the
+  command, the step or target they read from, and the files they read and write. libcuflynx never
+  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
+  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
+  declaring them after a run keeps it current.
+- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
+  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
+  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
+  they don't know, naming the version found and the versions they read; write an older run's
+  graph again with `cuflynx-provenance <output_dir>`.
+- `pack_workflow` gives an on-target sweep no model of its own: it runs on the packed target.
+- The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
+  `sweep_results` relative to the working directory and resolves them on read, as it does every
+  step's other outputs.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 

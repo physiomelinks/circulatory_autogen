@@ -213,6 +213,24 @@ def require_mpi4py():
         raise ImportError(MPI4PY_MISSING_MESSAGE)
 
 
+def run_on_root(comm, fn):
+    """``fn()`` on rank 0; its result, or the exception it raised, on every rank.
+
+    A collective that follows rank-0-only work must not be reached by some ranks only: if
+    rank 0 raised, the others would wait for it forever. Here every rank leaves through the
+    same bcast, and every rank re-raises rank 0's exception."""
+    outcome = None
+    if comm.Get_rank() == 0:
+        try:
+            outcome = ('ok', fn())
+        except BaseException as exc:  # noqa: B902 - re-raised on every rank below
+            outcome = ('error', exc)
+    outcome = comm.bcast(outcome, root=0)
+    if outcome[0] == 'error':
+        raise outcome[1]
+    return outcome[1]
+
+
 # ---------------------------------------------------------------------------
 # One rank, no MPI
 # ---------------------------------------------------------------------------

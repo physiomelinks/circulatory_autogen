@@ -953,8 +953,12 @@ def _reduce_options(raw):
      r"'output_dir' was unexpected"),
     (lambda w: _steps(w)['reduce'].update(settings={}),
      "'param_reduction_options' is a required property"),
+    (lambda w: w.update(settings={'param_reduction_options': {}}),
+     "workflow's settings have no param_reduction_options; .*that step's \"settings\""),
+    (lambda w: _steps(w)['fit'].update(settings={'param_reduction_options': {}}),
+     'step "fit" is not a reduction step'),
     (lambda w: _steps(w)['reduce']['settings'].update(sa_options={'method': 'sobol'}),
-     'only setting is "param_reduction_options"'),
+     "'sa_options' was unexpected"),
     (lambda w: _steps(w)['reduce'].update(reduction={'top_n': 1}), "'reduction' was unexpected"),
     (lambda w: _steps(w)['reduce'].update(sensitivity_from='fit_a'),
      '"sensitivity_from" names "fit_a", a calibration step; it takes a sensitivity step'),
@@ -1323,3 +1327,29 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     assert _merged(result) == pytest.approx({'A/p': np.sqrt(Y_A / 2), 'C/q': q}, rel=0.03)
     assert {r['parameterisation_name']: r['from_step'] for r in result['merged_parameters']} \
         == {'A/p': 'fit_a', 'C/q': 'posterior'}
+
+
+@pytest.mark.unit
+def test_an_empty_reduction_options_is_pca_with_every_default(library):
+    from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
+    raw = _raw(library, 'chain_analysed')
+    _steps(raw)['reduce']['settings'] = {'param_reduction_options': {}}
+    workflow = parse_workflow(raw, path=library['chain_analysed'])
+    step = workflow.step('reduce')
+    assert step.reduction == ParamReduction.from_options({}).as_dict()
+    assert step.reduction['method'] == 'pca'
+
+
+@pytest.mark.unit
+def test_new_style_reduction_set_and_sweep_steps_validate_together(library):
+    """A reduction step with settings.param_reduction_options, a set step and a sweep step in
+    one workflow all validate (the set/sweep checks do not refuse the reduction step)."""
+    raw = _raw(library, 'chain_analysed')
+    assert 'param_reduction_options' in _steps(raw)['reduce']['settings']
+    raw['steps'].append({'id': 'hand', 'kind': 'set', 'set': [
+        {'parameter': 'lin/a', 'value': 1.0, 'reason': 'test'}]})
+    raw['steps'].append({'id': 'dose', 'kind': 'sweep', 'on_target': True,
+                         'settings': {'dt': 1.0, 'sim_time': 2.0}, 'sweep': {'outputs': ['lin/z'], 'parameters': {}}})
+    workflow = parse_workflow(raw, path=library['chain_analysed'])
+    assert [workflow.step(i).kind for i in ('reduce', 'hand', 'dose')] == [
+        'reduction', 'set', 'sweep']

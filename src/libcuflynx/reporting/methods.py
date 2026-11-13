@@ -385,10 +385,12 @@ def _read_parameters(path):
     return model_parameter_rows(path)
 
 
-def _parameter_sources(parameter_rows, entries, calibrated):
+def _parameter_sources(parameter_rows, entries, calibrated, set_by_hand=None):
     '''``{model name: source in LaTeX}``: a calibrated parameter names the step section that
-    calibrated it (``calibrated`` maps a model name to a step id); any other parameter's
-    data_reference, with its BibTeX keys cited. Returns the sources and the keys cited.'''
+    calibrated it (``calibrated`` maps a model name to a step id), a parameter a set step
+    declares names that step and its reason (``set_by_hand`` maps a model name to ``(step id,
+    reason)``); any other parameter's data_reference, with its BibTeX keys cited. Returns the
+    sources and the keys cited.'''
     sources, keys = {}, set()
     for row in parameter_rows:
         name = row.get('variable_name')
@@ -396,6 +398,11 @@ def _parameter_sources(parameter_rows, entries, calibrated):
             step = calibrated[name]
             sources[name] = (f'Calibrated in step {_tt(step)} '
                              f'(Section~\\ref{{sec:step:{step.replace("_", "-")}}})')
+        elif name in (set_by_hand or {}):
+            step, reason = set_by_hand[name]
+            sources[name] = (f'Set by hand in step {_tt(step)} '
+                             f'(Section~\\ref{{sec:step:{step.replace("_", "-")}}}): '
+                             f'{escape(reason)}')
         else:
             reference = row.get('data_reference') or ''
             sources[name] = cite(reference, entries) if reference else ''
@@ -438,7 +445,9 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'sensitivity': ('sensitivity analysis', 'sensitivity analyses'),
               'reduction': ('reduction', 'reductions'),
               'emulation': ('emulator training', 'emulator trainings'),
-              'identifiability': ('identifiability analysis', 'identifiability analyses')}
+              'identifiability': ('identifiability analysis', 'identifiability analyses'),
+              'set': ('step of values set by hand', 'steps of values set by hand'),
+              'sweep': ('parameter sweep', 'parameter sweeps')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -461,7 +470,7 @@ def _step_section(step, symbols, entries=()):
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) == 'reduction':
+    if _kind(step) in ('reduction', 'set'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
@@ -473,15 +482,24 @@ def _step_section(step, symbols, entries=()):
     if step['fixed_from'] or step.get('result_from'):
         fixed = (step.get('result') or {}).get('fixed') or []
         given = step['fixed_from'] + ([step['result_from']] if step.get('result_from') else [])
+        hand_set = step.get('hand_sources') or []
         if fixed:
             values = ', '.join(f'{symbols["target"].model_name(_target_name(f, step))}'
-                               f'$\\,=\\,${_number(f["value"])} (from {escape(f["from_step"])})'
+                               f'$\\,=\\,${_number(f["value"])} '
+                               f'({"set by hand in" if f.get("origin") else "from"} '
+                               f'{escape(f["from_step"])})'
                                for f in fixed)
-            out.append(f'The values calibrated in earlier steps were fixed: {values}.')
+            lead = ('Values from earlier steps were fixed' if hand_set else
+                    'The values calibrated in earlier steps were fixed')
+            out.append(f'{lead}: {values}.')
         else:
-            out.append('The values calibrated in step' + ('s ' if len(given) > 1 else ' ')
+            word = 'of' if hand_set else 'calibrated in'
+            out.append(f'The values {word} step' + ('s ' if len(given) > 1 else ' ')
                        + ', '.join(escape(s) for s in given)
                        + ' were fixed in this step\'s model.')
+    if _kind(step) == 'sweep':
+        out.append(r'\paragraph{Method.} ' + _analysis_method(step))
+        return '\n\n'.join(out)
     for prior in step['priors_from']:
         out.append(f'The parameters calibrated in step {escape(prior["step"])} were '
                    f'calibrated again, with a joint prior from that step\'s stored posterior: '
@@ -523,6 +541,19 @@ ANALYSED = {'sensitivity': 'whose influence was analysed',
 
 def _analysis_method(step):
     settings, kind = step['settings'], _kind(step)
+    if kind == 'sweep':
+        sweep = step['sweep']
+        model = ('The merged target, with every calibrated and hand-set value,'
+                 if step.get('on_target') else 'The model')
+        if not sweep['parameters']:
+            return f'{model} was run through the protocol once. Its values were passed to no other step.'
+        design = ('each in turn, with the others at the model\'s values'
+                  if sweep['design'] == 'one_at_a_time' else 'in every combination')
+        together = ''.join(f' {_join([_tt(name) for name in group])} moved together.'
+                           for group in sweep.get('zip') or [])
+        return (f'{model} was run at each value of '
+                + _join([_tt(name) for name in sweep['parameters']]) + f', {design}.'
+                + together + ' Its values were passed to no other step.')
     if kind == 'sensitivity':
         sa = settings.get('sa_options') or {}
         if sa.get('method', 'sobol') == 'sobol':
@@ -569,7 +600,10 @@ def _step_intro(step):
                 + (f'component {s["mode"]}, ' if s.get('mode') else '')
                 + f'{_number(s["score"])})' for s in selected]) + '.'
         return text
-    m, obs = step['model'], _tt(os.path.basename(step['obs_path']))
+    if _kind(step) == 'set':
+        lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
+        return 'This step sets values by hand: ' + '; '.join(lines) + '.'
+    m = step['model']
     if 'module_array' in m:
         what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
         where = ''
@@ -579,10 +613,13 @@ def _step_intro(step):
         where = f', {_tt(step["place"])} in the target' if step.get('place') else ''
     verb = {'calibration': 'calibrates', 'sensitivity': 'analyses the sensitivity of',
             'emulation': 'trains an emulator of',
-            'identifiability': 'analyses the identifiability of'}[_kind(step)]
+            'identifiability': 'analyses the identifiability of',
+            'sweep': 'sweeps parameters of'}[_kind(step)]
     at = (f', at the values calibrated in step {escape(step["result_from"])}'
           if step.get('result_from') else '')
-    return f'This step {verb} {what}{where}{at}, against the observations in {obs}.'
+    against = (f', against the observations in {_tt(os.path.basename(step["obs_path"]))}'
+               if step['obs_path'] else '')
+    return f'This step {verb} {what}{where}{at}{against}.'
 
 
 def _array_label(model):
@@ -652,8 +689,14 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'emulator_from': step.emulator_from, 'result_from': step.result_from,
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
+            'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
+            'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
-        if step.model is not None:
+        if step.kind == 'sweep':
+            entry.update({'model': step.model.as_dict(), 'place': rs.place,
+                          'to_target': rs.to_target, 'obs_path': rs.obs_data_path,
+                          'obs': {}, 'params': []})
+        elif step.model is not None:
             # a calibration of a reduction's choice: what it kept, once it has run; until
             # then every parameter it chooses from
             params_path = ((result or {}).get('params_for_id_used') or step.params_for_id
@@ -687,20 +730,28 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     if flowchart_only:
         return _document(figure, f'Calibration of {workflow.name}', standalone)
 
-    calibrated = {}
+    # the later step's value is the one merged
+    calibrated, set_by_hand = {}, {}
     for step in workflow.topological_order():
+        rs = resolved.steps[step.id]
+        if step.kind == 'set':
+            for parameter, entry in zip(rs.parameters, step.set_values):
+                name = rs.target_model_name(parameter)
+                set_by_hand[name] = (step.id, entry['reason'])
+                calibrated.pop(name, None)
         if step.kind != 'calibration':
             continue
         result = results.get(step.id)
         if result:
             names = [r['target_model_name'] for r in result['calibrated']]
         else:
-            rs = resolved.steps[step.id]
             names = [rs.target_model_name(p) for p in rs.parameters]
         calibrated.update({name: step.id for name in names})
+        for name in names:
+            set_by_hand.pop(name, None)
     bib_files = workflow_bib_files(resolved) if bib_files is None else list(bib_files)
     entries = read_bib(bib_files)
-    sources, keys = _parameter_sources(parameter_rows, entries, calibrated)
+    sources, keys = _parameter_sources(parameter_rows, entries, calibrated, set_by_hand)
 
     body = [_model_section(model, rows, module_info, mapping),
             parameter_sources_section(model, {r['variable_name']: r for r in rows}, sources)]
@@ -718,9 +769,10 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                     + _join(counts) + '. Each calibration fits one model against its own '
                     'observations, and the values of every calibration were then merged into '
                     'the target, ')
+    hand = ' Values set by hand were merged with them.' if set_by_hand else ''
     body.append('\\section{Calibration}\n'
                 + (_sentence(workflow.description) + ' ' if workflow.description else '')
-                + overview + _tt(workflow.target.label()) + '.\n\n' + figure)
+                + overview + _tt(workflow.target.label()) + '.' + hand + '\n\n' + figure)
     for step in steps:
         symbols = {'step': Symbols(rows, step['to_target']), 'target': Symbols(rows)}
         body.append(_step_section(step, symbols, entries))

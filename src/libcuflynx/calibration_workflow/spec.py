@@ -14,10 +14,17 @@ one of :data:`STEP_KINDS` (default ``calibration``):
   sensitivity steps run on through ``emulator_from``, with the emulation step's model; it may
   be trained on a reduction's parameters (``params_for_id_from``);
 * ``identifiability`` -- identifiability analysis (``ia_options``) at a calibration's result
-  (``result_from``).
+  (``result_from``);
+* ``set`` -- declares values or scales by hand, each with a ``reason``. It runs nothing: later
+  steps take its values with ``fixed_from``, and they reach the target as calibrated values do;
+* ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
+  values go no further: no step takes from it and it does not reach the target. With
+  ``"on_target": true`` it runs on the target, given every calibration's and set step's values
+  as the target merges them (a later step wins), after all of those steps.
 
-Every kind but ``reduction`` names the three inputs of an ordinary run: a ``model``, an
-``obs_data`` file and a ``params_for_id`` file. A model is either
+Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an ordinary run: a
+``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep names a ``model``, and an
+``obs_data`` file when its protocol or features come from one. A model is either
 
 * a module array of CA (``"resources/aorta_module_array.csv"``, or
   ``{"module_array": ..., "parameters": ...}`` when its parameters file is not
@@ -49,27 +56,32 @@ ALLOWED_SETTINGS = (
     'use_builtin_modules', 'external_modules_dir',
     'operation_funcs_external_path', 'cost_funcs_external_path', 'modifier_funcs_external_path',
     'write_cuflynx_study', 'cuflynx_study_copy_inputs', 'sa_options', 'ia_options',
-    'emulator_settings', 'param_reduction_options',
+    'emulator_settings',
 )
 
 PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
-STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability')
+STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
+              'sweep')
 DEFAULT_KIND = 'calibration'
-#: the source keys of a step and the kind of step each must name
-SOURCE_KINDS = {'fixed_from': 'calibration', 'emulator_from': 'emulation',
-                'result_from': 'calibration', 'sensitivity_from': 'sensitivity',
-                'params_for_id_from': 'reduction'}
+#: the kinds that name no model, and read no files of their own
+_NO_MODEL_KINDS = ('reduction', 'set')
+#: what a set step's scale ``of`` names to scale the target's own value
+INHERITED_BASE = 'inherited'
+#: the source keys of a step and the kinds of step each may name
+SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulation',),
+                'result_from': ('calibration',), 'sensitivity_from': ('sensitivity',),
+                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set')}
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
-_SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability'),
+_SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
+                                'sweep'),
                  'emulator_from': ('calibration', 'sensitivity'),
-                 'result_from': ('sensitivity', 'identifiability'),
+                 'result_from': ('sensitivity', 'identifiability', 'sweep'),
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation')}
 #: the analysis options each kind needs in its settings
-_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options',
-                  'reduction': 'param_reduction_options'}
+_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options'}
 # a module array file's name is <prefix><suffix>
 ARRAY_SUFFIXES = ('_module_array.csv', '_module_array.json', '_vessel_array.csv',
                   '_vessel_array.json')
@@ -161,9 +173,10 @@ class PriorSource:
 class Step:
     id: str
     model: object                  # Target (a library module), ModuleArray or Selection;
-                                   # None: a reduction
-    obs_data: str                  # None for a reduction
-    params_for_id: str             # None for a reduction, or a step with params_for_id_from
+                                   # None: a reduction or a set step
+    obs_data: str                  # None for a reduction, a set step, or a sweep without one
+    params_for_id: str             # None for a reduction, a set step, a sweep, or a step with
+                                   # params_for_id_from
     kind: str = DEFAULT_KIND
     submodule: str = None          # where a library module sits in a supermodule target
     vessel: str = None             # where a library module sits in a module-array target
@@ -177,6 +190,9 @@ class Step:
     sensitivity_from: str = None   # (reduction) the Sobol step whose indices it reads
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
+    set_values: list = field(default_factory=list)   # (set) the entries it declares
+    sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
+    on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
     description: str = ''
 
@@ -187,7 +203,16 @@ class Step:
         for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from'):
             if getattr(self, key):
                 out[key] = [getattr(self, key)]
+        scaled = scale_sources(self.set_values)
+        if scaled:
+            out['scale_from'] = scaled
         return out
+
+
+def scale_sources(entries):
+    '''The steps a set step's ``entries`` scale values of, in order.'''
+    return list(dict.fromkeys(entry['of'] for entry in entries
+                              if entry.get('of') not in (None, INHERITED_BASE)))
 
 
 @dataclass
@@ -200,6 +225,8 @@ class Workflow:
     description: str = ''
     path: str = None
     raw: dict = None
+    #: scripts outside the workflow that read its results (``external_figures``), as written
+    external_figures: list = field(default_factory=list)
 
     def step(self, step_id):
         for step in self.steps:
@@ -257,12 +284,29 @@ def load_workflow(source, module_library_dirs=None):
     return parse_workflow(raw, path=path, module_library_dirs=module_library_dirs)
 
 
+def _refuse_reduction_options_outside_reduction_steps(raw, where):
+    '''param_reduction_options belong to a reduction step's own settings, one set per step.'''
+    if not isinstance(raw, dict):
+        return
+    hint = ('param_reduction_options are the options of one reduction step: put them in that '
+            'step\'s "settings".')
+    if isinstance(raw.get('settings'), dict) and 'param_reduction_options' in raw['settings']:
+        raise WorkflowError(f'{where}: the workflow\'s settings have no param_reduction_options; '
+                            + hint)
+    for step in raw.get('steps') or []:
+        if (isinstance(step, dict) and step.get('kind', 'calibration') != 'reduction'
+                and 'param_reduction_options' in (step.get('settings') or {})):
+            raise WorkflowError(f'{where}: step "{step.get("id")}" is not a reduction step and '
+                                f'has no param_reduction_options; ' + hint)
+
+
 def parse_workflow(raw, path=None, module_library_dirs=None):
     where = path or 'calibration workflow'
     # The schema owns the file's structure (keys, types, enums, what each kind of step needs);
     # what follows reads it, and checks what spans keys and steps.
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
     from libcuflynx.schemas.validation import SchemaValidationError, validate
+    _refuse_reduction_options_outside_reduction_steps(raw, where)
     try:
         validate(CALIBRATION_WORKFLOW_SCHEMA, raw, source=where, what='calibration workflow')
     except SchemaValidationError as exc:
@@ -278,9 +322,56 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
                         steps=[_step(s, where, base_dir) for s in raw['steps']],
                         settings=_settings(raw.get('settings', {}), base_dir),
                         module_library_dirs=library_dirs,
-                        description=raw.get('description', '') or '', path=path, raw=raw)
+                        description=raw.get('description', '') or '', path=path, raw=raw,
+                        external_figures=copy.deepcopy(raw.get('external_figures', [])))
+    _place_target_sweeps(workflow)
     check_workflow(workflow)
+    _check_external_figures(workflow, where)
+    order = [s.id for s in workflow.topological_order()]
+    for step in workflow.steps:
+        if step.on_target:
+            step.fixed_from.sort(key=order.index)
     return workflow
+
+
+#: what an external figure's ``from`` names when it reads the merged model
+EXTERNAL_FROM_TARGET = 'target'
+
+
+def external_path(path, output_dir):
+    '''An external figure's ``reads`` or ``writes`` path: absolute (``~`` expanded), or
+    relative to the run's output directory.'''
+    path = os.path.expanduser(path)
+    return path if os.path.isabs(path) else os.path.join(output_dir, path)
+
+
+def _check_external_figures(workflow, where):
+    step_ids = {s.id for s in workflow.steps}
+    seen = set()
+    for entry in workflow.external_figures:
+        name = entry['id']
+        if name in step_ids or name in seen:
+            raise WorkflowError(f'{where}: external figure "{name}" has the id of '
+                                f'{"a step" if name in step_ids else "another external figure"};'
+                                f' ids must be unique.')
+        seen.add(name)
+        if entry['from'] != EXTERNAL_FROM_TARGET and entry['from'] not in step_ids:
+            raise WorkflowError(f'{where}: external figure "{name}" reads from "{entry["from"]}",'
+                                f' which is neither a step nor "{EXTERNAL_FROM_TARGET}".')
+
+
+#: the kinds whose values an on_target sweep is given, as the target merges them
+TARGET_SOURCE_KINDS = ('calibration', 'set')
+
+
+def _place_target_sweeps(workflow):
+    '''An on_target sweep runs on the target, taking every calibration's and set step's values.'''
+    sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS]
+    for step in workflow.steps:
+        if step.on_target:
+            step.model = workflow.target
+            step.fixed_from = list(sources)
+            step.depends_on = list(sources)
 
 
 def _path(value, base_dir):
@@ -362,23 +453,39 @@ def _step(value, where, base_dir):
     if kind == 'identifiability' and not refs['result_from']:
         raise WorkflowError(f'{label}: an identifiability step needs "result_from", the '
                             f'calibration whose result it analyses.')
+    # A reduction step's options are settings.param_reduction_options; set and sweep steps
+    # carry theirs under their own key.
+    for options_key in ('set', 'sweep'):
+        if (kind == options_key) != (options_key in value):
+            raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
+                                f'step, and a {options_key} step needs it.')
     if 'reduction' in value:
         raise WorkflowError(f'{label}: a reduction step\'s options go in '
                             f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
 
-    if kind == 'reduction':
+    if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
                                      'vessel', 'vessel_map') if k in value)
         if present:
-            raise WorkflowError(f'{label}: a reduction step reads a sensitivity step\'s '
-                                f'results and has no {present}.')
+            reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
+                     else 'declares values for the target')
+            raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
+    if kind == 'set':
+        if 'settings' in value:
+            raise WorkflowError(f'{label}: a set step declares values for the target and has '
+                                f'no "settings".')
+        entries = [_set_entry(entry) for entry in value['set']]
+        return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
+                    depends_on=scale_sources(entries), set_values=entries,
+                    description=value.get('description', '') or '')
+    if kind == 'reduction':
         settings = dict(value.get('settings') or {})
         other = sorted(set(settings) - {'param_reduction_options'})
         if other:
             raise WorkflowError(f'{label}: a reduction step\'s only setting is '
                                 f'"param_reduction_options", not {other}.')
         options = dict(settings.get('param_reduction_options') or {})
-        if not options:
+        if 'param_reduction_options' not in settings:
             raise WorkflowError(f'{label}: a reduction step needs "settings": '
                                 f'{{"param_reduction_options": {{...}}}}.')
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
@@ -388,12 +495,28 @@ def _step(value, where, base_dir):
                     settings={'param_reduction_options': options},
                     description=value.get('description', '') or '')
 
+    if value.get('on_target'):
+        if kind != 'sweep':
+            raise WorkflowError(f'{label}: "on_target" is for a sweep step, not a {kind} step.')
+        named = sorted(k for k in ('model', 'fixed_from', 'result_from', 'submodule', 'vessel',
+                                   'vessel_map') if k in value)
+        if named:
+            raise WorkflowError(f'{label}: a sweep "on_target" runs on the target with every '
+                                f'calibration\'s and set step\'s values, so it names no {named}.')
+        return Step(id=step_id, model=None,
+                    obs_data=_path(value['obs_data'], base_dir) if 'obs_data' in value else None,
+                    params_for_id=None, kind=kind, on_target=True, sweep=_sweep(value['sweep']),
+                    settings=_settings(value.get('settings', {}), base_dir),
+                    description=value.get('description', '') or '')
     if refs['emulator_from'] and (fixed_from or refs['result_from']):
         raise WorkflowError(f'{label}: a step that uses an emulator ("emulator_from") runs on '
                             f'the emulation step\'s model, with the values that step was given; '
                             f'it has no "fixed_from" or "result_from" of its own.')
     model = _model(value['model'], base_dir)
     submodule, vessel = value.get('submodule'), value.get('vessel')
+    if kind == 'sweep' and model.kind == 'selection':
+        raise WorkflowError(f'{label}: a sweep names its model as a library module or a module '
+                            f'array, not as a selection of the target.')
     if model.kind == 'selection' and (submodule or vessel or value.get('vessel_map')):
         raise WorkflowError(f'{label}: a selection is calibrated where its instances are in the '
                             f'target, so it has no "submodule", "vessel" or "vessel_map".')
@@ -405,7 +528,8 @@ def _step(value, where, base_dir):
         raise WorkflowError(f'{label}: "vessel_map" is for a module-array model; a library '
                             f'module is placed with "submodule" or "vessel".')
     depends_on = fixed_from + [p.step for p in priors_from] + [r for r in refs.values() if r]
-    return Step(id=step_id, model=model, obs_data=_path(value['obs_data'], base_dir),
+    return Step(id=step_id, model=model,
+                obs_data=_path(value['obs_data'], base_dir) if 'obs_data' in value else None,
                 params_for_id=(_path(value['params_for_id'], base_dir)
                                if 'params_for_id' in value else None),
                 kind=kind,
@@ -416,8 +540,29 @@ def _step(value, where, base_dir):
                 fixed_from=fixed_from, priors_from=priors_from, store_distribution=store,
                 emulator_from=refs['emulator_from'], result_from=refs['result_from'],
                 params_for_id_from=refs['params_for_id_from'],
+                sweep=_sweep(value['sweep']) if kind == 'sweep' else {},
                 settings=_settings(value.get('settings', {}), base_dir),
                 description=value.get('description', '') or '')
+
+
+def _set_entry(value):
+    '''One entry of a set step: its ``parameter`` and ``reason``, with a ``value`` or a ``scale``
+    ``of`` a step or the inherited value.'''
+    entry = {'parameter': value['parameter'].strip(), 'reason': value['reason'].strip()}
+    for key in ('value', 'scale', 'units'):
+        if key in value:
+            entry[key] = value[key]
+    if 'of' in value:
+        entry['of'] = value['of'].strip()
+    return entry
+
+
+def _sweep(value):
+    return {'design': value.get('design', 'grid'),
+            'outputs': [name.strip() for name in value.get('outputs', [])],
+            'parameters': {name.strip(): copy.deepcopy(spec)
+                           for name, spec in value['parameters'].items()},
+            'zip': [[name.strip() for name in group] for group in value.get('zip', [])]}
 
 
 # --------------------------------------------------------------------------------------------
@@ -448,10 +593,11 @@ def check_workflow(workflow):
         for key, sources in step.sources().items():
             wanted = SOURCE_KINDS.get(key)
             for source in sources:
-                if wanted and workflow.step(source).kind != wanted:
+                if wanted and workflow.step(source).kind not in wanted:
                     raise WorkflowError(
                         f'step "{step.id}": "{key}" names "{source}", a '
-                        f'{workflow.step(source).kind} step; it takes a {wanted} step.')
+                        f'{workflow.step(source).kind} step; it takes a '
+                        f'{" or ".join(wanted)} step.')
         if step.emulator_from:
             emulation = workflow.step(step.emulator_from)
             differ = [k for k in ('model', 'obs_data', 'params_for_id', 'params_for_id_from')
@@ -480,6 +626,10 @@ def check_workflow(workflow):
         if needed and not workflow.step_settings(step).get(needed):
             raise WorkflowError(f'{step.kind} step "{step.id}" needs "{needed}" in its settings '
                                 f'(or the workflow\'s).')
+        if step.kind == 'set':
+            _check_set_step(workflow, step)
+        if step.kind == 'sweep':
+            _check_sweep_step(workflow, step)
 
     for step in workflow.steps:
         prior_steps = [p.step for p in step.priors_from]
@@ -508,6 +658,31 @@ def check_workflow(workflow):
                 f'(optimiser_options.objective_function: "likelihood"). Its calibration would '
                 f'ignore the priors.')
     return workflow
+
+
+def _check_set_step(workflow, step):
+    names = [entry['parameter'] for entry in step.set_values]
+    twice = sorted({name for name in names if names.count(name) > 1})
+    if twice:
+        raise WorkflowError(f'set step "{step.id}" sets {twice} more than once.')
+    if any(entry.get('of') == INHERITED_BASE for entry in step.set_values) and \
+            any(s.id == INHERITED_BASE for s in workflow.steps):
+        raise WorkflowError(f'set step "{step.id}" scales the value "{INHERITED_BASE}", which is '
+                            f'also a step id here; rename that step.')
+
+
+def _check_sweep_step(workflow, step):
+    from libcuflynx.calibration_workflow.sweep import check_sweep
+    settings = workflow.step_settings(step)
+    needed = ['dt'] + ([] if step.obs_data else ['sim_time'])
+    missing = [key for key in needed if settings.get(key) is None]
+    if missing:
+        raise WorkflowError(f'sweep step "{step.id}" needs {missing} in its settings (or the '
+                            f'workflow\'s).')
+    if not step.obs_data and not step.sweep['outputs']:
+        raise WorkflowError(f'sweep step "{step.id}" records nothing: give "outputs", or an '
+                            f'"obs_data" with prediction items.')
+    check_sweep(step.sweep, f'sweep step "{step.id}"')
 
 
 def uses_log_posterior(settings):

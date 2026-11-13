@@ -1908,7 +1908,9 @@ ANALYSIS_OPTIONS = {
             {'name': 'min_mode_std', 'type': 'float', 'default': 1.0, 'required': False,
              'description': ('For "pca": a mode is informative when its standard deviation over '
                              'the Sobol samples is at least this many obs_data stds. Below it, '
-                             'the mode moves the data by less than the noise.')},
+                             'the mode moves the data by less than the noise. The samples fill the whole '
+                             'prior box, so this is a global, prior-wide measure, not local to the '
+                             'fit.')},
             {'name': 'variance_fraction', 'type': 'float', 'default': 0.99, 'required': False,
              'description': ('For "pca": only the leading modes that together explain this '
                              'fraction of the scaled output variance are considered.')},

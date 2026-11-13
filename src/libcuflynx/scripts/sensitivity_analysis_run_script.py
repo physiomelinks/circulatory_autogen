@@ -4,7 +4,7 @@ import os
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
 # on macOS when a NIC goes away (#396). Under mpiexec get_MPI hands back the real
 # mpi4py.MPI, so a multi-rank run is unchanged.
-from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
+from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI, run_on_root
 from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
 from libcuflynx.scripts import _cli
 import yaml
@@ -35,11 +35,15 @@ def run_SA(inp_data_dict=None):
     SA_agent.run_sensitivity_analysis()
 
     if inp_data_dict.get('do_param_reduction'):
+        selected = run_on_root(comm, lambda: _reduce(inp_data_dict))
         if rank == 0:
-            from libcuflynx.sensitivity_analysis.parameter_reduction import run_param_reduction
-            selected = run_param_reduction(inp_data_dict)
             print(f"Parameter reduction kept {[row['parameter'] for row in selected]}")
-        comm.Barrier()
+
+
+def _reduce(inp_data_dict):
+    from libcuflynx.sensitivity_analysis.parameter_reduction import run_param_reduction
+    return run_param_reduction(inp_data_dict)
+
 
 def main(argv=None):
     """Entry point for the ``cuflynx-sensitivity`` command."""

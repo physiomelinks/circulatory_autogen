@@ -15,7 +15,8 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2,
+      "description": "The schema is closed (additionalProperties false; enums for a node's kind and an edge's style), so schema_version goes up whenever it gains or changes a kind, style or key, and a reader refuses a version it does not know. 2 added the figure and external node kinds and the writes and reads edge styles."
     },
     "workflow": {
       "type": "object",
@@ -49,7 +50,7 @@
         },
         "file_status": {
           "$ref": "#/$defs/status",
-          "description": "Whether that file still has the bytes it ran with. A step's settings input is judged by that step's settings alone, so a re-formatted file leaves it current."
+          "description": "Whether that file still has the content it ran with, whatever its formatting, key order or external_figures. A step's settings input is judged by that step's settings alone, so a re-formatted file leaves it current."
         },
         "order": {
           "type": "array",
@@ -281,8 +282,11 @@
             "step",
             "analysis",
             "values",
-            "target"
-          ]
+            "target",
+            "figure",
+            "external"
+          ],
+          "description": "figure: a file a sweep step or an external script wrote, its title the file name and its line the path in the output directory. external: a script outside the workflow (external_figures) that reads a step's or the target's results; its inputs list the files it reads and writes, and it is stale when one it reads is newer than the oldest it writes."
         },
         "title": {
           "type": "string"
@@ -356,7 +360,9 @@
             "fixed",
             "prior",
             "merge",
-            "given"
+            "given",
+            "writes",
+            "reads"
           ]
         }
       }

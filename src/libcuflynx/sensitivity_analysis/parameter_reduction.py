@@ -227,7 +227,8 @@ class PCASobolReduction(ParamReduction):
        scaled by its standard deviation over the samples, with a warning.
     2. PCA (SVD) of the scaled outputs. A mode is informative when its standard deviation is at
        least ``min_mode_std`` and it is among the leading modes explaining ``variance_fraction``
-       of the variance.
+       of the variance. The std is over the Sobol samples, which fill the whole prior box, so it
+       is a global, prior-wide measure of what the parameters can do, not local to the fit.
     3. Sobol indices of each informative mode's score, from the same Saltelli samples.
     4. Over the informative modes, largest first: keep the parameter not yet kept with the
        largest index for that mode, unless that index is below ``min_index`` (no free parameter
