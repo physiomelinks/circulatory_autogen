@@ -29,7 +29,9 @@
   rules and those that need the library).
 * ``provenance_graph.schema.json`` -- ``provenance_graph.json``, an output rather than an input:
   how a workflow run's values were set, as nodes and edges (``libcuflynx.reporting.provenance``,
-  which checks what it writes against the schema). CUFLynx draws the same file.
+  which checks what it writes against the schema). CUFLynx draws the same file. The schema is
+  closed, so its ``schema_version`` goes up whenever it gains or changes a kind, style or key,
+  and a reader refuses a version it does not know.
 
 Every reader checks its file against its schema when it loads it
 (:mod:`libcuflynx.schemas.validation`), so a schema is the definition of its file's structure:

@@ -1,7 +1,8 @@
 '''
 Running a calibration workflow: every step through the normal path of its kind (param_id,
-sensitivity analysis, emulator training, identifiability analysis), in dependency order, then
-merging the calibrations' results into the workflow's target.
+sensitivity analysis, emulator training, identifiability analysis, a parameter sweep), in
+dependency order, then merging the calibrations' results and the values set by hand into the
+workflow's target.
 
 Output layout (``output_dir``)::
 
@@ -20,7 +21,8 @@ Output layout (``output_dir``)::
         sensitivity/               a sensitivity step's outputs (sa_options.output_dir)
         emulator/                  an emulation step's emulator
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
-    _target/model/                 the target generated with every calibrated value
+        sweep/                     a sweep step's runs (sweep.py)
+    _target/model/                 the target generated with every merged value
 
 A step's model is generated from a library module or from a copy of its module array; the
 files the workflow names are only read.
@@ -43,7 +45,7 @@ import warnings
 
 import numpy as np
 
-from libcuflynx.calibration_workflow import naming
+from libcuflynx.calibration_workflow import naming, sweep as sweep_runs
 from libcuflynx.utilities import cuflynx_study
 from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
                                                            StoredDistribution,
@@ -56,8 +58,10 @@ from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
-from libcuflynx.calibration_workflow.spec import (WORKFLOW_FILE_NAME, WorkflowError, load_workflow,
+from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
+                                                  WorkflowError, load_workflow,
                                                   uses_log_posterior)
+from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
@@ -81,7 +85,12 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'sensitivity': ('sensitivity_dir', 'sobol_indices'),
                 'reduction': ('params_for_id',),
                 'emulation': ('emulator_dir',),
-                'identifiability': ('laplace',)}
+                'identifiability': ('laplace',),
+                'set': (),
+                'sweep': ('sweep_dir', 'sweep_results')}
+#: what a value set by a set step is marked with
+SET_BY_HAND = 'set_by_hand'
+assert SET_BY_HAND in ORIGINS
 
 # what a step's user_inputs get unless the workflow's settings say otherwise
 STEP_DEFAULTS = {'model_type': 'cellml', 'DEBUG': False, 'do_ad': False, 'do_ia': False,
@@ -104,6 +113,15 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def workflow_digest(path):
+    '''The sha256 of a workflow file's content without its ``external_figures``, whatever the
+    key order: declaring figure scripts after a run leaves the run current.'''
+    with open(path, encoding='utf-8-sig') as f:
+        raw = json.load(f)
+    raw.pop('external_figures', None)
+    return settings_digest(raw)
+
+
 def settings_digest(settings):
     '''The sha256 of a step's settings, whatever their key order.'''
     text = json.dumps(settings, sort_keys=True, default=str)
@@ -111,9 +129,14 @@ def settings_digest(settings):
 
 
 def step_settings_digest(workflow, step):
-    '''The digest a step's ``settings`` input records: a reduction's options, or the workflow's
-    settings with the step's on top. Formatting and key order of the file do not change it.'''
-    return settings_digest(step.reduction if step.model is None else workflow.step_settings(step))
+    '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
+    options, or the workflow's settings with the step's on top. Formatting and key order of the
+    file do not change it.'''
+    if step.kind == 'set':
+        return settings_digest(step.set_values)
+    if step.kind == 'reduction':
+        return settings_digest(step.reduction)
+    return settings_digest(workflow.step_settings(step))
 
 
 def module_library_digest(library_dirs):
@@ -175,6 +198,16 @@ def _read_json(path):
         return json.load(f)
 
 
+def given_values(result):
+    '''The records of what a step's result passes on: what it calibrated or set by hand.'''
+    return result['calibrated'] + result.get('set', [])
+
+
+def _how_set(record):
+    '''The ``origin`` and ``reason`` of a value set by hand; empty for a calibrated one.'''
+    return {key: record[key] for key in ('origin', 'reason') if record.get(key)}
+
+
 class _Run:
     '''One run of a resolved workflow.'''
 
@@ -226,15 +259,16 @@ class _Run:
 
     def inputs(self, step_id):
         rs = self.resolved.steps[step_id]
+        if rs.model is None:
+            return self._model_free_inputs(rs.step)
         settings = {'path': self.workflow.path,
                     'sha256': step_settings_digest(self.workflow, rs.step)}
-        if rs.model is None:
-            # a reduction: its other inputs are its sensitivity step's
-            return {SETTINGS_INPUT: settings}
         files = {'obs_data': rs.obs_data_path,
                  'params_for_id': self.params_for_id_of(rs.step)}
-        if not os.path.isfile(files['params_for_id']):
-            del files['params_for_id']    # a reduction's, not yet written
+        if not files['obs_data']:
+            del files['obs_data']         # a sweep without one
+        if not files['params_for_id'] or not os.path.isfile(files['params_for_id']):
+            del files['params_for_id']    # a sweep's, or a reduction's not yet written
         if os.path.isfile(rs.model.parameters_path):
             files['parameters'] = rs.model.parameters_path
         if rs.model.kind == 'array':
@@ -245,6 +279,18 @@ class _Run:
             files['target_module_array'] = self.workflow.target.module_array
         return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
                 SETTINGS_INPUT: settings, **self.library_input()}
+
+    def _model_free_inputs(self, step):
+        '''The inputs of a reduction (its options; the rest are its sensitivity step's) or a set
+        step (its entries, and the target's values when it scales them).'''
+        inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
+                                   'sha256': step_settings_digest(self.workflow, step)}}
+        if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
+            path = self.resolved.target.parameters_path
+            if os.path.isfile(path):
+                inputs['target_parameters'] = {'path': path, 'sha256': sha256(path)}
+            inputs.update(self.library_input())
+        return inputs
 
     def changed_inputs(self, step_id, result):
         '''The keys of the inputs in ``result`` that differ from the step's inputs now.'''
@@ -283,15 +329,17 @@ class _Run:
 
     # -- what a step gets from earlier steps ---------------------------------------------
 
-    def fixed_values(self, step, sources):
+    def fixed_values(self, step, sources, own_only=False):
         '''``{model name in this step: row}`` from every step in ``sources``: its calibrated
-        values and the values it was itself given as fixed.'''
+        values, those it set by hand and, unless ``own_only``, the values it was itself given
+        as fixed.'''
         values = {}
         for source in sources:
             result = self.require_current(source, step.id)
             vessel_of = self.resolved.map_between(source, step.id)
             left_out = []
-            for record in result['calibrated'] + result['fixed']:
+            records = given_values(result) + ([] if own_only else result['fixed'])
+            for record in records:
                 vessel = vessel_of(record['vessel'])
                 if vessel is None:
                     left_out.append(record['model_name'])
@@ -308,10 +356,11 @@ class _Run:
                                 'param': record['param'], 'model_name': name,
                                 'host_name': naming.host_row_name(vessel, record['param']),
                                 'value': record['value'], 'units': record.get('units', ''),
-                                'from_step': origin}
+                                'from_step': origin, **_how_set(record)}
             if left_out:
+                model = step.model.label() if step.model else self.workflow.target.label()
                 warnings.warn(f'step "{step.id}": {len(left_out)} value(s) of "{source}" are '
-                              f'not fixed, because {step.model.label()} has no such vessel: '
+                              f'not fixed, because {model} has no such vessel: '
                               f'{sorted(left_out)}.', UserWarning, stacklevel=2)
         return values
 
@@ -341,7 +390,8 @@ class _Run:
                   model=step.model.as_dict() if step.model is not None else None)
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
-               'identifiability': self._run_identifiability}[step.kind]
+               'identifiability': self._run_identifiability, 'set': self._run_set,
+               'sweep': self._run_sweep}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
         def finish():
@@ -361,7 +411,8 @@ class _Run:
         return result
 
     def params_for_id_of(self, step):
-        '''The params_for_id a step runs with: its own, or the one its reduction wrote.'''
+        '''The params_for_id a step runs with: its own, or the one its reduction wrote. A sweep
+        has none.'''
         if step.params_for_id_from:
             return reduced_params_for_id_path(self.output_dir, step.params_for_id_from)
         return step.params_for_id
@@ -376,14 +427,22 @@ class _Run:
         params_for_id = self.params_for_id_of(step)
         if step.params_for_id_from:
             self.require_current(step.params_for_id_from, step.id)
-        own = read_calibrated_parameters(params_for_id, step.id)
+        own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
         if resolved.renames_inputs:
             own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
                                        p.param) for p in own]
         own = {p.model_name for p in own}
-        # a parameter the step calibrates itself is not fixed: the later calibration wins
-        fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
-                 if n not in own}
+        if step.on_target:
+            # the values merge() gives the target: each source's own values, in run order, a
+            # later step winning
+            fixed = {}
+            for source in self.workflow.topological_order():
+                if source.id in step.fixed_from:
+                    fixed.update(self.fixed_values(step, [source.id], own_only=True))
+        else:
+            # a parameter the step calibrates itself is not fixed: the later calibration wins
+            fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
+                     if n not in own}
         if step.result_from:
             fixed.update(self.fixed_values(step, [step.result_from]))
         priors = self.priors(step)
@@ -409,7 +468,8 @@ class _Run:
             overrides = [{'variable_name': row['host_name'], 'units': row['units'],
                           'value': repr(float(row['value'])),
                           'data_reference': f'fixed by calibration workflow '
-                                            f'{self.workflow.name}, step {row["from_step"]}'}
+                                            f'{self.workflow.name}, step {row["from_step"]}',
+                          **_how_set(row)}
                          for name, row in sorted(fixed.items())]
             generated = generate_step_model(
                 resolved, os.path.join(step_dir, 'model'), step.id,
@@ -636,6 +696,98 @@ class _Run:
 
         return self.on_root(finish)
 
+    def _run_set(self, step, settings):
+        return self.on_root(lambda: {'set': self._declared_values(step)})
+
+    def _target_values(self, step):
+        '''``{model name: row}`` of the target as it stands, generated under the step's
+        directory.'''
+        try:
+            generated = generate_model(
+                self.workflow.target, os.path.join(self.step_dir(step.id), 'model'), step.id,
+                library_inputs=self.resolved.library_inputs,
+                model_type=self.workflow.settings.get('model_type', STEP_DEFAULTS['model_type']),
+                solver=self.workflow.settings.get('solver'))
+        except UnsetModelParameters as exc:
+            raise WorkflowStepError(step.id, f'the target leaves {exc.model_names} without a '
+                                             f'value, so it has no value to read here. Scale a '
+                                             f'step\'s value, and give "units".') from exc
+        return {r['variable_name']: r for r in read_parameter_rows(generated['parameters_path'])}
+
+    def _declared_values(self, step):
+        '''The records of a set step's entries, in the shape of a calibrated value.'''
+        resolved = self.resolved.steps[step.id]
+        step_dir = self.step_dir(step.id)
+        if os.path.isdir(step_dir):
+            shutil.rmtree(step_dir)
+        os.makedirs(step_dir)
+        from_steps, target = {}, None
+        records = []
+        for entry, parameter in zip(step.set_values, resolved.parameters):
+            name = resolved.target_model_name(parameter)
+            source, base, units = entry.get('of'), None, entry.get('units')
+            if source not in (None, INHERITED_BASE):
+                if source not in from_steps:
+                    from_steps[source] = self.fixed_values(step, [source])
+                row = from_steps[source].get(name)
+                if row is None:
+                    raise WorkflowStepError(step.id, f'step "{source}" has no value of '
+                                                     f'"{entry["parameter"]}" to scale.')
+                base, units = row['value'], units or row.get('units', '')
+            elif source == INHERITED_BASE or units is None:
+                if target is None:
+                    target = self._target_values(step)
+                if name not in target:
+                    raise WorkflowStepError(step.id, f'the target has no parameter '
+                                                     f'"{entry["parameter"]}".')
+                units = units or target[name].get('units', '')
+                if source == INHERITED_BASE:
+                    base = float(target[name]['value'])
+            value = entry['value'] if source is None else entry['scale'] * base
+            records.append({
+                'vessel': parameter.vessel, 'param': parameter.param, 'model_name': name,
+                'target_model_name': name,
+                'target_host_name': naming.host_row_name(parameter.vessel, parameter.param),
+                'target_parameterisation_name': resolved.target_parameterisation_name(parameter),
+                'value': float(value), 'units': units, 'origin': SET_BY_HAND,
+                'reason': entry['reason'],
+                **({'scale': entry['scale'], 'of': source, 'base': float(base)}
+                   if source is not None else {})})
+        return records
+
+    def _run_sweep(self, step, settings):
+        resolved = self.resolved.steps[step.id]
+        where = f'sweep step "{step.id}"'
+        settings = dict({'model_type': STEP_DEFAULTS['model_type']}, **settings)
+        generated, _, units, fixed, _ = self.on_root(lambda: self._prepare(step, settings))
+
+        def at_the_model():
+            rows = {r['variable_name']: r for r in read_parameter_rows(
+                generated['parameters_path'])}
+            nominal, swept_units = {}, {}
+            for name, parameter in zip(step.sweep['parameters'], resolved.parameters):
+                if parameter.model_name not in rows:
+                    raise WorkflowError(f'{where}: its model has no parameter "{name}" '
+                                        f'({generated["parameters_path"]}).')
+                nominal[name] = float(rows[parameter.model_name]['value'])
+                swept_units[name] = units.get(parameter.model_name, '')
+            return nominal, swept_units
+
+        nominal, swept_units = self.on_root(at_the_model)
+        names, points, by_point = self._run_stage(
+            step, 'sweep', sweep_runs.run_points, step.sweep, generated, settings,
+            resolved.obs_data_path, nominal, self.comm, where)
+
+        def finish():
+            record = sweep_runs.write_results(
+                step.sweep, names, points, by_point, nominal, swept_units,
+                os.path.join(self.step_dir(step.id), sweep_runs.SWEEP_DIR), where)
+            return dict(record, fixed=[dict(row) for _, row in sorted(fixed.items())],
+                        settings=settings, generated=generated,
+                        model_path=generated['model_path'])
+
+        return self.on_root(finish)
+
     def _store_distribution(self, step, case_dir, info, settings):
         chain_path = os.path.join(case_dir, 'mcmc_chain.npy')
         if not os.path.isfile(chain_path):
@@ -787,19 +939,19 @@ class _Run:
             result = results.get(step.id)
             if not result or result.get('status') != 'done':
                 continue
-            for record in result['calibrated']:
+            for record in given_values(result):
                 merged[record['target_model_name']] = {
                     'model_name': record['target_model_name'],
                     'host_name': record['target_host_name'],
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
-                    'from_step': step.id}
+                    'from_step': step.id, **_how_set(record)}
         complete = all(r and r.get('status') == 'done' for r in results.values())
         target = self.resolved.target
         workflow_result = {
             'workflow_name': self.workflow.name,
             'workflow_file': self.workflow.path,
-            'workflow_sha256': sha256(self.workflow.path) if self.workflow.path else None,
+            'workflow_sha256': workflow_digest(self.workflow.path) if self.workflow.path else None,
             'target': self.workflow.target.as_dict(),
             'order': [s.id for s in order],
             'complete': complete,
@@ -823,7 +975,7 @@ class _Run:
             overrides = [{'variable_name': r['host_name'], 'units': r['units'],
                           'value': repr(float(r['value'])),
                           'data_reference': f'calibration workflow {self.workflow.name}, '
-                                            f'step {r["from_step"]}'}
+                                            f'step {r["from_step"]}', **_how_set(r)}
                          for r in workflow_result['merged_parameters']]
             target_dir = os.path.join(self.output_dir, TARGET_DIR)
             if os.path.isdir(target_dir):
@@ -868,13 +1020,15 @@ def under(base_rows, overrides):
 def generate_step_model(resolved_step, work_dir, prefix, rows, obs_data, library_inputs,
                         settings):
     '''Generate the model of ``resolved_step`` with parameter ``rows``; the step's protocol
-    (``obs_data``) gives the parameters nothing else does. Parameters still without a value are
-    an UnsetParametersError naming them as the target's parameters file does.'''
+    (``obs_data``, if it has one) gives the parameters nothing else does. Parameters still
+    without a value are an UnsetParametersError naming them as the target's parameters file
+    does.'''
     try:
         return generate_model(
             resolved_step.model.model, work_dir, prefix, rows, library_inputs=library_inputs,
             model_type=settings.get('model_type', STEP_DEFAULTS['model_type']),
-            solver=settings.get('solver'), protocol=protocol_values(obs_data),
+            solver=settings.get('solver'),
+            protocol=protocol_values(obs_data) if obs_data else None,
             instance_values=(resolved_step.selection.instance_values
                              if resolved_step.selection else None))
     except UnsetModelParameters as exc:
@@ -999,8 +1153,8 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     module's own path in a parameterisation. So the result reproduces the run without the
     module library. Only ``path`` is written; the target's files are not changed.
 
-    A merged value's leaf gets origin ``calibrated`` and loses ``derivation`` and ``reason``
-    (``parameters_file.calibrated_leaf``), so ``cuflynx-derive --write`` never overwrites it. The
+    A merged value's leaf loses ``derivation`` and ``reason`` and gets origin ``calibrated``
+    (``parameters_file.calibrated_leaf``), or ``set_by_hand`` with the set step's reason, so ``cuflynx-derive --write`` never overwrites it. The
     derived value is not lost: the target's parameters file still holds it, its derivations file
     still calculates it (``cuflynx-derive``), and the step's generated parameters file
     (``generated.parameters_path`` in its result) holds it as the value the step started from.'''
@@ -1014,10 +1168,13 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     for record in merged_parameters:
         name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
         place = pf.name_path(name, kind)
+        how = 'set by hand in' if record.get('origin') else 'calibrated by'
         leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
                                   '%.10g' % record['value'],
-                                  f'calibrated by workflow {workflow_name}, step '
+                                  f'{how} workflow {workflow_name}, step '
                                   f'{record["from_step"]} ({today})')
+        # a set step's value: origin set_by_hand, with its reason
+        leaf.update(_how_set(record))
         if 'sourced' in leaf:
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)
@@ -1088,6 +1245,11 @@ def plan_workflow(source, module_library_dirs=None):
                  'records': [r['name'] for r in rs.selection.model.records]})
         if step.kind == 'reduction':
             entry['reduction'] = dict(step.reduction)
+        if step.kind == 'set':
+            entry['set'] = [dict(e, target_model_name=rs.target_model_name(p))
+                            for e, p in zip(step.set_values, rs.parameters)]
+        if step.kind == 'sweep':
+            entry['sweep'] = copy.deepcopy(step.sweep)
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
@@ -1247,7 +1409,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         latest = {}
         for step in workflow.topological_order():
             result = available(step.id)
-            for record in (result or {}).get('calibrated', []):
+            for record in given_values(result) if result else []:
                 latest[record['target_model_name']] = (record, step.id)
         overrides = {rec['target_host_name']: (rec, sid) for rec, sid in latest.values()}
         calibrated = [{'model_name': name, 'value': rec['value'], 'units': rec.get('units', ''),
@@ -1259,7 +1421,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     else:
         step = workflow.step(view)
         if step.model is None:
-            raise WorkflowError(f'step "{step.id}" is a reduction, which has no model.')
+            raise WorkflowError(f'step "{step.id}" is a {step.kind} step, which has no model.')
         kind, model = 'step', step.model
         rs = resolved.steps[step.id]
         place = rs.place
@@ -1269,7 +1431,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             if result is None:
                 continue
             vessel_of = resolved.map_between(source_id, step.id)
-            for record in result['calibrated'] + result['fixed']:
+            for record in given_values(result) + result['fixed']:
                 vessel = vessel_of(record['vessel'])
                 if vessel is None:
                     continue

@@ -38,13 +38,38 @@ def _files(*patterns):
     return found
 
 
+def _source_files():
+    return _files('src/**/*.js')
+
+
+def _definition(pattern, what):
+    """The first match of ``pattern`` (whose group 1 is the definition's body) in PhLynx's src
+    JavaScript, found by the definition's name wherever it lives."""
+    for path in _source_files():
+        with open(path, encoding='utf-8') as f:
+            match = re.search(pattern, f.read(), re.S)
+        if match:
+            return match.group(1)
+    raise AssertionError(f'{what} is not defined under src any more: has PhLynx moved it?')
+
+
 def _constant_values(name):
-    """The ``value``s of the option list ``name`` in PhLynx's src/utils/constants.js."""
-    with open(os.path.join(_phlynx(), 'src', 'utils', 'constants.js'), encoding='utf-8') as f:
-        source = f.read()
-    match = re.search(rf'export const {name}\s*=\s*\[(.*?)\]', source, re.S)
-    assert match, f'{name} is not in constants.js any more'
-    return re.findall(r"value:\s*'([^']*)'", match.group(1))
+    """The ``value``s of the option list ``export const name = [...]`` in PhLynx's src."""
+    body = _definition(rf'export const {name}\s*=\s*\[(.*?)\]', name)
+    return re.findall(r"value:\s*'([^']*)'", body)
+
+
+def _multiport_values():
+    """The multi_port values PhLynx offers: the values of ``const TYPES = {...}`` in its
+    multiport.js (None, True, Sum, Multiply)."""
+    for path in _source_files():
+        if os.path.basename(path) != 'multiport.js':
+            continue
+        with open(path, encoding='utf-8') as f:
+            match = re.search(r'const TYPES\s*=\s*\{(.*?)\}', f.read(), re.S)
+        if match:
+            return re.findall(r":\s*'([^']*)'", match.group(1))
+    raise AssertionError('the multiport TYPES map is not in a multiport.js under src any more')
 
 
 @pytest.mark.unit
@@ -80,7 +105,9 @@ def test_phlynx_s_port_lists_are_ca_s():
 
 @pytest.mark.unit
 def test_phlynx_s_multi_port_values_are_accepted_by_ca():
-    for value in _constant_values('MULTIPORT_OPTIONS'):
+    values = _multiport_values()
+    assert {'True', 'Sum'} <= set(values), values
+    for value in values:
         port = {'port_type': 'vessel_port', 'variables': ['u']}
         # 'None' is PhLynx's menu entry for no multi_port: its export leaves the key out
         # (unparseMultiport in src/utils/config.js)
@@ -93,14 +120,34 @@ def test_phlynx_s_multi_port_values_are_accepted_by_ca():
         normalise_module_config([entry], source=f'multi_port {value!r}')
 
 
+def _function_body(source, name):
+    """The text of ``function name`` in ``source``, up to its closing brace."""
+    start = re.search(rf'function {name}\b[^{{]*\{{', source)
+    if not start:
+        return None
+    depth, pos = 1, start.end()
+    while depth and pos < len(source):
+        depth += {'{': 1, '}': -1}.get(source[pos], 0)
+        pos += 1
+    return source[start.end():pos]
+
+
 @pytest.mark.unit
 def test_the_config_keys_phlynx_exports_are_in_ca_s_schema():
-    with open(os.path.join(_phlynx(), 'src', 'services', 'export', 'ca.js'),
-              encoding='utf-8') as f:
-        source = f.read()
-    match = re.search(r'function moduleConfigEntry\b.*?return\s*\{(.*?)\n\s*\}', source, re.S)
-    assert match, 'moduleConfigEntry is not in src/services/export/ca.js any more'
-    keys = set(re.findall(r'^\s*(\w+)\s*:', match.group(1), re.M))
+    # moduleConfigEntry builds each module config entry the CA export writes; it is found by name
+    # wherever it lives under src/services
+    body = None
+    for path in _files('src/services/**/*.js'):
+        with open(path, encoding='utf-8') as f:
+            body = _function_body(f.read(), 'moduleConfigEntry')
+        if body:
+            break
+    assert body, 'moduleConfigEntry is not under src/services any more'
+    returned = re.search(r'return\s*\{(.*?)\n  \}', body, re.S)
+    assert returned, 'moduleConfigEntry no longer returns an object literal'
+    # plain keys (``key: value``) and conditional ones (``...(x && { key })`` or ``...(x && { key: v })``)
+    keys = set(re.findall(r'^\s*(\w+)\s*:', returned.group(1), re.M))
+    keys |= set(re.findall(r'\.\.\.\([^\n]*?&&\s*\{\s*(\w+)', returned.group(1)))
     assert keys, 'no keys found in moduleConfigEntry'
     allowed = set(load_schema(MODULE_CONFIG_SCHEMA)['$defs']['phlynxComponent']['properties'])
     assert keys <= allowed, sorted(keys - allowed)
