@@ -185,7 +185,7 @@ def _pytest_commands():
 
 
 def _selects_mpi(command):
-    """Whether a pytest command keeps `mpi`-marked tests: no -m, or a -m that does not say not mpi."""
+    """Whether a pytest command keeps `mpi` tests: no -m, or a -m without `not mpi`."""
     match = re.search(r'-m\s+"([^"]*)"', command)
     return match is None or not re.search(r'\bnot\s+mpi\b', match.group(1))
 
