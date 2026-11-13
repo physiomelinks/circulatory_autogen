@@ -63,7 +63,8 @@ from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as R
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
                                                   WorkflowError, load_workflow,
                                                   uses_log_posterior)
-from libcuflynx.utilities.parameters_file import SET_BY_HAND
+from libcuflynx.utilities.parameters_file import ORIGINS
+from libcuflynx.utilities.mpi_utils import run_on_root
 from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
@@ -227,16 +228,7 @@ class _Run:
 
     def on_root(self, fn):
         '''``fn()`` on rank 0, its result (or the exception it raised) on every rank.'''
-        outcome = None
-        if self.rank == 0:
-            try:
-                outcome = ('ok', fn())
-            except BaseException as exc:  # noqa: B902 - re-raised on every rank below
-                outcome = ('error', exc)
-        outcome = self.comm.bcast(outcome, root=0)
-        if outcome[0] == 'error':
-            raise outcome[1]
-        return outcome[1]
+        return run_on_root(self.comm, fn)
 
     def step_dir(self, step_id):
         return os.path.join(self.output_dir, step_id)

@@ -181,3 +181,33 @@ def test_write_refuses_a_copy_outside_a_source_checkout(monkeypatch, tmp_path, c
     assert registries.main(['--write']) == 2
     assert 'not in a source checkout' in capsys.readouterr().out
     assert files  # importlib.resources is what schema_file uses in the package
+
+
+@pytest.mark.unit
+def test_the_workflow_schema_reduction_options_agree_with_the_option_registry():
+    """Each param_reduction_options property's default is the registry's, and its minimum and
+    maximum are where from_options starts and stops accepting a value."""
+    from libcuflynx.parsers.PrimitiveParsers import analysis_options
+    from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
+    from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
+    properties = load_schema(CALIBRATION_WORKFLOW_SCHEMA)['$defs']['param_reduction_options'][
+        'properties']
+    registry = {o['name']: o for o in analysis_options('param_reduction')}
+    for name, prop in properties.items():
+        assert prop.get('default') == registry[name]['default'], name
+
+    def accepted(name, value):
+        options = {'method': 'sobol', 'n_params': 1} if name in ('threshold', 'criterion') else {}
+        try:
+            ParamReduction.from_options({**options, name: value})
+            return True
+        except ValueError:
+            return False
+
+    for name, prop in properties.items():
+        if 'minimum' in prop:
+            assert accepted(name, prop['minimum']), name
+            assert not accepted(name, prop['minimum'] - 1e-6), name
+        if 'maximum' in prop:
+            assert accepted(name, prop['maximum']), name
+            assert not accepted(name, prop['maximum'] + 1e-6), name

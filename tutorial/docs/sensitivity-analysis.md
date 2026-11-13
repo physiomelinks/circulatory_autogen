@@ -127,7 +127,7 @@ param_reduction_options:
   method: pca            # or sobol
   # n_params: 3          # pca: at most this many; sobol: needed
   # index_type: ST       # ST or S1
-  # min_mode_std: 1.0    # pca
+  # min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)
   # variance_fraction: 0.99  # pca
   # min_index: 0.05      # pca
   # criterion: max       # sobol

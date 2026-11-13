@@ -56,7 +56,7 @@ ALLOWED_SETTINGS = (
     'use_builtin_modules', 'external_modules_dir',
     'operation_funcs_external_path', 'cost_funcs_external_path', 'modifier_funcs_external_path',
     'write_cuflynx_study', 'cuflynx_study_copy_inputs', 'sa_options', 'ia_options',
-    'emulator_settings', 'param_reduction_options',
+    'emulator_settings',
 )
 
 PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
@@ -81,8 +81,7 @@ _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'iden
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation')}
 #: the analysis options each kind needs in its settings
-_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options',
-                  'reduction': 'param_reduction_options'}
+_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options'}
 # a module array file's name is <prefix><suffix>
 ARRAY_SUFFIXES = ('_module_array.csv', '_module_array.json', '_vessel_array.csv',
                   '_vessel_array.json')
@@ -285,12 +284,29 @@ def load_workflow(source, module_library_dirs=None):
     return parse_workflow(raw, path=path, module_library_dirs=module_library_dirs)
 
 
+def _refuse_reduction_options_outside_reduction_steps(raw, where):
+    '''param_reduction_options belong to a reduction step's own settings, one set per step.'''
+    if not isinstance(raw, dict):
+        return
+    hint = ('param_reduction_options are the options of one reduction step: put them in that '
+            'step\'s "settings".')
+    if isinstance(raw.get('settings'), dict) and 'param_reduction_options' in raw['settings']:
+        raise WorkflowError(f'{where}: the workflow\'s settings have no param_reduction_options; '
+                            + hint)
+    for step in raw.get('steps') or []:
+        if (isinstance(step, dict) and step.get('kind', 'calibration') != 'reduction'
+                and 'param_reduction_options' in (step.get('settings') or {})):
+            raise WorkflowError(f'{where}: step "{step.get("id")}" is not a reduction step and '
+                                f'has no param_reduction_options; ' + hint)
+
+
 def parse_workflow(raw, path=None, module_library_dirs=None):
     where = path or 'calibration workflow'
     # The schema owns the file's structure (keys, types, enums, what each kind of step needs);
     # what follows reads it, and checks what spans keys and steps.
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
     from libcuflynx.schemas.validation import SchemaValidationError, validate
+    _refuse_reduction_options_outside_reduction_steps(raw, where)
     try:
         validate(CALIBRATION_WORKFLOW_SCHEMA, raw, source=where, what='calibration workflow')
     except SchemaValidationError as exc:
@@ -437,13 +453,15 @@ def _step(value, where, base_dir):
     if kind == 'identifiability' and not refs['result_from']:
         raise WorkflowError(f'{label}: an identifiability step needs "result_from", the '
                             f'calibration whose result it analyses.')
-    if 'reduction' in value:
-        raise WorkflowError(f'{label}: a reduction step\'s options go in '
-                            f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
+    # A reduction step's options are settings.param_reduction_options; set and sweep steps
+    # carry theirs under their own key.
     for options_key in ('set', 'sweep'):
         if (kind == options_key) != (options_key in value):
             raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
                                 f'step, and a {options_key} step needs it.')
+    if 'reduction' in value:
+        raise WorkflowError(f'{label}: a reduction step\'s options go in '
+                            f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
 
     if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
@@ -453,6 +471,9 @@ def _step(value, where, base_dir):
                      else 'declares values for the target')
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
     if kind == 'set':
+        if 'settings' in value:
+            raise WorkflowError(f'{label}: a set step declares values for the target and has '
+                                f'no "settings".')
         entries = [_set_entry(entry) for entry in value['set']]
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=scale_sources(entries), set_values=entries,
@@ -464,7 +485,7 @@ def _step(value, where, base_dir):
             raise WorkflowError(f'{label}: a reduction step\'s only setting is '
                                 f'"param_reduction_options", not {other}.')
         options = dict(settings.get('param_reduction_options') or {})
-        if not options:
+        if 'param_reduction_options' not in settings:
             raise WorkflowError(f'{label}: a reduction step needs "settings": '
                                 f'{{"param_reduction_options": {{...}}}}.')
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,

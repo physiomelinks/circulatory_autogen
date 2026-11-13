@@ -1490,6 +1490,10 @@ options are `settings.param_reduction_options`, as in `user_inputs.yaml` (see
 [Parameter reduction](sensitivity-analysis.md#parameter-reduction)) without the paths:
 `method: pca` (default) keeps one parameter per PCA mode of the outputs that moves the data by
 more than its noise; `method: sobol` keeps the `n_params` with the highest index.
+`"param_reduction_options": {}` is `pca` with every default. The options belong to the reduction
+step alone: the workflow's own `settings` (and any other step's) refuse them. `min_mode_std` is
+measured over the Sobol samples, which fill the whole prior box of the sensitivity step's
+params_for_id: it is a global, prior-wide measure, not local to the fitted values.
 
 ```json
 {"id": "screen", "kind": "sensitivity", "model": {...}, "obs_data": "...",

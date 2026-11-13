@@ -160,3 +160,49 @@ def test_run_param_reduction_writes_into_its_output_dir(tmp_path):
     out = tmp_path / 'sa' / 'param_reduction'
     assert (out / 'reduced_params_for_id.json').is_file()
     assert json.loads((out / 'param_reduction.json').read_text())['selected'] == kept
+
+
+_RAISING_REDUCTION_SCRIPT = '''
+import sys
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.sensitivity_analysis import parameter_reduction
+from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+from libcuflynx.scripts import sensitivity_analysis_run_script as script
+
+class _Agent:
+    def run_sensitivity_analysis(self):
+        pass
+
+def _boom(inp):
+    raise ValueError('reduction failed on rank 0')
+
+YamlFileParser.parse_user_inputs_file = lambda self, inp, **kw: inp
+SensitivityAnalysis.init_from_dict = staticmethod(lambda inp: _Agent())
+parameter_reduction.run_param_reduction = _boom
+rank = script.MPI.COMM_WORLD.Get_rank()
+try:
+    script.run_SA({'do_param_reduction': True})
+except ValueError as exc:
+    print(f'RANK{rank} RAISED {exc}', flush=True)
+    sys.exit(0)
+print(f'RANK{rank} NO ERROR', flush=True)
+'''
+
+
+@pytest.mark.unit
+def test_a_failing_reduction_raises_on_every_rank_instead_of_hanging_them(tmp_path):
+    """run_SA reduces on rank 0; if that raises, the other ranks must raise too, not wait at
+    a barrier for a rank that has left. A hang fails the test by the timeout."""
+    import subprocess
+    import sys
+    script = tmp_path / 'run.py'
+    script.write_text(_RAISING_REDUCTION_SCRIPT)
+    env = dict(os.environ, OMP_NUM_THREADS='1')
+    try:
+        proc = subprocess.run(['mpiexec', '-n', '2', sys.executable, str(script)], env=env,
+                              capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pytest.fail('a rank hung after the reduction failed on rank 0')
+    for rank in (0, 1):
+        assert f'RANK{rank} RAISED reduction failed on rank 0' in proc.stdout, \
+            proc.stdout + proc.stderr

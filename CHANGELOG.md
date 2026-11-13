@@ -61,6 +61,41 @@ Decided by Finbar Argus on 2026-11-06:
   `inputs/system/` beside the parameters file (#619). Docs:
   `tutorial/docs/parameter-derivations.md`.
 
+Decided by Finbar Argus on 2026-11-13:
+
+- A CellML derivation may list `fixed_constants` (`["R", "F"]`): constants of its model that keep
+  the initial value the CellML file gives them, so they are not inputs. Every other constant must
+  still be an input. A name that is not a constant of the model, or that is also an input, is an
+  error, and `fixed_constants` on a `python` derivation is refused by the schema. Each
+  `DerivationResult` records its fixed constants with their values and units
+  (`fixed_constants`), `fixed_constant_values` reads them from a model, and `cuflynx-derive`
+  prints them.
+
+### Added — parameter reduction by PCA modes of the Sobol outputs
+
+- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
+  chooses the parameters to calibrate after a Sobol analysis and writes them as
+  `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
+  their principal components, computes Sobol indices of each component's score, and keeps one
+  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
+  first. Parameters that move the data the same way, and effects smaller than the noise, are
+  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
+- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
+  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
+  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
+
+### Changed — a workflow reduction step takes `settings.param_reduction_options`
+
+- A reduction step's options move from `"reduction": {"top_n": ...}` to
+  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
+  is refused. Without `method`, a reduction is now `pca`.
+- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
+  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
+- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
+- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
+  run's directory rather than its indices CSV.
 
 ### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
 
@@ -139,36 +174,6 @@ Decided by Finbar Argus on 2026-11-06:
   tolerances, maximum step and output grid, and writes setup, first-run and median run times,
   CVODE step counts where exposed and the error against a reference backend, as JSON and
   Markdown.
-### Added — parameter reduction by PCA modes of the Sobol outputs
-
-- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
-  chooses the parameters to calibrate after a Sobol analysis and writes them as
-  `reduced_params_for_id.json` with a report, `param_reduction.json`.
-- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
-  their principal components, computes Sobol indices of each component's score, and keeps one
-  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
-  first. Parameters that move the data the same way, and effects smaller than the noise, are
-  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
-- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
-  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
-
-### Changed — a workflow reduction step takes `settings.param_reduction_options`
-
-- A reduction step's options move from `"reduction": {"top_n": ...}` to
-  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
-  is refused. Without `method`, a reduction is now `pca`.
-- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
-  run's directory rather than its indices CSV.
-
-Decided by Finbar Argus on 2026-11-13:
-
-- A CellML derivation may list `fixed_constants` (`["R", "F"]`): constants of its model that keep
-  the initial value the CellML file gives them, so they are not inputs. Every other constant must
-  still be an input. A name that is not a constant of the model, or that is also an input, is an
-  error, and `fixed_constants` on a `python` derivation is refused by the schema. Each
-  `DerivationResult` records its fixed constants with their values and units
-  (`fixed_constants`), `fixed_constant_values` reads them from a model, and `cuflynx-derive`
-  prints them.
 
 ### Added — `set` and `sweep` workflow steps
 

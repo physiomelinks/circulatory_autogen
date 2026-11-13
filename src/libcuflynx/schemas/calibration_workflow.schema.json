@@ -229,16 +229,13 @@
         "cuflynx_study_copy_inputs": {},
         "sa_options": {},
         "ia_options": {},
-        "emulator_settings": {},
-        "param_reduction_options": {
-          "$ref": "#/$defs/param_reduction_options"
-        }
+        "emulator_settings": {}
       }
     },
     "param_reduction_options": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses.",
+      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses. {} is PCA with every default. Only a reduction step has them; the workflow's own settings do not.",
       "properties": {
         "method": {
           "enum": [
@@ -278,7 +275,7 @@
           "type": "number",
           "minimum": 0,
           "default": 1.0,
-          "description": "pca: a mode is informative when its std over the samples is at least this many obs_data stds"
+          "description": "pca: a mode is informative when its std over the Sobol samples is at least this many obs_data stds. The samples fill the whole prior box (the sensitivity step's params_for_id bounds), so this is a global, prior-wide measure of what a parameter can do, not local to the fitted values"
         },
         "variance_fraction": {
           "type": "number",
@@ -579,7 +576,7 @@
           "description": "(sweep) run on the target with every calibration's and set step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every calibration and set step"
         },
         "settings": {
-          "$ref": "#/$defs/settings"
+          "type": "object"
         },
         "emulator_from": {
           "type": "string",
@@ -674,10 +671,26 @@
             ],
             "properties": {
               "settings": {
-                "required": [
-                  "param_reduction_options"
-                ],
-                "description": "a reduction step's only setting is param_reduction_options"
+                "$ref": "#/$defs/reduction_step_settings"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "reduction"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "else": {
+            "properties": {
+              "settings": {
+                "$ref": "#/$defs/settings"
               }
             }
           }
@@ -789,6 +802,19 @@
           }
         }
       ]
+    },
+    "reduction_step_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "param_reduction_options"
+      ],
+      "description": "a reduction step's only setting is param_reduction_options: its own options, {} for PCA with every default",
+      "properties": {
+        "param_reduction_options": {
+          "$ref": "#/$defs/param_reduction_options"
+        }
+      }
     }
   }
 }
