@@ -914,10 +914,13 @@ def pytest_collection_modifyitems(config, items):
     # Mark param_id and comparison tests to run serially as one group under xdist
     for item in items:
         nodeid = item.nodeid
-        if "test_param_id" in nodeid or "compare_optimisers" in nodeid:
+        # By file, not by substring of the node id: test_param_id_external_recovers_params
+        # (in test_external_simulation_helper.py) needs no generated models.
+        test_file = os.path.basename(nodeid.split("::")[0])
+        if test_file == "test_param_id.py" or "compare_optimisers" in nodeid:
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
-        if "test_sensitivity_analysis" in nodeid:
+        if test_file == "test_sensitivity_analysis.py":
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
         if 'test_solvers' in nodeid:

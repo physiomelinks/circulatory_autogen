@@ -568,30 +568,46 @@ def test_cpp_cvode_matches_the_reference(models, tmp_path, record_property):
 # --------------------------------------------------------------------------- division guard
 
 
-def test_division_guard_keeps_the_sign_on_a_generated_model(models, tmp_path, record_property):
+_DIVISION_GUARD_INFO = {'CVODE_myokit': {'rtol': 1e-10, 'atol': 1e-12, 'MaximumStep': 1e-4,
+                                         'MaximumNumberOfSteps': 10 ** 7}}
+
+
+@pytest.fixture(scope='module')
+def control_phys_asd(tmp_path_factory):
+    """control_phys_asd as CellML and as a casadi_python module, with its state names.
+
+    Generating it takes ~40 s, so it is a fixture: the test itself then takes ~25 s.
+    """
+    pytest.importorskip('casadi')
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
+    folder = tmp_path_factory.mktemp('control_phys_asd')
+    cellml = _Models(str(folder)).cellml('control_phys_asd')
+    with contextlib.redirect_stdout(io.StringIO()):
+        casadi_path = PythonGenerator(cellml, output_dir=str(folder / 'casadi'),
+                                      module_name='control_phys_asd',
+                                      casadi_compat=True).generate()
+    return {'CVODE_myokit': cellml, 'casadi_integrator': casadi_path,
+            'names': state_names(cellml)}
+
+
+def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
+                                                            record_property):
     """control_phys_asd's chemoreflex divides by quantities that change sign. casadi_python
     guards every division against zero; a guard that drops the sign sends the CO2 drive the
     wrong way. Checked where a calibration would see it: each state's mean, min and max over
-    the run, against CVODE_myokit."""
+    the run, against CVODE_myokit at rtol 1e-10. At rtol 1e-8 this model's control takes a
+    different branch on SUNDIALS 6 than on 7 (chi_a peaks at 0.028 instead of 0.096), so the
+    comparison run has to be converged."""
     record_property('backend', 'casadi_integrator')
-    _skip_unless_available('casadi_integrator')
     from libcuflynx.solver_wrappers import get_simulation_helper
-    model = 'control_phys_asd'
-    cellml = _Models(str(tmp_path)).cellml(model)
-    names = state_names(cellml)
+    names = control_phys_asd['names']
     runs = {}
     for backend in ('CVODE_myokit', 'casadi_integrator'):
-        path = cellml
-        if backend == 'casadi_integrator':
-            from libcuflynx.generators.PythonGenerator import PythonGenerator
-            with contextlib.redirect_stdout(io.StringIO()):
-                path = PythonGenerator(cellml, output_dir=str(tmp_path / 'casadi'),
-                                       module_name=model, casadi_compat=True).generate()
         with contextlib.redirect_stdout(io.StringIO()):
-            helper = get_simulation_helper(model_path=path, solver=backend,
-                                           model_type=MODEL_TYPE[backend], dt=0.001,
-                                           sim_time=1.0, pre_time=0.0,
-                                           solver_info=_solver_info(backend, 0.001))
+            helper = get_simulation_helper(
+                model_path=control_phys_asd[backend], solver=backend,
+                model_type=MODEL_TYPE[backend], dt=0.001, sim_time=1.0, pre_time=0.0,
+                solver_info=_DIVISION_GUARD_INFO.get(backend, _solver_info(backend, 0.001)))
         runs[backend] = run_states(helper, names)
         _close(helper)
     error, state = worst(feature_error(runs['casadi_integrator'], runs['CVODE_myokit']), names)
