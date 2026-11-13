@@ -128,3 +128,36 @@ The `conftest.py` file provides:
 - `project_root` - Returns the project root directory
 - `opencor_python_path` - Returns the OpenCOR Python shell path (if available)
 
+
+## Solver matrix
+
+`test_solver_matrix.py` runs every forward backend (CVODE_myokit, CVODE_libopencor, the batched
+C solvers, CasADi cvodes, solve_ivp, AADC, `model_type: cpp` CVODE) against one converged
+reference per model, on small, event and large models. The reference is CVODE_myokit at rtol
+1e-11, checked against rtol 1e-10 before use (`_reference_solutions.py`), and cached as `.npz`
+under `$CUFLYNX_TEST_CACHE` (default `tests/test_outputs/references/`). The gates are one table,
+`TOLERANCES` in `_solver_metrics.py`. A pair a backend cannot run is listed in `EXCLUDED` with
+its reason, and `test_every_solver_in_schema_has_a_matrix_row` fails when `SOLVER_SCHEMA` gains
+a solver or method the matrix does not account for. `tests/data/references/Lotka_Volterra.npz`
+is a committed golden reference that catches drift between Myokit or SUNDIALS releases.
+
+## Required backends
+
+`CUFLYNX_REQUIRED_BACKENDS=myokit,casadi,...` turns a test's skip into a failure when the skip
+says one of those backends is missing (`_required_backends.py`). Each CI job sets it to what it
+installs. The pytest header and the junit file list every backend's version, and warn when
+Myokit's SUNDIALS was not built as Release.
+
+## Release checks
+
+`tests/run_release_checks.sh` runs what CI cannot: AADC (it needs a Matlogica licence),
+CVODE_libopencor, every main and MPI shard, the solver matrix and the tutorial notebooks, with
+every backend required. Run it before tagging a release (CONTRIBUTING.md), in a venv with
+`pip install -e ".[dev,aadc,uq,emulation,libopencor]"` and `SUNDIALS_DIR` set:
+
+```
+PYTHON=venv/bin/python tests/run_release_checks.sh          # every check, ~40 min
+PYTHON=venv/bin/python tests/run_release_checks.sh aadc     # one check; --list names them
+```
+
+Each check is one pytest session under 10 minutes; it ends with a pass/fail table.
