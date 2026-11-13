@@ -49,7 +49,17 @@ single-use credential for one workflow run.
     Nothing may be written into `site-packages` during that run (`tests/test_no_writes_into_package.py`
     covers this in CI, but the clean-venv run is the honest check).
 
-6. If you want a rehearsal of the upload itself, publish to
+6. **Run the release checks** and get `ALL PASSED`:
+
+    ```
+    PYTHON=venv/bin/python tests/run_release_checks.sh
+    ```
+
+    They run what CI cannot: AADC (it needs a Matlogica licence), CVODE_libopencor, every
+    shard on two MPI ranks, the solver matrix and the tutorial notebooks, with every backend
+    required, so a test that skips for want of one fails. See `tests/README.md`.
+
+7. If you want a rehearsal of the upload itself, publish to
    [TestPyPI](https://test.pypi.org/) first and install from there. TestPyPI needs its own
    trusted publisher (or its own token) — it is a separate index with separate accounts.
 
