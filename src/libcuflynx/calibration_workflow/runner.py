@@ -1154,10 +1154,11 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     module library. Only ``path`` is written; the target's files are not changed.
 
     A merged value's leaf loses ``derivation`` and ``reason`` and gets origin ``calibrated``
-    (``parameters_file.calibrated_leaf``), or ``set_by_hand`` with the set step's reason, so ``cuflynx-derive --write`` never overwrites it. The
-    derived value is not lost: the target's parameters file still holds it, its derivations file
-    still calculates it (``cuflynx-derive``), and the step's generated parameters file
-    (``generated.parameters_path`` in its result) holds it as the value the step started from.'''
+    (``parameters_file.calibrated_leaf``), or ``set_by_hand`` with the set step's reason, so
+    ``cuflynx-derive --write`` never overwrites it. The derived value is not lost: the target's
+    parameters file still holds it, its derivations file still calculates it
+    (``cuflynx-derive``), and the step's generated parameters file (``generated.parameters_path``
+    in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
     kind = pf.MODEL if target.kind == 'array' else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)

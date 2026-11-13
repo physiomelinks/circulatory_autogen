@@ -48,6 +48,9 @@ def run(args):
     calibrated = {id(out) for _, out in calibrated_outputs(results, doc)}
     for result in results:
         print(f'{result.derivation.name} ({result.derivation.method})')
+        for name, fixed in result.fixed_constants.items():
+            print(f"  fixed constant {name} = {fixed['value']!r} {fixed['units']}".rstrip()
+                  + ' (from the CellML file)')
         for symbol, out in result.outputs.items():
             held = 'calibrated' if id(out) in calibrated else 'cached'
             note = ' (calibrated: neither checked nor written)' if id(out) in calibrated else ''

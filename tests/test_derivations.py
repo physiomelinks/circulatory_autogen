@@ -186,6 +186,9 @@ def test_the_files_beside_each_other_are_named_from_one_another():
      'has too many properties'),
     (lambda d: d['derivations'][0]['inputs']['MAP'].update(model='x'), "'model' was unexpected"),
     (lambda d: d['derivations'][0].update(outputs={}), 'should be non-empty'),
+    (lambda d: d['derivations'][1].update(fixed_constants=['k']),
+     "'cellml' is a dependency of 'fixed_constants'"),
+    (lambda d: d['derivations'][0].update(fixed_constants=['k', 'k']), 'has non-unique elements'),
 ])
 def test_a_derivations_file_the_schema_refuses(toy, change, message):
     doc = _read(toy['derivations'])
@@ -583,6 +586,115 @@ def test_a_calibrated_value_drops_its_derivation_so_derive_write_keeps_it(toy):
     # the derived value is not lost: the source parameters file and the derivation still have it
     assert _read(toy['parameters'])['Systemic_T']['R_T0']['value'] == pytest.approx(R, rel=1e-12)
     assert _values(_evaluate(toy)[0])['Systemic_T/R_T0'] == pytest.approx(R, rel=1e-12)
+
+
+@pytest.mark.unit
+def test_a_set_steps_value_drops_its_derivation_and_is_marked_set_by_hand(toy):
+    """A set step's value in the calibrated parameters file is set by hand, with the step's
+    reason: no derivation (cuflynx-derive --write would overwrite it) and not calibrated."""
+    from libcuflynx.calibration_workflow.runner import write_calibrated_parameters
+
+    class _Target:
+        kind = 'array'
+        parameters_path = toy['parameters']
+
+        def file(self, suffix):
+            return os.path.join(toy['dir'], f'toy_{suffix}')
+
+    merged = [{'model_name': 'R_T0_Systemic_T', 'host_name': 'Systemic_T/R_T0', 'value': 3e8,
+               'units': 'J_s_per_m6', 'from_step': 'by_hand', 'origin': 'set_by_hand',
+               'reason': 'from the clinic'}]
+    path = write_calibrated_parameters(_Target(), merged, 'wf', generated_path=toy['parameters'])
+    leaf = _read(path)['Systemic_T']['R_T0']
+    assert 'derivation' not in leaf
+    assert (leaf['origin'], leaf['reason'], leaf['value']) == ('set_by_hand', 'from the clinic',
+                                                               3e8)
+    assert leaf['data_reference'].startswith('set by hand in workflow wf, step by_hand')
+
+
+# --------------------------------------------------------------------------- fixed constants
+
+K_FIXED = 2.5
+
+
+@pytest.fixture
+def fixed_toy(toy):
+    """The toy with ``R = k * (MAP - CVP) / Q``, ``k`` a dimensionless constant the CellML file
+    gives as 2.5 and the derivation lists in fixed_constants."""
+    with open(toy['cellml']) as f:
+        text = f.read()
+    text = text.replace('<variable name="R" units="J_s_per_m6"/>',
+                        '<variable name="R" units="J_s_per_m6"/>\n'
+                        f'    <variable name="k" units="dimensionless" initial_value="{K_FIXED}"/>')
+    text = text.replace('<apply><divide/><apply><minus/>',
+                        '<apply><times/><ci>k</ci><apply><divide/><apply><minus/>')
+    text = text.replace('<ci>Q</ci></apply></apply>', '<ci>Q</ci></apply></apply></apply>')
+    with open(toy['cellml'], 'w') as f:
+        f.write(text)
+    doc = _read(toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = ['k']
+    _write(toy['derivations'], doc)
+    return toy
+
+
+@pytest.mark.unit
+def test_a_fixed_constant_keeps_its_value_from_the_cellml_file(fixed_toy):
+    results, _ = _evaluate(fixed_toy)
+    assert _values(results)['Systemic_T/R_T0'] == pytest.approx(K_FIXED * R, rel=1e-12)
+    by_name = {r.derivation.name: r for r in results}
+    assert by_name['R_T0'].fixed_constants == {'k': {'value': K_FIXED, 'units': 'dimensionless'}}
+    assert by_name['Q_T0'].fixed_constants == {}
+    assert load_derivations(fixed_toy['derivations'])[0].fixed_constants == ('k',)
+
+
+@pytest.mark.unit
+def test_a_constant_not_listed_as_fixed_must_still_be_an_input(fixed_toy):
+    doc = _read(fixed_toy['derivations'])
+    del doc['derivations'][0]['fixed_constants']
+    _write(fixed_toy['derivations'], doc)
+    with pytest.raises(DerivationModelError,
+                       match="derivation 'R_T0': .*input\\(s\\) 'k' of the model are not given"):
+        _evaluate(fixed_toy)
+    # listing k does not excuse a forgotten input
+    doc['derivations'][0]['fixed_constants'] = ['k']
+    del doc['derivations'][0]['inputs']['CVP']
+    _write(fixed_toy['derivations'], doc)
+    with pytest.raises(DerivationModelError, match="input\\(s\\) 'CVP' of the model are not given"):
+        _evaluate(fixed_toy)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('fixed, message', [
+    (['k', 'R'], "fixed constant 'R' is a computed constant of the model"),
+    (['k', 'X'], "fixed constant 'X' is not a variable of the model"),
+])
+def test_a_fixed_constant_that_is_not_a_constant_of_the_model_is_refused(fixed_toy, fixed,
+                                                                         message):
+    doc = _read(fixed_toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = fixed
+    _write(fixed_toy['derivations'], doc)
+    with pytest.raises(DerivationModelError, match=f"derivation 'R_T0': .*{message}"):
+        _evaluate(fixed_toy)
+
+
+@pytest.mark.unit
+def test_a_fixed_constant_that_is_also_an_input_is_refused(fixed_toy):
+    doc = _read(fixed_toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = ['k', 'CVP']
+    with pytest.raises(DerivationError, match="'CVP' both as an input and in fixed_constants"):
+        load_derivations(doc, fixed_toy['dir'])
+    with pytest.raises(DerivationModelError, match="'CVP' is both an input and a fixed constant"):
+        evaluate_cellml(fixed_toy['cellml'], {'MAP': (93.0, 'mmHg'), 'CVP': (5.0, 'mmHg'),
+                                              'Q': (Q, 'm3_per_s')}, {'R': None}, ('k', 'CVP'))
+
+
+@pytest.mark.unit
+def test_derive_prints_each_fixed_constant_with_its_value_and_units(fixed_toy, capsys):
+    args = [fixed_toy['derivations'], '--obs', fixed_toy['obs']]
+    assert derive_main(args + ['--write']) == 0
+    out = capsys.readouterr().out
+    assert f'  fixed constant k = {K_FIXED!r} dimensionless (from the CellML file)' in out
+    assert derive_main(args) == 0
 
 
 # ------------------------------------------------------------------------------ packing

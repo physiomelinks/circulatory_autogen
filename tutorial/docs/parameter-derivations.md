@@ -67,6 +67,8 @@ Python files next to it or below it. Paths in it are relative to it.
   Derivations run in the order their inputs need, whatever their order in the file; a loop is an
   error.
 - **Method**: exactly one of `cellml` or `python`.
+- **`fixed_constants`** (`cellml` only): constants of the CellML model that keep their initial
+  value from the CellML file, such as the gas constant. See below.
 
 The structure is defined by `src/libcuflynx/schemas/derivations.schema.json`.
 
@@ -74,9 +76,38 @@ The structure is defined by `src/libcuflynx/schemas/derivations.schema.json`.
 
 The equation is a CellML 2.0 model. Its inputs are constants named as the input symbols (their
 initial values are placeholders); its outputs are computed constants named as the output symbols.
-Every constant of the model must be an input: one the derivation leaves out is an error, not its
-placeholder. Write a fixed number in the equation itself (`<cn>`). The model may import units or
-components from other CellML files beside it or below it.
+Every constant of the model must be an input or a fixed constant: one the derivation leaves out
+is an error, not its placeholder. The model may import units or components from other CellML files
+beside it or below it.
+
+A constant whose initial value is its value, such as a physical constant, is listed in the
+derivation's `fixed_constants` instead of its inputs:
+
+```json
+{"name": "E_K",
+ "inputs": {"T": {"input_item": "T_body"}, "K_o": {"input_item": "K_o"},
+            "K_i": {"input_item": "K_i"}},
+ "outputs": {"E": "membrane/E_K"},
+ "cellml": "derivations/nernst.cellml",
+ "fixed_constants": ["R", "F"]}
+```
+
+`R` and `F` keep the values and units the CellML file gives them. Every other constant must still
+be an input, so a forgotten input is still an error. Naming a fixed constant that is not a
+constant of the model (a computed constant, or no variable at all), or that is also an input, is
+an error. Each derivation's result records its fixed constants with their values and units
+(`fixed_constants` of the result: `{"R": {"value": 8.314, "units": "J_per_K_per_mol"}}`), and
+`cuflynx-derive` prints them:
+
+```
+E_K (cellml)
+  fixed constant R = 8.314 J_per_K_per_mol (from the CellML file)
+  fixed constant F = 96485.0 C_per_mol (from the CellML file)
+  membrane/E_K: cached -0.0897, derived -0.0897 V
+```
+
+A number written in the equation itself (`<cn>`) needs no listing, but a named fixed constant
+shows its value and units where the derivation is reviewed.
 
 ```xml
 <component name="derivation">
@@ -176,8 +207,8 @@ results = evaluate_derivations(load_derivations('BVC_derivations.json'), doc, ['
 print(check_derivations(results, doc))   # [] when the cache is current
 ```
 
-Each result carries its inputs with their values, units, standard deviations and sources, for a
-review page or a table.
+Each result carries its inputs with their values, units, standard deviations and sources, and its
+fixed constants with their values and units, for a review page or a table.
 
 ## Packing
 

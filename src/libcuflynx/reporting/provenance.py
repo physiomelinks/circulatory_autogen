@@ -35,8 +35,9 @@ from libcuflynx.utilities.parameters_file import (CALIBRATED, DERIVED, INHERITED
 #: The graph's schema is closed (no unknown keys; enums for a node's kind and an edge's style), so
 #: SCHEMA_VERSION goes up whenever the schema gains or changes a kind, style or key. A reader
 #: refuses a version it does not know rather than misdraw it. 2 added the figure and external
-#: node kinds and the writes and reads edge styles.
-SCHEMA_VERSION = 2
+#: node kinds and the writes and reads edge styles; 3 the derived origin and mark, and the box of
+#: values calibrated before the run (origin calibrated with no from_step).
+SCHEMA_VERSION = 3
 #: the schema versions this module reads
 SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION,)
 GRAPH_FILE = 'provenance_graph.json'

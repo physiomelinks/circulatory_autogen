@@ -39,6 +39,11 @@
           ]
         }
       ],
+      "dependentRequired": {
+        "fixed_constants": [
+          "cellml"
+        ]
+      },
       "properties": {
         "name": {
           "type": "string",
@@ -64,7 +69,16 @@
         "cellml": {
           "type": "string",
           "pattern": "\\S",
-          "description": "A CellML 2.0 derivation model: its inputs are constants named as the input symbols, its outputs computed constants named as the output symbols. Its units are checked, and an input or output in other units of the same dimension is converted. Implicit equations are refused (use python)."
+          "description": "A CellML 2.0 derivation model: its inputs are constants named as the input symbols (every constant is an input or one of fixed_constants), its outputs computed constants named as the output symbols. Its units are checked, and an input or output in other units of the same dimension is converted. Implicit equations are refused (use python)."
+        },
+        "fixed_constants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\S+$"
+          },
+          "description": "cellml only. Constants of the CellML model that keep the initial value the CellML file gives them (such as the gas constant R), so they are not inputs. Every other constant must be an input. A name that is not a constant of the model, or that is also an input, is an error. cuflynx-derive prints each with its value and units."
         },
         "python": {
           "type": "string",
