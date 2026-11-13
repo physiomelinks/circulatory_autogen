@@ -11,7 +11,6 @@ from libcuflynx.parsers.PrimitiveParsers import (
     refuse_removed_user_inputs,
     step_from_dt_solver,
     validate_solver_info,
-    warn_if_casadi_nonzero_pre_time,
     PARAM_ID_METHODS,
     valid_param_id_methods,
     param_id_method_options,
@@ -24,7 +23,6 @@ from libcuflynx.parsers.PrimitiveParsers import (
     analysis_options,
     uq_options,
     _SOLVER_INTEGRATOR_KEYS,
-    _CASADI_ADJOINT_METHODS,
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
@@ -143,7 +141,7 @@ def test_solver_integrator_keys_derived_from_schema():
         'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
-        'options'}
+        'options', 'jit', 'compiler', 'jit_options'}
     # 'max_step' comes with the stiff BDF methods (bdf_newton / semi_implicit_signed).
     # 'gradient_strategy' selects tape vs kernel for semi_implicit_signed (issue #346).
     assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {
@@ -969,25 +967,40 @@ def test_myokit_default_solver_info_needs_no_migration():
     validate_solver_info('CVODE_opencor', opencor)
 
 
-def test_parse_user_inputs_warns_for_casadi_nonzero_pre_time():
-    with pytest.warns(UserWarning, match='does not support nonzero pre_time'):
-        YamlFileParser().parse_user_inputs_file({
-            'file_prefix': '3compartment_nonstiff',
-            'input_param_file': '3compartment_nonstiff_parameters.json',
-            'model_type': 'casadi_python',
-            'solver': 'casadi_integrator',
-            'solver_info': {'method': 'cvodes', 'max_num_steps': 50000},
-            'dt': 0.01,
-            'pre_time': 0.5,
-            'sim_time': 0.3,
-        }, obs_path_needed=False)
+def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
+    """The defaults a front-end (CUFLynx) reads rather than hardcodes: cellml on CVODE_myokit,
+    do_ad off, and per model the gradient to pre-select -- Myokit FSA for cellml + CVODE_myokit,
+    CasADi AD for casadi_python (cvodes, its default method, included)."""
+    from libcuflynx.parsers.PrimitiveParsers import (DEFAULT_DO_AD, DEFAULT_MODEL_TYPE,
+                                                     default_gradient_source)
+    assert DEFAULT_MODEL_TYPE == SOLVER_SCHEMA['default_model_type'] == 'cellml'
+    assert SOLVER_SCHEMA['default_solver_by_model_type'][DEFAULT_MODEL_TYPE] == 'CVODE_myokit'
+    assert DEFAULT_DO_AD is False and SOLVER_SCHEMA['default_do_ad'] is False
+    assert SOLVER_SCHEMA['default_method_by_solver']['casadi_integrator'] == 'cvodes'
+    assert default_gradient_source() == 'FSA'
+    assert default_gradient_source('casadi_python') == 'AD'
+    assert default_gradient_source('casadi_python', 'casadi_integrator', 'cvodes') == 'AD'
+    assert default_gradient_source('python') == 'FD'
+    assert default_gradient_source('cellml', 'CVODE_opencor') == 'FD'
+    assert default_gradient_source('casadi_python', use_emulator=True) == 'FD'
+    # Exactly one default per menu.
+    for mt, sv in [('casadi_python', 'casadi_integrator'), ('cellml', 'CVODE_myokit'),
+                   ('cellml', 'CVODE_opencor'), ('python', 'solve_ivp')]:
+        assert sum(src['default'] for src in gradient_sources(mt, sv)) == 1, (mt, sv)
 
 
-def test_warn_if_casadi_nonzero_pre_time_ignores_other_model_types():
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter('always')
-        warn_if_casadi_nonzero_pre_time('python', pre_time=0.5)
-    assert len(caught) == 0
+@pytest.mark.parametrize("given,expected", [
+    ({}, 'cellml'),
+    ({'solver': 'CVODE_myokit'}, 'cellml'),
+    ({'solver': 'CVODE'}, 'cellml'),
+    ({'solver_info': {'solver': 'solve_ivp'}}, 'python'),
+    ({'solver': 'casadi_integrator'}, 'casadi_python'),
+])
+def test_model_type_defaults_from_the_named_solver(given, expected):
+    """With no model_type, the named solver picks it (`solver: casadi_integrator` alone is a
+    casadi_python run); with neither, the default model_type."""
+    from libcuflynx.parsers.PrimitiveParsers import default_model_type_for
+    assert default_model_type_for(given) == expected
 
 
 def test_sa_method_choices_each_have_a_dispatch_handler():
@@ -1016,7 +1029,8 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     """
     from libcuflynx.param_id.optimisers import AD_GRADIENT_MODEL_TYPES
 
-    _REQUIRED_KEYS = {'value', 'label', 'do_ad', 'requires_all_differentiable', 'description'}
+    _REQUIRED_KEYS = {'value', 'label', 'do_ad', 'requires_all_differentiable', 'description',
+                      'default'}
 
     def _check_shape(srcs):
         assert srcs, 'at least finite differences must always be offered'
@@ -1057,19 +1071,14 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
 def test_per_integrator_ad_fsa_and_default_method_schema():
     """ad_suitable_methods / fsa_suitable_methods / default_method_by_solver let a front-end gate
     its Gradient menu on the selected integrator (issue #298). Lock their shape and, crucially,
-    that ad_suitable_methods is derived from _CASADI_ADJOINT_METHODS (so the flag and the
-    adjoint-warning cannot drift) and that the referenced methods actually exist in the schema."""
+    that every casadi_integrator method is AD-suitable (cvodes/idas by forward sensitivities) and
+    that the referenced methods actually exist in the schema."""
     ad = SOLVER_SCHEMA['ad_suitable_methods']
     fsa = SOLVER_SCHEMA['fsa_suitable_methods']
     default_method = SOLVER_SCHEMA['default_method_by_solver']
 
     casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
-    # AD-suitable = every casadi_integrator method that is NOT an adjoint-sensitivity method.
-    assert ad['casadi_integrator'] == [m for m in casadi_methods
-                                       if m not in _CASADI_ADJOINT_METHODS]
-    assert ad['casadi_integrator'] == ['collocation', 'rk', 'semi_implicit_euler', 'bdf']
-    # the adjoint methods are exactly the ones excluded
-    assert set(casadi_methods) - set(ad['casadi_integrator']) == set(_CASADI_ADJOINT_METHODS)
+    assert ad['casadi_integrator'] == casadi_methods
 
     # fsa_suitable methods exist in the schema for their solver.
     for solver, methods in fsa.items():
@@ -1080,19 +1089,17 @@ def test_per_integrator_ad_fsa_and_default_method_schema():
     # a default method must be one of that solver's methods, and AD-suitable where AD applies.
     for solver, m in default_method.items():
         assert m in SOLVER_SCHEMA['methods_by_solver'][solver], (solver, m)
-    assert default_method['casadi_integrator'] == 'bdf'
+    assert default_method['casadi_integrator'] == 'cvodes'
     assert default_method['casadi_integrator'] in ad['casadi_integrator']
 
 
 def test_gradient_sources_gates_analytic_source_on_integrator_method():
     """gradient_sources(..., method=...) drops the analytic source when the selected integrator
-    cannot produce it -- CasADi AD for the adjoint methods (cvodes/idas), FSA for a non-CVODE
+    cannot produce it -- AADC AD for a method the tape cannot record, FSA for a non-CVODE
     method -- and keeps it otherwise. This is the per-integrator gate downstream tools apply."""
-    # CasADi AD: offered for the symbolic/AD-suitable methods, gone for the adjoint ones.
-    for m in SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']:
+    # CasADi AD: offered for every casadi_integrator method.
+    for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']:
         assert 'AD' in [s['value'] for s in gradient_sources('casadi_python', method=m)], m
-    for m in _CASADI_ADJOINT_METHODS:
-        assert [s['value'] for s in gradient_sources('casadi_python', method=m)] == ['FD'], m
     # method=None (or an unknown method) leaves AD offered.
     assert 'AD' in [s['value'] for s in gradient_sources('casadi_python')]
     assert 'AD' in [s['value'] for s in gradient_sources('casadi_python', method='not_a_method')]
@@ -1711,3 +1718,22 @@ def test_cvode_for_a_cpp_model_is_unchanged(tmp_path, capsys):
     assert 'using CVODE_myokit' not in capsys.readouterr().out
     assert 'CVODE' in SOLVER_SCHEMA['solvers_by_model_type']['cpp']
     assert SOLVER_SCHEMA['solver_aliases_by_model_type'] == {'cellml': {'CVODE': 'CVODE_myokit'}}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('model_type, solver, method', [
+    ('aadc_python', 'aadc_semi_implicit', 'implicit_newton'),
+    ('casadi_python', 'casadi_integrator', 'cvodes'),
+    # not in default_method_by_solver, not a CellML/CVODE solver: the generic fallback
+    ('python', 'solve_ivp', 'RK45'),
+])
+def test_a_solver_with_no_method_gets_its_default(base_user_inputs, tmp_path,
+                                                  model_type, solver, method):
+    """The parser fills solver_info['method'] from default_method_by_solver, else RK45."""
+    inp = dict(base_user_inputs, model_type=model_type,
+               generated_models_dir=str(tmp_path / 'generated'))
+    inp.pop('solver', None)
+    inp['solver_info'] = {'solver': solver}
+    out = YamlFileParser().parse_user_inputs_file(
+        inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    assert out['solver_info']['method'] == method

@@ -5,6 +5,7 @@ This class parses a CellML file, resolves imports, analyses the model,
 and emits a ready-to-run Python module.
 """
 import ast
+import copy
 import os
 import re
 
@@ -42,22 +43,33 @@ class _CasadiCompatTransformer(ast.NodeTransformer):
         )
 
     def visit_BinOp(self, node):
+        """``a / d`` -> ``a / ca.if_else(fabs(d) < 1e-300, 1e-300, d)``.
+
+        ca.if_else evaluates both branches, so a division by zero in the branch not taken would
+        still put inf/nan into the graph and its derivatives; the guard keeps every denominator
+        away from zero. It keeps the denominator's sign: a negative denominator is unchanged.
+        """
         self.generic_visit(node)
         if not isinstance(node.op, ast.Div):
             return node
         guarded_denom = ast.Call(
             func=ast.Attribute(
                 value=ast.Name(id="ca", ctx=ast.Load()),
-                attr="fmax",
+                attr="if_else",
                 ctx=ast.Load(),
             ),
             args=[
-                ast.Call(
-                    func=ast.Name(id="fabs", ctx=ast.Load()),
-                    args=[node.right],
-                    keywords=[],
+                ast.Compare(
+                    left=ast.Call(
+                        func=ast.Name(id="fabs", ctx=ast.Load()),
+                        args=[node.right],
+                        keywords=[],
+                    ),
+                    ops=[ast.Lt()],
+                    comparators=[ast.Constant(value=1e-300)],
                 ),
                 ast.Constant(value=1e-300),
+                copy.deepcopy(node.right),
             ],
             keywords=[],
         )
@@ -233,6 +245,11 @@ class PythonGenerator:
             body = cls._extract_function_block(code, name).split("\n", 1)[1]
             body = re.sub(rf"\b({'|'.join(cls._ARRAYS)})\[(\d+)\]",
                           lambda m: f"variables[{offsets[m.group(1)] + int(m.group(2))}]", body)
+            if name == "compute_computed_constants" and "states[" in body:
+                # states set from constants (the *_init of a state): an optional output array, so a call
+                # with only ``variables`` still works and just drops them
+                signature = "def compute_computed_constants(variables, states=None):"
+                body = "    if states is None:\n        states = create_states_array()\n" + body
             functions.append(signature + "\n" + body.rstrip() + "\n")
         return "\n".join([
             header + f"STATE_COUNT = {namespace['STATE_COUNT']}",
@@ -684,11 +701,16 @@ class PythonGenerator:
                 "    var = VarView(variables)",
             ],
         )
+        raw_ccc = self._extract_function_block(raw_code, "compute_computed_constants")
+        states_check = "    if states is None:\n        states = create_states_array()\n"
+        sets_states = states_check in raw_ccc
+        raw_ccc = raw_ccc.replace(states_check, "")
         compute_computed_constants = self._rewrite_indexed_function(
-            self._extract_function_block(raw_code, "compute_computed_constants"),
+            raw_ccc,
             state_attrs,
             variable_attrs,
-            ["    var = VarView(variables)"],
+            (states_check.splitlines() + ["    state = StateView(states)"] if sets_states else [])
+            + ["    var = VarView(variables)"],
         )
         compute_rates = self._rewrite_indexed_function(
             self._extract_function_block(raw_code, "compute_rates"),

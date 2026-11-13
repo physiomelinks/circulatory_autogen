@@ -6,6 +6,7 @@ from scipy.integrate import solve_ivp
 import copy
 import sys
 from .name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.computed_states import computed_initial_states
 from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 DEBUG = False
 
@@ -91,8 +92,17 @@ class SimulationHelper(ExperimentTimeMixin):
         self.rates = self.model.create_states_array()
         self.variables = self.model.create_variables_array()
         self.model.initialise_variables(self.states, self.rates, self.variables)
-        self.model.compute_computed_constants(self.variables)
+        self._compute_computed_constants_and_states()
         self._store_constants_defaults()
+
+    def _compute_computed_constants_and_states(self, keep_states=()):
+        """Refresh the computed constants and the states libCellML computes from them (see
+        ``computed_states``), except those indexed in ``keep_states``."""
+        for idx, val in computed_initial_states(self.model, self.variables).items():
+            if idx not in keep_states:
+                self.states[idx] = val
+                if hasattr(self, "default_state_inits"):
+                    self.default_state_inits[idx] = val
 
     def _store_constants_defaults(self):
         self.default_constants = [self.variables[i] for i in self.constant_indices]
@@ -175,6 +185,7 @@ class SimulationHelper(ExperimentTimeMixin):
                     "set_param_vals(change_states=False) cannot set states directly, but was "
                     f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
                     "updates that must preserve the evolved state.")
+        set_states = set()  # states named directly: not refreshed from computed constants
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
 
@@ -195,7 +206,8 @@ class SimulationHelper(ExperimentTimeMixin):
                         f"'{name}' was given the protocol trace name '{val}', but the "
                         f"python (solve_ivp) backend cannot drive a variable from a time "
                         f"series. protocol_traces (and the protocol_shapes that expand "
-                        f"into them) are only implemented for solver 'CVODE_myokit'."
+                        f"into them) are implemented for solver 'CVODE_myokit' and for "
+                        f"model_type 'casadi_python' with method 'cvodes' or 'idas'."
                     )
                 elif type(val) not in [float, np.float64, int]:
                     raise ValueError(f"Parameter value {param_vals[JJ]} is not a valid type. {type(param_vals[JJ])}" + \
@@ -203,6 +215,7 @@ class SimulationHelper(ExperimentTimeMixin):
                 kind, idx_res = self._resolve_name(name)
                 if kind == "state":
                     self.states[idx_res] = val
+                    set_states.add(idx_res)
                 elif kind == "var":
                     self.variables[idx_res] = val
                     resolved_name = self.var_idx_to_name.get(idx_res, "")
@@ -224,7 +237,10 @@ class SimulationHelper(ExperimentTimeMixin):
                             self.default_state_inits[state_idx] = val
                 else:
                     raise ValueError(f"parameter name {name} not found in states or variables")
-        self.model.compute_computed_constants(self.variables)
+        if change_states:
+            self._compute_computed_constants_and_states(keep_states=set_states)
+        else:
+            self.model.compute_computed_constants(self.variables)
 
     # ---- simulation ----
     def _rhs(self, t, y):
