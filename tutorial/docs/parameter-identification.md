@@ -1483,36 +1483,43 @@ The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, 
 errors. Under MPI the points are spread across the ranks. A failed point stays as a NaN row, and
 the step fails only when every point fails.
 
-A **reduction** ranks the sensitivity step's parameters by the `criterion` (`max`, default, or
-`mean`) over the observables of their `index_type` index (`ST`, total, default, or `S1`), keeps
-the `top_n` best, dropping any scoring below `threshold`, and writes those entries of the sensitivity
-step's params_for_id -- bounds and all -- as `<step_id>/<step_id>_params_for_id.json`:
+A **reduction** chooses the parameters a calibration fits from a Sobol `sensitivity` step, and
+writes those entries of the sensitivity step's params_for_id -- bounds and all -- as
+`<step_id>/<step_id>_params_for_id.json`, with its report `param_reduction.json` beside it. Its
+options are `settings.param_reduction_options`, as in `user_inputs.yaml` (see
+[Parameter reduction](sensitivity-analysis.md#parameter-reduction)) without the paths:
+`method: pca` (default) keeps one parameter per PCA mode of the outputs that moves the data by
+more than its noise; `method: sobol` keeps the `n_params` with the highest index.
+`"param_reduction_options": {}` is `pca` with every default. The options belong to the reduction
+step alone: the workflow's own `settings` (and any other step's) refuse them. `min_mode_std` is
+measured over the Sobol samples, which fill the whole prior box of the sensitivity step's
+params_for_id: it is a global, prior-wide measure, not local to the fitted values.
 
 ```json
 {"id": "screen", "kind": "sensitivity", "model": {...}, "obs_data": "...",
  "params_for_id": "candidates_params_for_id.json",
  "settings": {"sa_options": {"method": "sobol", "num_samples": 256}}},
-{"id": "keep-5", "kind": "reduction", "sensitivity_from": "screen",
- "reduction": {"top_n": 5, "index_type": "ST", "criterion": "max", "threshold": 0.01}},
-{"id": "fit", "model": {...}, "obs_data": "...", "params_for_id_from": "keep-5"},
+{"id": "keep", "kind": "reduction", "sensitivity_from": "screen",
+ "settings": {"param_reduction_options": {"method": "pca"}}},
+{"id": "fit", "model": {...}, "obs_data": "...", "params_for_id_from": "keep"},
 {"id": "ia", "kind": "identifiability", "model": {...}, "obs_data": "...",
  "params_for_id": "fitted_params_for_id.json", "result_from": "fit",
  "settings": {"ia_options": {"method": "Laplace", "gradient_source": "FD"}}}
 ```
 
-Rerunning `screen` reruns `keep-5`, and so `fit` and `ia`, since each takes from the one before.
+Rerunning `screen` reruns `keep`, and so `fit` and `ia`, since each takes from the one before.
 
-A reduction is a `libcuflynx.sensitivity_analysis.parameter_reduction.SobolReduction`, which
+A reduction is a `libcuflynx.sensitivity_analysis.parameter_reduction.ParamReduction`, which
 can also be used on its own:
 
 ```python
-from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
-SobolReduction(top_n=5, threshold=0.01).reduce(
-    'sa/all_outputs_n256_Sobol_indices.csv', 'candidates_params_for_id.json', 'kept.json')
+from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
+ParamReduction.from_options({'method': 'pca'}).reduce(
+    'sa_results/', 'candidates_params_for_id.json', 'reduction/kept_params_for_id.json')
 ```
 
 An emulator can be trained on the kept parameters alone, and MCMC run on it: an `emulation`
-step with `"params_for_id_from": "keep-5"`, then a calibration with the same
+step with `"params_for_id_from": "keep"`, then a calibration with the same
 `params_for_id_from`, `"emulator_from"` that step and `"store_distribution": true`.
 
 ### How values move between models

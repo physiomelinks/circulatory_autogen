@@ -232,8 +232,11 @@ def workflow_graph(steps):
         kind = s.get('kind', 'calibration')
         if kind == 'reduction':
             options = s.get('reduction') or {}
-            lines = [f'keeps the top {options.get("top_n")} by Sobol '
-                     f'{options.get("index_type", "ST")}']
+            index_type = options.get('index_type', 'ST')
+            if options.get('method', 'pca') == 'pca':
+                lines = [f'one parameter per informative PCA mode, by Sobol {index_type}']
+            else:
+                lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
         elif s.get('model') is None:

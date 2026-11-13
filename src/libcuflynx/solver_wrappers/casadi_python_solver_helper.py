@@ -117,6 +117,23 @@ def jit_options(solver_info):
     return {'jit': True, 'compiler': compiler, 'jit_options': options,
             'jit_name': _JIT_NAME, 'jit_cleanup': False}
 
+# Every math function the libCellML Python profile calls, as CasADi's. The generated module takes them from
+# ``from math import *``, and math's own functions give NaN (tanh, log10, fmod, ...) or raise (ceil) on a CasADi
+# symbol. (min, max and the reciprocal trig functions come from the generated utilities, already CasADi-safe.)
+CASADI_MATH = {} if ca is None else {
+    "exp": ca.exp, "log": ca.log, "log10": ca.log10, "sqrt": ca.sqrt, "pow": ca.power, "fabs": ca.fabs,
+    "floor": ca.floor, "ceil": ca.ceil, "fmod": ca.fmod,
+    "sin": ca.sin, "cos": ca.cos, "tan": ca.tan, "asin": ca.asin, "acos": ca.acos, "atan": ca.atan,
+    "sinh": ca.sinh, "cosh": ca.cosh, "tanh": ca.tanh, "asinh": ca.asinh, "acosh": ca.acosh, "atanh": ca.atanh,
+}
+
+
+def patch_casadi_math(module):
+    """Point a generated module's math functions at CasADi's (CASADI_MATH)."""
+    for name, func in CASADI_MATH.items():
+        setattr(module, name, func)
+
+
 class SimulationHelper(ExperimentTimeMixin):
     """
     CasADi-based solver for libCellML-generated Python modules.
@@ -444,21 +461,9 @@ class SimulationHelper(ExperimentTimeMixin):
             self.states[state_idx] = float(val)
             self.default_state_inits[state_idx] = float(val)
     
-    # Patch math functions to use CasADi versions for symbolic compatibility. Add more functions as needed.
     def _patch_math_functions(self):
-        cellml_math_map = {
-            "log": ca.log,
-            "exp": ca.exp,
-            "sin": ca.sin,
-            "cos": ca.cos,
-            "tan": ca.tan,
-            "sqrt": ca.sqrt,
-            "floor": ca.floor,
-            "pow": ca.power,
-            "fabs": ca.fabs,
-        }
-        for name, func in cellml_math_map.items():
-            setattr(self.model, name, func)
+        """Point the generated module's math functions (``from math import *``) at CasADi's (CASADI_MATH)."""
+        patch_casadi_math(self.model)
 
     # ---- name resolution ----
     def _resolve_name(self, name: str):
