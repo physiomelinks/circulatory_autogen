@@ -24,6 +24,11 @@ and backend it reports:
     python benchmarks/solver_comparison.py --models lotka_volterra --backends libopencor
     python benchmarks/solver_comparison.py --model-file my_model.cellml --sim-time 10
 
+The process (and its children) is pinned to one CPU core before timing: ``--cpu N``, by default the
+core it starts on, or ``--no-pin``. The core and the CPU model are recorded in the output. On a
+hybrid CPU (performance and efficiency cores) pass a performance core: the same run is about 3x
+slower on an efficiency core.
+
 Results go to ``--out`` (default ``benchmarks/_results/solver_comparison/``) as
 ``solver_comparison.json`` and ``solver_comparison.md``.
 """
@@ -68,6 +73,32 @@ BACKENDS = {
                    'casadi_python', {'method': 'cvodes', 'options': {
                        'jit': True, 'compiler': 'shell', 'jit_options': {'flags': ['-O2']}}}),
 }
+
+
+def cpu_model():
+    """The CPU's model name from /proc/cpuinfo (Linux), else ``platform.processor()``."""
+    try:
+        with open('/proc/cpuinfo') as f:
+            for line in f:
+                if line.startswith('model name'):
+                    return line.split(':', 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or 'unknown'
+
+
+def pin_cpu(cpu=None):
+    """Pin this process (children inherit it) to one core; returns the core, or None if unpinned.
+
+    ``cpu=None`` pins to the core the process is running on. Needs ``os.sched_setaffinity``
+    (Linux); elsewhere it returns None.
+    """
+    if not hasattr(os, 'sched_setaffinity'):
+        return None
+    if cpu is None:
+        cpu = os.sched_getcpu() if hasattr(os, 'sched_getcpu') else min(os.sched_getaffinity(0))
+    os.sched_setaffinity(0, {cpu})
+    return cpu
 
 
 def available_backends(names):
@@ -261,7 +292,10 @@ def markdown(report):
     lines = [
         f"Solver comparison: rtol {settings['rtol']:g}, atol {settings['atol']:g}, maximum step "
         f"{settings['max_step']:g} s, output every {settings['dt']:g} s; median of "
-        f"{settings['repeats']} repeat runs. Python {report['python']}, {report['platform']}.",
+        f"{settings['repeats']} repeat runs. Python {report['python']}, {report['platform']}. "
+        f"CPU {report['cpu_model']}, "
+        + (f"pinned to core {report['pinned_cpu']}." if report['pinned_cpu'] is not None
+           else 'not pinned to a core.'),
         '',
         '| Model | States | Backend | Setup (s) | First run (s) | Run, median (s) | Steps | '
         'RHS evals | Max rel. error vs reference | In state |',
@@ -313,6 +347,10 @@ def parse_args(argv=None):
     parser.add_argument('--out', default=DEFAULT_OUT, help='directory for the JSON and Markdown')
     parser.add_argument('--work-dir', default=None,
                         help='where models are generated (default: a temporary directory)')
+    parser.add_argument('--cpu', type=int, default=None,
+                        help='core to pin the process to (default: the core it starts on); on a '
+                             'hybrid CPU choose a performance core')
+    parser.add_argument('--no-pin', action='store_true', help='do not pin to a core')
     parser.add_argument('--verbose', action='store_true', help="show the helpers' output")
     args = parser.parse_args(argv)
     if args.repeats < 3:
@@ -326,6 +364,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    pinned = None if args.no_pin else pin_cpu(args.cpu)
     requested = [b for b in args.backends.split(',') if b]
     status = available_backends(requested)
     backends = [b for b in requested if status[b] is None]
@@ -353,6 +392,7 @@ def main(argv=None):
         'settings': {'rtol': args.rtol, 'atol': args.atol, 'max_step': args.max_step,
                      'dt': args.dt, 'repeats': args.repeats},
         'python': platform.python_version(), 'platform': platform.platform(),
+        'cpu_model': cpu_model(), 'pinned_cpu': pinned,
         'skipped_backends': skipped, 'models': models,
     }
     myokit_rows = [m['backends']['myokit'] for m in models if 'sundials' in
