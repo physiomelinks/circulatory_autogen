@@ -17,6 +17,8 @@ next release; add to that section as you land a change.
   not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
 - The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
   `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
+  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
 
 ### Changed — a workflow reduction step takes `settings.param_reduction_options`
 

@@ -6,6 +6,7 @@ generation over the MPI ranks and stops at its call budget).
 Run after ``make_synthetic_obs.py <out>``, under MPI::
 
     mpiexec -n 4 python run_study.py <out> [--num-samples 256] [--calls 2000] [--seeds 0 1 2]
+    [--methods full pca simple]
 
 It writes ``<out>/calibration_workflow.json`` and runs it into ``<out>/run``, one step at a
 time; a step whose result is already there is not run again, so a stopped study resumes.
@@ -24,7 +25,7 @@ WORKFLOW = 'calibration_workflow.json'
 METHODS = ('full', 'pca', 'simple')
 
 
-def workflow(num_samples, calls, seeds, n_simple):
+def workflow(num_samples, calls, seeds, n_simple, methods=METHODS):
     model = f'inputs/{PREFIX}_module_array.csv'
     data = {'model': model, 'obs_data': f'inputs/{OBS_FILE}'}
 
@@ -63,7 +64,7 @@ def workflow(num_samples, calls, seeds, n_simple):
              'description': 'top-N by max ST over the outputs, N as reduce_pca kept',
              'settings': {'param_reduction_options': {'method': 'sobol',
                                                       'n_params': n_simple}}},
-            *[fit(method, seed) for method in METHODS for seed in seeds],
+            *[fit(method, seed) for method in methods for seed in seeds],
         ]}
 
 
@@ -76,6 +77,8 @@ def main(argv=None):
     parser.add_argument('--num-samples', type=int, default=256)
     parser.add_argument('--calls', type=int, default=2000)
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2])
+    parser.add_argument('--methods', nargs='+', choices=METHODS, default=list(METHODS),
+                        help='the parameter sets to calibrate (the reductions always run)')
     args = parser.parse_args(argv)
     out = os.path.abspath(args.out)
     run_dir = os.path.join(out, 'run')
@@ -91,13 +94,13 @@ def main(argv=None):
     def write(n_simple):
         if comm.Get_rank() == 0:
             with open(path, 'w') as f:
-                json.dump(workflow(args.num_samples, args.calls, args.seeds, n_simple), f,
-                          indent=1)
+                json.dump(workflow(args.num_samples, args.calls, args.seeds, n_simple,
+                                   args.methods), f, indent=1)
         comm.Barrier()
 
     kept = result('reduce_pca')
     write(kept['kept_rows'] if kept else 1)
-    for step in workflow(args.num_samples, args.calls, args.seeds, 1)['steps']:
+    for step in workflow(args.num_samples, args.calls, args.seeds, 1, args.methods)['steps']:
         if result(step['id']) is None:
             if comm.Get_rank() == 0:
                 print(f'[study] running {step["id"]}', flush=True)
