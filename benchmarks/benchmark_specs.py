@@ -676,12 +676,42 @@ def teusink_config(base_config, resources_dir, output_dir, generated_models_dir,
     return config
 
 
+TEUSINK_BATCHED_METHODS = ['multi_start (FD, CVODES_batched_c)', 'multi_start (FD, BE_batched_c)']
+
+
+def teusink_batched_method_configs(models):
+    """The batched C solvers' Teusink variants: multi-start L-BFGS-B on finite differences, as
+    'multi_start (FD)' on CVODE_myokit, so the rows compare the solvers. Neither offers FSA.
+
+    Tolerances keep the FD gradients as clean as CVODE_myokit's: CVODES_batched_c at the Myokit
+    variant's 1e-9; BE_batched_c (first order) at rtol 1e-6, which is within 1e-10 of Myokit on
+    the observed metabolites, where its 1e-4 default is within 3e-7. ``threads`` stays 1, so the
+    MPI rank count is the only parallel axis of the scaling study (Teusink is one block, so
+    threads would not help). ``build_dir`` is shared: the first rank builds the C library under
+    a lock and the others reuse it.
+    """
+    build_dir = os.path.join(models, 'batched_c_build')
+    configs = {}
+    for method, solver, tolerances in (
+            (TEUSINK_BATCHED_METHODS[0], 'CVODES_batched_c', {'rtol': 1e-9, 'atol': 1e-9}),
+            (TEUSINK_BATCHED_METHODS[1], 'BE_batched_c', {'rtol': 1e-6, 'atol': 1e-10})):
+        configs[method] = {
+            'param_id_method': 'multi_start_sp_minimize',
+            'model_type': 'cellml', 'solver': solver, 'do_ad': False,
+            'solver_info': {**tolerances, 'threads': 1, 'build_dir': build_dir},
+            'generated_models_dir': models,
+        }
+    return configs
+
+
 def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
                 mpi_comm, num_calls=5000, num_starts=16):
     """Run the Teusink yeast-glycolysis optimiser comparison and return a BenchmarkResult.
 
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
-    differences and by Myokit CVODES forward sensitivity (FSA).
+    differences and by Myokit CVODES forward sensitivity (FSA), and multi-start finite
+    differences on the batched C solvers (teusink_batched_method_configs), so the parallel-scaling
+    study times them across MPI ranks too.
 
     CasADi AD is *not* offered for Teusink even though the file was sanitised so PythonGenerator
     can emit a casadi_python model (see resources/modifications.txt and run_goodwin, where CasADi
@@ -722,8 +752,10 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
         'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
         'generated_models_dir': models,
     }
-    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}
-    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)']
+    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa,
+             **teusink_batched_method_configs(models)}
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)',
+               *TEUSINK_BATCHED_METHODS]
 
     # Place the external PMR CellML where CA's loader expects it (no CSV generation step).
     if rank == 0:
@@ -743,7 +775,8 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
                      'the Physiome Model Repository as external CellML (originally a BioModels '
                      'SBML export). 14 coupled metabolite states and 90 constants, with stiff '
                      'regions in the search box -- a much harder calibration than the small '
-                     'oscillator benchmarks.'),
+                     'oscillator benchmarks. Multi-start finite differences also run on the '
+                     'batched C solvers (CVODES_batched_c, BE_batched_c).'),
         env_note=(f'{mpi_comm.Get_size()} MPI rank(s); {num_calls} cost evaluations for the '
                   f'population methods; {num_starts} starts for multi-start'),
         true_params=list(TEUSINK_TRUE_PARAMS), param_labels=TEUSINK_PARAM_LABELS)
@@ -778,7 +811,7 @@ def assert_teusink(result, mpi_comm):
     # The gradient-based multi-starts should reach the true parameters on this smooth (if stiff)
     # problem, so they must not be beaten by the gradient-free population methods.
     best_pop = min(costs['genetic_algorithm'], costs['CMA-ES'])
-    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)'):
+    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)', *TEUSINK_BATCHED_METHODS):
         assert costs[method] <= best_pop + 1e-9, (
             f"{method} cost {costs[method]:.3e} is worse than the best population method "
             f"{best_pop:.3e}")
