@@ -576,16 +576,29 @@ def _step_intro(step):
     '''What the step does, on which model, against which observations.'''
     if _kind(step) == 'reduction':
         options = step['reduction']
-        text = (f'This step ranks the parameters of step {escape(step["sensitivity_from"])} by '
-                f'the {options["criterion"]} over the observables of their '
-                f'{_INDEX_NAMES[options["index_type"]]} Sobol index, and keeps the top '
-                f'{options["top_n"]}'
-                + (f' scoring at least {_number(options["threshold"])}'
-                   if options.get('threshold') is not None else '') + '.')
+        index_name = _INDEX_NAMES[options.get('index_type', 'ST')]
+        source = escape(step['sensitivity_from'])
+        if options.get('method', 'pca') == 'pca':
+            limit = options.get('n_params')
+            text = (f'This step takes the principal components of the observables over the '
+                    f'Sobol samples of step {source}, each observable scaled by its standard '
+                    f'deviation over its weight. Each component whose standard deviation is at '
+                    f'least {_number(options.get("min_mode_std", 1.0))} (it moves the data by '
+                    f'more than their noise) gets the parameter, not already kept, with the '
+                    f'largest {index_name} Sobol index for it, largest component first'
+                    + (f', up to {limit} parameters' if limit else '') + '.')
+        else:
+            text = (f'This step ranks the parameters of step {source} by the '
+                    f'{options["criterion"]} over the observables of their {index_name} Sobol '
+                    f'index, and keeps the top {options["n_params"]}'
+                    + (f' scoring at least {_number(options["threshold"])}'
+                       if options.get('threshold') is not None else '') + '.')
         selected = (step.get('result') or {}).get('selected')
         if selected:
-            text += ' It kept ' + _join([f'{_tt(s["parameter"])} ({_number(s["score"])})'
-                                         for s in selected]) + '.'
+            text += ' It kept ' + _join([
+                f'{_tt(s["parameter"])} ('
+                + (f'component {s["mode"]}, ' if s.get('mode') else '')
+                + f'{_number(s["score"])})' for s in selected]) + '.'
         return text
     if _kind(step) == 'set':
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]

@@ -3,7 +3,10 @@ Tests for sensitivity analysis functionality.
 
 These tests verify that sensitivity analysis works correctly for various models.
 """
+import json
 import os
+
+import pandas as pd
 from _obs_data import retimed_obs_data
 import pytest
 MPI = pytest.importorskip("mpi4py.MPI", reason='needs mpi4py: pip install "libcuflynx[mpi]"')
@@ -81,6 +84,9 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
             'sample_type': 'saltelli',
             'output_dir': os.path.join(temp_output_dir, '3compartment_SA_results'),
         },
+        # the reduction after the Sobol run, with every other option filled in by the parser
+        'do_param_reduction': True,
+        'param_reduction_options': {'method': 'pca'},
     })
 
     _ensure_cellml_model_generated(config, mpi_comm)
@@ -92,6 +98,24 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
     if rank == 0:
         output_dir = config['sa_options']['output_dir']
         assert os.path.exists(output_dir), f"Sensitivity analysis output directory should exist: {output_dir}"
+        # the samples and outputs, in Saltelli order: num_samples (2M + 2) rows, M = 4
+        indices = pd.read_csv(os.path.join(output_dir, 'all_outputs_n16_Sobol_indices.csv'))
+        samples = pd.read_csv(os.path.join(output_dir, 'all_outputs_n16_Sobol_samples.csv'))
+        outputs = pd.read_csv(os.path.join(output_dir, 'all_outputs_n16_Sobol_outputs.csv'))
+        assert len(samples) == len(outputs) == 16 * (2 * 4 + 2)
+        assert list(samples.columns) == list(indices['Parameter'])
+        assert [f'ST_{c}' for c in outputs.columns] == [c for c in indices.columns
+                                                        if c.startswith('ST_')]
+        with open(os.path.join(output_dir, 'sobol_problem.json')) as f:
+            problem = json.load(f)
+        # each output's obs_data std and weight (3compartment_obs_data.json's first item)
+        assert problem['outputs'][0]['std'] == pytest.approx(1.0731181019893536e-05)
+        assert problem['outputs'][0]['weight'] == 1.0
+        reduction_dir = os.path.join(output_dir, 'param_reduction')
+        assert os.path.isfile(os.path.join(reduction_dir, 'reduced_params_for_id.json'))
+        with open(os.path.join(reduction_dir, 'param_reduction.json')) as f:
+            report = json.load(f)
+        assert report['reduction']['method'] == 'pca' and report['selected']
 
 
 def test_sensitivity_analysis_3compartment_extra_ops_succeeds(

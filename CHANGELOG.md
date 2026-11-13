@@ -5,6 +5,38 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — parameter reduction by PCA modes of the Sobol outputs
+
+- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
+  chooses the parameters to calibrate after a Sobol analysis and writes them as
+  `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- Why: (1) redundancy -- keep one parameter per direction the data can fix; on the
+  3compartment study the full fits have a singular Fisher information (condition number about
+  1e16 or singular) and the reduced fits 12-16. (2) noise-blindness -- a large Sobol index on an
+  output that moves by less than its noise is not kept.
+- `variance_fraction` defaults to 1: no relative cut, every mode above `min_mode_std` (the noise
+  floor) counts. A smaller value is a cut that ignores the noise and can drop a small mode the
+  data resolve.
+- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
+  their principal components, computes Sobol indices of each component's score, and keeps one
+  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
+  first. Parameters that move the data the same way, and effects smaller than the noise, are
+  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
+- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
+  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
+  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
+
+### Changed — a workflow reduction step takes `settings.param_reduction_options`
+
+- A reduction step's options move from `"reduction": {"top_n": ...}` to
+  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
+  is refused. Without `method`, a reduction is now `pca`.
+- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
+  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
+- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
+- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
+  run's directory rather than its indices CSV.
 ### Added — parameter derivations and obs_data `input_items`
 
 Decided by Finbar Argus on 2026-10-31.
