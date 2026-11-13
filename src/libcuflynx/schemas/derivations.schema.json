@@ -75,10 +75,57 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "pattern": "^\\S+$"
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^\\S+$"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "origin"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\S+$",
+                    "description": "The constant of the CellML model."
+                  },
+                  "origin": {
+                    "enum": [
+                      "measured",
+                      "inherited",
+                      "set_by_hand"
+                    ],
+                    "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing) or set_by_hand (chosen by us; give the reason)."
+                  },
+                  "data_reference": {
+                    "type": "string",
+                    "description": "Where the value comes from (the source of a measured one). Default: empty."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "Why the value was chosen. Required when origin is set_by_hand."
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "origin": {
+                      "const": "set_by_hand"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              }
+            ]
           },
-          "description": "cellml only. Constants of the CellML model that keep the initial value the CellML file gives them (such as the gas constant R), so they are not inputs. Every other constant must be an input. A name that is not a constant of the model, or that is also an input, is an error. cuflynx-derive prints each with its value and units."
+          "description": "cellml only. Constants of the CellML model that keep the initial value the CellML file gives them (such as the gas constant R), so they are not inputs. Every other constant must be an input. A name that is not a constant of the model, or that is also an input, is an error. Each is a name, or {name, origin, data_reference, reason} to say what set its value (measured: cite it; inherited; set_by_hand: give the reason); a provenance diagram shows a bare name as unclassified. cuflynx-derive prints each with its value and units."
         },
         "python": {
           "type": "string",

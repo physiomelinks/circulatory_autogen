@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — fixed constants in the provenance diagram
+
+Decided by Finbar Argus on 2026-11-14, a follow-up to the parameter derivations below.
+
+- A derivation's `fixed_constants` entry may be a name or `{"name", "origin", "data_reference",
+  "reason"}` (`origin` `measured`, `inherited` or `set_by_hand`, which needs a `reason`). A bare
+  name has no origin and is drawn `unclassified`, never as inherited by default.
+- `cuflynx-derive --write` records the constants of a derived value's derivation, with value,
+  units and origin, in the leaf's new `fixed_constants` key (JSON text); generation carries it
+  into the generated parameters file, and a calibrated value drops it.
+- The provenance diagram has a "Fixed constants of derivations" box, with an arrow to the derived
+  values, listing each constant as `<derivation>/<constant>` with its value, units and origin
+  (first six, then "and k more in the graph file", as for other boxes of values). A run with no
+  fixed constants has no such box. The graph schema is unchanged (a `values` node).
+
 ### Added — parameter derivations and obs_data `input_items`
 
 Decided by Finbar Argus on 2026-10-31.

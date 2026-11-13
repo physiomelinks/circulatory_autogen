@@ -3,7 +3,8 @@ How a calibration workflow run's values were set: a graph of the run, and that g
 
 :func:`provenance_graph` reads a run's output directory alone, so it needs no module library.
 Its nodes are the model source, one node for each step, a node each for the measured values, the
-derived values, the values set by hand in the parameters files and the values calibrated before
+derived values, the fixed constants of the derivations (when a derived value has any), the values
+set by hand in the parameters files and the values calibrated before
 the run (when there are any), and the merged target the simulation runs. A sweep's node has no
 arrow onward: nothing takes its values. Each value the target uses is marked with what set it:
 
@@ -46,6 +47,7 @@ SOURCE_NODE = '__source__'
 MEASURED_NODE = '__measured__'
 HAND_NODE = '__set_by_hand__'
 DERIVED_NODE = '__derived__'
+FIXED_NODE = '__fixed_constants__'
 EARLIER_NODE = '__calibrated_earlier__'
 TARGET_NODE = '__target__'
 #: the kind of the one box naming the files a sweep step or a figure script wrote
@@ -404,6 +406,33 @@ def _values_node(node_id, title, origin, values):
             'counts': _counts(values), 'parameters': values, 'inputs': []}
 
 
+def _fixed_constants(rows, values):
+    '''The fixed constants of the derivations that calculate the target's derived values, as
+    graph values named ``<derivation>/<constant>``, each once. A constant's origin is the one its
+    derivation declares, ``unclassified`` when it declares none. The ``fixed_constants`` key of
+    a derived row holds them as JSON text.'''
+    found = {}
+    for row, value in zip(rows, values):
+        if value['origin'] != DERIVED or not row.get(parameters_file.FIXED_CONSTANTS):
+            continue
+        for entry in json.loads(row[parameters_file.FIXED_CONSTANTS]):
+            origin = entry.get('origin')
+            origin = origin if origin in parameters_file.ORIGINS else UNCLASSIFIED
+            name = f'{entry["derivation"]}/{entry["name"]}'
+            found.setdefault(name, _value(
+                {'variable_name': name, 'value': entry['value'], 'units': entry.get('units', ''),
+                 'data_reference': entry.get('data_reference', ''),
+                 'reason': entry.get('reason', '')}, origin))
+    return list(found.values())
+
+
+def _fixed_line(value):
+    units = f' {value["units"]}' if value['units'] else ''
+    note = value['reason'] if value['origin'] == SET_BY_HAND else value['data_reference']
+    return (f'`{value["name"]}` = {value["value"]}{units}, {_MARK_LABELS[value["origin"]]}'
+            + (f': {note}' if note else ''))
+
+
 def provenance_graph(output_dir):
     '''The provenance graph of the workflow run in ``output_dir``, as a JSON-ready dict:
 
@@ -440,7 +469,8 @@ def provenance_graph(output_dir):
         return _value(dict(row, reason=record.get('reason', '')),
                       record.get('origin', CALIBRATED), record['from_step'])
 
-    values = [target_value(row) for row in _target_rows(run)]
+    rows = _target_rows(run)
+    values = [target_value(row) for row in rows]
     target_counts = _counts(values)
 
     for node in nodes:
@@ -509,6 +539,16 @@ def provenance_graph(output_dir):
             extra.append(_values_node(node_id, title, origin, given))
             edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
                           'style': 'given'})
+    constants = _fixed_constants(rows, values)
+    if constants:
+        counts = _counts(constants)
+        extra.append({'id': FIXED_NODE, 'title': 'Fixed constants of derivations',
+                      'kind': 'values', 'mark': _mark(counts),
+                      'lines': [_fixed_line(v) for v in constants], 'status': 'done',
+                      'stale': False, 'counts': counts, 'parameters': constants, 'inputs': []})
+        edges.append({'from': FIXED_NODE,
+                      'to': DERIVED_NODE if any(n['id'] == DERIVED_NODE for n in extra)
+                      else TARGET_NODE, 'label': 'constants of', 'style': 'given'})
     for entry in _external_figures(run, result):
         from_node = TARGET_NODE if entry['from'] == 'target' else entry['from']
         if from_node != TARGET_NODE and from_node not in stale:

@@ -11,7 +11,8 @@ from libcuflynx.calibration_workflow import (WorkflowError, run_calibration_work
                                              workflow_status)
 from libcuflynx.calibration_workflow.runner import module_library_digest, settings_digest
 from libcuflynx.external_testing.workflow_library import build_workflow_library
-from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, GRAPH_FILE, HAND_NODE,
+from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, FIXED_NODE, GRAPH_FILE,
+                                             HAND_NODE,
                                              MEASURED_NODE, SCHEMA_VERSION, SOURCE_NODE, SVG_FILE,
                                              TARGET_NODE, ProvenanceVersionError,
                                              provenance_graph, provenance_svg,
@@ -125,6 +126,50 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     assert '<script' not in svg and '<style' not in svg
     for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', out, 'libCellML'):
         assert text in svg
+
+
+FIXED = [{'derivation': 'k_gain', 'name': 'R', 'value': 8.314, 'units': 'J_per_K_per_mol',
+          'origin': 'measured', 'data_reference': '[CODATA][2018][gas_constant]'},
+         {'derivation': 'k_gain', 'name': 'T', 'value': 310.0, 'units': 'kelvin',
+          'origin': 'set_by_hand', 'reason': 'body temperature'},
+         {'derivation': 'k_gain', 'name': 'F', 'value': 96485.0, 'units': 'C_per_mol'}]
+
+
+@pytest.mark.integration
+def test_fixed_constants_of_a_derivation_are_drawn_with_value_and_origin(library, tmp_path):
+    """The fixed constants of the derivation that calculates a value are a box of their own,
+    each with its value, units and origin (unclassified when its derivation declares none), and
+    an arrow to the derived values; a run with no fixed constants has no such box."""
+    path = _parameters_path(library)
+    doc = _read_json(path)
+    _leaves(doc)['k'].update(origin='derived', derivation='k_gain',
+                             data_reference='derived; derivation k_gain',
+                             fixed_constants=json.dumps(FIXED))
+    _write_json(path, doc)
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(library['chain_rest'], output_dir=out)
+
+    graph = _read_json(os.path.join(out, GRAPH_FILE))
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    fixed = _nodes(graph)[FIXED_NODE]
+    assert fixed['mark'] == 'mixed'
+    assert [(v['name'], v['origin']) for v in fixed['parameters']] == [
+        ('k_gain/R', 'measured'), ('k_gain/T', 'set_by_hand'), ('k_gain/F', 'unclassified')]
+    assert _edges(graph)[(FIXED_NODE, DERIVED_NODE)]['label'] == 'constants of'
+    assert graph['counts']['derived'] == 1       # constants are not values of the target
+    # the drawing wraps long lines, so compare the text it shows, joined
+    svg = ' '.join(re.findall(r'>([^<]*)</text>', provenance_svg(graph)))
+    for text in ('k_gain/R', '8.314 J_per_K_per_mol, measured', '[CODATA][2018][gas_constant]',
+                 'k_gain/T', '310.0 kelvin, set by hand: body temperature',
+                 'k_gain/F', '96485.0 C_per_mol, unclassified', 'Fixed constants of derivations'):
+        assert text in svg
+
+    _leaves(doc)['k'].pop('fixed_constants')
+    _write_json(path, doc)
+    out = str(tmp_path / 'run_without')
+    run_calibration_workflow(library['chain_rest'], output_dir=out)
+    nodes = _nodes(_read_json(os.path.join(out, GRAPH_FILE)))
+    assert DERIVED_NODE in nodes and FIXED_NODE not in nodes
 
 
 @pytest.mark.integration
