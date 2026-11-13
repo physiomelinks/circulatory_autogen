@@ -58,6 +58,7 @@ Decided by Finbar Argus on 2026-11-06:
   `inputs/system/` beside the parameters file (#619). Docs:
   `tutorial/docs/parameter-derivations.md`.
 
+
 ### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
 
 - `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
@@ -155,6 +156,7 @@ Decided by Finbar Argus on 2026-11-06:
   is refused. Without `method`, a reduction is now `pca`.
 - `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
   run's directory rather than its indices CSV.
+
 
 ### Added — `set` and `sweep` workflow steps
 
