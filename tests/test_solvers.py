@@ -8,6 +8,7 @@ work correctly for various models.
 import os
 import re
 import sys
+import types
 import pytest
 import numpy as np
 import shutil
@@ -687,6 +688,21 @@ def test_trace_step_input_equals_discrete_subexperiment_change(
     trace = np.asarray(hT.get_results([[Y]], flatten=True)[0]).flatten()
     hT.close_simulation()
 
+    # CasADi, one sub-experiment, the same step trace (a repeated knot is a step).
+    hC = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "casadi_python",
+                           dt, 2 * T)
+    hC.set_protocol_info({"pre_times": [0.0], "sim_times": [[2 * T]],
+                          "params_to_change": {GAMMA: [["g_step"]]},
+                          "protocol_traces": {"g_step": {"t": [0.0, T, T, 2 * T],
+                                                         "values": [G0, G0, G1, G1]}}})
+    hC.reset_states()
+    hC.update_times(dt, 0.0, 2 * T, 0.0)
+    hC.set_param_vals([GAMMA], ["g_step"])
+    assert hC.run(), "casadi trace-step run failed"
+    casadi_trace = np.asarray(hC.get_results([[Y]], flatten=True)[0]).flatten()
+    np.testing.assert_allclose(casadi_trace, trace, rtol=1e-3, atol=1e-3,
+                               err_msg="casadi step trace differs from the Myokit step trace")
+
     for model_type in ("cellml", "casadi_python"):
         disc = discrete_2sub(model_type)
         n = min(len(trace), len(disc))
@@ -757,6 +773,347 @@ def test_casadi_ad_mode_carries_state_across_sub_experiments(
         err_msg="AD mode did not carry state across the sub-experiment boundary: its second "
                 "sub-experiment restarts from the default state instead of continuing from "
                 "the first sub's end state")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_cvodes_integrates_the_output_grid_in_one_solve(
+        generated_cellml_model_factory, temp_model_dir):
+    """casadi_python + cvodes integrates a run() as ONE CVODES solve over the output grid.
+
+    A CVODES integrator over a single output step, accumulated with mapaccum, restarts CVODES at
+    every output time: each restart throws away the step size and BDF history and starts again
+    from a tiny step, which made a run ~20x slower than one solve on Lotka-Volterra at 5000
+    output steps. The helper builds the integrator with the output times as its grid instead.
+
+    Checks the integrator spans the whole grid, is reused by a later sub-experiment with the same
+    timeline, and gives the trajectory of the per-step restart to solver tolerance.
+    """
+    ca = pytest.importorskip("casadi")
+    dt, T = 0.01, 5.0
+    h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "casadi_python", dt, T)
+    assert h.run()
+    n_out = len(h.t_eval) - 1
+    assert h.F.size_out(h.F.index_out("xf")) == (h.STATE_COUNT, n_out), (
+        "the CVODES integrator does not span the output grid, so CVODES restarts at every "
+        "output step")
+
+    # The per-step restart, integrated here as the reference.
+    step = ca.integrator("step", "cvodes",
+                         {"x": h.states_symb, "p": h.variables_symb_integrator,
+                          "ode": h.rates_symb},
+                         0, dt, h._build_integrator_opts())
+    x0, p = h._x0_numeric(), h._integrator_p_numeric()
+    ref = np.array(ca.horzcat(ca.DM(x0), step.mapaccum(n_out)(x0=x0, p=p)["xf"]))
+    scale = np.max(np.abs(ref), axis=1, keepdims=True)
+    assert np.max(np.abs(h.state_traj_dm - ref) / scale) < 1e-5
+
+    # A second sub-experiment on the same timeline reuses the integrator.
+    F = h.F
+    h.update_times(dt, T, T, 0.0)
+    assert h.run()
+    assert h.F is F, "the grid integrator was rebuilt for a sub-experiment with the same timeline"
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_cvodes_jit_matches_the_interpreted_integrator(
+        generated_cellml_model_factory, temp_model_dir):
+    """solver_info jit (on by default) compiles the right-hand side; the trajectory is the same
+    as with jit: false, and a second helper on the same model reuses the compiled integrator
+    rather than compiling again.
+    """
+    import shutil as _shutil
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    ca = pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    dt, T = 0.01, 5.0
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit", casadi_compat=True).generate()
+
+    def run(jit):
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=dt, sim_time=T, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": jit})
+        assert h.run()
+        return h
+
+    plain, jitted = run(False), run(True)
+    assert jitted.F is not plain.F
+    np.testing.assert_allclose(jitted.state_traj_dm, plain.state_traj_dm, rtol=1e-12, atol=1e-12)
+    assert run(True).F is jitted.F, "a second helper compiled the same integrator again"
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_never_changes_the_working_directory(
+        generated_cellml_model_factory, temp_model_dir, tmp_path, monkeypatch):
+    """A jit build and run leaves the process's working directory alone (other threads do
+    relative-path I/O), leaves no generated C or objects in it afterwards, and keeps the objects and
+    library in the private jit directory."""
+    import shutil as _shutil
+    import threading
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    # a module name of its own, so the process-wide integrator cache does not skip the build
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit_cwd", casadi_compat=True).generate()
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    cwd = os.getcwd()
+
+    def refuse(path):
+        raise AssertionError(f"os.chdir({path!r}) during a jit build")
+    monkeypatch.setattr(os, "chdir", refuse)
+
+    seen, stop = set(), threading.Event()
+
+    def sample():
+        while not stop.is_set():
+            seen.add(os.getcwd())
+    sampler = threading.Thread(target=sample)
+    sampler.start()
+    try:
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": True})
+        assert h.run()
+    finally:
+        stop.set()
+        sampler.join()
+    assert seen == {cwd} and os.getcwd() == cwd
+    assert os.listdir(workdir) == [], "jit left files in the working directory"
+    private = helper_module._jit_dir()
+    assert not [f for f in os.listdir(private) if f.endswith(".c")]
+    assert [f for f in os.listdir(private) if f.endswith(".so")], "no library in the private dir"
+
+
+def _spy_integrator_builds(monkeypatch, helper_module):
+    """Record the options of every CVODES integrator the helper builds."""
+    cls = helper_module.SimulationHelper
+    real = cls._sundials_integrator
+    built = []
+
+    def spy(self, grid, n_traced, opts):
+        built.append(dict(opts))
+        return real(self, grid, n_traced, opts)
+    monkeypatch.setattr(cls, "_sundials_integrator", spy)
+    return built
+
+
+@pytest.mark.parametrize("version, expected", [
+    ("3.7.2", False), ("3.7.10", False), ("3.8.0", True), ("3.8.2", True),
+    ("3.10.1", True), ("4.0.0", True), ("3.8.0rc1", True), ("3.8", True), ("3.7", False)])
+def test_casadi_jit_supports_ad_by_version(monkeypatch, version, expected):
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module.ca, "__version__", version)
+    assert helper_module.jit_supports_ad() is expected
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_symbolic_integrator_is_plain_where_jit_cannot_be_differentiated(
+        generated_cellml_model_factory, temp_model_dir, monkeypatch):
+    """Without jit support in ca.forward (CasADi 3.7) the symbolic trajectory's integrator is
+    built without the jit options, and the numeric one with them."""
+    if shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module, "jit_supports_ad", lambda: False)
+    built = _spy_integrator_builds(monkeypatch, helper_module)
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_jit_plain_sym",
+                                 casadi_compat=True).generate()
+    h = get_simulation_helper(
+        model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+        dt=0.01, sim_time=1.0, pre_time=0.0,
+        solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": True})
+    assert h.run()
+    assert sorted(bool(o.get("jit")) for o in built) == [False, True]
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_ad_gradient_matches_the_interpreted_one(
+        generated_cellml_model_factory, temp_model_dir, tmp_path, monkeypatch):
+    """On CasADi >= 3.8 the symbolic integrator is jit-compiled, the forward-sensitivity gradient
+    through it equals the one through an interpreted integrator, and the generated C is deleted."""
+    import signal
+    if shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    ca = pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    from libcuflynx.param_id import casadi_backend
+    if not helper_module.jit_supports_ad():
+        pytest.skip("CasADi < 3.8 cannot differentiate through a jit integrator")
+    built = _spy_integrator_builds(monkeypatch, helper_module)
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+
+    def gradient(jit, module_name):
+        model_path = PythonGenerator(cellml, output_dir=temp_model_dir, module_name=module_name,
+                                     casadi_compat=True).generate()
+        h = get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0,
+            solver_info={"method": "cvodes", "max_step_size": 0.005, "jit": jit})
+        h._create_param_subset([["Lotka_Volterra/alpha"], ["Lotka_Volterra/gamma"]])
+        assert h.run()
+        pid = types.SimpleNamespace(sim_helper=h)
+        cost = ca.sumsqr(h.state_traj_symb)
+        jac = casadi_backend.jacobian(pid, cost, h.variables_symb_subset)
+        func = ca.Function("g", [h.states_symb, h.variables_symb], [jac])
+        return np.array(casadi_backend._call_jit(pid, func, h.states, h.variables)).ravel()
+
+    def hang(signum, frame):
+        raise TimeoutError("AD gradient through the jit integrator did not return")
+    old = signal.signal(signal.SIGALRM, hang)
+    signal.alarm(240)
+    try:
+        built.clear()
+        plain = gradient(False, "Lotka_Volterra_ad_nojit")
+        assert not any(o.get("jit") for o in built)
+        built.clear()
+        jitted = gradient(True, "Lotka_Volterra_ad_jit")
+        assert built and all(o.get("jit") for o in built), (
+            "the symbolic integrator was not built with the jit options")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+    assert np.all(np.isfinite(plain)) and np.any(plain != 0)
+    np.testing.assert_allclose(jitted, plain, rtol=1e-9, atol=1e-12)
+    assert os.listdir(workdir) == [], "jit left files in the working directory"
+    assert not [f for f in os.listdir(helper_module._jit_dir()) if f.endswith(".c")]
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_default_falls_back_without_a_compiler(
+        monkeypatch, generated_cellml_model_factory, temp_model_dir):
+    """jit is on by default. With no C compiler an unset jit runs without it and warns once;
+    an explicit jit: true is an error naming the setting that turns it off."""
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_nocc", casadi_compat=True).generate()
+    monkeypatch.setattr(helper_module.shutil, "which", lambda name: None)
+
+    def helper(solver_info):
+        return get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0, solver_info=solver_info)
+
+    h = helper({"method": "cvodes"})
+    with pytest.warns(UserWarning, match="Running without jit"):
+        assert h.run()
+    assert "jit" not in h._build_integrator_opts()
+    with pytest.raises(RuntimeError, match="jit: false"):
+        helper({"method": "cvodes", "jit": True}).run()
+
+
+@pytest.mark.unit
+def test_casadi_jit_without_a_compiler_says_so(monkeypatch):
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="not on PATH"):
+        helper_module.jit_options({"jit": True})
+    # the compiler named in jit_options is the one looked for
+    with pytest.raises(RuntimeError, match="'clang'"):
+        helper_module.jit_options({"jit": True, "jit_options": {"compiler": "clang"}})
+
+
+_TIME_FORCED_CELLML = """<?xml version='1.0' encoding='UTF-8'?>
+<model name="forced" xmlns="http://www.cellml.org/cellml/2.0#">
+  <component name="main">
+    <variable name="t" units="dimensionless"/>
+    <variable name="x" units="dimensionless" initial_value="0"/>
+    <variable name="a" units="dimensionless" initial_value="1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><times/><ci>a</ci><apply><cos/><ci>t</ci></apply></apply>
+      </apply>
+    </math>
+  </component>
+</model>
+"""
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.parametrize("method", ["cvodes", "idas"])
+def test_casadi_sundials_passes_time_to_the_model(method, temp_model_dir):
+    """dx/dt = cos(t), x(0) = 0, so x = sin(t), over two sub-experiments [0, 3] and [3, 6].
+
+    The model reads the variable of integration, so the integrator must give it the true time,
+    including the start time of a later sub-experiment. A time held at the run's start gives
+    x = t instead.
+    """
+    pytest.importorskip("casadi")
+    cellml = os.path.join(temp_model_dir, "forced.cellml")
+    with open(cellml, "w") as f:
+        f.write(_TIME_FORCED_CELLML)
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir, module_name="forced_casadi",
+                                 casadi_compat=True).generate()
+    dt, T = 0.01, 3.0
+    h = get_simulation_helper(model_path=model_path, model_type="casadi_python",
+                              solver="casadi_integrator", dt=dt, sim_time=T,
+                              solver_info={"method": method}, pre_time=0.0)
+    for start in (0.0, T):
+        h.update_times(dt, start, T, 0.0)
+        assert h.run()
+        x = np.asarray(h.get_results(["main/x"], flatten=True)[0]).ravel()
+        np.testing.assert_allclose(x, np.sin(h.tSim), atol=1e-5,
+                                   err_msg=f"x != sin(t) on the sub-experiment from t={start}")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.parametrize("pre_time", [0.0, 1.0])
+def test_casadi_protocol_trace_matches_myokit(pre_time, generated_cellml_model_factory,
+                                              temp_model_dir):
+    """A protocol trace drives a constant on casadi_python + cvodes as on CVODE_myokit.
+
+    Lotka-Volterra's gamma follows a trace with a ramp, a hold, a step up (a repeated time), a
+    fall and a hold past its last point, with and without a pre_time (which holds the first
+    value through the warm-up). Both backends interpolate linearly between the points; casadi restarts CVODES at
+    each point, Myokit integrates across them, so they agree to solver tolerance.
+    """
+    pytest.importorskip("casadi")
+    dt, T = 0.01, 4.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
+    protocol = {"pre_times": [pre_time], "sim_times": [[T]],
+                "params_to_change": {GAMMA: [["g"]]},
+                "protocol_traces": {"g": {"t": [0.0, 1.0, 2.0, 2.0, 3.0, 3.5],
+                                          "values": [3.0, 4.0, 4.0, 5.0, 2.5, 2.5]}}}
+    ys = {}
+    for model_type in ("cellml", "casadi_python"):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info(protocol)
+        h.reset_states()
+        h.update_times(dt, 0.0, T, pre_time)
+        h.set_param_vals([GAMMA], ["g"])
+        assert h.run(), f"{model_type} trace run failed"
+        ys[model_type] = np.asarray(h.get_results([[Y]], flatten=True)[0]).ravel()
+        h.close_simulation()
+    a, b = ys["cellml"], ys["casadi_python"]
+    assert len(a) == len(b)
+    np.testing.assert_allclose(b, a, rtol=1e-4, atol=1e-4 * np.max(np.abs(a)),
+                               err_msg="casadi_python trace input differs from CVODE_myokit")
 
 
 @pytest.mark.integration
@@ -1132,15 +1489,9 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
             assert len(var_result) > 0, f"Empty result for variable {var_name}"
 
 
-_SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
-)
-
-
 @pytest.mark.parametrize("model_name,input_param_file", [
     ("3compartment", "3compartment_parameters.json"),
-    pytest.param("SN_simple", "SN_simple_parameters.json",
-                 marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
+    ("SN_simple", "SN_simple_parameters.json"),
 ])
 def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generated_cellml_model_factory):
     """
@@ -1880,3 +2231,59 @@ def test_myokit_reads_a_constant_that_was_never_logged():
     expected = sim.qname_to_var[qname].eval()
     assert np.asarray(values).size >= 1
     assert float(np.asarray(values).ravel()[0]) == pytest.approx(expected)
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_jit_default_falls_back_in_a_read_only_working_directory(
+        monkeypatch, tmp_path, generated_cellml_model_factory, temp_model_dir):
+    """CasADi writes the generated C to the working directory. When that is not writable an unset
+    jit warns and runs without jit (same trajectory); an explicit jit: true raises."""
+    import shutil as _shutil
+    if _shutil.which("gcc") is None:
+        pytest.skip("no C compiler")
+    pytest.importorskip("casadi")
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
+    model_path = PythonGenerator(cellml, output_dir=temp_model_dir,
+                                 module_name="Lotka_Volterra_rocwd", casadi_compat=True).generate()
+
+    def helper(solver_info):
+        return get_simulation_helper(
+            model_path=model_path, model_type="casadi_python", solver="casadi_integrator",
+            dt=0.01, sim_time=1.0, pre_time=0.0, solver_info=solver_info)
+
+    plain = helper({"method": "cvodes", "jit": False})
+    assert plain.run()
+    ro = tmp_path / "readonly"
+    ro.mkdir()
+    ro.chmod(0o555)
+    try:
+        if os.geteuid() == 0 or os.access(ro, os.W_OK):
+            pytest.skip("directory stays writable")
+        monkeypatch.chdir(ro)
+        h = helper({"method": "cvodes"})
+        with pytest.warns(UserWarning, match="Running without jit"):
+            assert h.run()
+        np.testing.assert_allclose(h.state_traj_dm, plain.state_traj_dm, rtol=1e-12, atol=1e-12)
+        with pytest.raises(RuntimeError, match="not writable"):
+            helper({"method": "cvodes", "jit": True}).run()
+    finally:
+        ro.chmod(0o755)
+
+
+@pytest.mark.solver
+def test_jit_build_removes_generated_c_from_the_cwd_and_the_private_jit_dir(tmp_path, monkeypatch):
+    """Depending on the CasADi version the generated C source lands in the working directory or in
+    the private jit directory; _jit_build removes this process's source from both and leaves
+    other files alone."""
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.chdir(tmp_path)
+    private = helper_module._jit_dir()
+    mine = [tmp_path / f"{helper_module._JIT_NAME}abc.c", os.path.join(private, f"{helper_module._JIT_NAME}def.c")]
+    other = tmp_path / "keep.c"
+    other.write_text("x")
+    with helper_module._jit_build(True):
+        for m in mine:
+            open(m, "w").write("x")
+    assert not any(os.path.exists(m) for m in mine)
+    assert other.exists()

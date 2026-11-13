@@ -13,6 +13,7 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `run_benchmarks.py` | CLI runner. |
 | `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under a Python venv + MPI (see *Interpreter* below). |
 | `batched_solver_scaling.py` | Solver benchmark (no MPI): `BE_batched_c`, `CVODES_batched_c` and `CVODE_myokit` on colonies of 2 to 512 cells, 1 and 8 threads. See *Batched CellML solvers* below. |
+| `casadi_coverage.py` | Coverage report (no MPI): every `resources/` model on `CVODE_myokit` and on `casadi_python` + `casadi_integrator`/`cvodes` with `jit` off and on — whether it generates and simulates, wall times, and the worst state error against Myokit. `--abstol` sets casadi's absolute tolerance; `--model-file` adds a CellML file from elsewhere. |
 | `resources/fermenter_colony/` | Its model: AdaptOrDeity's fermenter cell as a module library (licence and provenance in its README). |
 | `solver_comparison.py` | Solver benchmark (no MPI): the same CellML models through Myokit, libOpenCOR and CasADi, whichever are installed, at equal settings. See *Comparing solvers* below. |
 
