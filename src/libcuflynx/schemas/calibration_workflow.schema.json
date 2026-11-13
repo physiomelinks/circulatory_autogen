@@ -181,7 +181,71 @@
         "cuflynx_study_copy_inputs": {},
         "sa_options": {},
         "ia_options": {},
-        "emulator_settings": {}
+        "emulator_settings": {},
+        "param_reduction_options": {
+          "$ref": "#/$defs/param_reduction_options"
+        }
+      }
+    },
+    "param_reduction_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses.",
+      "properties": {
+        "method": {
+          "enum": [
+            "pca",
+            "sobol"
+          ],
+          "default": "pca",
+          "description": "pca: one parameter per informative PCA mode of the Sobol outputs (scaled by obs_data std and weight). sobol: the n_params parameters with the highest Sobol index."
+        },
+        "n_params": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "how many parameters to keep (pca: at most, default one per informative mode; sobol: required)"
+        },
+        "index_type": {
+          "enum": [
+            "ST",
+            "S1"
+          ],
+          "default": "ST",
+          "description": "total or first-order Sobol indices"
+        },
+        "criterion": {
+          "enum": [
+            "max",
+            "mean"
+          ],
+          "default": "max",
+          "description": "sobol: a parameter's score, the max or mean of its index over the outputs"
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "description": "sobol: drop parameters scoring below this"
+        },
+        "min_mode_std": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1.0,
+          "description": "pca: a mode is informative when its std over the samples is at least this many obs_data stds"
+        },
+        "variance_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.99,
+          "description": "pca: only the leading modes explaining this fraction of the scaled variance"
+        },
+        "min_index": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.05,
+          "description": "pca: skip a mode whose largest index among the free parameters is below this"
+        }
       }
     },
     "prior": {
@@ -254,7 +318,7 @@
             "identifiability"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: keeps the parameters a Sobol sensitivity step found most influential (sensitivity_from, reduction), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. Every kind but reduction needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. Every kind but reduction needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -329,48 +393,12 @@
         "sensitivity_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a reduction step: the Sobol sensitivity step whose indices it ranks"
+          "description": "a reduction step: the Sobol sensitivity step whose results it reduces"
         },
         "params_for_id_from": {
           "type": "string",
           "minLength": 1,
           "description": "a calibration or emulation step: the reduction step whose params_for_id it uses instead of its own; a step on that emulator names the same reduction"
-        },
-        "reduction": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "top_n"
-          ],
-          "properties": {
-            "top_n": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "how many parameters to keep, highest score first"
-            },
-            "index_type": {
-              "enum": [
-                "ST",
-                "S1"
-              ],
-              "default": "ST",
-              "description": "total or first-order Sobol indices"
-            },
-            "criterion": {
-              "enum": [
-                "max",
-                "mean"
-              ],
-              "default": "max",
-              "description": "a parameter's score: the max or mean of its index over the outputs"
-            },
-            "threshold": {
-              "type": "number",
-              "minimum": 0,
-              "description": "drop parameters scoring below this"
-            }
-          },
-          "description": "a reduction step: which parameters to keep"
         }
       },
       "allOf": [
@@ -388,8 +416,16 @@
           "then": {
             "required": [
               "sensitivity_from",
-              "reduction"
-            ]
+              "settings"
+            ],
+            "properties": {
+              "settings": {
+                "required": [
+                  "param_reduction_options"
+                ],
+                "description": "a reduction step's only setting is param_reduction_options"
+              }
+            }
           },
           "else": {
             "required": [

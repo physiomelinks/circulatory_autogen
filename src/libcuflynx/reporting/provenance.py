@@ -113,7 +113,7 @@ def _graph_steps(run):
             'depends_on': depends, 'fixed_from': sources.get('fixed_from', []),
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
-            'reduction': raw.get('reduction')})
+            'reduction': (raw.get('settings') or {}).get('param_reduction_options')})
     return steps
 
 

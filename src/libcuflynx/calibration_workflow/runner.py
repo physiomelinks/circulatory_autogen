@@ -55,7 +55,8 @@ from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      resolve_workflow)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
-from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
+from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
+from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
 from libcuflynx.calibration_workflow.spec import (WORKFLOW_FILE_NAME, WorkflowError, load_workflow,
                                                   uses_log_posterior)
 from libcuflynx.utilities.paths import git_state, repo_root
@@ -557,23 +558,22 @@ class _Run:
     def _run_reduction(self, step, settings):
         def reduce():
             source = self.require_current(step.sensitivity_from, step.id)
-            reduction = SobolReduction.from_options(step.reduction)
+            reduction = ParamReduction.from_options(step.reduction)
             step_dir = self.step_dir(step.id)
             if os.path.isdir(step_dir):
                 shutil.rmtree(step_dir)
             os.makedirs(step_dir)
             out = reduced_params_for_id_path(self.output_dir, step.id)
             try:
-                ranked = reduction.reduce(source['sobol_indices'],
-                                          source['params_for_id_used'], out)
+                selected = reduction.reduce(source['sensitivity_dir'],
+                                            source['params_for_id_used'], out)
             except ValueError as exc:
                 raise WorkflowStepError(step.id, f'reducing "{step.sensitivity_from}": '
                                                  f'{exc}') from exc
             return {'sensitivity_step': step.sensitivity_from,
-                    'reduction': reduction.as_dict(),
-                    'selected': [{'parameter': name, 'score': float(score)}
-                                 for name, score in ranked],
-                    'kept_rows': len(ranked), 'params_for_id': out}
+                    'reduction': reduction.as_dict(), 'selected': selected,
+                    'kept_rows': len(selected), 'params_for_id': out,
+                    'report': os.path.join(step_dir, REDUCTION_REPORT_FILE)}
 
         return self.on_root(reduce)
 

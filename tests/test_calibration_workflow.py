@@ -18,11 +18,13 @@ whose optima are known in closed form.
   a reduction, an emulator of what was kept, and MCMC on that emulator.
 """
 import copy
+import glob
 import json
 import os
 import shutil
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from _supermodules import write_supermodule
@@ -932,15 +934,28 @@ def _steps(raw):
     return {s['id']: s for s in raw['steps']}
 
 
+def _reduce_options(raw):
+    return _steps(raw)['reduce']['settings']['param_reduction_options']
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize('edit, message', [
     (lambda w: _steps(w)['screen'].update(kind='screening'), r"kind: 'screening' is not one of"),
     (lambda w: _steps(w)['reduce'].update(model=_steps(w)['screen']['model']),
      "a reduction step reads a sensitivity step's results and has no \['model'\]"),
     (lambda w: _steps(w)['reduce'].pop('sensitivity_from'), r"'sensitivity_from' is a required property"),
-    (lambda w: _steps(w)['reduce'].update(reduction={'top_n': 0}), r"reduction\.top_n: 0 is less than the minimum of 1"),
-    (lambda w: _steps(w)['reduce'].update(reduction={'top_n': 1, 'criterion': 'median'}),
-     r"reduction\.criterion: 'median' is not one of"),
+    (lambda w: _reduce_options(w).update(n_params=0), r"n_params: 0 is less than the minimum of 1"),
+    (lambda w: _reduce_options(w).update(criterion='median'), r"criterion: 'median' is not one of"),
+    (lambda w: _reduce_options(w).update(method='pca', criterion='mean'),
+     "criterion is not read by method 'pca'"),
+    (lambda w: _reduce_options(w).pop('n_params'), 'a "sobol" reduction needs n_params'),
+    (lambda w: _reduce_options(w).update(output_dir='elsewhere'),
+     r"'output_dir' was unexpected"),
+    (lambda w: _steps(w)['reduce'].update(settings={}),
+     "'param_reduction_options' is a required property"),
+    (lambda w: _steps(w)['reduce']['settings'].update(sa_options={'method': 'sobol'}),
+     'only setting is "param_reduction_options"'),
+    (lambda w: _steps(w)['reduce'].update(reduction={'top_n': 1}), "'reduction' was unexpected"),
     (lambda w: _steps(w)['reduce'].update(sensitivity_from='fit_a'),
      '"sensitivity_from" names "fit_a", a calibration step; it takes a sensitivity step'),
     (lambda w: _steps(w)['screen']['settings']['sa_options'].update(method='local'),
@@ -959,7 +974,7 @@ def _steps(raw):
     (lambda w: _steps(w)['fit'].update(model={'module_type': 'lin_a', 'version': 'v1',
                                               'parameterisation': 'fit_a'}),
      'which is of a different model'),
-    (lambda w: _steps(w)['fit'].update(reduction={'top_n': 1}), 'is for a reduction step'),
+    (lambda w: _steps(w)['fit'].update(reduction={'top_n': 1}), "'reduction' was unexpected"),
 ])
 def test_invalid_analysis_steps_say_why(library, edit, message):
     with pytest.raises(WorkflowError, match=message):
@@ -1013,7 +1028,8 @@ def test_a_step_on_a_reduced_emulator_names_the_same_reduction(library):
 
 @pytest.mark.unit
 def test_a_reduction_keeps_the_top_parameters_by_its_options(tmp_path):
-    from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
+    from libcuflynx.sensitivity_analysis.parameter_reduction import (ParamReduction,
+                                                                     SobolReduction)
     from libcuflynx.sensitivity_analysis.sobol_ranking import (rank_sobol_parameters,
                                                                read_sobol_indices)
     indices = tmp_path / 'all_outputs_n8_Sobol_indices.csv'
@@ -1040,19 +1056,55 @@ def test_a_reduction_keeps_the_top_parameters_by_its_options(tmp_path):
     # whole entries, bounds and all, in the source's order
     assert params_for_id_entries(out) == [entry('a', 0.1, 1.0), entry('c', 0.3, 3.0)]
 
-    # the class a reduction step is: ranks, keeps and writes in one call
-    reduction = SobolReduction(top_n=2, criterion='mean')
-    assert reduction.reduce(str(indices), str(source), str(out)) == [
-        ('m/b', 0.5), ('m/a', pytest.approx(0.48))]
-    assert params_for_id_entries(out) == [entry('a', 0.1, 1.0), entry('b', 0.2, 2.0)]
-    assert SobolReduction.from_options(reduction.as_dict()).as_dict() == {
-        'top_n': 2, 'index_type': 'ST', 'criterion': 'mean', 'threshold': None}
-    with pytest.raises(ValueError, match='no parameter scores'):
-        SobolReduction(top_n=2, threshold=0.99).reduce(str(indices), str(source), str(out))
-    for bad in ({'top_n': 0}, {'top_n': 1, 'index_type': 'S2'},
-                {'top_n': 1, 'criterion': 'median'}, {'top_n': 1, 'threshold': -1}):
+    # the class a "sobol" reduction step is: ranks, keeps and writes in one call, reading the
+    # Sobol run's directory and writing its report beside the params_for_id
+    reduction = SobolReduction(n_params=2, criterion='mean')
+    kept = tmp_path / 'reduction' / 'kept.json'
+    assert reduction.reduce(str(tmp_path), str(source), str(kept)) == [
+        {'parameter': 'm/b', 'score': 0.5}, {'parameter': 'm/a', 'score': pytest.approx(0.48)}]
+    assert params_for_id_entries(kept) == [entry('a', 0.1, 1.0), entry('b', 0.2, 2.0)]
+    report = json.loads((tmp_path / 'reduction' / 'param_reduction.json').read_text())
+    assert [row['parameter'] for row in report['selected']] == ['m/b', 'm/a']
+    assert ParamReduction.from_options(reduction.as_dict()).as_dict() == {
+        'method': 'sobol', 'n_params': 2, 'index_type': 'ST', 'criterion': 'mean',
+        'threshold': None}
+    with pytest.raises(ValueError, match='kept no parameter'):
+        SobolReduction(n_params=2, threshold=0.99).reduce(str(tmp_path), str(source), str(kept))
+    for bad in ({'n_params': 0}, {'n_params': 1, 'index_type': 'S2'}, {},
+                {'n_params': 1, 'criterion': 'median'}, {'n_params': 1, 'threshold': -1}):
         with pytest.raises(ValueError):
             SobolReduction(**bad)
+
+
+@pytest.mark.unit
+def test_a_pca_reduction_keeps_one_parameter_per_mode_the_data_resolve(library, tmp_path):
+    """chain_analysed with its reduction by PCA modes: z is one observable, so there is one
+    mode, and q drives it."""
+    raw = _raw(library, 'chain_analysed')
+    _reduce_options(raw).clear()
+    _reduce_options(raw).update(method='pca')
+    path = os.path.join(os.path.dirname(library['chain_analysed']), 'pca_workflow.json')
+    _write_json(path, raw)
+    out = str(tmp_path / 'run')
+    assert run_calibration_workflow(path, output_dir=out)['complete']
+    step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
+
+    # the Sobol step saved what a PCA needs: samples and outputs in Saltelli order
+    sensitivity_dir = step('screen')['sensitivity_dir']
+    n_rows = 64 * (2 * 2 + 2)       # num_samples (2M + 2), M = 2 parameters
+    samples = glob.glob(os.path.join(sensitivity_dir, '*_Sobol_samples.csv'))
+    outputs = glob.glob(os.path.join(sensitivity_dir, '*_Sobol_outputs.csv'))
+    assert len(pd.read_csv(samples[0])) == len(pd.read_csv(outputs[0])) == n_rows
+    problem = _read_json(os.path.join(sensitivity_dir, 'sobol_problem.json'))
+    assert [o['std'] for o in problem['outputs']] == [STD_C]
+
+    reduce = step('reduce')
+    assert reduce['reduction']['method'] == 'pca'
+    assert [(s['parameter'], s['mode']) for s in reduce['selected']] == [('mod__C/q', 1)]
+    assert [e['targets'] for e in params_for_id_entries(reduce['params_for_id'])] == [
+        ['mod/C/q']]
+    report = _read_json(reduce['report'])
+    assert report['n_informative_modes'] == 1
 
 
 @pytest.mark.unit
@@ -1099,7 +1151,8 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
         'fit_a': 'calibration', 'screen': 'sensitivity', 'reduce': 'reduction',
         'fit': 'calibration', 'ia': 'identifiability'}
     assert steps['reduce']['sensitivity_from'] == ['screen']
-    assert steps['reduce']['reduction'] == {'top_n': 1, 'index_type': 'ST', 'criterion': 'max',
+    assert steps['reduce']['reduction'] == {'method': 'sobol', 'n_params': 1,
+                                            'index_type': 'ST', 'criterion': 'max',
                                             'threshold': None}
     assert steps['fit']['params_for_id_from'] == ['reduce']
     assert steps['ia']['result_from'] == ['fit']

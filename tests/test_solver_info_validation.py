@@ -497,7 +497,7 @@ def test_analysis_options_schema_well_formed():
     """The non-calibration analysis modes (sensitivity, UQ, identifiability) expose their option
     blocks the same way, so a tool can auto-populate their settings forms too."""
     assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'uq', 'identifiability_analysis',
-                                     'emulation'}
+                                     'emulation', 'param_reduction'}
     for mode, meta in ANALYSIS_OPTIONS.items():
         assert meta.get('label') and meta.get('enable_flag') and meta.get('options_key')
         _assert_descriptors_well_formed(mode, meta.get('options'))
@@ -536,10 +536,17 @@ def test_analysis_options_schema_well_formed():
         'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter',
         'classifier_n_iter', 'tuning_metric', 'min_r2', 'out_of_bounds', 'fd_rel_step',
         'include_prediction_items'}
+    # read by ParamReduction.from_options, which takes its names and defaults from here
+    # (tests/test_parameter_reduction.py checks each is read by a method); the two paths say
+    # which Sobol run to read and where the reduced params_for_id goes.
+    assert names('param_reduction') == {
+        'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
+        'variance_fraction', 'min_index', 'sensitivity_dir', 'output_dir'}
+    assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
-        'do_sensitivity', 'do_uq', 'do_ia', 'do_emulation'}
+        'do_sensitivity', 'do_uq', 'do_ia', 'do_emulation', 'do_param_reduction'}
     # Emulation alone carries a second flag, because it has a train step and a use step:
     # do_emulation fits the surrogate, use_emulator makes the analyses evaluate it (#333).
     assert ANALYSIS_OPTIONS['emulation']['use_flag'] == 'use_emulator'
