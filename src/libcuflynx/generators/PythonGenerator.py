@@ -42,22 +42,25 @@ class _CasadiCompatTransformer(ast.NodeTransformer):
         )
 
     def visit_BinOp(self, node):
+        """a / b -> a / ca.if_else(fabs(b) < 1e-300, 1e-300, b).
+
+        CasADi evaluates both branches of an if_else, so a branch dividing by zero must not give inf or NaN, which
+        would poison the result and its derivatives. The guard keeps b's sign.
+        """
         self.generic_visit(node)
         if not isinstance(node.op, ast.Div):
             return node
+        tiny = ast.Constant(value=1e-300)
         guarded_denom = ast.Call(
-            func=ast.Attribute(
-                value=ast.Name(id="ca", ctx=ast.Load()),
-                attr="fmax",
-                ctx=ast.Load(),
-            ),
+            func=ast.Attribute(value=ast.Name(id="ca", ctx=ast.Load()), attr="if_else", ctx=ast.Load()),
             args=[
-                ast.Call(
-                    func=ast.Name(id="fabs", ctx=ast.Load()),
-                    args=[node.right],
-                    keywords=[],
+                ast.Compare(
+                    left=ast.Call(func=ast.Name(id="fabs", ctx=ast.Load()), args=[node.right], keywords=[]),
+                    ops=[ast.Lt()],
+                    comparators=[tiny],
                 ),
-                ast.Constant(value=1e-300),
+                tiny,
+                node.right,
             ],
             keywords=[],
         )
