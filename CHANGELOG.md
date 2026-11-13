@@ -5,6 +5,88 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
+
+- `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
+  output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
+  3compartment (2000 steps). The model is given the true time, so a model whose rates read the
+  variable of integration now runs correctly on them; the fixed-step methods warn that they hold
+  it at the run's start.
+- casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
+  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
+  them, end values held, the first value held through pre_time. CVODES restarts only where a
+  trace steps. It used to refuse a trace.
+- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
+  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
+  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
+  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
+  adjoint integrator is gone.
+- casadi_integrator `cvodes` / `idas` use the `csparse` (sparse LU) linear solver instead of CasADi's
+  default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
+  (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
+  `solver_info.options: {linear_solver: ...}`.
+- A solver given no `method` gets its default from `SOLVER_SCHEMA['default_method_by_solver']`
+  (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
+- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
+  casadi_integrator's right-hand side and derivatives to C, once per process per model,
+  timeline and options, for forward runs and, on CasADi >= 3.8, for the AD gradient too
+  (about 2.4x faster per gradient on a 2 s physiological run, after a one-off compile of the
+  sensitivity functions; CasADi 3.7 does not differentiate through a jit-compiled CVODES
+  integrator, so there the AD graph stays interpreted). With `jit` unset
+  and no C compiler or a non-writable working directory, it runs without jit and warns; an
+  explicit `jit: true` is then an error. `jit: false` turns it off.
+  A jit build never changes the working directory: objects and library go to a private temp
+  directory. CasADi 3.7 writes the generated C source to the cwd and 3.8 to that private
+  directory; this process's files are deleted after each build in both places.
+- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
+  when none is named.
+- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
+  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
+- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
+  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
+  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
+  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
+- SN_simple and other models that initialise a state from `*_init` computed constants now run
+  on `python` and `casadi_python`: libCellML sets those states in `compute_computed_constants`,
+  which the generated module now takes as an optional `states` argument (models without such
+  states keep `compute_computed_constants(variables)`). The solver helpers read the states from
+  it, `set_param_vals` refreshes them, and on casadi_python they stay symbolic in the constants
+  they come from, so the AD gradient through an `*_init`-driving parameter matches finite
+  differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
+
+### Added — `set` and `sweep` workflow steps
+
+- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
+  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
+  the values with `fixed_from`, and they are merged into the target. Reports, the target's
+  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
+- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
+  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
+  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
+  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
+  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
+- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
+  values merged as the target merges them, after all of them: each step's own values, in run
+  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
+  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
+  diagram draws it below the merged box, with one box under it naming the files it wrote (their
+  folder once, then each file), done only when every file exists.
+- A workflow's optional `external_figures` declares figure scripts that run outside it: the
+  command, the step or target they read from, and the files they read and write. libcuflynx never
+  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
+  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
+  declaring them after a run keeps it current.
+- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
+  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
+  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
+  they don't know, naming the version found and the versions they read; write an older run's
+  graph again with `cuflynx-provenance <output_dir>`.
+- `pack_workflow` gives an on-target sweep no model of its own: it runs on the packed target.
+- The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
+  `sweep_results` relative to the working directory and resolves them on read, as it does every
+  step's other outputs.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds

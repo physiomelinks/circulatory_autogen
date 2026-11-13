@@ -121,6 +121,48 @@ def functions_cache_key(pid, param_names, get_all_series):
             data_sig)
 
 
+#: casadi_integrator methods differentiated by forward sensitivities (CVODES/IDAS FSA, one
+#: sensitivity per parameter) rather than reverse mode. Their reverse mode is the SUNDIALS
+#: adjoint, whose backward solve fails with CV_TOO_MUCH_WORK on the valve switches of the
+#: cardiovascular models (3compartment, stiff or not) where forward sensitivities match finite
+#: differences.
+FORWARD_SENSITIVITY_METHODS = ('cvodes', 'idas')
+
+
+def _jit_in_graph(pid):
+    """True when the symbolic (AD) integrator of ``pid.sim_helper`` is jit-compiled."""
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import jit_supports_ad
+    build = getattr(pid.sim_helper, '_build_integrator_opts', None)
+    return bool(jit_supports_ad() and build is not None and build().get('jit', False))
+
+
+def _jit_scope(pid):
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import _jit_build
+    return _jit_build(_jit_in_graph(pid))
+
+
+def _call_jit(pid, func, *args):
+    """``func(*args)``, serialised and cleaned up like a jit build: the first call of a gradient
+    Function compiles its sensitivity functions."""
+    with _jit_scope(pid):
+        return func(*args)
+
+
+def jacobian(pid, expr, arg):
+    """d(expr)/d(arg), (expr.numel() x arg.numel()), by forward sensitivities on the SUNDIALS
+    methods (FORWARD_SENSITIVITY_METHODS) and by ca.jacobian otherwise."""
+    method = getattr(pid.sim_helper, 'solve_ivp_method', None)
+    if method not in FORWARD_SENSITIVITY_METHODS:
+        return ca.jacobian(expr, arg)
+    n = arg.numel()
+    eye = ca.DM.eye(n)
+    seeds = [[eye[:, i]] for i in range(n)]
+    # With a jit integrator (CasADi >= 3.8) ca.forward compiles the sensitivity functions.
+    with _jit_scope(pid):
+        sens = ca.forward([ca.reshape(expr, -1, 1)], [arg], seeds)
+    return ca.horzcat(*[s[0] for s in sens])
+
+
 def flatten_entries(param_id_info):
     """``(flat_member_names, per_entry_[(offset, weight), ...])`` for the params_for_id entries.
 
@@ -226,7 +268,7 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
     # variable after evaluation (fold_entry_rows). The weights are constants, so folding the
     # numbers is identical to substituting theta symbolically and differentiating -- and it
     # keeps one code path for ungrouped rows, groups and modifiers.
-    pid.jac_cost_symb = ca.gradient(pid.cost_symb, pid.sim_helper.variables_symb_subset)
+    pid.jac_cost_symb = jacobian(pid, pid.cost_symb, pid.sim_helper.variables_symb_subset).T
 
     pid.cost_func = ca.Function('cost_func', [pid.sim_helper.states_symb, pid.sim_helper.variables_symb], [pid.cost_symb])
 
@@ -243,8 +285,8 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
 def get_jac_cost(pid, param_vals):
     param_names = pid.param_id_info["param_names"]
     build_functions(pid, param_names, param_vals)
-    per_member = np.array(
-        pid.jac_cost_func(pid.sim_helper.states, pid.sim_helper.variables)).flatten()
+    per_member = np.array(_call_jit(
+        pid, pid.jac_cost_func, pid.sim_helper.states, pid.sim_helper.variables)).flatten()
     # sum_i (dJ/dp_i) * dp_i/dtheta -- a no-op for ungrouped rows (one member, weight 1).
     return fold_entry_rows(per_member, pid._casadi_entry_map,
                            len(pid.param_id_info["param_names"]))
@@ -275,12 +317,12 @@ def get_observable_sensitivities(pid, param_vals):
     build_functions(pid, param_names, param_vals)
 
     # jacobian of the flattened observable vector w.r.t. the differentiated parameter subset.
-    jac_symb = ca.jacobian(pid.obs_vec, pid.sim_helper.variables_symb_subset)
+    jac_symb = jacobian(pid, pid.obs_vec, pid.sim_helper.variables_symb_subset)
     jac_func = ca.Function(
         'obs_jac_func',
         [pid.sim_helper.states_symb, pid.sim_helper.variables_symb],
         [jac_symb])
-    jac = np.array(jac_func(pid.sim_helper.states, pid.sim_helper.variables))  # [rows x members]
+    jac = np.array(_call_jit(pid, jac_func, pid.sim_helper.states, pid.sim_helper.variables))  # [rows x members]
     jac = fold_entry_rows(jac, pid._casadi_entry_map, len(flat_names))  # [rows x entries]
 
     # obs_meta slices obs_vec by (field, observable-item, size); the single 'const' entry holds

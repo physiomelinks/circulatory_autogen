@@ -612,12 +612,11 @@ def test_imported_pace_binding_keeps_its_label(tmp_path):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("module_name,backend_label", [
-    ("libcuflynx.solver_wrappers.casadi_python_solver_helper", "CasADi"),
     ("libcuflynx.solver_wrappers.aadc_python_solver_helper", "AADC"),
     ("libcuflynx.solver_wrappers.python_solver_helper", "python"),
 ])
 def test_non_myokit_backends_refuse_protocol_traces_explicitly(module_name, backend_label):
-    """Only the Myokit backend implements protocol_traces.
+    """Only the Myokit backend and casadi_python's cvodes/idas implement protocol_traces.
 
     The others previously assigned the trace *name* straight into their numeric parameter
     vector (CasADi and AADC) or named the wrong backend in the error (python said 'OpenCOR').
