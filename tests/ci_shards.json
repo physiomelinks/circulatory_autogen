@@ -3,9 +3,9 @@
     "CI shards: `pytest --ci-shard <suite>:<group>[,<group>...]` keeps only the tests of those groups.",
     "An entry is a test file (all its tests) or file::function (all its parametrizations).",
     "<suite>:rest is every test the command collected that no group of that suite names, so a new",
-    "test file runs in the rest shard without being listed here. Each shard should stay under ~8",
-    "minutes of tests, leaving ~2 for checkout and installs inside the ~10-minute target.",
-    "Checked by tests/test_ci_shards.py."
+    "test file runs in the rest shard without being listed here. Each shard should stay under ~6",
+    "minutes of tests, leaving room for checkout and installs inside the ~10-minute target, and a",
+    "new test should take under 60 s. Checked by tests/test_ci_shards.py."
   ],
   "main": {
     "autogeneration": [
@@ -37,6 +37,9 @@
       "tests/test_import_races.py",
       "tests/test_param_id.py",
       "tests/test_dependency_extras.py"
+    ],
+    "solver-matrix": [
+      "tests/test_solver_matrix.py"
     ]
   },
   "param-id": {
@@ -46,6 +49,11 @@
       "tests/test_param_id.py::test_param_id_3compartment_extra_ops_succeeds",
       "tests/test_param_id.py::test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimize",
       "tests/test_sensitivity_analysis.py"
+    ]
+  },
+  "mpi-rest": {
+    "emulators": [
+      "tests/test_emulator_training.py"
     ]
   }
 }

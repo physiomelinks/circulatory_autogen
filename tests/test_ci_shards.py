@@ -166,3 +166,87 @@ def test_the_param_id_jobs_run_the_profile_likelihood_tests(job):
         steps = yaml.safe_load(f)['jobs'][job]['steps']
     commands = '\n'.join(step.get('run', '') for step in steps)
     assert 'tests/test_profile_likelihood.py' in commands
+
+
+# --- every mpi-marked test runs somewhere ---------------------------------------------------
+
+def _pytest_commands():
+    """(job, pytest command) for every pytest run in tests.yml, continuation lines joined."""
+    with open(WORKFLOW) as f:
+        jobs = yaml.safe_load(f)['jobs']
+    found = []
+    for name, job in jobs.items():
+        if job.get('if') is False:
+            continue
+        for step in job.get('steps', []):
+            script = re.sub(r'[\\`]\n\s*', ' ', step.get('run', ''))
+            found += [(name, line) for line in script.splitlines() if 'pytest' in line]
+    return found
+
+
+def _selects_mpi(command):
+    """Whether a pytest command keeps `mpi`-marked tests: no -m, or a -m that does not say not mpi."""
+    match = re.search(r'-m\s+"([^"]*)"', command)
+    return match is None or not re.search(r'\bnot\s+mpi\b', match.group(1))
+
+
+def _mpi_test_files():
+    files = []
+    for name in sorted(os.listdir(os.path.join(ROOT, 'tests'))):
+        if name.startswith('test_') and name.endswith('.py'):
+            with open(os.path.join(ROOT, 'tests', name)) as f:
+                if re.search(r'pytest\.mark\.mpi\b', f.read()):
+                    files.append(f'tests/{name}')
+    return files
+
+
+def _covers(command, path):
+    if path in command:
+        return True
+    ignored = re.findall(r'--ignore=(\S+)', command)
+    return bool(re.search(r'\stests/?(\s|$)', command)) and path not in ignored
+
+
+def test_every_mpi_test_runs_in_some_ci_job():
+    """The `test` jobs deselect `mpi`; a file of `mpi` tests no job names would never run.
+
+    That is how ~40 tests (prediction features, emulator training, the working-directory and
+    plot checks) went unrun until test-mpi-rest.
+    """
+    files = _mpi_test_files()
+    assert 'tests/test_param_id.py' in files
+    commands = [(job, c) for job, c in _pytest_commands() if _selects_mpi(c)]
+    unrun = [f for f in files if not any(_covers(c, f) for _, c in commands)]
+    assert not unrun, f'mpi-marked tests that no CI job runs: {unrun}'
+
+
+def test_the_main_jobs_deselect_mpi_and_mpi_rest_selects_it():
+    by_job = {}
+    for job, command in _pytest_commands():
+        by_job.setdefault(job, []).append(command)
+    assert not any(_selects_mpi(c) for c in by_job['test'])
+    assert all(_selects_mpi(c) for c in by_job['test-mpi-rest'])
+
+
+def test_every_ci_job_with_pytest_uploads_or_checks_its_junit():
+    """Skip counts can only be audited from a junit file someone can download."""
+    with open(WORKFLOW) as f:
+        jobs = yaml.safe_load(f)['jobs']
+    for job in ('test', 'test-mpi-rest', 'test-min-deps', 'test-windows'):
+        uses = [step.get('uses', '') for step in jobs[job]['steps']]
+        assert any(u.startswith('actions/upload-artifact') for u in uses), job
+
+
+def test_the_min_deps_pins_are_the_pyproject_floors():
+    """test-min-deps tests the oldest versions a user can get; a raised floor must move it."""
+    from _pyproject import load_pyproject
+    floors = {}
+    for spec in load_pyproject()['project']['dependencies'] + \
+            load_pyproject()['project']['optional-dependencies']['casadi']:
+        match = re.match(r'([A-Za-z0-9_.-]+)>=([0-9.]+)', spec)
+        if match:
+            floors[match.group(1).lower()] = match.group(2)
+    with open(os.path.join(ROOT, 'tests', 'min-deps-constraints.txt')) as f:
+        pins = dict(line.strip().split('==') for line in f if '==' in line)
+    assert pins == {name: floors[name] for name in pins}
+    assert set(pins) == {'casadi', 'myokit', 'libcellml'}
