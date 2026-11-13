@@ -8,6 +8,8 @@ That is not a cosmetic difference. A fresh CI runner where two MPI ranks import 
 can race on creating ``~/.config/myokit/myokit.ini``, and the resulting message told us myokit
 was not installed -- when it was, and the real error had already been discarded.
 """
+import warnings
+
 import pytest
 
 from libcuflynx.solver_wrappers import (
@@ -139,19 +141,27 @@ def test_requesting_cvode_libopencor_without_libopencor_explains_itself(libopenc
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('where', ['factory', 'validate_solver_info'])
-def test_the_removed_cvode_opencor_name_points_at_cvode_libopencor(where):
-    """CVODE_opencor needed OpenCOR's Python shell and is gone; the error names its
-    replacement wherever the name is given."""
+def test_cvode_opencor_is_an_alias_for_cvode_libopencor():
+    """CVODE_opencor resolves to CVODE_libopencor with one DeprecationWarning, wherever the
+    name is given; it needs no libOpenCOR to resolve."""
     from libcuflynx.parsers.PrimitiveParsers import validate_solver_info
-    with pytest.raises(ValueError) as excinfo:
-        if where == 'factory':
+    from libcuflynx.parsers.solver_names import canonical_solver_name
+    with pytest.warns(DeprecationWarning, match='solver CVODE_opencor now runs libOpenCOR; '
+                                                'name it CVODE_libopencor'):
+        assert canonical_solver_name('CVODE_opencor') == 'CVODE_libopencor'
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert canonical_solver_name('CVODE_libopencor') == 'CVODE_libopencor'
+    with pytest.warns(DeprecationWarning):
+        validate_solver_info('CVODE_opencor', {'solver': 'CVODE_opencor'})
+    with pytest.warns(DeprecationWarning):
+        try:
             get_simulation_helper(model_path='m.cellml', solver='CVODE_opencor',
                                   model_type='cellml', dt=0.01, sim_time=1.0)
-        else:
-            validate_solver_info('CVODE_opencor', {'solver': 'CVODE_opencor'})
-    assert 'CVODE_libopencor' in str(excinfo.value)
-    assert 'removed' in str(excinfo.value)
+        except Exception as exc:
+            # Without libOpenCOR the factory reaches CVODE_libopencor's own error;
+            # with it, the missing model file is the error.
+            assert 'opencor' in str(exc).lower() or 'm.cellml' in str(exc)
 
 
 @pytest.mark.unit

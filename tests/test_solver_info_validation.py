@@ -981,11 +981,11 @@ def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
     assert default_gradient_source('casadi_python') == 'AD'
     assert default_gradient_source('casadi_python', 'casadi_integrator', 'cvodes') == 'AD'
     assert default_gradient_source('python') == 'FD'
-    assert default_gradient_source('cellml', 'CVODE_opencor') == 'FD'
+    assert default_gradient_source('cellml', 'CVODE_libopencor') == 'FD'
     assert default_gradient_source('casadi_python', use_emulator=True) == 'FD'
     # Exactly one default per menu.
     for mt, sv in [('casadi_python', 'casadi_integrator'), ('cellml', 'CVODE_myokit'),
-                   ('cellml', 'CVODE_opencor'), ('python', 'solve_ivp')]:
+                   ('cellml', 'CVODE_libopencor'), ('python', 'solve_ivp')]:
         assert sum(src['default'] for src in gradient_sources(mt, sv)) == 1, (mt, sv)
 
 

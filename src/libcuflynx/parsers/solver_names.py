@@ -1,21 +1,23 @@
-"""Removed solver names, and the solver that replaces each.
+"""Solver-name aliases.
 
-Read by the user-input parser, solver_info validation and the solver factory, so a removed
-name fails the same way wherever it is given.
+`CVODE_opencor` is an alias for `CVODE_libopencor`. The user-input parser, solver_info
+validation and the solver factory all call `canonical_solver_name`, so an alias resolves the
+same way wherever it is given.
 """
+import warnings
 
-#: Removed solver name -> the solver to use instead.
-REMOVED_SOLVERS = {
-    # The OpenCOR desktop application's Python shell; libOpenCOR is its pip-installable engine.
+#: Alias -> the solver it names. `CVODE_opencor` was OpenCOR's Python shell; libOpenCOR is
+#: its pip-installable engine.
+SOLVER_ALIASES = {
     'CVODE_opencor': 'CVODE_libopencor',
 }
 
 
-def removed_solver_message(solver):
-    """The error for a removed solver name, naming its replacement."""
-    replacement = REMOVED_SOLVERS[solver]
-    return (
-        f"Solver {solver!r} has been removed: it needed OpenCOR's bundled Python shell. "
-        f"Use solver {replacement!r} (libOpenCOR, `pip install \"libcuflynx[libopencor]\"`, "
-        "Python 3.12 or later), or 'CVODE_myokit', which is installed with libcuflynx."
-    )
+def canonical_solver_name(solver):
+    """Return `solver`, with an alias replaced by the solver it names (with a DeprecationWarning)."""
+    target = SOLVER_ALIASES.get(solver)
+    if target is None:
+        return solver
+    warnings.warn(f"solver {solver} now runs libOpenCOR; name it {target}",
+                  DeprecationWarning, stacklevel=3)
+    return target

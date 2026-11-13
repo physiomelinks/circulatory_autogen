@@ -21,8 +21,9 @@ next release; add to that section as you land a change.
   results for states, algebraic variables and constants. It has no time-varying inputs
   (`protocol_traces` / `protocol_shapes` raise `NotImplementedError`) and no forward
   sensitivities, so calibrations with it use finite-difference gradients.
-- **Breaking:** `solver: CVODE_opencor`, which needed OpenCOR's bundled Python shell, is removed.
-  Naming it is an error that names `CVODE_libopencor`. The `opencor_helper` module, the
+- `solver: CVODE_opencor` is an alias for `CVODE_libopencor` (OpenCOR's bundled Python shell is
+  not needed). Naming it runs libOpenCOR and emits a `DeprecationWarning`; without libOpenCOR
+  installed, the `CVODE_libopencor` install error applies. The `opencor_helper` module, the
   `need_opencor` test marker and the disabled `test-with-opencor` CI job are gone;
   `need_libopencor` tests skip without libopencor and run in the `test-libopencor` job.
   `user_run_files/python_path.sh` names `venv/bin/python` (it is read by `run_pytest.sh` only).

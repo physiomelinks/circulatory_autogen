@@ -23,7 +23,7 @@ except Exception:
 import re
 
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
-from libcuflynx.parsers.solver_names import REMOVED_SOLVERS, removed_solver_message
+from libcuflynx.parsers.solver_names import canonical_solver_name
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
 from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name, DATA_REFERENCE_KEY,
@@ -2579,6 +2579,10 @@ class YamlFileParser(object):
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
             solver_name = inp_data_dict.get('solver')
+        if solver_name is not None:
+            solver_name = canonical_solver_name(solver_name)
+            if (inp_data_dict.get('solver_info') or {}).get('solver') is not None:
+                inp_data_dict['solver_info']['solver'] = solver_name
 
         if solver_name is None:
             # From the schema, not a ladder of literals. SOLVER_SCHEMA is what CUFLynx and
@@ -2595,9 +2599,6 @@ class YamlFileParser(object):
                       f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
                 exit()
         else:
-            if solver_name in REMOVED_SOLVERS:
-                print(removed_solver_message(solver_name))
-                exit()
             valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
                 solver_name not in valid_cpp_solvers and
@@ -2996,8 +2997,7 @@ def validate_solver_info(solver_name, solver_info):
 
     Raises ValueError listing unsupported keys and the allowed keys for that solver.
     """
-    if solver_name in REMOVED_SOLVERS:
-        raise ValueError(removed_solver_message(solver_name))
+    solver_name = canonical_solver_name(solver_name)
     if solver_name not in _SOLVER_INTEGRATOR_KEYS:
         raise ValueError(
             f'Cannot validate solver_info for unknown solver {solver_name!r}. '

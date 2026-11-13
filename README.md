@@ -156,8 +156,8 @@ OpenCOR's simulation engine as a Python library. Install it with
 asking for the solver raises an error that says how to install it and names `CVODE_myokit`,
 the default, which needs nothing extra. See
 [Optional: the libOpenCOR solver](https://physiomelinks.github.io/circulatory_autogen/getting-started/#optional-the-libopencor-solver)
-for what it supports. The solver name `CVODE_opencor` (OpenCOR's bundled Python shell) is an
-error that names `CVODE_libopencor`.
+for what it supports. The solver name `CVODE_opencor` is an alias for
+`CVODE_libopencor`.
 
 Its tests are marked `need_libopencor` and skip when libOpenCOR is not installed.
 `benchmarks/solver_comparison.py` runs the same models through Myokit, libOpenCOR and CasADi,

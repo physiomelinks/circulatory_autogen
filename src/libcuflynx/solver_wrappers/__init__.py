@@ -7,7 +7,7 @@ import os
 import traceback
 
 from libcuflynx.solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
-from libcuflynx.parsers.solver_names import REMOVED_SOLVERS, removed_solver_message
+from libcuflynx.parsers.solver_names import canonical_solver_name
 
 #: Why each optional backend failed to import, keyed by backend name. A backend is optional
 #: because it may genuinely not be installed -- but the import can also fail for reasons that
@@ -206,8 +206,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
 
 
     # Check for explicit solver specification with validation
-    if solver in REMOVED_SOLVERS:
-        raise ValueError(removed_solver_message(solver))
+    solver = canonical_solver_name(solver)
     if solver == 'CVODE_libopencor':
         if model_type not in (None, 'cellml'):
             raise ValueError("CVODE_libopencor runs CellML models (model_type 'cellml').")
