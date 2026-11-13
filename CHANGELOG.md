@@ -107,6 +107,11 @@ Decided by Finbar Argus on 2026-11-06:
   they come from, so the AD gradient through an `*_init`-driving parameter matches finite
   differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
 
+### Changed — notebook execution tests are `manual`
+
+- The two tutorial-notebook execution tests (1800 s timeout each, run with the `python_path.sh`
+  interpreter, which now defaults to `venv/bin/python`) run only with `--run-manual`.
+
 ### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
 
 - **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
