@@ -118,7 +118,9 @@ def _kernel_model(tmp_path, name, text):
     return am, kernel_ir.build_kernel_model(am)
 
 
-needs_c = pytest.mark.skipif(shutil.which('cmake') is None or (shutil.which('cc') or shutil.which('gcc')) is None,
+# cl is MSVC's compiler (Windows, with the Visual Studio environment loaded).
+needs_c = pytest.mark.skipif(shutil.which('cmake') is None
+                             or not (shutil.which('cc') or shutil.which('gcc') or shutil.which('cl')),
                              reason='needs CMake and a C compiler')
 
 

@@ -1,0 +1,6 @@
+# The test-min-deps CI job installs with these pins: the oldest versions pyproject.toml allows
+# of the backends whose behaviour depends on their version. tests/test_ci_shards.py checks that
+# each pin equals its floor in pyproject.toml, so raising a floor means raising it here too.
+casadi==3.7.2
+myokit==1.39.1
+libcellml==0.7.2
