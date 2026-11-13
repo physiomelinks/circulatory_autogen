@@ -363,5 +363,5 @@ solver_info:
   sensitivities (FSA): use `CVODE_myokit` for those.
 - The OpenCOR desktop application is still a good way to open and run a generated model by
   hand (see [Model generation and simulation](model-generation-simulation.md)). CA does not
-  run inside OpenCOR's bundled Python: the solver name `CVODE_opencor` is an error that names
+  run inside OpenCOR's bundled Python: the solver name `CVODE_opencor` is an alias for
   `CVODE_libopencor`.
