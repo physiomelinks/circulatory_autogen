@@ -11,11 +11,11 @@ from libcuflynx.calibration_workflow import (WorkflowError, run_calibration_work
                                              workflow_status)
 from libcuflynx.calibration_workflow.runner import module_library_digest, settings_digest
 from libcuflynx.external_testing.workflow_library import build_workflow_library
-from libcuflynx.reporting.provenance import (GRAPH_FILE, HAND_NODE, MEASURED_NODE,
-                                             SCHEMA_VERSION, SOURCE_NODE, SVG_FILE, TARGET_NODE,
-                                             ProvenanceVersionError, provenance_graph,
-                                             provenance_svg, read_provenance_graph,
-                                             write_provenance)
+from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, GRAPH_FILE, HAND_NODE,
+                                             MEASURED_NODE, SCHEMA_VERSION, SOURCE_NODE, SVG_FILE,
+                                             TARGET_NODE, ProvenanceVersionError,
+                                             provenance_graph, provenance_svg,
+                                             read_provenance_graph, write_provenance)
 from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
 from libcuflynx.schemas.validation import validate
 from libcuflynx.scripts import provenance_script
@@ -84,7 +84,7 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
 
     graph = _read_json(os.path.join(out, GRAPH_FILE))
     validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
-    assert graph['schema_version'] == SCHEMA_VERSION == 2
+    assert graph['schema_version'] == SCHEMA_VERSION == 3
     assert graph['producer']['name'] == 'libcuflynx'
     assert graph['workflow']['output_dir'] == out
     assert graph['workflow']['order'] == ['fit_a', 'rest']
@@ -125,6 +125,49 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     assert '<script' not in svg and '<style' not in svg
     for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', out, 'libCellML'):
         assert text in svg
+
+
+@pytest.mark.integration
+def test_derived_values_and_values_calibrated_before_the_run_have_their_own_marks(library,
+                                                                                tmp_path):
+    """A value whose parameters entry a derivation calculates (origin derived) is drawn in its
+    own box, marked derived, not as measured or unclassified; a value calibrated before the run
+    (origin calibrated in its parameters file) is calibrated, in a box of its own."""
+    path = _parameters_path(library)
+    doc = _read_json(path)
+    _leaves(doc)['k'].update(origin='derived', derivation='k_gain',
+                             data_reference='derived; derivation k_gain')
+    _write_json(path, doc)
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(library['chain_rest'], output_dir=out)
+
+    graph = _read_json(os.path.join(out, GRAPH_FILE))
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    nodes = _nodes(graph)
+    derived = nodes[DERIVED_NODE]
+    assert derived['mark'] == 'derived' and derived['title'] == 'Derived values'
+    assert [(v['name'], v['origin']) for v in derived['parameters']] == [('k_mod__C', 'derived')]
+    assert 'derived; derivation k_gain' in derived['lines'][0]
+    assert _edges(graph)[(DERIVED_NODE, TARGET_NODE)]['label'] == 'derived'
+    assert graph['counts']['derived'] == 1 and graph['counts']['unclassified'] == 0
+    assert {HAND_NODE, MEASURED_NODE, EARLIER_NODE}.isdisjoint(nodes)
+    svg = provenance_svg(graph)
+    assert 'DERIVED' in svg and '1 derived' in svg
+
+    # the target's values as a later run sees them, k calibrated by an earlier workflow
+    target = result['target_model']['parameters_path']
+    doc = _read_json(target)
+    _leaves(doc)['k'].update(origin='calibrated', data_reference='calibrated by workflow old')
+    _write_json(target, doc)
+    graph = provenance_graph(out)
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    nodes = _nodes(graph)
+    assert DERIVED_NODE not in nodes
+    earlier = nodes[EARLIER_NODE]
+    assert earlier['mark'] == 'calibrated'
+    assert [(v['name'], v['from_step']) for v in earlier['parameters']] == [('k_mod__C', None)]
+    assert graph['counts']['calibrated'] == len(result['merged_parameters']) + 1
+    assert all(v['from_step'] for v in nodes[TARGET_NODE]['parameters'])
 
 
 @pytest.mark.integration
@@ -248,7 +291,7 @@ def _box(node_id, kind='step'):
 
 def _another_producers_graph():
     git = {'commit': 'abcdef1234567890', 'dirty': False}
-    graph = {'schema_version': 2,
+    graph = {'schema_version': 3,
              'workflow': {'name': 'w', 'output_dir': '/runs/w', 'file': None, 'file_status': 'current',
                           'order': ['a'], 'complete': True, 'finished': None, 'stale': False},
              'producer': {'name': 'opinf', 'version': '0.1', 'git': git},
@@ -268,7 +311,7 @@ def test_another_producer_validates_and_is_named_in_the_footer():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('version', [1, 3, None])
+@pytest.mark.parametrize('version', [1, 2, 4, None])
 def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
     graph = _another_producers_graph()
     path = str(tmp_path / GRAPH_FILE)
@@ -276,7 +319,7 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
     assert read_provenance_graph(path) == graph
     graph['schema_version'] = version
     _write_json(path, graph)
-    message = rf'schema_version {version!r}; .* reads provenance graph schema_version 2 only'
+    message = rf'schema_version {version!r}; .* reads provenance graph schema_version 3 only'
     with pytest.raises(ProvenanceVersionError, match=message):
         read_provenance_graph(path)
     with pytest.raises(ProvenanceVersionError, match=message):
@@ -286,7 +329,7 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
 @pytest.mark.unit
 def test_an_arrow_past_a_row_crosses_no_box():
     long_name = '/a/very/long/output/directory/' * 6
-    graph = {'schema_version': 2, 'workflow': {'name': 'w', 'output_dir': long_name},
+    graph = {'schema_version': 3, 'workflow': {'name': 'w', 'output_dir': long_name},
              'code': {}, 'counts': {},
              'nodes': [_box('a'), _box('b'), _box('c')],
              'edges': [{'from': 'a', 'to': 'b', 'label': '', 'style': 'order'},

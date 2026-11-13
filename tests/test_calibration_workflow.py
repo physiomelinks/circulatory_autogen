@@ -719,6 +719,9 @@ def test_calibrated_values_replace_their_rows_and_new_ones_are_added(tmp_path):
     assert rows['C/q']['data_reference'].startswith('calibrated by workflow wf, step rest')
     # a calibrated value is no longer sourced; its data_reference says where it came from
     assert rows['A/p']['sourced'] == 'no' and 'step fit_a' in rows['A/p']['data_reference']
+    # a calibrated value says so in its origin
+    assert {n for n, r in rows.items() if r.get('origin') == 'calibrated'} == \
+        {'global/T', 'A/p', 'C/q', 'A/r'}
     assert rows['A/r']['units'] == 'dimensionless'
     assert open(_Target.parameters_path).read() == before
 
