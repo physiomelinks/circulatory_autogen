@@ -23,8 +23,9 @@ The rules (``schemas/parameters.schema.json``):
 * A *leaf* is one parameter: an object with ``value`` (a number, or a string such as
   ``EMPTY_MUST_BE_FILLED``), ``units`` and ``data_reference``, and optionally ``origin`` (what
   set the value: ``ORIGINS``) and ``reason`` (required for ``set_by_hand``), which generation
-  carries into the file it writes, and ``derivation`` (the derivation that calculates the
-  value; its origin is then ``derived``); any other key (a library's ``sourced``) is a string,
+  carries into the file it writes, ``derivation`` (the derivation that calculates the
+  value; its origin is then ``derived``) and ``fixed_constants`` (that derivation's fixed
+  constants as JSON text, for the provenance diagram); any other key (a library's ``sourced``) is a string,
   kept and not read. Every other object is a *node*: an instance or sub-instance, whose keys are its
   sub-instances and variables.
 * ``global`` at the top holds the global constants, as leaves. ``schema_version`` is 1.
@@ -62,8 +63,11 @@ MEASURED, INHERITED, SET_BY_HAND, DERIVED, CALIBRATED = (
 ORIGINS = (MEASURED, INHERITED, SET_BY_HAND, DERIVED, CALIBRATED)
 #: the leaf key naming the derivation that calculates a value
 DERIVATION = 'derivation'
+#: the leaf key holding the fixed constants of the derivation that calculates the value, as JSON
+#: text (``cuflynx-derive --write`` sets it)
+FIXED_CONSTANTS = 'fixed_constants'
 #: the optional leaf keys generation carries into the file it writes
-PROVENANCE_KEYS = ('origin', 'reason')
+PROVENANCE_KEYS = ('origin', 'reason', FIXED_CONSTANTS)
 #: how a data_reference starts when it names the parameterisation its value came from
 SOURCE_PREFIX = 'from '
 SOURCE_SEPARATOR = ': '
@@ -106,7 +110,7 @@ def is_leaf(node):
 def calibrated_leaf(leaf, value, data_reference):
     '''``leaf`` (a dict, not changed) with a calibrated ``value``: origin ``calibrated``, and
     without ``derivation`` (so ``cuflynx-derive --write`` never overwrites it) or ``reason``.'''
-    leaf = {k: v for k, v in leaf.items() if k not in (DERIVATION, 'reason')}
+    leaf = {k: v for k, v in leaf.items() if k not in (DERIVATION, 'reason', FIXED_CONSTANTS)}
     leaf.update(value=value, data_reference=data_reference, origin=CALIBRATED)
     return leaf
 

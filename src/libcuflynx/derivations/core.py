@@ -52,6 +52,7 @@ class Derivation:
     base_dir: str           # the derivations file's directory
     comment: str = ''
     fixed_constants: tuple = ()  # cellml: constants that keep the CellML file's initial value
+    fixed_info: dict = field(default_factory=dict)  # name -> {origin, data_reference, reason}
 
     def files(self):
         '''The files the method reads, absolute: the CellML model with the local CellML files it
@@ -87,14 +88,21 @@ def load_derivations(source, base_dir=None):
         names.add(entry['name'])
         method = next(m for m in METHODS if m in entry)
         inputs = {symbol: next(iter(ref.items())) for symbol, ref in entry['inputs'].items()}
-        fixed = tuple(entry.get('fixed_constants') or ())
+        declared = [{'name': f} if isinstance(f, str) else f
+                    for f in entry.get('fixed_constants') or ()]
+        fixed = tuple(f['name'] for f in declared)
+        if len(set(fixed)) != len(fixed):
+            raise DerivationError(f"{where}: derivation '{entry['name']}' names a fixed constant "
+                                  f"twice.")
+        fixed_info = {f['name']: {k: v for k, v in f.items() if k != 'name'} for f in declared}
         both = [name for name in fixed if name in inputs]
         if both:
             raise DerivationError(f"{where}: derivation '{entry['name']}' names "
                                   f"{', '.join(repr(n) for n in both)} both as an input and in "
                                   f"fixed_constants; name each in one.")
         derivations.append(Derivation(entry['name'], inputs, dict(entry['outputs']), method,
-                                      entry[method], base_dir, entry.get('comment', ''), fixed))
+                                      entry[method], base_dir, entry.get('comment', ''), fixed,
+                                      fixed_info))
     return derivations
 
 
@@ -241,7 +249,7 @@ def unresolved_inputs(derivations, doc, obs_data=None):
     for d in derivations:
         for symbol, source in d.inputs.items():
             one = Derivation(d.name, {symbol: source}, d.outputs, d.method, d.spec, d.base_dir,
-                             d.comment, d.fixed_constants)
+                             d.comment, d.fixed_constants, d.fixed_info)
             try:
                 resolve_inputs(one, doc, obs_items, set_by_derivation)
             except ValueError as e:
@@ -254,7 +262,8 @@ class DerivationResult:
     '''One evaluated derivation: its inputs (``resolve_inputs``), outputs
     (``{symbol: {'parameter', 'path', 'value', 'units', 'cached'}}``, ``cached`` the value text in
     the parameters file) and fixed constants (``{name: {'value', 'units'}}``, the initial values
-    of the CellML model's ``fixed_constants``).'''
+    of the CellML model's ``fixed_constants``, with the ``origin``, ``data_reference`` and
+    ``reason`` the derivation declares for it).'''
     derivation: Derivation
     inputs: dict
     outputs: dict = field(default_factory=dict)
@@ -282,7 +291,8 @@ def evaluate_derivations(derivations, doc, obs_data=None):
                 values = evaluate_cellml(d.files()[0],
                                          {s: (i['value'], i['units']) for s, i in inputs.items()},
                                          output_units, d.fixed_constants)
-                fixed = {name: {'value': value, 'units': units} for name, (value, units)
+                fixed = {name: {'value': value, 'units': units, **d.fixed_info.get(name, {})}
+                         for name, (value, units)
                          in fixed_constant_values(d.files()[0], d.fixed_constants).items()}
             except DerivationModelError as e:
                 raise DerivationModelError(f"derivation '{d.name}': {e}") from None
@@ -348,6 +358,14 @@ def check_derivations(results, doc, rtol=CACHE_RTOL):
     return problems
 
 
+def fixed_constants_text(result):
+    '''The fixed constants of a derivation result as the JSON text a derived leaf carries in its
+    ``fixed_constants`` key: a list of ``{derivation, name, value, units}`` with the declared
+    ``origin``, ``data_reference`` and ``reason``.'''
+    return json.dumps([dict(derivation=result.derivation.name, name=name, **info)
+                       for name, info in result.fixed_constants.items()])
+
+
 def write_derived_values(parameters_path, results):
     '''Write each derived value into the parameters file ``parameters_path`` as its cached value,
     with ``derivation`` naming the derivation and origin ``derived``; every other key and
@@ -368,6 +386,10 @@ def write_derived_values(parameters_path, results):
                 leaf['value'] = out['value']
                 changed += 1
             leaf[pf.DERIVATION] = result.derivation.name
+            if result.fixed_constants:
+                leaf[pf.FIXED_CONSTANTS] = fixed_constants_text(result)
+            else:
+                leaf.pop(pf.FIXED_CONSTANTS, None)
             leaf['origin'] = pf.DERIVED
             pf.set_leaf(doc, list(out['path']), leaf)
     pf.write_parameters_file(parameters_path, doc)
