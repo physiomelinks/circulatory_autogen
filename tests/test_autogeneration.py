@@ -347,6 +347,28 @@ def test_casadi_division_guard_keeps_the_denominator(denominator):
     assert value == (3.0 / denominator if denominator else 3.0 / 1e-300)
 
 
+def test_casadi_division_guard_keeps_the_sign():
+    """A negative denominator divides with its sign; a zero one in an unselected branch stays finite."""
+    import casadi as ca
+    import numpy as np
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
+
+    source = (
+        "def f(a, b):\n"
+        "    return a / b, ca.if_else(b == 0, 1.0, a / b)\n"
+    )
+    namespace = {"ca": ca, "fabs": ca.fabs}
+    exec(PythonGenerator._apply_casadi_if_else_transform(source), namespace)
+    a, b = ca.SX.sym("a"), ca.SX.sym("b")
+    f = ca.Function("f", [a, b], list(namespace["f"](a, b)))
+    q, selected = (float(v) for v in f(3.0, -2.0))
+    assert q == -1.5 and selected == -1.5
+    _, guarded = f(3.0, 0.0)
+    assert float(guarded) == 1.0
+    grad = ca.Function("g", [a, b], [ca.jacobian(namespace["f"](a, b)[1], a)])
+    assert np.isfinite(float(grad(3.0, 0.0)))
+
+
 def test_casadi_compat_utilities_use_if_else_helpers():
     """Unit test: casadi_compat utilities emit ca.if_else comparison helpers."""
     from libcuflynx.generators.PythonGenerator import PythonGenerator
