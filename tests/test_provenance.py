@@ -84,7 +84,7 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
 
     graph = _read_json(os.path.join(out, GRAPH_FILE))
     validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
-    assert graph['schema_version'] == SCHEMA_VERSION == 2
+    assert graph['schema_version'] == SCHEMA_VERSION == 3
     assert graph['producer']['name'] == 'libcuflynx'
     assert graph['workflow']['output_dir'] == out
     assert graph['workflow']['order'] == ['fit_a', 'rest']
@@ -291,7 +291,7 @@ def _box(node_id, kind='step'):
 
 def _another_producers_graph():
     git = {'commit': 'abcdef1234567890', 'dirty': False}
-    graph = {'schema_version': 2,
+    graph = {'schema_version': 3,
              'workflow': {'name': 'w', 'output_dir': '/runs/w', 'file': None, 'file_status': 'current',
                           'order': ['a'], 'complete': True, 'finished': None, 'stale': False},
              'producer': {'name': 'opinf', 'version': '0.1', 'git': git},
@@ -311,7 +311,7 @@ def test_another_producer_validates_and_is_named_in_the_footer():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('version', [1, 3, None])
+@pytest.mark.parametrize('version', [1, 2, 4, None])
 def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
     graph = _another_producers_graph()
     path = str(tmp_path / GRAPH_FILE)
@@ -319,7 +319,7 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
     assert read_provenance_graph(path) == graph
     graph['schema_version'] = version
     _write_json(path, graph)
-    message = rf'schema_version {version!r}; .* reads provenance graph schema_version 2 only'
+    message = rf'schema_version {version!r}; .* reads provenance graph schema_version 3 only'
     with pytest.raises(ProvenanceVersionError, match=message):
         read_provenance_graph(path)
     with pytest.raises(ProvenanceVersionError, match=message):
@@ -329,7 +329,7 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
 @pytest.mark.unit
 def test_an_arrow_past_a_row_crosses_no_box():
     long_name = '/a/very/long/output/directory/' * 6
-    graph = {'schema_version': 2, 'workflow': {'name': 'w', 'output_dir': long_name},
+    graph = {'schema_version': 3, 'workflow': {'name': 'w', 'output_dir': long_name},
              'code': {}, 'counts': {},
              'nodes': [_box('a'), _box('b'), _box('c')],
              'edges': [{'from': 'a', 'to': 'b', 'label': '', 'style': 'order'},

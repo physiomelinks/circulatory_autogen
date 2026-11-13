@@ -91,7 +91,7 @@
             "derived",
             "calibrated"
           ],
-          "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing), set_by_hand (chosen by us; give the reason), derived (calculated by the derivation the leaf names; required with derivation) or calibrated (fitted by a calibration; written with the calibrated value, which drops derivation). A provenance diagram shows a value without an origin as unclassified."
+          "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing), set_by_hand (chosen by us; give the reason), derived (calculated by the derivation the leaf names; required with derivation) or calibrated (fitted by a calibration; written with the calibrated value, which drops derivation and reason, so cuflynx-derive --write never overwrites it; a provenance diagram shows it as calibrated before the run). A provenance diagram shows a value without an origin as unclassified."
         },
         "reason": {
           "type": "string",

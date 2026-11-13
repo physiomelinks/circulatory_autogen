@@ -51,6 +51,7 @@ class Derivation:
     spec: str               # the cellml path or python 'file.py:function', as written
     base_dir: str           # the derivations file's directory
     comment: str = ''
+    fixed_constants: tuple = ()  # cellml: constants that keep the CellML file's initial value
 
     def files(self):
         '''The files the method reads, absolute: the CellML model with the local CellML files it
@@ -68,7 +69,8 @@ class Derivation:
 def load_derivations(source, base_dir=None):
     '''The derivations of ``source`` (a derivations file path, or its JSON object with
     ``base_dir`` the directory its paths are relative to), as a list of :class:`Derivation`.
-    Checked against the schema; a name given twice is a DerivationError.'''
+    Checked against the schema; a name given twice, or a fixed constant that is also an input, is
+    a DerivationError.'''
     if isinstance(source, dict):
         doc, where = source, 'derivations'
         base_dir = os.path.abspath(base_dir or os.getcwd())
@@ -85,8 +87,14 @@ def load_derivations(source, base_dir=None):
         names.add(entry['name'])
         method = next(m for m in METHODS if m in entry)
         inputs = {symbol: next(iter(ref.items())) for symbol, ref in entry['inputs'].items()}
+        fixed = tuple(entry.get('fixed_constants') or ())
+        both = [name for name in fixed if name in inputs]
+        if both:
+            raise DerivationError(f"{where}: derivation '{entry['name']}' names "
+                                  f"{', '.join(repr(n) for n in both)} both as an input and in "
+                                  f"fixed_constants; name each in one.")
         derivations.append(Derivation(entry['name'], inputs, dict(entry['outputs']), method,
-                                      entry[method], base_dir, entry.get('comment', '')))
+                                      entry[method], base_dir, entry.get('comment', ''), fixed))
     return derivations
 
 
@@ -232,7 +240,8 @@ def unresolved_inputs(derivations, doc, obs_data=None):
     found = []
     for d in derivations:
         for symbol, source in d.inputs.items():
-            one = Derivation(d.name, {symbol: source}, d.outputs, d.method, d.spec, d.base_dir)
+            one = Derivation(d.name, {symbol: source}, d.outputs, d.method, d.spec, d.base_dir,
+                             d.comment, d.fixed_constants)
             try:
                 resolve_inputs(one, doc, obs_items, set_by_derivation)
             except ValueError as e:
@@ -242,19 +251,22 @@ def unresolved_inputs(derivations, doc, obs_data=None):
 
 @dataclass
 class DerivationResult:
-    '''One evaluated derivation: its inputs (``resolve_inputs``) and outputs
+    '''One evaluated derivation: its inputs (``resolve_inputs``), outputs
     (``{symbol: {'parameter', 'path', 'value', 'units', 'cached'}}``, ``cached`` the value text in
-    the parameters file).'''
+    the parameters file) and fixed constants (``{name: {'value', 'units'}}``, the initial values
+    of the CellML model's ``fixed_constants``).'''
     derivation: Derivation
     inputs: dict
     outputs: dict = field(default_factory=dict)
+    fixed_constants: dict = field(default_factory=dict)
 
 
 def evaluate_derivations(derivations, doc, obs_data=None):
     '''Evaluate ``derivations`` (``load_derivations``) against the parameters document ``doc``
     (``read_parameters``) and ``obs_data`` (paths or JSON objects; ``load_obs_items``), in
     ``order_derivations`` order. Returns a list of :class:`DerivationResult`.'''
-    from libcuflynx.derivations.cellml_method import DerivationModelError, evaluate_cellml
+    from libcuflynx.derivations.cellml_method import (DerivationModelError, evaluate_cellml,
+                                                      fixed_constant_values)
     from libcuflynx.derivations.python_method import evaluate_python
     obs_items = load_obs_items(obs_data)
     derived, results = {}, []
@@ -264,11 +276,14 @@ def evaluate_derivations(derivations, doc, obs_data=None):
                   for symbol, name in d.outputs.items()}
         output_units = {s: (str(leaf.get('units') or '').strip() or None)
                         for s, leaf in leaves.items()}
+        fixed = {}
         if d.method == 'cellml':
             try:
                 values = evaluate_cellml(d.files()[0],
                                          {s: (i['value'], i['units']) for s, i in inputs.items()},
-                                         output_units)
+                                         output_units, d.fixed_constants)
+                fixed = {name: {'value': value, 'units': units} for name, (value, units)
+                         in fixed_constant_values(d.files()[0], d.fixed_constants).items()}
             except DerivationModelError as e:
                 raise DerivationModelError(f"derivation '{d.name}': {e}") from None
         else:
@@ -277,7 +292,7 @@ def evaluate_derivations(derivations, doc, obs_data=None):
             values = evaluate_python(d.spec, d.base_dir,
                                      {s: i['value'] for s, i in inputs.items()}, units,
                                      list(d.outputs))
-        result = DerivationResult(d, inputs)
+        result = DerivationResult(d, inputs, fixed_constants=fixed)
         for symbol, name in d.outputs.items():
             path = parameter_path(doc, name)
             derived[path] = values[symbol]

@@ -8,6 +8,9 @@ Only an algebraic model whose outputs are computed constants is accepted: an imp
 needs the ``python`` method. libCellML's Python code is generated, the input constants are set
 (converted from their source's units to the model variable's), the computed constants are
 computed once, and the outputs are read and converted to the output parameters' units.
+
+Every constant of the model is an input, except the derivation's ``fixed_constants``: named
+constants (such as the gas constant ``R``) that keep the initial value the CellML file gives them.
 '''
 
 import math
@@ -98,25 +101,63 @@ def _index(info, symbol):
     return found[0] if found else None
 
 
-def evaluate_cellml(path, inputs, output_units):
-    '''Evaluate the derivation model at ``path``.
-
-    ``inputs``: ``{symbol: (value, units)}``, each a constant of the model; the value is
-    converted to the variable's units. ``output_units``: ``{symbol: units}`` of the outputs,
-    each a computed constant of the model; ``None`` takes the variable's units.
-    Returns ``{symbol: value}`` in ``output_units``.
-    '''
+def _generated(path):
+    '''The model at ``path`` and its generated Python, initialised: ``(model, namespace,
+    constants, computed, algebraic)``.'''
     model, analysed = load_derivation_model(path)
     profile = lc.GeneratorProfile(lc.GeneratorProfile.Profile.PYTHON)
     code = generate_implementation_code(lc.Generator(), analysed, profile)
     namespace = {}
     exec(compile(code, f'{path} (generated)', 'exec'), namespace)
-    constant_info = namespace['CONSTANT_INFO']
-    computed_info = namespace['COMPUTED_CONSTANT_INFO']
     constants = namespace['create_constants_array']()
     computed = namespace['create_computed_constants_array']()
     algebraic = namespace['create_algebraic_variables_array']()
     namespace['initialise_arrays'](constants, computed, algebraic)
+    return model, namespace, constants, computed, algebraic
+
+
+def _fixed(path, namespace, constants, fixed_constants, inputs):
+    '''``{name: (value, units)}`` of ``fixed_constants``, each a constant of the model and not
+    an input; its value is the CellML file's initial value.'''
+    constant_info = namespace['CONSTANT_INFO']
+    fixed = {}
+    for name in fixed_constants:
+        if name in inputs:
+            raise DerivationModelError(f"{path}: '{name}' is both an input and a fixed constant; "
+                                       f"name it in one.")
+        i = _index(constant_info, name)
+        if i is None:
+            where = ('a computed constant' if _index(namespace['COMPUTED_CONSTANT_INFO'], name)
+                     is not None else 'not a variable')
+            raise DerivationModelError(f"{path}: fixed constant '{name}' is {where} of the "
+                                       f"model; a fixed constant is a constant (with an initial "
+                                       f"value).")
+        fixed[name] = (float(constants[i]), constant_info[i]['units'])
+    return fixed
+
+
+def fixed_constant_values(path, fixed_constants, inputs=()):
+    '''``{name: (value, units)}``: the initial value and units the derivation model at ``path``
+    gives each of ``fixed_constants``. DerivationModelError for a name that is not a constant of
+    the model, or that is also one of ``inputs``.'''
+    _, namespace, constants, _, _ = _generated(path)
+    return _fixed(path, namespace, constants, fixed_constants, inputs)
+
+
+def evaluate_cellml(path, inputs, output_units, fixed_constants=()):
+    '''Evaluate the derivation model at ``path``.
+
+    ``inputs``: ``{symbol: (value, units)}``, each a constant of the model; the value is
+    converted to the variable's units. ``output_units``: ``{symbol: units}`` of the outputs,
+    each a computed constant of the model; ``None`` takes the variable's units.
+    ``fixed_constants``: names of the other constants, which keep their initial value from the
+    CellML file (:func:`fixed_constant_values`); every constant is an input or one of these.
+    Returns ``{symbol: value}`` in ``output_units``.
+    '''
+    model, namespace, constants, computed, algebraic = _generated(path)
+    constant_info = namespace['CONSTANT_INFO']
+    computed_info = namespace['COMPUTED_CONSTANT_INFO']
+    _fixed(path, namespace, constants, fixed_constants, inputs)
 
     for symbol, (value, units) in inputs.items():
         i = _index(constant_info, symbol)
@@ -133,13 +174,15 @@ def evaluate_cellml(path, inputs, output_units):
                                        f"model's '{symbol}' in '{to_units}': {e}") from None
         constants[i] = float(value) * factor
 
-    # a constant's initial value is a placeholder, so every constant must be given
-    missing = [entry['name'] for entry in constant_info if entry['name'] not in inputs]
+    # a constant's initial value is a placeholder unless the derivation names it fixed
+    missing = [entry['name'] for entry in constant_info
+               if entry['name'] not in inputs and entry['name'] not in fixed_constants]
     if missing:
         raise DerivationModelError(
             f"{path}: input(s) {', '.join(repr(m) for m in missing)} of the model are not given; "
-            f"name each constant of the model in the derivation's inputs (an initial value is "
-            f"only a placeholder; write a fixed number in the equation).")
+            f"name each constant of the model in the derivation's inputs, or, for a constant "
+            f"whose initial value in the CellML file is its value (such as a physical "
+            f"constant), in its fixed_constants.")
 
     try:
         namespace['compute_computed_constants'](constants, computed, algebraic)

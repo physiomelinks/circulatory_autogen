@@ -1151,11 +1151,12 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     module's own path in a parameterisation. So the result reproduces the run without the
     module library. Only ``path`` is written; the target's files are not changed.
 
-    A merged value's leaf gets origin ``calibrated`` and loses ``derivation`` and ``reason``
-    (``parameters_file.calibrated_leaf``), so ``cuflynx-derive --write`` never overwrites it. The
-    derived value is not lost: the target's parameters file still holds it, its derivations file
-    still calculates it (``cuflynx-derive``), and the step's generated parameters file
-    (``generated.parameters_path`` in its result) holds it as the value the step started from.'''
+    A merged value's leaf loses ``derivation`` and ``reason`` and gets origin ``calibrated``
+    (``parameters_file.calibrated_leaf``), or ``set_by_hand`` with the set step's reason, so
+    ``cuflynx-derive --write`` never overwrites it. The derived value is not lost: the target's
+    parameters file still holds it, its derivations file still calculates it
+    (``cuflynx-derive``), and the step's generated parameters file (``generated.parameters_path``
+    in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
     kind = pf.MODEL if target.kind == 'array' else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)
@@ -1167,12 +1168,11 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
         name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
         place = pf.name_path(name, kind)
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
-        # calibrated_leaf drops derivation and reason; a set step's value then says it was set
-        # by hand, with its reason
         leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
                                   '%.10g' % record['value'],
                                   f'{how} workflow {workflow_name}, step '
                                   f'{record["from_step"]} ({today})')
+        # a set step's value: origin set_by_hand, with its reason
         leaf.update(_how_set(record))
         if 'sourced' in leaf:
             leaf['sourced'] = 'no'

@@ -26,7 +26,10 @@ output parameters by one method::
   "derivation": "R_T0"}``. A calibrated parameter (origin ``calibrated``, no ``derivation``) is
   neither checked nor written: the derived value was its start value.
 * ``cellml`` (:mod:`.cellml_method`): a CellML derivation model, inputs constants and outputs
-  computed constants, units checked by libCellML and converted where they differ.
+  computed constants, units checked by libCellML and converted where they differ. Every constant
+  is an input, except those the derivation lists in ``fixed_constants`` (``["R", "F"]``), which
+  keep the CellML file's initial value; a :class:`DerivationResult` records their values and
+  units.
   ``python`` (:mod:`.python_method`): ``file.py:function``, called ``f(inputs, units)``.
 
 Derivations are for data only: nothing here runs in a simulation. ``cuflynx-derive`` evaluates a
@@ -35,7 +38,7 @@ them.
 '''
 
 from libcuflynx.derivations.cellml_method import (DerivationModelError, evaluate_cellml,
-                                                  load_derivation_model)
+                                                  fixed_constant_values, load_derivation_model)
 from libcuflynx.derivations.core import (CACHE_RTOL, DERIVATIONS_SUFFIX, Derivation,
                                          DerivationError, DerivationResult,
                                          calibrated_outputs, check_derivations,
@@ -51,10 +54,9 @@ from libcuflynx.derivations.python_method import (DerivationFunctionError,
 __all__ = [
     'CACHE_RTOL', 'DERIVATIONS_SUFFIX', 'Derivation', 'DerivationError', 'DerivationFunctionError',
     'DerivationModelError', 'DerivationResult', 'build_derivation_funcs_dict',
-    'calibrated_outputs', 'check_derivations', 'derivation_files', 'derivations_file_for', 'evaluate_cellml',
-    'evaluate_derivations', 'evaluate_python', 'is_calibrated', 'load_derivation_model',
-    'load_derivations',
-    'load_obs_items',
+    'calibrated_outputs', 'check_derivations', 'derivation_files', 'derivations_file_for',
+    'evaluate_cellml', 'evaluate_derivations', 'evaluate_python', 'fixed_constant_values',
+    'is_calibrated', 'load_derivation_model', 'load_derivations', 'load_obs_items',
     'order_derivations', 'parameter_path', 'parameters_file_for', 'read_parameters',
     'resolve_inputs', 'unresolved_inputs', 'write_derived_values',
 ]
