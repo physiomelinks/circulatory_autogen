@@ -547,9 +547,9 @@ def provenance_graph(output_dir):
                          'kind': 'values', 'mark': _mark(counts),
                          'lines': [_fixed_line(v) for v in constants], 'status': 'done',
                          'stale': False, 'counts': counts, 'parameters': constants, 'inputs': []})
-        edges.append({'from': FIXED_NODE,
-                      'to': DERIVED_NODE if any(n['id'] == DERIVED_NODE for n in extra)
-                      else TARGET_NODE, 'label': 'constants of', 'style': 'given'})
+        # a constant comes from a derived value the target uses, so the derived box exists
+        edges.append({'from': FIXED_NODE, 'to': DERIVED_NODE, 'label': 'constants of',
+                      'style': 'given'})
     for entry in _external_figures(run, result):
         from_node = TARGET_NODE if entry['from'] == 'target' else entry['from']
         if from_node != TARGET_NODE and from_node not in stale:
@@ -699,10 +699,17 @@ def _git_text(name, state):
     return f'{name}: {state["commit"][:10]}{dirty}'
 
 
-def _summary(counts):
-    '''The target's values by what set them, the unclassified always among them.'''
-    return ' · '.join(f'{counts.get(mark, 0)} {_MARK_LABELS[mark]}' for mark in MARKS
-                      if counts.get(mark) or mark == UNCLASSIFIED)
+def _summary(graph):
+    '''The target's values by what set them, the unclassified always among them, and, when the
+    derivations have fixed constants, how many of those are unclassified.'''
+    counts = graph['counts']
+    parts = [f'{counts.get(mark, 0)} {_MARK_LABELS[mark]}' for mark in MARKS
+             if counts.get(mark) or mark == UNCLASSIFIED]
+    fixed = next((n for n in graph['nodes'] if n['id'] == FIXED_NODE), None)
+    if fixed:
+        n = fixed['counts'].get(UNCLASSIFIED, 0)
+        parts.append(f'{n} unclassified constant{"" if n == 1 else "s"}')
+    return ' · '.join(parts)
 
 
 class ProvenanceVersionError(ValueError):
@@ -737,7 +744,7 @@ def provenance_svg(graph):
     Refuses a graph of a ``schema_version`` it does not read.'''
     check_schema_version(graph)
     places, lanes, width, height = _layout(graph)
-    footer = [f'Values of the target: {_summary(graph["counts"])}',
+    footer = [f'Values of the target: {_summary(graph)}',
               f'Output directory: {graph["workflow"]["output_dir"]}',
               _git_text('libcuflynx', graph['code'].get('libcuflynx_git')),
               _git_text('project', graph['code'].get('project_git')),
@@ -752,7 +759,7 @@ def provenance_svg(graph):
                                          break_on_hyphens=False)]
     total = height + _LINE * (len(footer) + 1)
     claim = (f'Provenance of calibration workflow {graph["workflow"]["name"]}: '
-             f'{_summary(graph["counts"])}.')
+             f'{_summary(graph)}.')
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {total:.0f}" '
              f'role="img" aria-label={quoteattr(claim)} font-family="sans-serif" '
              f'style="max-width:100%;height:auto">',

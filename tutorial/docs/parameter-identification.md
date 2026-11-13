@@ -1629,7 +1629,9 @@ the target uses is marked with what set it:
 When a derived value's derivation has `fixed_constants`, a "Fixed constants of derivations" box
 with an arrow to the derived values lists each as `<derivation>/<constant>` with its value, units
 and origin (measured with its source, set by hand with its reason, inherited, or unclassified when
-the derivation declares none); it shows the first six and the graph file has them all.
+the derivation declares none); it shows the first six and the graph file has them all. The
+diagram's footer counts the unclassified constants (`1 unclassified constant`) after the
+unclassified values, whenever there are fixed constants, so none hides behind a zero.
 
 A value is never counted as inherited by default, so an unclassified count above zero says which
 values still need describing. `workflow_result.json` records the libcuflynx commit, the commit of
