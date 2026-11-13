@@ -14,10 +14,10 @@ SOLVER_ALIASES = {
 
 
 def canonical_solver_name(solver):
-    """Return `solver`, with an alias replaced by the solver it names (with a DeprecationWarning)."""
+    """Return `solver`, with an alias replaced by the solver it names (with a FutureWarning)."""
     target = SOLVER_ALIASES.get(solver)
     if target is None:
         return solver
     warnings.warn(f"solver {solver} now runs libOpenCOR; name it {target}",
-                  DeprecationWarning, stacklevel=3)
+                  FutureWarning, stacklevel=3)
     return target

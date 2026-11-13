@@ -22,7 +22,7 @@ next release; add to that section as you land a change.
   (`protocol_traces` / `protocol_shapes` raise `NotImplementedError`) and no forward
   sensitivities, so calibrations with it use finite-difference gradients.
 - `solver: CVODE_opencor` is an alias for `CVODE_libopencor` (OpenCOR's bundled Python shell is
-  not needed). Naming it runs libOpenCOR and emits a `DeprecationWarning`; without libOpenCOR
+  not needed). Naming it runs libOpenCOR and emits a `FutureWarning`; without libOpenCOR
   installed, the `CVODE_libopencor` install error applies. The `opencor_helper` module, the
   `need_opencor` test marker and the disabled `test-with-opencor` CI job are gone;
   `need_libopencor` tests skip without libopencor and run in the `test-libopencor` job.

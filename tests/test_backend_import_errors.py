@@ -142,19 +142,19 @@ def test_requesting_cvode_libopencor_without_libopencor_explains_itself(libopenc
 
 @pytest.mark.unit
 def test_cvode_opencor_is_an_alias_for_cvode_libopencor():
-    """CVODE_opencor resolves to CVODE_libopencor with one DeprecationWarning, wherever the
+    """CVODE_opencor resolves to CVODE_libopencor with one FutureWarning, wherever the
     name is given; it needs no libOpenCOR to resolve."""
     from libcuflynx.parsers.PrimitiveParsers import validate_solver_info
     from libcuflynx.parsers.solver_names import canonical_solver_name
-    with pytest.warns(DeprecationWarning, match='solver CVODE_opencor now runs libOpenCOR; '
+    with pytest.warns(FutureWarning, match='solver CVODE_opencor now runs libOpenCOR; '
                                                 'name it CVODE_libopencor'):
         assert canonical_solver_name('CVODE_opencor') == 'CVODE_libopencor'
     with warnings.catch_warnings():
         warnings.simplefilter('error')
         assert canonical_solver_name('CVODE_libopencor') == 'CVODE_libopencor'
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(FutureWarning):
         validate_solver_info('CVODE_opencor', {'solver': 'CVODE_opencor'})
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(FutureWarning):
         try:
             get_simulation_helper(model_path='m.cellml', solver='CVODE_opencor',
                                   model_type='cellml', dt=0.01, sim_time=1.0)

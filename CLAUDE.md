@@ -6,7 +6,7 @@ This file documents the conventions, gotchas, and entry points an agent needs th
 
 ## Build / run / test
 
-**Run everything in a normal venv.** CA does not run in OpenCOR's bundled `pythonshell`; OpenCOR's engine is the optional `CVODE_libopencor` solver, from `pip install -e ".[libopencor]"` (libOpenCOR's wheels need Python 3.12 or later). The solver name `CVODE_opencor` is an alias for `CVODE_libopencor`, with a DeprecationWarning (`parsers/solver_names.py`).
+**Run everything in a normal venv.** CA does not run in OpenCOR's bundled `pythonshell`; OpenCOR's engine is the optional `CVODE_libopencor` solver, from `pip install -e ".[libopencor]"` (libOpenCOR's wheels need Python 3.12 or later). The solver name `CVODE_opencor` is an alias for `CVODE_libopencor`, with a FutureWarning (`parsers/solver_names.py`).
 
 - **Set up**: `python -m venv venv && venv/bin/pip install -e ".[dev]"`. The default solver is `CVODE_myokit`; `[dev]` brings libOpenCOR too on Python 3.12+.
 - **`user_run_files/python_path.sh` sets `python_path`**, the interpreter `run_pytest.sh` invokes (default `venv/bin/python`, relative to the repo root). **Point it at your venv.**
