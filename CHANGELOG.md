@@ -5,6 +5,27 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — parameter reduction by PCA modes of the Sobol outputs
+
+- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
+  chooses the parameters to calibrate after a Sobol analysis and writes them as
+  `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
+  their principal components, computes Sobol indices of each component's score, and keeps one
+  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
+  first. Parameters that move the data the same way, and effects smaller than the noise, are
+  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
+- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
+  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+
+### Changed — a workflow reduction step takes `settings.param_reduction_options`
+
+- A reduction step's options move from `"reduction": {"top_n": ...}` to
+  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
+  is refused. Without `method`, a reduction is now `pca`.
+- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
+  run's directory rather than its indices CSV.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
