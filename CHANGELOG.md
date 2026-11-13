@@ -5,10 +5,26 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Changed — notebook execution tests are `manual`
+### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
-- The two tutorial-notebook execution tests (1800 s timeout each, run with the `python_path.sh`
-  interpreter, which now defaults to `venv/bin/python`) run only with `--run-manual`.
+- Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
+  warm-up length, Sobol samples and genetic-algorithm calls in the two calibration notebooks;
+  pip install, example-image download, Fiji, an image of your own, sub-volume and Ilastik in the
+  image notebook. The defaults are what the tutorials teach with.
+- `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
+  notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
+  settings cell, and checks the key outputs: about 70 s for `generation_and_calibration.ipynb`
+  (including the C++ 0D build and run) and 20 s for `generation_and_calibration_test.ipynb`.
+  The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
+- Two cells of `generation_and_calibration.ipynb` do not run: the 1D coupler run and the plot of
+  its output, because the 1D solver exits with `Sum of integration weights > 1` on the hybrid
+  model. `image_to_hemodynamics_model.ipynb` runs up to its last code cell, where
+  `image_proc_funcs.py` no longer matches the module configs; its test is a strict `xfail`.
+- Notebook fixes this needed: `generation_and_calibration.ipynb` read `aortic_root/u` from a model
+  without it and ran the C++ 0D model through the coupler script (which needs a hybrid model's
+  `coupler_config.json`), and passed `MaximumStep` to the C++ generator; `generation_and_calibration_test.ipynb`
+  had a hard-coded checkout path, the old `from_dict` / `CVS0DParamID(...)` calls and an unregistered
+  custom feature. Outputs go to `$CUFLYNX_USER_DIR`, or the checkout when it is unset.
 
 ### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
 
