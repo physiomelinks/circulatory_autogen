@@ -230,17 +230,22 @@ def test_default_has_no_relative_cut_so_a_resolved_small_mode_is_kept(tmp_path):
 
 @pytest.mark.unit
 def test_top_n_keeps_both_parameters_of_a_product_and_pca_keeps_one(tmp_path):
-    params = ['m/A', 'm/B', 'm/C']
+    # E adds a small term to y4: above its noise, but ST_E far below A's and B's.
+    params = ['m/A', 'm/B', 'm/C', 'm/E']
 
     def outputs(x):
-        a, b, c = x.T
-        return {'y1': (a * b, 0.05), 'y2': (2 * a * b + c, 0.1), 'y3': (c, 0.05)}
+        a, b, c, e = x.T
+        return {'y1': (a * b, 0.05), 'y2': (2 * a * b + c, 0.1), 'y3': (c, 0.05),
+                'y4': (c + 0.5 * e, 0.1)}
 
     run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params)
     source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    # top-3 by max ST keeps both A and B (each ranks above E) and C, leaving E out
     top = [r['parameter'] for r in SobolReduction(n_params=3).reduce(
         run, source, str(tmp_path / 'top' / 'kept.json'))]
     assert set(top) == {'m/A', 'm/B', 'm/C'}
+    # PCA sees A and B as one mode (A*B), keeps C, and keeps E, whose term in y4 is a mode of its
+    # own above the noise floor (mode std 1.3 against 1): one of A and B, C and E.
     pca = [r['parameter'] for r in PCASobolReduction().reduce(
         run, source, str(tmp_path / 'pca' / 'kept.json'))]
-    assert len(pca) == 2 and 'm/C' in pca and len({'m/A', 'm/B'} & set(pca)) == 1
+    assert len(pca) == 3 and {'m/C', 'm/E'} <= set(pca) and len({'m/A', 'm/B'} & set(pca)) == 1

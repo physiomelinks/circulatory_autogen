@@ -8,6 +8,8 @@ import math
 import os
 import sys
 
+from page_text import pca_options_text
+
 OUT = os.path.abspath(sys.argv[1])
 COMMIT = sys.argv[2]
 PAGE = sys.argv[3]
@@ -66,7 +68,7 @@ prov = f'''
       f'256 × (2·7 + 2) = 4096 runs. Writes the indices, samples and outputs.', 'computed')}
  <div class="arrow" aria-hidden="true"></div>
  <div class="row2">
-  {box('reduce_pca', f'<code>method: pca</code>, defaults (min_mode_std 1, variance_fraction 0.99, min_index 0.05). Found 4 informative modes and kept {kept_pca}.', 'computed')}
+  {box('reduce_pca', f'<code>method: pca</code>, {pca_options_text(S["pca_report"])} and kept {kept_pca}.', 'computed')}
   {box('reduce_simple', '<code>method: sobol</code>, top n by max ST over the six outputs. '
        '<b>n = 4 was set by the driver</b> to the number reduce_pca kept, so both reductions keep the same number.', 'set by hand')}
  </div>
