@@ -56,7 +56,7 @@ ALLOWED_SETTINGS = (
     'use_builtin_modules', 'external_modules_dir',
     'operation_funcs_external_path', 'cost_funcs_external_path', 'modifier_funcs_external_path',
     'write_cuflynx_study', 'cuflynx_study_copy_inputs', 'sa_options', 'ia_options',
-    'emulator_settings',
+    'emulator_settings', 'param_reduction_options',
 )
 
 PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
@@ -81,7 +81,8 @@ _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'iden
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation')}
 #: the analysis options each kind needs in its settings
-_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options'}
+_KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options',
+                  'reduction': 'param_reduction_options'}
 # a module array file's name is <prefix><suffix>
 ARRAY_SUFFIXES = ('_module_array.csv', '_module_array.json', '_vessel_array.csv',
                   '_vessel_array.json')
@@ -392,6 +393,22 @@ def _settings(value, base_dir):
     return settings
 
 
+def _reduction_options(options, label):
+    '''The full options of a reduction step (every option its method reads, defaults filled
+    in), checked by building the reduction. The paths are the workflow's to decide.'''
+    from libcuflynx.sensitivity_analysis.parameter_reduction import (PATH_OPTIONS,
+                                                                     ParamReduction)
+    paths = sorted(set(options) & set(PATH_OPTIONS))
+    if paths:
+        raise WorkflowError(f'{label}: a workflow reads the sensitivity_from step\'s results and '
+                            f'writes where it decides, so param_reduction_options has no '
+                            f'{paths}.')
+    try:
+        return ParamReduction.from_options(options).as_dict()
+    except ValueError as exc:
+        raise WorkflowError(f'{label}: {exc}') from exc
+
+
 def _prior_source(value):
     if isinstance(value, str):
         return PriorSource(step=value)
@@ -420,14 +437,17 @@ def _step(value, where, base_dir):
     if kind == 'identifiability' and not refs['result_from']:
         raise WorkflowError(f'{label}: an identifiability step needs "result_from", the '
                             f'calibration whose result it analyses.')
-    for options_key in ('reduction', 'set', 'sweep'):
+    if 'reduction' in value:
+        raise WorkflowError(f'{label}: a reduction step\'s options go in '
+                            f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
+    for options_key in ('set', 'sweep'):
         if (kind == options_key) != (options_key in value):
             raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
                                 f'step, and a {options_key} step needs it.')
 
     if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
-                                     'vessel', 'vessel_map', 'settings') if k in value)
+                                     'vessel', 'vessel_map') if k in value)
         if present:
             reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
                      else 'declares values for the target')
@@ -438,14 +458,20 @@ def _step(value, where, base_dir):
                     depends_on=scale_sources(entries), set_values=entries,
                     description=value.get('description', '') or '')
     if kind == 'reduction':
-        options = value['reduction']
+        settings = dict(value.get('settings') or {})
+        other = sorted(set(settings) - {'param_reduction_options'})
+        if other:
+            raise WorkflowError(f'{label}: a reduction step\'s only setting is '
+                                f'"param_reduction_options", not {other}.')
+        options = dict(settings.get('param_reduction_options') or {})
+        if not options:
+            raise WorkflowError(f'{label}: a reduction step needs "settings": '
+                                f'{{"param_reduction_options": {{...}}}}.')
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=[refs['sensitivity_from']],
                     sensitivity_from=refs['sensitivity_from'],
-                    reduction={'top_n': options['top_n'],
-                               'index_type': options.get('index_type', 'ST'),
-                               'criterion': options.get('criterion', 'max'),
-                               'threshold': options.get('threshold')},
+                    reduction=_reduction_options(options, label),
+                    settings={'param_reduction_options': options},
                     description=value.get('description', '') or '')
 
     if value.get('on_target'):

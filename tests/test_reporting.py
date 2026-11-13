@@ -304,7 +304,8 @@ def test_a_flow_chart_merges_only_calibrations_and_labels_what_each_step_takes()
     screen = dict(_step('screen'), kind='sensitivity', settings={'sa_options': {}})
     reduce = {'id': 'reduce', 'kind': 'reduction', 'model': None, 'n_parameters': 0,
               'n_data_items': 0, 'settings': {}, 'depends_on': ['screen'], 'fixed_from': [],
-              'priors_from': [], 'sensitivity_from': 'screen', 'reduction': {'top_n': 2}}
+              'priors_from': [], 'sensitivity_from': 'screen',
+              'reduction': {'method': 'sobol', 'n_params': 2}}
     fit = dict(_step('fit', depends=['reduce']), params_for_id_from='reduce')
     ia = dict(_step('ia', depends=['fit']), kind='identifiability', result_from='fit',
               settings={'ia_options': {'method': 'Laplace'}})
@@ -319,6 +320,10 @@ def test_a_flow_chart_merges_only_calibrations_and_labels_what_each_step_takes()
     assert kinds['fit'] == 'step' and kinds['screen'] == kinds['ia'] == 'analysis'
     lines = {n['id']: n['lines'] for n in nodes}
     assert lines['reduce'] == ['keeps the top 2 by Sobol ST']
+    pca = dict(reduce, reduction={'method': 'pca', 'index_type': 'ST'})
+    nodes, _ = flowchart.workflow_graph([screen, pca, fit, ia, target])
+    assert {n['id']: n['lines'] for n in nodes}['reduce'] == [
+        'one parameter per informative PCA mode, by Sobol ST']
     assert lines['screen'][-1] == 'Sobol sensitivity analysis'
     assert lines['ia'][-1] == 'Laplace identifiability analysis'
 

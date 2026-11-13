@@ -34,6 +34,13 @@ def run_SA(inp_data_dict=None):
         SA_agent.set_params_for_id(inp_data_dict['params_for_id'])
     SA_agent.run_sensitivity_analysis()
 
+    if inp_data_dict.get('do_param_reduction'):
+        if rank == 0:
+            from libcuflynx.sensitivity_analysis.parameter_reduction import run_param_reduction
+            selected = run_param_reduction(inp_data_dict)
+            print(f"Parameter reduction kept {[row['parameter'] for row in selected]}")
+        comm.Barrier()
+
 def main(argv=None):
     """Entry point for the ``cuflynx-sensitivity`` command."""
     parser = _cli.build_parser(

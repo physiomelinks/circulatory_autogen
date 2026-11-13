@@ -53,6 +53,10 @@ from libcuflynx.param_id import prediction_features
 #: The file naming every Sobol output column, written only with include_prediction_items so
 #: a reader (CUFLynx) can tell a prediction feature from a data_item feature.
 SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
+#: The SALib problem of a Sobol run and what each output column is (with its obs_data std and
+#: weight), written beside the samples and outputs so a later analysis (a PCA parameter
+#: reduction) can recompute Sobol indices of any function of the outputs.
+SOBOL_PROBLEM_FILE = 'sobol_problem.json'
 
 class sobol_SA():
 
@@ -643,6 +647,8 @@ class sobol_SA():
     
         if outputs.ndim == 1:
             outputs = outputs[:, np.newaxis]  # convert to (n_samples, 1)
+        # kept for save_sobol_samples_and_outputs
+        self.outputs = outputs
 
         n_outputs = outputs.shape[1]
         S1_all = np.zeros((n_outputs, self.num_params))
@@ -917,21 +923,10 @@ class sobol_SA():
                 out.append(lab)
         return out
 
-    def save_sobol_indices(self, S1_all, ST_all, S2_all):
-        if self.rank != 0:
-            return
-
-        """
-        Save all Sobol indices to single CSV files (one for S1/ST, one for S2).
-
-        Parameters:
-            S1_all (np.ndarray): First-order Sobol indices, shape (n_outputs, n_params)
-            ST_all (np.ndarray): Total-order Sobol indices, shape (n_outputs, n_params)
-            S2_all (np.ndarray): Second-order Sobol indices, shape (n_outputs, n_params, n_params)
-        """
-        n_outputs = S1_all.shape[0]
-        param_names = self._param_labels()
-
+    def _output_columns(self, n_outputs):
+        """``(output_names, sources)`` of the ``n_outputs`` Sobol outputs: the column names the
+        indices and outputs CSVs use, and ``(kind, index)`` per column, kind one of
+        ``'data_item'``, ``'cost'`` and ``'prediction_item'``."""
         # Prepare output/feature names. Two data_items that resolve to the same
         # (item_name_for_plotting, experiment, subexperiment) produce identical column
         # labels; since pandas assigns DataFrame columns by label, the later one
@@ -967,8 +962,24 @@ class sobol_SA():
             base_ops.append(pred_ops[pred_indices[k]])
             sources.append(('prediction_item', k))
 
-        output_names = self._uniquify_output_names(base_labels, base_ops)
-        if pred_labels:
+        return self._uniquify_output_names(base_labels, base_ops), sources
+
+    def save_sobol_indices(self, S1_all, ST_all, S2_all):
+        if self.rank != 0:
+            return
+
+        """
+        Save all Sobol indices to single CSV files (one for S1/ST, one for S2).
+
+        Parameters:
+            S1_all (np.ndarray): First-order Sobol indices, shape (n_outputs, n_params)
+            ST_all (np.ndarray): Total-order Sobol indices, shape (n_outputs, n_params)
+            S2_all (np.ndarray): Second-order Sobol indices, shape (n_outputs, n_params, n_params)
+        """
+        n_outputs = S1_all.shape[0]
+        param_names = self._param_labels()
+        output_names, sources = self._output_columns(n_outputs)
+        if self._prediction_labels():
             self._save_output_features(output_names, sources)
 
         # --- Save S1/ST indices ---
@@ -1023,6 +1034,55 @@ class sobol_SA():
         with open(os.path.join(self.output_dir, SOBOL_OUTPUT_FEATURES_FILE), 'w') as f:
             json.dump({'outputs': records}, f, indent=1)
 
+    def save_sobol_samples_and_outputs(self):
+        """Write the samples and outputs of the last :meth:`run`, in Saltelli order, so a later
+        analysis can compute Sobol indices of any function of the outputs:
+
+        * ``all_outputs_n<N>_Sobol_samples.csv`` -- one column per parameter label;
+        * ``all_outputs_n<N>_Sobol_outputs.csv`` -- one column per output, named as in the
+          indices CSV;
+        * ``sobol_problem.json`` -- the SALib problem (``names``, ``bounds``), ``num_samples``,
+          ``sample_type``, ``calc_second_order``, and per output its ``kind`` and, for a
+          constant data_item, its obs_data ``std`` and ``weight`` (None otherwise).
+
+        Returns the three paths (None on ranks other than 0)."""
+        if self.rank != 0:
+            return None
+        outputs = np.asarray(self.outputs, dtype=float)
+        samples = np.asarray(self.samples, dtype=float)
+        output_names, sources = self._output_columns(outputs.shape[1])
+        stem = os.path.join(self.output_dir, f"all_outputs_n{self.num_samples}_Sobol")
+        paths = {'sobol_samples': f'{stem}_samples.csv', 'sobol_outputs': f'{stem}_outputs.csv',
+                 'sobol_problem': os.path.join(self.output_dir, SOBOL_PROBLEM_FILE)}
+        pd.DataFrame(samples, columns=self._param_labels()).to_csv(paths['sobol_samples'],
+                                                                   index=False)
+        pd.DataFrame(outputs, columns=output_names).to_csv(paths['sobol_outputs'], index=False)
+
+        def scalar(value):
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return None
+            return value if np.isfinite(value) else None
+
+        records = []
+        for name, (kind, idx) in zip(output_names, sources):
+            record = {'output': name, 'kind': kind, 'std': None, 'weight': None}
+            if kind == 'data_item' and self.gt_df is not None:
+                row = self.gt_df.iloc[idx]
+                record['std'] = scalar(row.get('std'))
+                weight = scalar(row.get('weight'))
+                record['weight'] = 1.0 if weight is None else weight
+            records.append(record)
+        problem = {'names': list(self._param_labels()),
+                   'bounds': [[float(lo), float(hi)] for lo, hi in
+                              zip(self.SA_info['param_mins'], self.SA_info['param_maxs'])],
+                   'num_samples': int(self.num_samples), 'sample_type': self.SA_info['sample_type'],
+                   'calc_second_order': True, 'outputs': records}
+        with open(paths['sobol_problem'], 'w') as f:
+            json.dump(problem, f, indent=1)
+        return paths
+
     def load_sobol_indices(self):
         """
         Loads S1 and ST indices from the saved CSV file and returns them as a dictionary.
@@ -1034,6 +1094,7 @@ class sobol_SA():
  
     def run(self):
         samples = self.generate_samples()
+        self.samples = samples
         if self.use_mpi:
             outputs = self.generate_outputs_mpi(samples)
             if self.rank == 0:
