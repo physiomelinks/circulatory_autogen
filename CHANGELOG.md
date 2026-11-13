@@ -35,6 +35,104 @@ next release; add to that section as you land a change.
   CVODE step counts where exposed and the error against a reference backend, as JSON and
   Markdown.
 
+### Added — parameter reduction by PCA modes of the Sobol outputs
+
+- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
+  chooses the parameters to calibrate after a Sobol analysis and writes them as
+  `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- Why: (1) redundancy -- keep one parameter per direction the data can fix; on the
+  3compartment study the full fits have a singular Fisher information (condition number about
+  1e16 or singular) and the reduced fits 12-16. (2) noise-blindness -- a large Sobol index on an
+  output that moves by less than its noise is not kept.
+- `variance_fraction` defaults to 1: no relative cut, every mode above `min_mode_std` (the noise
+  floor) counts. A smaller value is a cut that ignores the noise and can drop a small mode the
+  data resolve.
+- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
+  their principal components, computes Sobol indices of each component's score, and keeps one
+  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
+  first. Parameters that move the data the same way, and effects smaller than the noise, are
+  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
+- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
+  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
+  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
+
+### Changed — a workflow reduction step takes `settings.param_reduction_options`
+
+- A reduction step's options move from `"reduction": {"top_n": ...}` to
+  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
+  is refused. Without `method`, a reduction is now `pca`.
+- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
+  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
+- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
+- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
+  run's directory rather than its indices CSV.
+### Added — parameter derivations and obs_data `input_items`
+
+Decided by Finbar Argus on 2026-10-31.
+
+- obs_data has a third list, `input_items`: numbers (`data_item_name`, `value`, `unit`, with an
+  optional `std`, `data_reference`, `comment`, `species`, `location` and `prob_dist_params`)
+  that parameter derivations read. They are never scored, plotted or
+  validated; `parse_obs_data_json` returns them under `"input_items"`, and their names share the
+  uniqueness rule of data and prediction items. `ObsDataCreator.add_input_item` adds one.
+- A `<name>_derivations.json` beside a parameters file (`schemas/derivations.schema.json`) says
+  how parameters are calculated: inputs from parameters, `input_items` or constant `data_items`,
+  outputs naming parameters, and a CellML derivation model (evaluated once through libCellML's
+  generated Python, units checked and converted) or a Python function (`file.py:function`, called
+  `f(inputs, units)`). Derivations chain in the order their inputs need; a loop or a parameter set
+  twice is an error. `libcuflynx.derivations` has the API.
+- A parameter leaf may name its derivation (`"derivation": "R_T0"`); its `value` is the cached
+  result. `cuflynx-derive <derivations.json> --obs <obs_data.json>` checks every cached value
+  (rtol 1e-9; exit 1 when one is stale) and `--write` updates them.
+- A CellML derivation model must take every constant it has as an input (or list it in
+  `fixed_constants`, below): one the derivation leaves out is an error naming it, not its placeholder initial value. Imported CellML files are among
+  the files a derivation reads. An output that is not finite, or an equation that cannot be
+  evaluated (a zero flow), is an error naming the derivation.
+- `cuflynx-derive --write` exits 1 when a parameter names a derivation that does not set it, and
+  an unreadable file or failing derivation is a message with exit 2, not a traceback.
+- `load_obs_items` reads a data item's `source` as its `data_reference`, as
+  `parse_obs_data_json` does (#618).
+
+Decided by Finbar Argus on 2026-11-06:
+
+- An input item takes `data_reference` only. One with `source` is refused (by the obs_data
+  schema, `parse_input_items` and `ObsDataCreator.add_input_item`), with a message saying to use
+  `data_reference`. Data and prediction items still read `source` as `data_reference`, with a
+  warning (#618).
+- A parameter's `origin` may be `derived` or `calibrated`, beside `measured`, `inherited` and
+  `set_by_hand`. A leaf with `derivation` must have origin `derived` (a schema rule naming the
+  fix), and `cuflynx-derive --write` sets it on each leaf it writes.
+- A calibrated value drops its `derivation`: `write_calibrated_parameters` (and
+  `write_calibrated_parameters_to`) and generation with fit parameters (`cuflynx-generate True`)
+  give a calibrated leaf origin `calibrated` and remove its `derivation` and `reason`.
+  `cuflynx-derive` prints a calibrated parameter's derived value but never checks or writes it.
+  The derived value is not lost: the target's own parameters file keeps it (only the calibrated
+  file is written), the derivations file still calculates it, and the step's generated
+  parameters file (`generated.parameters_path` in its result) holds it as the value the step
+  started from.
+- The provenance diagram marks derived values `derived`, in a "Derived values" box, and a value
+  calibrated before the run (origin `calibrated` in its parameters file) as calibrated, in a
+  "Values calibrated before this run" box. `provenance_graph.schema.json` has `derived` in its
+  origins and marks, so the provenance graph is `schema_version` 3; `read_provenance_graph` and
+  `provenance_svg` refuse a version 2 graph, and `cuflynx-provenance <output_dir>` writes it again.
+- A set step's value in the calibrated parameters file drops its `derivation` too, and has origin
+  `set_by_hand` with the step's reason.
+- `pack_workflow` copies the derivations file beside each parameters file it packs, with its CellML
+  (and the CellML it imports) and Python files. So does a study's working dir, into
+  `inputs/system/` beside the parameters file (#619). Docs:
+  `tutorial/docs/parameter-derivations.md`.
+
+Decided by Finbar Argus on 2026-11-13:
+
+- A CellML derivation may list `fixed_constants` (`["R", "F"]`): constants of its model that keep
+  the initial value the CellML file gives them, so they are not inputs. Every other constant must
+  still be an input. A name that is not a constant of the model, or that is also an input, is an
+  error, and `fixed_constants` on a `python` derivation is refused by the schema. Each
+  `DerivationResult` records its fixed constants with their values and units
+  (`fixed_constants`), `fixed_constant_values` reads them from a model, and `cuflynx-derive`
+  prints them.
+
 ### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
 
 - `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every

@@ -28,7 +28,7 @@ from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
 from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name, DATA_REFERENCE_KEY,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
-                                        VALID_DATA_TYPES)
+                                        VALID_DATA_TYPES, parse_input_items)
 from libcuflynx.param_id.prediction_plots import check_prediction_plots
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
@@ -867,7 +867,7 @@ def _obs_item_label(gt_df, II):
     return f"item {II}"
 
 
-def check_data_item_names_unique(gt_df, prediction_info=None):
+def check_data_item_names_unique(gt_df, prediction_info=None, input_item_names=()):
     """Every item answers to one name, and no name answers to two items.
 
     ``data_item_name`` is what an ``operation_kwargs`` value naming another item resolves
@@ -875,7 +875,7 @@ def check_data_item_names_unique(gt_df, prediction_info=None):
     item was evaluated last. That is exactly how the shipped 3compartment extra-ops example came
     to compute ``max - max`` (a constant 0.0) where it meant ``max - mean``, with every test
     still passing. Checked across data_items *and* prediction_items, since a reference does not
-    care which list an item came from.
+    care which list an item came from, and the input_items, which a derivation names the same way.
     """
     counts = {}
     if gt_df is not None and len(gt_df) and "data_item_name" in gt_df.columns:
@@ -883,6 +883,8 @@ def check_data_item_names_unique(gt_df, prediction_info=None):
             counts.setdefault(str(name), []).append("data_items")
     for name in ((prediction_info or {}).get("data_item_names") or []):
         counts.setdefault(str(name), []).append("prediction_items")
+    for name in input_item_names:
+        counts.setdefault(str(name), []).append("input_items")
 
     duplicated = {name: where for name, where in counts.items() if len(where) > 1}
     if duplicated:
@@ -1922,6 +1924,59 @@ ANALYSIS_OPTIONS = {
                             'end whatever this is set to.'},
         ],
     },
+    # Read by libcuflynx.sensitivity_analysis.parameter_reduction.ParamReduction.from_options,
+    # which takes its option names and defaults from here. It reads a Sobol run's saved files
+    # (sensitivity_dir) and writes the params_for_id of the parameters it keeps.
+    'param_reduction': {
+        'label': 'Parameter reduction',
+        'enable_flag': 'do_param_reduction',
+        'options_key': 'param_reduction_options',
+        'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'pca', 'required': False,
+             'choices': ['pca', 'sobol'],
+             'description': ('How to choose the parameters to calibrate from a Sobol analysis. '
+                             '"pca": PCA of the Sobol outputs (scaled by their obs_data std and '
+                             'weight), Sobol indices of each mode, then one parameter per mode '
+                             'that moves the data by more than its noise, largest mode first. '
+                             '"sobol": the n_params parameters with the highest index over the '
+                             'outputs, by criterion.')},
+            {'name': 'n_params', 'type': 'int', 'default': None, 'required': False,
+             'description': ('How many parameters to keep. For "pca" at most this many (default: '
+                             'one per informative mode); "sobol" needs it.')},
+            {'name': 'index_type', 'type': 'enum', 'default': 'ST', 'required': False,
+             'choices': ['ST', 'S1'],
+             'description': 'Rank by total (ST) or first-order (S1) Sobol indices.'},
+            {'name': 'criterion', 'type': 'enum', 'default': 'max', 'required': False,
+             'choices': ['max', 'mean'],
+             'description': ('For "sobol": a parameter\'s score over the outputs, the max or the '
+                             'mean of its index.')},
+            {'name': 'threshold', 'type': 'float', 'default': None, 'required': False,
+             'description': 'For "sobol": parameters scoring below it are dropped.'},
+            {'name': 'min_mode_std', 'type': 'float', 'default': 1.0, 'required': False,
+             'description': ('For "pca": a mode is informative when its standard deviation over '
+                             'the Sobol samples is at least this many obs_data stds. Below it, '
+                             'the mode moves the data by less than the noise. The samples fill the whole '
+                             'prior box, so this is a global, prior-wide measure, not local to the '
+                             'fit.')},
+            {'name': 'variance_fraction', 'type': 'float', 'default': 1.0, 'required': False,
+             'description': ('For "pca": only the leading modes that together explain this '
+                             'fraction of the scaled output variance are considered. The default 1 is no '
+                             'relative cut: every mode above min_mode_std counts. A smaller '
+                             'value ignores the noise, so it can drop a small mode the data '
+                             'resolve.')},
+            {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
+             'description': ('For "pca": a mode whose largest index among the parameters not yet '
+                             'kept is below this is skipped; no free parameter drives it.')},
+            {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
+             'description': ('The Sobol run to read (its output_dir). Default: '
+                             'sa_options.output_dir. In a calibration workflow, the '
+                             'sensitivity_from step\'s.')},
+            {'name': 'output_dir', 'type': 'str', 'default': None, 'required': False,
+             'description': ('Where reduced_params_for_id.json and the reduction\'s report go. '
+                             'Default: <sensitivity_dir>/param_reduction. A relative path is '
+                             'under sensitivity_dir.')},
+        ],
+    },
     'identifiability_analysis': {
         'label': 'Identifiability analysis',
         'enable_flag': 'do_ia',
@@ -2858,6 +2913,27 @@ class YamlFileParser(object):
                 print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
                 inp_data_dict['sa_options']['sample_type'] = 'saltelli'
             
+        # Parameter reduction after a Sobol analysis (ANALYSIS_OPTIONS['param_reduction']):
+        # only the method is filled in, so an option another method reads is not set for it.
+        # sensitivity_dir defaults to the Sobol run's output_dir, and a relative output_dir is
+        # under sensitivity_dir.
+        if 'do_param_reduction' not in inp_data_dict.keys():
+            inp_data_dict['do_param_reduction'] = False
+        reduction_options = dict(inp_data_dict.get('param_reduction_options') or {})
+        reduction_options.setdefault('method', 'pca')
+        if not reduction_options.get('sensitivity_dir'):
+            reduction_options['sensitivity_dir'] = inp_data_dict['sa_options']['output_dir']
+        elif not os.path.isabs(reduction_options['sensitivity_dir']):
+            reduction_options['sensitivity_dir'] = os.path.join(
+                sa_parent, reduction_options['sensitivity_dir'])
+        if not reduction_options.get('output_dir'):
+            reduction_options['output_dir'] = os.path.join(reduction_options['sensitivity_dir'],
+                                                           'param_reduction')
+        elif not os.path.isabs(reduction_options['output_dir']):
+            reduction_options['output_dir'] = os.path.join(reduction_options['sensitivity_dir'],
+                                                           reduction_options['output_dir'])
+        inp_data_dict['param_reduction_options'] = reduction_options
+
         if 'do_ia' not in inp_data_dict.keys():
             inp_data_dict['do_ia'] = False
         
@@ -3952,7 +4028,10 @@ class ObsAndParamDataParser(object):
                     f"data_items[{row_idx}] ('{row['data_item_name']}')", row["data_type"],
                     row["value"], row["std"], row["obs_dt"])
 
-        check_data_item_names_unique(gt_df, prediction_info)
+        # Numbers parameter derivations read (libcuflynx.derivations): returned for them, and
+        # read by nothing that scores, plots or validates.
+        input_items = parse_input_items(json_obj)
+        check_data_item_names_unique(gt_df, prediction_info, input_items)
         check_prediction_operation_references(gt_df, prediction_info)
         # Figures across experiments (#568): checked structurally here; that each item is a
         # scalar feature needs the operation funcs, so plot_prediction_plots checks it.
@@ -3966,6 +4045,7 @@ class ObsAndParamDataParser(object):
             "prediction_info": prediction_info,
             "obs_data_name": obs_data_name,
             "prediction_plots": prediction_plots,
+            "input_items": input_items,
         }
 
     def process_obs_info(self, gt_df, output_dir, dt):

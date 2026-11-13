@@ -170,6 +170,23 @@ sa_options:
   include_prediction_items: false
     # output_dir: /non/default/path
 
+# Parameter reduction: after the Sobol analysis (run_sensitivity_analysis.sh), choose the
+# parameters to calibrate and write them as reduced_params_for_id.json.
+do_param_reduction: false
+param_reduction_options:
+  # pca: one parameter per PCA mode of the outputs that moves the data by more than its noise
+  #   (obs_data std). sobol: the n_params parameters with the highest Sobol index.
+  method: pca
+  # n_params: 3          # pca: at most this many (default one per informative mode); sobol: needed
+  # index_type: ST       # ST or S1
+  # min_mode_std: 1.0    # pca: informative modes vary by at least this many obs_data stds
+  # variance_fraction: 1.0  # pca: 1 = no relative cut; below 1, only the leading modes explaining this fraction
+  # min_index: 0.05      # pca: skip a mode no free parameter reaches this index for
+  # criterion: max       # sobol: max or mean over the outputs
+  # threshold: 0.01      # sobol: drop parameters scoring below it
+  # sensitivity_dir: /non/default/path   # default sa_options.output_dir
+  # output_dir: /non/default/path        # default <sensitivity_dir>/param_reduction
+
 # identifiability analysis
 do_ia: false
 ia_options:
