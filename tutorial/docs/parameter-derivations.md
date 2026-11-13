@@ -111,7 +111,7 @@ A fixed constant may say what set its value, as `{"name": "R", "origin": "measur
 `set_by_hand`; `set_by_hand` needs a `reason`). `cuflynx-derive --write` records each derived
 parameter's fixed constants, with value, units and origin, in its `fixed_constants` key, and a
 calibration workflow's provenance diagram draws them in a "Fixed constants of derivations" box
-beside the derived values. A constant given as a bare name has no origin and is drawn
+in the row above the derived values. A constant given as a bare name has no origin and is drawn
 `unclassified`.
 
 A number written in the equation itself (`<cn>`) needs no listing, but a named fixed constant

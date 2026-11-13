@@ -157,6 +157,7 @@ def test_fixed_constants_of_a_derivation_are_drawn_with_value_and_origin(library
         ('k_gain/R', 'measured'), ('k_gain/T', 'set_by_hand'), ('k_gain/F', 'unclassified')]
     assert _edges(graph)[(FIXED_NODE, DERIVED_NODE)]['label'] == 'constants of'
     assert graph['counts']['derived'] == 1       # constants are not values of the target
+    assert graph['counts']['unclassified'] == 0
     # drawn left of the model source, so its arrow to the derived values crosses no other arrow
     order = [n['id'] for n in graph['nodes']]
     assert order.index(FIXED_NODE) < order.index(SOURCE_NODE) and order.index(
@@ -165,7 +166,8 @@ def test_fixed_constants_of_a_derivation_are_drawn_with_value_and_origin(library
     svg = ' '.join(re.findall(r'>([^<]*)</text>', provenance_svg(graph)))
     for text in ('k_gain/R', '8.314 J_per_K_per_mol, measured', '[CODATA][2018][gas_constant]',
                  'k_gain/T', '310.0 kelvin, set by hand: body temperature',
-                 'k_gain/F', '96485.0 C_per_mol, unclassified', 'Fixed constants of derivations'):
+                 'k_gain/F', '96485.0 C_per_mol, unclassified', 'Fixed constants of derivations',
+                 '1 derived · 0 unclassified · 1 unclassified constant'):
         assert text in svg
 
     _leaves(doc)['k'].pop('fixed_constants')
@@ -470,3 +472,28 @@ def test_only_weight_zero_makes_a_helper_item(tmp_path):
         {'variable': 'unscored', 'value': 1.0, 'std': 0.1, 'weight': 0},
     ]})
     assert _data_item_counts({'inputs': {'obs_data': {'path': str(path)}}}) == (1, 1)
+
+
+@pytest.mark.unit
+def test_a_constant_two_leaves_share_is_listed_once():
+    """Two outputs of one derivation carry the same fixed constants: each is one value named
+    <derivation>/<constant>; the same name in another derivation is another value."""
+    from libcuflynx.reporting.provenance import _fixed_constants
+    constants = json.dumps(FIXED[:1])
+    other = json.dumps([dict(FIXED[0], derivation='k_other')])
+    rows = [{'fixed_constants': constants}, {'fixed_constants': constants},
+            {'fixed_constants': other}, {}]
+    values = [{'origin': 'derived'}] * 3 + [{'origin': 'derived'}]
+    found = _fixed_constants(rows, values)
+    assert [v['name'] for v in found] == ['k_gain/R', 'k_other/R']
+    # a leaf that is not derived (calibrated since) contributes none
+    assert _fixed_constants(rows[:1], [{'origin': 'calibrated'}]) == []
+
+
+@pytest.mark.unit
+def test_the_fixed_constants_box_lists_six_and_counts_the_rest():
+    from libcuflynx.reporting.provenance import _box_lines
+    node = {'kind': 'values', 'lines': [f'`c{i}` = {i}, set by hand' for i in range(8)]}
+    lines = _box_lines(node)
+    assert any('c5' in line for line in lines) and not any('c6' in line for line in lines)
+    assert lines[-1] == 'and 2 more in the graph file'

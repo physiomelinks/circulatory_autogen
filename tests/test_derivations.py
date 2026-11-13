@@ -822,3 +822,11 @@ def test_a_fixed_constant_declares_its_origin_and_write_records_it_in_the_leaf(f
     assert 'fixed_constants' not in leaves['Q_T0']
     del doc['derivations'][0]['fixed_constants'][0]['reason']
     assert problems(DERIVATIONS_SCHEMA, doc)
+
+
+@pytest.mark.unit
+def test_a_fixed_constant_named_twice_is_refused(fixed_toy):
+    doc = _read(fixed_toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = ['k', {'name': 'k', 'origin': 'measured'}]
+    with pytest.raises(DerivationError, match="'R_T0' names a fixed constant twice"):
+        load_derivations(doc, fixed_toy['dir'])
