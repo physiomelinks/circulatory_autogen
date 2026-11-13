@@ -29,6 +29,55 @@ next release; add to that section as you land a change.
 - `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
   run's directory rather than its indices CSV.
 
+### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
+
+- `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
+  output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
+  3compartment (2000 steps). The model is given the true time, so a model whose rates read the
+  variable of integration now runs correctly on them; the fixed-step methods warn that they hold
+  it at the run's start.
+- casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
+  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
+  them, end values held, the first value held through pre_time. CVODES restarts only where a
+  trace steps. It used to refuse a trace.
+- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
+  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
+  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
+  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
+  adjoint integrator is gone.
+- casadi_integrator `cvodes` / `idas` use the `csparse` (sparse LU) linear solver instead of CasADi's
+  default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
+  (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
+  `solver_info.options: {linear_solver: ...}`.
+- A solver given no `method` gets its default from `SOLVER_SCHEMA['default_method_by_solver']`
+  (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
+- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
+  casadi_integrator's right-hand side and derivatives to C, once per process per model,
+  timeline and options, for forward runs and, on CasADi >= 3.8, for the AD gradient too
+  (about 2.4x faster per gradient on a 2 s physiological run, after a one-off compile of the
+  sensitivity functions; CasADi 3.7 does not differentiate through a jit-compiled CVODES
+  integrator, so there the AD graph stays interpreted). With `jit` unset
+  and no C compiler or a non-writable working directory, it runs without jit and warns; an
+  explicit `jit: true` is then an error. `jit: false` turns it off.
+  A jit build never changes the working directory: objects and library go to a private temp
+  directory. CasADi 3.7 writes the generated C source to the cwd and 3.8 to that private
+  directory; this process's files are deleted after each build in both places.
+- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
+  when none is named.
+- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
+  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
+- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
+  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
+  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
+  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
+- SN_simple and other models that initialise a state from `*_init` computed constants now run
+  on `python` and `casadi_python`: libCellML sets those states in `compute_computed_constants`,
+  which the generated module now takes as an optional `states` argument (models without such
+  states keep `compute_computed_constants(variables)`). The solver helpers read the states from
+  it, `set_param_vals` refreshes them, and on casadi_python they stay symbolic in the constants
+  they come from, so the AD gradient through an `*_init`-driving parameter matches finite
+  differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
+
 ### Added — `set` and `sweep` workflow steps
 
 - A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies

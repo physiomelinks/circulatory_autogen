@@ -91,13 +91,6 @@ def resolve_user_path(path, user_files_dir):
 # ---------------------------------------------------------------------------
 # Backend solver schema
 # ---------------------------------------------------------------------------
-# CasADi integrator methods that use SUNDIALS adjoint sensitivity for AD, which fails on a long
-# warmup with CV_TOO_MUCH_WORK. The symbolic methods (bdf, semi_implicit_euler, collocation, rk)
-# build a plain reverse-mode graph instead and handle nonzero pre_time fine, so they must NOT warn
-# and ARE suitable for CasADi AD. Single source of truth for both warn_if_casadi_nonzero_pre_time
-# and SOLVER_SCHEMA['ad_suitable_methods'] below, so the two cannot drift.
-_CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
-
 # AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
 # integrator picks its step sizes from the state, so the sequence of operations changes with the
 # parameters and cannot be replayed from a tape. Lives here (not in param_id/aadc_backend.py,
@@ -121,6 +114,18 @@ AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed'
 
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
+
+#: The model_type of a run whose user_inputs names neither a model_type nor a solver: the CellML
+#: model run by Myokit's CVODES (solver CVODE_myokit).
+DEFAULT_MODEL_TYPE = 'cellml'
+
+#: casadi_integrator's solver_info 'jit' when unset: compile the model to C. Without a C compiler
+#: an unset jit falls back to no jit with a warning; an explicit jit: true is an error.
+CASADI_JIT_DEFAULT = True
+
+#: The do_ad of a run whose user_inputs does not set it: finite-difference gradients. With do_ad
+#: true the gradient is the model_type's default analytic source (default_gradient_source).
+DEFAULT_DO_AD = False
 
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
@@ -157,13 +162,13 @@ SOLVER_SCHEMA = {
         'explEul': ['explEul'],
         'Heun': ['Heun'],
         'midpoint': ['midpoint'],
+        # 'cvodes'/'idas' are adaptive SUNDIALS integrators, differentiated by forward
+        # sensitivities (param_id.casadi_backend.FORWARD_SENSITIVITY_METHODS).
         # 'semi_implicit_euler' is a fixed-step damped scheme implemented in the
-        # CasADi helper (not a SUNDIALS plugin); used for stiff models whose cvodes
-        # adjoint-sensitivity gradient fails (e.g. 3compartment).
+        # CasADi helper (not a SUNDIALS plugin), differentiated in reverse mode.
         # 'bdf' is a fixed-step implicit BDF (order 2, BDF1 startup) built as a symbolic
-        # CasADi graph with a rootfinder per step; stable for stiff models and, unlike
-        # cvodes adjoint sensitivity, fully supports CasADi AD (rootfinder is
-        # differentiable via the implicit-function theorem).
+        # CasADi graph with a rootfinder per step; stable for stiff models and
+        # differentiable via the implicit-function theorem.
         'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler', 'bdf'],
         # 'rk4' is fixed-step and is what the AADC tape records, so it is the method for which
         # the forward cost and the tape gradient are of the same function (see do_ad).
@@ -187,6 +192,12 @@ SOLVER_SCHEMA = {
     'solver_aliases_by_model_type': {
         'cellml': {'CVODE': 'CVODE_myokit'},
     },
+    # The model_type used when none is specified (see DEFAULT_MODEL_TYPE); its solver is
+    # default_solver_by_model_type[default_model_type], and the do_ad used when none is
+    # specified is default_do_ad. default_gradient_source(model_type, solver) names the
+    # analytic gradient do_ad: true takes.
+    'default_model_type': DEFAULT_MODEL_TYPE,
+    'default_do_ad': DEFAULT_DO_AD,
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
         # CVODE_myokit, not CVODE_opencor: the default has to be a backend a pip install can
@@ -206,17 +217,14 @@ SOLVER_SCHEMA = {
 # Per-integrator suitability of the analytic-gradient backends, so a front-end (e.g. CUFLynx) can
 # gate its "Gradient" menu on the *selected integrator*, not just model_type/solver -- issue #298.
 #
-# AD-suitable casadi_integrator methods are exactly those NOT using SUNDIALS adjoint sensitivity
-# (cvodes/idas), whose adjoint integration fails on a long warmup (CV_TOO_MUCH_WORK); the symbolic
-# methods (collocation, rk, semi_implicit_euler, bdf) are differentiated by reverse mode and fully
-# support CasADi AD. Derived from _CASADI_ADJOINT_METHODS so the flag and the warning cannot drift.
+# Every casadi_integrator method supports CasADi AD: cvodes/idas by forward sensitivities, the
+# symbolic methods (collocation, rk, semi_implicit_euler, bdf) by reverse mode.
 # AD-suitable aadc_semi_implicit methods are exactly the fixed-step ones the tape can replay;
 # 'adaptive_rk45' chooses its steps from the state, so the forward solve and the gradient would
 # integrate different systems. Derived from AADC_TAPE_CONSISTENT_METHODS, which aadc_backend
 # enforces, so the schema and the runtime check cannot drift (issue #336).
 SOLVER_SCHEMA['ad_suitable_methods'] = {
-    'casadi_integrator': [m for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
-                          if m not in _CASADI_ADJOINT_METHODS],
+    'casadi_integrator': list(SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']),
     'aadc_semi_implicit': [m for m in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
                            if m in AADC_AD_METHODS],
 }
@@ -291,12 +299,11 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     'external': ['external'],
 }
 
-# Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
-# casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
-# value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
-# internal fallback (a plain run without a method still uses the helper's default).
+# Default integrator per solver, for a front-end (CUFLynx) to pre-select: the method CA itself
+# uses when solver_info names none. casadi_integrator -> 'cvodes': adaptive, stiff-safe, and
+# differentiated by CVODES forward sensitivities.
 SOLVER_SCHEMA['default_method_by_solver'] = {
-    'casadi_integrator': 'bdf',
+    'casadi_integrator': 'cvodes',
     # 'implicit_newton', not 'rk4'. rk4 was chosen in #336 for being tape-consistent, without
     # checking it could integrate anything: on 3compartment it raises OverflowError at dt 1e-3,
     # 1e-4 and 1e-5, while implicit_newton lands within 2% of CVODE_myokit. A default has to be
@@ -455,6 +462,20 @@ SOLVER_INFO_FIELDS = {
          'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
         {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
          'description': 'Extra options passed straight through to the CasADi integrator.'},
+        {'name': 'jit', 'type': 'bool', 'default': CASADI_JIT_DEFAULT, 'required': False,
+         'description': ('Generate C for the model right-hand side and its derivatives and '
+                         'compile it (methods cvodes, idas, collocation, rk); on by default. '
+                         'Each integrator compiles once per process. Needs a C compiler: '
+                         'left unset, it runs without jit (with a warning) when there is none; '
+                         'set to true, it is an error. false turns it off.')},
+        {'name': 'compiler', 'type': 'enum', 'default': 'shell', 'required': False,
+         'choices': ['shell', 'clang'],
+         'description': ("CasADi's JIT compiler plugin: 'shell' runs a system C compiler "
+                         "(gcc by default), 'clang' uses CasADi's built-in clang where it has "
+                         "one. Read only with jit.")},
+        {'name': 'jit_options', 'type': 'dict', 'default': None, 'required': False,
+         'description': ("Options for the JIT compiler plugin, e.g. {compiler: clang, flags: "
+                         "['-O3']} for 'shell'. Default flags ['-O2']. Read only with jit.")},
     ],
     'aadc_semi_implicit': [
         {'name': 'tol', 'type': 'float', 'default': 1e-8, 'required': False,
@@ -1669,7 +1690,7 @@ def solver_info_fields(solver):
     return SOLVER_INFO_FIELDS.get(solver, [])
 
 
-def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
+def _gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     """The gradient sources available for the gradient-based param-id methods (`sp_minimize`,
     `multi_start_sp_minimize`) with this `model_type` + `solver` (+ optional integrator `method`),
     for a front-end that offers a "Gradient" menu without hardcoding CA's rules.
@@ -1703,9 +1724,14 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
 
     When ``method`` (the integrator plugin) is given, the analytic source is additionally gated on
     per-integrator suitability (``SOLVER_SCHEMA['ad_suitable_methods']`` /
-    ``['fsa_suitable_methods']``): the CasADi AD descriptor is omitted for a casadi_integrator
-    method that uses adjoint sensitivity (cvodes/idas, which can't produce a usable AD gradient),
-    and FSA is omitted for a non-FSA method. ``method=None`` leaves the source ungated. Issue #298.
+    ``['fsa_suitable_methods']``): an AD descriptor is omitted for a method its backend cannot
+    differentiate, and FSA for a non-FSA method. ``method=None`` leaves the source ungated.
+    Issue #298.
+
+    Each descriptor also carries ``default``: True for the one source to pre-select for this
+    model -- its analytic source when it has one (CasADi AD for casadi_python, Myokit FSA for
+    cellml + CVODE_myokit, AADC AD for aadc_python), else FD. ``default_gradient_source``
+    returns its value.
     """
     sources = [{
         'value': 'FD', 'label': 'Finite difference', 'do_ad': False,
@@ -1722,8 +1748,8 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     if model_type == 'casadi_python':
         casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
         ad_suitable = SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']
-        # Gate only a *known* casadi_integrator method that is AD-unsuitable (cvodes/idas); an
-        # unknown or unspecified method leaves AD offered.
+        # Gate only a *known* casadi_integrator method that is AD-unsuitable (none at present);
+        # an unknown or unspecified method leaves AD offered.
         if method is None or method not in casadi_methods or method in ad_suitable:
             sources.append({
                 'value': 'AD', 'label': 'Automatic differentiation (CasADi)', 'do_ad': True,
@@ -1754,6 +1780,27 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
                                 'path for stiff cellml models.'),
             })
     return sources
+
+
+def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
+    sources = _gradient_sources(model_type, solver, method, use_emulator)
+    default = sources[-1]  # the analytic source when there is one, else FD
+    for source in sources:
+        source['default'] = source is default
+    return sources
+
+
+gradient_sources.__doc__ = _gradient_sources.__doc__
+
+
+def default_gradient_source(model_type=DEFAULT_MODEL_TYPE, solver=None, method=None,
+                            use_emulator=False):
+    """The value ('AD', 'FSA' or 'FD') of the default gradient source of this model (see
+    gradient_sources). Defaults to the default model_type and its solver."""
+    if solver is None:
+        solver = SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type)
+    return next(src['value'] for src in gradient_sources(model_type, solver, method, use_emulator)
+                if src['default'])
 
 
 # Settings blocks for the non-calibration analysis modes (sensitivity, MCMC, identifiability), in
@@ -2191,6 +2238,22 @@ def refuse_removed_user_inputs(inp_data_dict):
                          f"semi_implicit_signed with gradient_strategy: {method[4:]} instead.")
 
 
+def default_model_type_for(inp_data_dict):
+    """The model_type for user_inputs that name none: the model_type whose solvers include the
+    named solver (``solver`` or ``solver_info.solver``, shorthands included), else
+    DEFAULT_MODEL_TYPE. So ``solver: casadi_integrator`` alone means a casadi_python model."""
+    solver = (inp_data_dict.get('solver_info') or {}).get('solver', inp_data_dict.get('solver'))
+    if solver is not None:
+        owners = [mt for mt, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items()
+                  if solver in solvers
+                  or solver in SOLVER_SCHEMA['solver_aliases_by_model_type'].get(mt, {})]
+        if owners:
+            # in SOLVER_SCHEMA order, cellml first: CVODE, cpp's solver and cellml's shorthand
+            # for CVODE_myokit, reads as cellml
+            return owners[0]
+    return DEFAULT_MODEL_TYPE
+
+
 #: user_inputs key holding the solver as the user wrote it, when resolve_solver_alias read it as
 #: another solver; user_inputs_as_written puts it back.
 SOLVER_AS_WRITTEN_KEY = '_solver_as_written'
@@ -2201,7 +2264,7 @@ def resolve_solver_alias(inp_data_dict):
     it names, in both ``solver`` and ``solver_info.solver``: ``CVODE`` for a cellml model is
     ``CVODE_myokit``. Prints one line when it does, and records the written name for
     ``user_inputs_as_written``."""
-    model_type = inp_data_dict.get('model_type', 'cellml')
+    model_type = inp_data_dict.get('model_type') or default_model_type_for(inp_data_dict)
     aliases = SOLVER_SCHEMA['solver_aliases_by_model_type'].get(model_type, {})
     solver_info = inp_data_dict.get('solver_info') or {}
     written = solver_info.get('solver', inp_data_dict.get('solver'))
@@ -2223,7 +2286,7 @@ def solver_alias_note(inp_data_dict):
         return ''
     solver = (inp_data_dict.get('solver_info') or {}).get('solver', inp_data_dict.get('solver'))
     return (f" (solver {written!r} was read as {solver!r} for this "
-            f"{inp_data_dict.get('model_type', 'cellml')} model)")
+            f"{inp_data_dict.get('model_type') or default_model_type_for(inp_data_dict)} model)")
 
 
 def user_inputs_as_written(inp_data_dict):
@@ -2272,43 +2335,6 @@ def save_dated_user_inputs(inp_data_dict):
     except Exception:
         pass
 
-
-def warn_if_casadi_nonzero_pre_time(
-    model_type,
-    pre_time=None,
-    pre_times=None,
-    offline_pre_time=None,
-    method=None,
-):
-    """Warn when CasADi AD with an ADJOINT integrator (cvodes/idas) is configured with nonzero
-    warmup times. The symbolic bdf / semi_implicit_euler methods are differentiated by reverse
-    mode (no adjoint) and support nonzero pre_time, so they are exempt."""
-    if model_type != 'casadi_python':
-        return
-    if method is not None and method not in _CASADI_ADJOINT_METHODS:
-        return
-
-    issues = []
-    if pre_time is not None and float(pre_time) != 0.0:
-        issues.append(f'pre_time={pre_time}')
-    if pre_times is not None:
-        nonzero = [float(t) for t in pre_times if float(t) != 0.0]
-        if nonzero:
-            issues.append(f'protocol_info pre_times contains nonzero value(s): {nonzero}')
-    if offline_pre_time is not None and float(offline_pre_time) != 0.0:
-        issues.append(f'offline_pre_time={offline_pre_time}')
-
-    if issues:
-        warnings.warn(
-            f'CasADi automatic differentiation with an adjoint integrator '
-            f'(solver_info method={method!r}) does not support nonzero pre_time or pre_times: '
-            'adjoint sensitivity integration typically fails with CV_TOO_MUCH_WORK. '
-            'Set pre_time/pre_times to 0.0, or use a symbolic method '
-            '(method="bdf" or "semi_implicit_euler") which supports warmup. '
-            f'Affected: {", ".join(issues)}.',
-            UserWarning,
-            stacklevel=3,
-        )
 
 # Resolved once at import so tests can monkeypatch it, but off user_data_root() rather
 # than off this file's location: installed, the old __file__-relative form pointed into
@@ -2423,6 +2449,7 @@ class YamlFileParser(object):
         
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
+        inp_data_dict.setdefault('do_ad', DEFAULT_DO_AD)
 
         # cellml models get an AD gradient too, via Myokit CVODES forward sensitivity,
         # when run through the Myokit solver with do_ad set.
@@ -2525,7 +2552,7 @@ class YamlFileParser(object):
             
         refuse_removed_user_inputs(inp_data_dict)
         if 'model_type' not in inp_data_dict.keys():
-            inp_data_dict['model_type'] = 'cellml'
+            inp_data_dict['model_type'] = default_model_type_for(inp_data_dict)
         resolve_solver_alias(inp_data_dict)
 
         if inp_data_dict.get('model_type') == 'external_python':
@@ -2711,10 +2738,8 @@ class YamlFileParser(object):
                 elif solver_name.startswith('CVODE'):
                     solver_method = 'CVODE'
                     inp_data_dict['solver_info']['method'] = solver_method
-                elif solver_name.startswith('casadi'):
-                    print('Method not set in solver_options, which should be set for solver casadi_integrator, '
-                          'using default method cvodes')
-                    solver_method = 'cvodes'
+                elif solver_name in SOLVER_SCHEMA['default_method_by_solver']:
+                    solver_method = SOLVER_SCHEMA['default_method_by_solver'][solver_name]
                     inp_data_dict['solver_info']['method'] = solver_method
                 else:
                     print('Method not set in solver_options, which should be set for solver solve_ivp,'
@@ -2804,12 +2829,6 @@ class YamlFileParser(object):
         except ValueError as exc:
             print(f'{exc}{solver_alias_note(inp_data_dict)}')
             exit()
-
-        warn_if_casadi_nonzero_pre_time(
-            inp_data_dict.get('model_type'),
-            pre_time=inp_data_dict.get('pre_time'),
-            method=(inp_data_dict.get('solver_info') or {}).get('method'),
-        )
 
         inp_data_dict.setdefault('DEBUG', False)
         if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
@@ -4000,13 +4019,6 @@ class ObsAndParamDataParser(object):
                 check_value_shape(
                     f"data_items[{row_idx}] ('{row['data_item_name']}')", row["data_type"],
                     row["value"], row["std"], row["obs_dt"])
-
-        warn_if_casadi_nonzero_pre_time(
-            model_type,
-            pre_times=protocol_info.get('pre_times') if protocol_info is not None else None,
-            offline_pre_time=protocol_info.get('offline_pre_time') if protocol_info is not None else None,
-            method=method,
-        )
 
         check_data_item_names_unique(gt_df, prediction_info)
         check_prediction_operation_references(gt_df, prediction_info)

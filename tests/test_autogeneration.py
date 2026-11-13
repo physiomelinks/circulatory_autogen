@@ -73,19 +73,13 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
     assert success, f"Model generation failed for {file_prefix} with {input_param_file}"
 
 
-_SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
-)
-
-
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
         ('3compartment', '3compartment_parameters.json', 'python', 'solve_ivp'),
-        pytest.param('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp',
-                     marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
+        ('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp'),
         ('pid_control', 'pid_control_parameters.json', 'python', 'solve_ivp'),
         ('Lotka_Volterra', 'Lotka_Volterra_parameters.json', 'casadi_python', 'casadi_integrator'),
         ('3compartment', '3compartment_parameters.json', 'casadi_python', 'casadi_integrator'),
@@ -334,17 +328,23 @@ def test_casadi_if_else_transform_replaces_ternaries():
     assert transformed.count("ca.if_else") == 3
 
 
-def test_casadi_division_guard_wraps_denominators():
-    """Unit test: divisions become guarded with ca.fmax(fabs(denom), 1e-300) in casadi_compat mode."""
+@pytest.mark.parametrize("denominator", [-2.0, 4.0, 0.0])
+def test_casadi_division_guard_keeps_the_denominator(denominator):
+    """casadi_compat guards every denominator away from zero, and leaves any other denominator
+    as it is -- its sign included. The guard once used max(|d|, 1e-300), which turned every
+    negative denominator positive (the CO2 chemoreflex of control_phys_asd divided by one)."""
+    ca = pytest.importorskip("casadi")
     from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
-        "    rate.x = numerator / denominator\n"
+        "    return numerator / denominator\n"
     )
     transformed = PythonGenerator._apply_casadi_if_else_transform(source)
-    assert "ca.fmax" in transformed
-    assert "fabs(denominator)" in transformed
+    namespace = {"ca": ca, "fabs": ca.fabs, "numerator": 3.0, "denominator": denominator}
+    exec(transformed, namespace)
+    value = float(namespace["compute_rates"](None, None, None, None))
+    assert value == (3.0 / denominator if denominator else 3.0 / 1e-300)
 
 
 def test_casadi_compat_utilities_use_if_else_helpers():
