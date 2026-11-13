@@ -29,6 +29,9 @@ ALIASES = {
     'aadc': ['aadc', 'matlogica'],
     'libopencor': ['libopencor', 'cvode_libopencor'],
 }
+# Backends a skip reason may name, whether or not a job requires them.
+KNOWN = ['myokit', 'casadi', 'mpi4py', 'scipy', 'autoemulate', 'cmake', 'cc', 'sundials',
+         'aadc', 'libopencor']
 MISSING = re.compile(r"could not import|no module named|not installed|unavailable|"
                      r"not available|not found|not licen[cs]ed|missing|\bneeds?\b",
                      re.IGNORECASE)
@@ -44,13 +47,14 @@ def missing_backend(reason, required):
     text = reason.lower()
     if not MISSING.search(text):
         return None
-    # The backend named first: 'SUNDIALS not found by CMake' is about SUNDIALS.
+    # The backend named first is the missing one: 'CVODES_batched_c needs SUNDIALS ... set
+    # SUNDIALS_DIR if CMake does not find it' is about SUNDIALS, required or not.
     found = []
-    for backend in required:
+    for backend in set(required) | set(KNOWN):
         positions = [text.find(w) for w in ALIASES.get(backend, []) + [backend] if w in text]
         if positions:
             found.append((min(positions), backend))
-    if found:
+    if found and min(found)[1] in required:
         return min(found)[1]
     return None
 

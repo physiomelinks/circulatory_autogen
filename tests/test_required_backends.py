@@ -35,6 +35,14 @@ def test_a_skip_names_a_missing_required_backend(reason, backend):
     assert missing_backend(reason, required) == backend
 
 
+def test_a_skip_about_an_unrequired_backend_that_mentions_a_required_one_stays_a_skip():
+    """The Windows job requires cmake, not SUNDIALS."""
+    reason = ('CVODES_batched_c needs SUNDIALS 6 or later (CVODES): set SUNDIALS_DIR to its '
+              'install prefix if CMake does not find it.')
+    assert missing_backend(reason, ['myokit', 'cmake']) is None
+    assert missing_backend(reason, ['myokit', 'cmake', 'sundials']) == 'sundials'
+
+
 _EXAMPLE = '''
 import pytest
 
