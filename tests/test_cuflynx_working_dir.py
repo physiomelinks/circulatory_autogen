@@ -353,3 +353,48 @@ def test_a_generated_models_system_regenerates_it_from_the_working_dir_alone(tmp
     assert generate_with_new_architecture(False, dict(again, model_type='cellml',
                                                       generated_models_dir=str(regenerated)))
     assert (regenerated / 'chain' / 'chain.cellml').read_text() == original
+
+
+@pytest.mark.integration
+def test_the_system_block_brings_the_parameters_files_derivations(tmp_path):
+    """``inputs/system/`` holds the ``<name>_derivations.json`` beside the parameters file and
+    the files its derivations read, at their paths relative to it; an edited derivation model
+    is copied again."""
+    from libcuflynx.derivations import derivation_files, derivations_file_for
+    from libcuflynx.external_testing.workflow_library import build_workflow_library
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+
+    toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_inputs', 'derivations')
+    library = build_workflow_library(str(tmp_path / 'library'))
+    parameters = os.path.join(library['arrays'], 'chain_parameters.json')
+    shutil.copytree(os.path.join(toy, 'derivations'),
+                    os.path.join(library['arrays'], 'derivations'),
+                    ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copyfile(os.path.join(toy, 'toy_derivations.json'), derivations_file_for(parameters))
+    config = {'file_prefix': 'chain', 'input_param_file': 'chain_parameters.json',
+              'model_type': 'cellml', 'resources_dir': library['arrays'],
+              'generated_models_dir': str(tmp_path / 'generated_models'),
+              'module_library_dirs': [library['modules']],
+              'param_id_output_dir': str(tmp_path / 'study'), 'DEBUG': False}
+    inp = YamlFileParser().parse_user_inputs_file(dict(config))
+
+    def system_dir():
+        cuflynx_study.update_study(dict(inp))
+        with open(cuflynx_study.manifest_path(inp)) as handle:
+            raw = json.load(handle)
+        return str(tmp_path / 'study' / os.path.dirname(raw['system']['parameters']))
+
+    first = system_dir()
+    copied = derivations_file_for(os.path.join(first, 'chain_parameters.json'))
+    assert os.path.isfile(copied)
+    assert derivation_files(copied) == [
+        os.path.join(first, 'derivations', name)
+        for name in ('systemic_resistance.cellml', 'derivation_funcs.py')]
+
+    model = os.path.join(library['arrays'], 'derivations', 'systemic_resistance.cellml')
+    with open(model, 'a') as handle:
+        handle.write('\n')
+    second = system_dir()
+    assert second != first
+    with open(os.path.join(second, 'derivations', 'systemic_resistance.cellml')) as handle:
+        assert handle.read().endswith('</model>\n\n')

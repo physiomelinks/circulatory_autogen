@@ -87,30 +87,59 @@
           "enum": [
             "measured",
             "inherited",
-            "set_by_hand"
+            "set_by_hand",
+            "derived",
+            "calibrated"
           ],
-          "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing) or set_by_hand (chosen by us; give the reason). A provenance diagram shows a value without an origin as unclassified."
+          "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing), set_by_hand (chosen by us; give the reason), derived (calculated by the derivation the leaf names; required with derivation) or calibrated (fitted by a calibration; written with the calibrated value, which drops derivation and reason, so cuflynx-derive --write never overwrites it; a provenance diagram shows it as calibrated before the run). A provenance diagram shows a value without an origin as unclassified."
         },
         "reason": {
           "type": "string",
           "description": "Why the value was chosen. Required when origin is set_by_hand."
+        },
+        "derivation": {
+          "type": "string",
+          "description": "The name of the derivation in the <name>_derivations.json beside this file that calculates the value; value is then its cached result, which cuflynx-derive checks and --write refreshes. Its origin must be derived. A calibrated value has no derivation. Default: none."
         }
       },
-      "if": {
-        "properties": {
-          "origin": {
-            "const": "set_by_hand"
-          }
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "set_by_hand"
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "description": "A value set by hand gives the reason it was chosen."
         },
-        "required": [
-          "origin"
-        ]
-      },
-      "then": {
-        "required": [
-          "reason"
-        ]
-      },
+        {
+          "if": {
+            "required": [
+              "derivation"
+            ]
+          },
+          "then": {
+            "required": [
+              "origin"
+            ],
+            "properties": {
+              "origin": {
+                "const": "derived"
+              }
+            }
+          },
+          "description": "A value a derivation calculates (it names a derivation) has origin derived: add \"origin\": \"derived\", or remove derivation if the value is set another way (cuflynx-derive --write sets both)."
+        }
+      ],
       "additionalProperties": {
         "type": "string"
       },

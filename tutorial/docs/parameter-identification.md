@@ -1619,13 +1619,16 @@ The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`. It is c
 `schema_version` goes up whenever it gains or changes a node kind, edge style or key, and a
 reader (`read_provenance_graph`, `provenance_svg`) refuses a version it does not know.
 
-One box stands for each step, in order, with the model source, the measured values, the values
-set by hand and the target. Each value the target uses is marked with what set it:
+One box stands for each step, in order, with the model source, the measured values, the derived
+values, the values set by hand, the values calibrated before the run, and the target. Each value
+the target uses is marked with what set it:
 
 | Mark | What set it | Where it comes from |
 |---|---|---|
 | calibrated | a step fitted it | the step's results |
+| calibrated | an earlier calibration | `"origin": "calibrated"`, which a calibrated parameters file writes; its `data_reference` names the workflow and step |
 | measured | a cited source | `"origin": "measured"`, with the source in `data_reference` |
+| derived | a parameter derivation, from data | `"origin": "derived"` and `"derivation"` naming it (`tutorial/docs/parameter-derivations.md`) |
 | inherited | the original model; nothing constrains it | `"origin": "inherited"` |
 | set by hand | us, with a reason | `"origin": "set_by_hand"` and a required `"reason"` |
 | unclassified | nothing says | no `origin` |
