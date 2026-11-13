@@ -10,7 +10,7 @@ Run after ``make_synthetic_obs.py <out>``, under MPI::
 It writes ``<out>/calibration_workflow.json`` and runs it into ``<out>/run``, one step at a
 time; a step whose result is already there is not run again, so a stopped study resumes.
 ``reduce_simple`` keeps as many parameters as ``reduce_pca`` did, so it is set after that step.
-Then ``python compare.py <out>``.
+Then ``python compare.py <out>`` and ``python make_page.py <out> <commit> <page.html>``.
 """
 
 import argparse
