@@ -206,3 +206,41 @@ def test_a_failing_reduction_raises_on_every_rank_instead_of_hanging_them(tmp_pa
     for rank in (0, 1):
         assert f'RANK{rank} RAISED reduction failed on rank 0' in proc.stdout, \
             proc.stdout + proc.stderr
+
+
+@pytest.mark.unit
+def test_default_has_no_relative_cut_so_a_resolved_small_mode_is_kept(tmp_path):
+    # C moves the data 5.8 noise stds but is ~0.2% of the scaled variance next to A*B
+    params = ['m/A', 'm/B', 'm/C']
+
+    def outputs(x):
+        a, b, c = x.T
+        return {'y1': (a * b, 0.005), 'y3': (c, 0.05)}
+
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params)
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    assert PCASobolReduction().variance_fraction == 1.0
+    kept = [r['parameter'] for r in PCASobolReduction().reduce(
+        run, source, str(tmp_path / 'default' / 'kept.json'))]
+    assert 'm/C' in kept and len({'m/A', 'm/B'} & set(kept)) == 1
+    cut = [r['parameter'] for r in PCASobolReduction(variance_fraction=0.99).reduce(
+        run, source, str(tmp_path / 'cut' / 'kept.json'))]
+    assert 'm/C' not in cut and len(cut) == 1
+
+
+@pytest.mark.unit
+def test_top_n_keeps_both_parameters_of_a_product_and_pca_keeps_one(tmp_path):
+    params = ['m/A', 'm/B', 'm/C']
+
+    def outputs(x):
+        a, b, c = x.T
+        return {'y1': (a * b, 0.05), 'y2': (2 * a * b + c, 0.1), 'y3': (c, 0.05)}
+
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params)
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    top = [r['parameter'] for r in SobolReduction(n_params=3).reduce(
+        run, source, str(tmp_path / 'top' / 'kept.json'))]
+    assert set(top) == {'m/A', 'm/B', 'm/C'}
+    pca = [r['parameter'] for r in PCASobolReduction().reduce(
+        run, source, str(tmp_path / 'pca' / 'kept.json'))]
+    assert len(pca) == 2 and 'm/C' in pca and len({'m/A', 'm/B'} & set(pca)) == 1

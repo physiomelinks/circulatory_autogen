@@ -1,5 +1,17 @@
 """Choosing the parameters to calibrate from a Sobol sensitivity analysis.
 
+Two things go wrong when every parameter is calibrated or the highest Sobol indices are taken:
+
+1. Redundancy. Parameters that move the data the same way (only their product matters, say)
+   cannot be told apart, so a calibration of all of them is not identifiable; keep one
+   parameter per direction the data can fix. On the 3compartment study
+   (benchmarks/param_reduction_3compartment) the full fits have a singular Fisher information
+   (condition numbers about 1e16 or singular) and end in different places, and the reduced fits
+   have condition numbers of 12-16 and agree.
+2. Noise-blindness. A large Sobol index on an output that moves by less than its noise cannot
+   be fitted. The reduction scales each output by its obs_data std, so such a parameter is
+   dropped.
+
 A reduction reads a Sobol run's directory and writes the entries of the analysed params_for_id
 for the parameters it keeps, so a later calibration fits only them::
 
@@ -226,8 +238,9 @@ class PCASobolReduction(ParamReduction):
        units of the data's noise. An output without a std (a prediction feature, a series) is
        scaled by its standard deviation over the samples, with a warning.
     2. PCA (SVD) of the scaled outputs. A mode is informative when its standard deviation is at
-       least ``min_mode_std`` and it is among the leading modes explaining ``variance_fraction``
-       of the variance. The std is over the Sobol samples, which fill the whole prior box, so it
+       least ``min_mode_std``, the noise floor. With ``variance_fraction`` below its default of 1
+       it must also be among the leading modes explaining that fraction of the variance; a
+       relative cut ignores the noise, so it can drop a small mode that the data resolve. The std is over the Sobol samples, which fill the whole prior box, so it
        is a global, prior-wide measure of what the parameters can do, not local to the fit.
     3. Sobol indices of each informative mode's score, from the same Saltelli samples.
     4. Over the informative modes, largest first: keep the parameter not yet kept with the
@@ -236,14 +249,15 @@ class PCASobolReduction(ParamReduction):
 
     The number of informative modes bounds how many parameters the data can tell apart, and
     keeping one parameter per mode stops two parameters that move the data the same way from
-    both being kept.
+    both being kept. ``min_mode_std`` is the noise floor; ``variance_fraction`` (default 1, off)
+    is an optional relative cut on top of it.
     """
 
     method = 'pca'
     OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index')
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
-                 variance_fraction=0.99, min_index=0.05):
+                 variance_fraction=1.0, min_index=0.05):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
         self.index_type = _check_index_type(index_type)
@@ -301,8 +315,12 @@ class PCASobolReduction(ParamReduction):
         total = float(np.sum(variances))
         if total <= 0:
             return np.zeros(len(variances), dtype=bool)
+        above_noise = np.sqrt(variances) >= self.min_mode_std
+        if self.variance_fraction >= 1.0:
+            # no relative cut: round-off in the cumulative sum must not drop a mode
+            return above_noise
         before = np.concatenate([[0.0], np.cumsum(variances)[:-1]]) / total
-        return (np.sqrt(variances) >= self.min_mode_std) & (before < self.variance_fraction)
+        return above_noise & (before < self.variance_fraction)
 
     @staticmethod
     def mode_sobol_indices(problem, scores, calc_second_order=True):

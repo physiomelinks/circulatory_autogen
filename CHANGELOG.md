@@ -10,6 +10,13 @@ next release; add to that section as you land a change.
 - `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
   chooses the parameters to calibrate after a Sobol analysis and writes them as
   `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- Why: (1) redundancy -- keep one parameter per direction the data can fix; on the
+  3compartment study the full fits have a singular Fisher information (condition number about
+  1e16 or singular) and the reduced fits 12-16. (2) noise-blindness -- a large Sobol index on an
+  output that moves by less than its noise is not kept.
+- `variance_fraction` defaults to 1: no relative cut, every mode above `min_mode_std` (the noise
+  floor) counts. A smaller value is a cut that ignores the noise and can drop a small mode the
+  data resolve.
 - `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
   their principal components, computes Sobol indices of each component's score, and keeps one
   parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest

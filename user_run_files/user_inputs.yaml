@@ -180,7 +180,7 @@ param_reduction_options:
   # n_params: 3          # pca: at most this many (default one per informative mode); sobol: needed
   # index_type: ST       # ST or S1
   # min_mode_std: 1.0    # pca: informative modes vary by at least this many obs_data stds
-  # variance_fraction: 0.99  # pca: only the leading modes explaining this fraction
+  # variance_fraction: 1.0  # pca: 1 = no relative cut; below 1, only the leading modes explaining this fraction
   # min_index: 0.05      # pca: skip a mode no free parameter reaches this index for
   # criterion: max       # sobol: max or mean over the outputs
   # threshold: 0.01      # sobol: drop parameters scoring below it

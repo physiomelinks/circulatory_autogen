@@ -1958,9 +1958,12 @@ ANALYSIS_OPTIONS = {
                              'the mode moves the data by less than the noise. The samples fill the whole '
                              'prior box, so this is a global, prior-wide measure, not local to the '
                              'fit.')},
-            {'name': 'variance_fraction', 'type': 'float', 'default': 0.99, 'required': False,
+            {'name': 'variance_fraction', 'type': 'float', 'default': 1.0, 'required': False,
              'description': ('For "pca": only the leading modes that together explain this '
-                             'fraction of the scaled output variance are considered.')},
+                             'fraction of the scaled output variance are considered. The default 1 is no '
+                             'relative cut: every mode above min_mode_std counts. A smaller '
+                             'value ignores the noise, so it can drop a small mode the data '
+                             'resolve.')},
             {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
              'description': ('For "pca": a mode whose largest index among the parameters not yet '
                              'kept is below this is skipped; no free parameter drives it.')},
