@@ -46,6 +46,15 @@ They record which SUNDIALS library Myokit loaded (path and version, read from th
 Linux, `unknown` elsewhere). **Myokit's timings depend on SUNDIALS being an optimised build**: one
 built with CMake and no build type (`-O0`) makes Myokit 3-5x slower than a Release build, which
 would flatter the other backends. Point `~/.config/myokit/myokit.ini` (`[sundials]`) at a Release build.
+
+**Pin to one performance core.** The script pins the process (and its children) to one core
+before timing (`--cpu N`; by default the core it starts on; `--no-pin` to disable) and records the
+core and the CPU model in the output. On a hybrid CPU (performance and efficiency cores, e.g. an
+i7-12700H) the same run is about 3x slower on an efficiency core, so unpinned timings scatter 2-3x
+and ratios between backends are meaningless: pass a performance core (`lscpu -e` shows which have
+the higher max MHz), and when comparing, repeat the runs alternating the backends rather than
+running one backend's rounds after the other's, so drift (thermal, other jobs) hits both.
+
 `tests/test_solver_comparison_benchmark.py` runs it on Lotka-Volterra; the `test-libopencor` CI job
 runs it on all three models and adds the table to the job summary.
 

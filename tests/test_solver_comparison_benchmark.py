@@ -75,3 +75,27 @@ def test_a_missing_backend_is_skipped_with_its_reason(monkeypatch, tmp_path):
 def test_unknown_backend_is_an_argument_error():
     with pytest.raises(SystemExit):
         solver_comparison.parse_args(['--backends', 'opencor'])
+
+
+@pytest.mark.unit
+def test_cpu_pinning_is_recorded(tmp_path):
+    import os
+    out = tmp_path / 'out'
+    args = _QUICK + ['--backends', 'myokit', '--out', str(out), '--work-dir', str(tmp_path / 'w')]
+    before = os.sched_getaffinity(0) if hasattr(os, 'sched_getaffinity') else None
+    try:
+        if before:
+            core = sorted(before)[0]
+            assert solver_comparison.main(args + ['--cpu', str(core)]) == 0
+            report = json.loads((out / 'solver_comparison.json').read_text())
+            assert report['pinned_cpu'] == core
+            assert os.sched_getaffinity(0) == {core}
+            assert f'pinned to core {core}' in (out / 'solver_comparison.md').read_text()
+        else:
+            assert solver_comparison.main(args) == 0
+            assert json.loads((out / 'solver_comparison.json').read_text())['pinned_cpu'] is None
+    finally:
+        if before:
+            os.sched_setaffinity(0, before)
+    assert solver_comparison.cpu_model()
+    assert 'cpu_model' in json.loads((out / 'solver_comparison.json').read_text())
