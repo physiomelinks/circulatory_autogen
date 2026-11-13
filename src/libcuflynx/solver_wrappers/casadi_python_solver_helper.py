@@ -1,4 +1,13 @@
+import atexit
+import contextlib
+import gc
+import glob
 import importlib.util
+import inspect
+import os
+import tempfile
+import shutil
+import threading
 import warnings
 
 import numpy as np
@@ -9,7 +18,104 @@ try:
 except ImportError:
     ca = None
 from .name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.computed_states import computed_initial_states
 from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
+from libcuflynx.utilities.protocol_shapes import materialise_shapes
+
+#: The SUNDIALS methods, integrated once over the whole output grid (see _run_sundials_grid).
+_GRID_METHODS = ('cvodes', 'idas')
+
+#: Integrators built by _run_sundials_grid, shared by every helper in the process:
+#: {(model path, model mtime, integrator key): integrator}. A jit integrator compiles its C
+#: when it is built, so this is what makes it compile once per model, grid and options.
+_INTEGRATORS = {}
+
+
+_JIT_DIR = None
+_JIT_LOCK = threading.RLock()
+#: Prefix of the C source files CasADi writes for this process's jit builds.
+_JIT_NAME = f'libcuflynx_jit_{os.getpid()}_'
+
+
+def _jit_dir():
+    """The private temporary directory (removed at exit) holding the objects and shared
+    libraries of this process's jit integrators."""
+    global _JIT_DIR
+    with _JIT_LOCK:
+        if _JIT_DIR is None or not os.path.isdir(_JIT_DIR):
+            _JIT_DIR = tempfile.mkdtemp(prefix='libcuflynx_casadi_jit_')
+            atexit.register(_remove_jit_dir, _JIT_DIR)
+        return _JIT_DIR
+
+
+def _remove_jit_dir(path):
+    """Free the jit integrators first: CasADi deletes each one's objects and library when it
+    is destroyed."""
+    _INTEGRATORS.clear()
+    gc.collect()
+    shutil.rmtree(path, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def _jit_build(enabled):
+    """Around a step that builds or first calls a jit integrator. CasADi writes the generated C
+    source to the working directory or, in newer versions, to the private jit directory (its name
+    can only be a prefix, not a path), so this serialises jit builds and deletes that source from
+    both afterwards. The working directory is never changed."""
+    if not enabled:
+        yield
+        return
+    with _JIT_LOCK:
+        cwd = os.getcwd()
+        try:
+            yield
+        finally:
+            for folder in {cwd, _jit_dir()}:
+                for path in glob.glob(os.path.join(glob.escape(folder), _JIT_NAME + '*.c')):
+                    with contextlib.suppress(OSError):
+                        os.remove(path)
+
+
+def jit_supports_ad():
+    """True when CasADi can differentiate (``ca.forward``) through a jit-compiled CVODES
+    integrator: 3.8 and newer. 3.7 does not return from that call."""
+    if ca is None:
+        return False
+    parts = []
+    for piece in str(ca.__version__).split('.')[:2]:
+        digits = ''.join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts + [0] * (2 - len(parts))) >= (3, 8)
+
+
+def jit_options(solver_info):
+    """The CasADi Function options for ``solver_info['jit']``: generate C for the integrator's
+    right-hand side and its derivatives and compile it, with ``compiler`` (CasADi's plugin,
+    'shell' by default) and ``jit_options`` (default flags -O2). CasADi's objects and shared
+    libraries go to a private temporary directory (``directory``); its C source goes to the
+    working directory under a ``libcuflynx_jit_<pid>_`` name, which _jit_build deletes.
+    Raises RuntimeError when the
+    'shell' plugin's C compiler is not on PATH or the working directory is not writable."""
+    compiler = solver_info.get('compiler') or 'shell'
+    options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
+    if compiler == 'shell':
+        options.setdefault('directory', os.path.join(_jit_dir(), ''))
+    if compiler == 'shell':
+        executable = options.get('compiler', 'gcc')
+        if shutil.which(executable) is None:
+            raise RuntimeError(
+                f"casadi_integrator compiles the model with a C compiler (solver_info jit, "
+                f"on by default), but {executable!r} is not on PATH. Install gcc or clang, "
+                f"name one with solver_info jit_options: {{compiler: <path>}}, or set "
+                f"solver_info jit: false.")
+        if not os.access(os.getcwd(), os.W_OK):
+            raise RuntimeError(
+                f"casadi_integrator jit: CasADi writes its generated C source to the working "
+                f"directory, {os.getcwd()!r}, which is not writable. Run from a writable "
+                f"directory or set solver_info jit: false.")
+    # jit_cleanup would look for the source under ``directory``; _jit_build removes it.
+    return {'jit': True, 'compiler': compiler, 'jit_options': options,
+            'jit_name': _JIT_NAME, 'jit_cleanup': False}
 
 class SimulationHelper(ExperimentTimeMixin):
     """
@@ -42,14 +148,43 @@ class SimulationHelper(ExperimentTimeMixin):
         # Must precede update_times below, which branches on it to choose the symbolic or the
         # numeric carry. Set True by _create_param_subset; cleared by reset_and_clear.
         self._do_ad = False
+        self._state_traj_symb = None
+        self._state_traj_symb_builder = None
+        self._var_traj_symb = None
+        self._var_traj_symb_builder = None
+        # Inputs driven by a protocol trace: {VARIABLE_INFO index: (t, values)}, t in seconds
+        # from the end of the run's pre_time, as for CVODE_myokit. Set by set_param_vals.
+        self._traces = {}
+        self.protocol_info = None
         self._load_model()
         self.update_times(dt, 0.0, sim_time, pre_time)
         self._init_state()
         self._has_run = False
 
     def set_protocol_info(self, protocol_info):
-        """Store protocol metadata for a common helper API."""
+        """Store protocol metadata for a common helper API, with protocol_shapes expanded into
+        protocol_traces."""
+        if protocol_info is not None:
+            materialise_shapes(protocol_info)
         self.protocol_info = protocol_info
+
+    def _jit_options(self):
+        """jit_options(solver_info) when jit is on (solver_info 'jit', default
+        CASADI_JIT_DEFAULT), else {}. An unset jit with no C compiler warns once and runs
+        without jit; an explicit jit: true raises."""
+        from libcuflynx.parsers.PrimitiveParsers import CASADI_JIT_DEFAULT
+        explicit = 'jit' in self.solver_info
+        if not self.solver_info.get('jit', CASADI_JIT_DEFAULT):
+            return {}
+        try:
+            return jit_options(self.solver_info)
+        except RuntimeError as exc:
+            if explicit:
+                raise
+            if not getattr(self, '_warned_no_compiler', False):
+                warnings.warn(f"{exc} Running without jit.")
+                self._warned_no_compiler = True
+            return {}
 
     def _build_integrator_opts(self):
         """Build CasADi integrator options from validated solver_info.
@@ -62,9 +197,14 @@ class SimulationHelper(ExperimentTimeMixin):
         if self.solve_ivp_method in ('cvodes', 'idas'):
             integrator_opts['reltol'] = self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8))
             integrator_opts['abstol'] = self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10))
+            # CasADi's default sparse QR mis-solves the ill-conditioned Newton matrix I - gamma*J of
+            # stiff circulatory models; sparse LU with pivoting (as CVODE_myokit uses) does not.
+            # Override with ``options: {linear_solver: ...}``.
+            integrator_opts['linear_solver'] = 'csparse'
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
+        integrator_opts.update(self._jit_options())
         integrator_opts.update(self.solver_info.get('options', {}))
         return integrator_opts
 
@@ -104,7 +244,8 @@ class SimulationHelper(ExperimentTimeMixin):
         _r0 = self.model.create_states_array()
         _v0 = self.model.create_variables_array()
         self.model.initialise_variables(_s0, _r0, _v0)
-        self.model.compute_computed_constants(_v0)
+        for idx, val in computed_initial_states(self.model, _v0).items():
+            _s0[idx] = val
         self._numeric_x0 = np.array([self._as_float(v) for v in _s0], dtype=float)
         self._numeric_variables_all = np.array(
             [self._as_float(v) for v in _v0], dtype=float
@@ -124,7 +265,8 @@ class SimulationHelper(ExperimentTimeMixin):
         self._build_integrator_symbols()
 
         self.model.initialise_variables(self.states, self.rates, self.variables)
-        self.model.compute_computed_constants(self.variables)
+        for idx, val in computed_initial_states(self.model, self.variables).items():
+            self.states[idx] = val
         self._store_constants_defaults()
         self._store_variable_defaults()
 
@@ -175,7 +317,7 @@ class SimulationHelper(ExperimentTimeMixin):
         return getattr(self, '_primitive_variables_symb', None) or [
             self.variables_all_symb[i] for i in range(self.variables_all_symb.numel())]
 
-    def _with_computed_constants(self, variables):
+    def _with_computed_constants(self, variables, states_out=None):
         """A copy of ``variables`` with every COMPUTED_CONSTANT replaced by its expression.
 
         libCellML splits constants into CONSTANT (a literal initial value) and
@@ -195,10 +337,21 @@ class SimulationHelper(ExperimentTimeMixin):
         ``ca.Function`` **input** and CasADi requires inputs to be symbolic primitives, not
         expressions. Computed constants simply stop appearing in the graph; their primitive
         symbols remain in the input vector, unused, which CasADi allows.
+
+        If ``states_out`` is a dict, it receives ``{state index: expression}`` for the states
+        the model computes from constants (``computed_states``), so an initial state follows
+        the constants it is computed from.
         """
         substituted = list(variables)
         try:
-            self.model.compute_computed_constants(substituted)
+            if "states" in inspect.signature(self.model.compute_computed_constants).parameters:
+                states = self.model.create_states_array()
+                self.model.compute_computed_constants(substituted, states)
+                if states_out is not None:
+                    states_out.update({i: v for i, v in enumerate(states)
+                                       if not (isinstance(v, float) and v != v)})
+            else:
+                self.model.compute_computed_constants(substituted)
         except Exception as exc:
             # A model whose computed constants are not symbolically evaluable keeps the old
             # behaviour rather than failing to load; say so, because the cost of it is a
@@ -214,10 +367,21 @@ class SimulationHelper(ExperimentTimeMixin):
         # Computed constants first, so a parameter that only feeds one still reaches the
         # rates symbolically (#389). variables_all_symb stays primitive -- see
         # _with_computed_constants -- so every ca.Function signature is unchanged.
-        self._symbolic_variables_with_computed = self._with_computed_constants(self.variables)
-        self.model.compute_rates(self.start_time, self.states, self.rates,
+        self._computed_initial_states_symb = {}
+        self._symbolic_variables_with_computed = self._with_computed_constants(
+            self.variables, self._computed_initial_states_symb)
+        # The rates are built against a time symbol, so the SUNDIALS grid integrator can give a
+        # model that reads the variable of integration (voi) the true time. rates_symb is the
+        # same expression at t = start_time: the fixed-step methods and the diagnostics take an
+        # autonomous (x, p) right-hand side.
+        self.t_symb = ca.SX.sym('t')
+        self.model.compute_rates(self.t_symb, self.states, self.rates,
                                  self._symbolic_variables_with_computed)
-        return ca.vertcat(*self.variables), ca.vertcat(*self.rates)
+        self.rates_symb_t = ca.vertcat(*self.rates)
+        self.rates_depend_on_time = bool(ca.depends_on(self.rates_symb_t, self.t_symb))
+        rates_autonomous = ca.substitute(self.rates_symb_t, self.t_symb,
+                                         ca.SX(float(self.start_time)))
+        return ca.vertcat(*self.variables), rates_autonomous
 
     def _discover_init_var_state_links(self):
         """Map *_init parameters to the state they initialise (see initialise_variables)."""
@@ -248,6 +412,8 @@ class SimulationHelper(ExperimentTimeMixin):
                 x0_parts.append(self.variables_all_symb[init_var_idx])
             else:
                 x0_parts.append(state_sym)
+        for state_idx, expr in self._computed_initial_states_symb.items():
+            x0_parts[state_idx] = expr
         self.x0_symb = ca.vertcat(*x0_parts)
         # Pristine root of the symbolic trajectory. In AD mode a sub-experiment boundary
         # re-roots x0_symb at the previous sub's symbolic end state (see update_times), so the
@@ -397,6 +563,7 @@ class SimulationHelper(ExperimentTimeMixin):
                     "set_param_vals(change_states=False) cannot set states directly, but was "
                     f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
                     "updates that must preserve the evolved state.")
+        set_states = set()  # states named directly: not refreshed from computed constants
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
 
@@ -416,28 +583,76 @@ class SimulationHelper(ExperimentTimeMixin):
 
             for name, val in zip(name_or_list, vals):
                 if isinstance(val, str):
-                    # Without this the string is assigned straight into self.variables and
-                    # corrupts the parameter vector silently -- the failure then surfaces
-                    # somewhere numeric, far from the protocol that caused it.
-                    raise NotImplementedError(
-                        f"'{name}' was given the protocol trace name '{val}', but the "
-                        f"CasADi backend cannot drive a variable from a time series. "
-                        f"protocol_traces (and the protocol_shapes that expand into them) are "
-                        f"only implemented for solver 'CVODE_myokit'. Use that solver for a "
-                        f"paced model, or replace the trace with a per-sub-experiment constant "
-                        f"in params_to_change."
-                    )
+                    self._set_trace(name, val)
+                    continue
                 kind, idx_res = self._resolver.resolve(name)
                 if kind == "state":
                     self.states[idx_res] = val
+                    set_states.add(idx_res)
                 elif kind == "var":
+                    self._traces.pop(idx_res, None)
                     self.variables[self._var_idx_to_const_pos(idx_res)] = val
                     self.variables_model[idx_res] = val
                     if change_states:
                         self._sync_numeric_state_for_init_var(idx_res, val)
                 else:
                     raise ValueError(f"parameter name {name} not found in states or variables")
-        self.model.compute_computed_constants(self.variables_model)
+        if change_states:
+            # states computed from constants follow them, except those named in this call
+            for idx, val in computed_initial_states(self.model, self.variables_model).items():
+                if idx not in set_states:
+                    self.states[idx] = val
+                    self.default_state_inits[idx] = val
+        else:
+            self.model.compute_computed_constants(self.variables_model)
+
+    def _set_trace(self, name, trace_name):
+        """Drive the constant ``name`` from the protocol trace ``trace_name`` (linear between
+        the trace's points, its end values held outside them), from the next run() on."""
+        if self.solve_ivp_method not in _GRID_METHODS:
+            raise NotImplementedError(
+                f"'{name}' was given the protocol trace name '{trace_name}', but solver_info "
+                f"method {self.solve_ivp_method!r} cannot drive a variable from a time series. "
+                f"Use method 'cvodes' or 'idas', or solver 'CVODE_myokit'.")
+        traces = (self.protocol_info or {}).get('protocol_traces') or {}
+        if trace_name not in traces:
+            raise ValueError(f"Protocol trace '{trace_name}' not found in protocol_traces.")
+        trace = traces[trace_name]
+        if 'values' not in trace:
+            raise ValueError(f"Protocol trace '{trace_name}' is missing 'values' key.")
+        kind, idx = self._resolver.resolve(name)
+        if kind != "var" or idx not in self.constant_indices:
+            raise ValueError(f"protocol trace '{trace_name}' must drive a constant, not {name!r}")
+        if len(trace['t']) != len(trace['values']) or len(trace['t']) == 0:
+            raise ValueError(f"Protocol trace '{trace_name}' needs matching, non-empty 't' and "
+                             f"'values'.")
+        # The (t, value) pairs sorted as myokit.TimeSeriesProtocol sorts them, so a repeated
+        # time (a step) is read the same way on both backends.
+        pairs = sorted(zip((float(x) for x in trace['t']), (float(x) for x in trace['values'])))
+        t = np.array([pt for pt, _ in pairs])
+        v = np.array([pv for _, pv in pairs])
+        self._traces[idx] = (t, v)
+
+    def _trace_pieces(self, idx, t_left, t_right):
+        """(intercept, slope) of trace ``idx`` on [t_left, t_right], times from the end of
+        pre_time, which lie within one linear piece of the trace."""
+        t, v = self._traces[idx]
+        mid = 0.5 * (t_left + t_right)
+        k = int(np.searchsorted(t, mid, side='right')) - 1
+        if k < 0:
+            return v[0], 0.0
+        if k >= len(t) - 1:
+            return v[-1], 0.0
+        slope = (v[k + 1] - v[k]) / (t[k + 1] - t[k])
+        return v[k] - slope * t[k], slope
+
+    def _trace_values(self, idx, times):
+        """Trace ``idx`` at ``times`` (from the end of pre_time), each from its own piece."""
+        out = np.empty(len(times))
+        for i, tt in enumerate(times):
+            a, b = self._trace_pieces(idx, tt, tt)
+            out[i] = a + b * tt
+        return out
 
     def _post_process(self):
         """Build the algebraic-variable trajectories over the sim-time window.
@@ -452,14 +667,15 @@ class SimulationHelper(ExperimentTimeMixin):
         magnitude slower than it is. Mapping the single function is ~80x faster and
         produces bit-identical values.
 
-        The result is still an SX expression in ``(states_symb, variables_symb)``, so AD
-        through the algebraic outputs is unaffected.
+        ``var_traj_dm`` is the map evaluated on the numeric state trajectory.
+        ``var_traj_symb`` is the same map applied to ``state_traj_symb``, an SX expression in
+        ``(states_symb, variables_symb)`` for AD; it is built on first access.
         """
         var_names = list(self.var_name_to_idx.keys())
         n_times = len(self.tSim)
 
         if n_times == 0:
-            self.var_traj_symb = ca.SX(len(var_names), 0)
+            self._var_traj_symb = ca.SX(len(var_names), 0)
             self.var_traj_dm = np.zeros((len(var_names), 0))
             return
 
@@ -474,26 +690,62 @@ class SimulationHelper(ExperimentTimeMixin):
         self.model.compute_variables(t_symb, self.states_symb, rates, vars_symb_copy)
         alg_vec = ca.vertcat(*[vars_symb_copy[self.var_name_to_idx[name]] for name in var_names])
         alg_func = ca.Function('alg_map', [t_symb, self.states_symb, self.variables_symb], [alg_vec])
+        alg_map = alg_func.map(n_times)
 
-        # state_traj_symb spans the full pre_time+sim_time horizon, but tSim is the
+        # The state trajectory spans the full pre_time+sim_time horizon, but tSim is the
         # sim-time window (t_eval[pre_steps:]). Align them by dropping the pre_time
         # warmup columns — otherwise the algebraic-variable trajectory is built from
         # the initial-transient states (t≈0) instead of the settled sim window, so a
         # nonzero pre_time returns the wrong (pre-warmup) values. States are already
         # sliced with [pre_steps:] in _extract; this makes the algebraic vars match.
-        state_cols = self.state_traj_symb[:, self.pre_steps:]
-
-        # --- Symbolic pass (preserved for AD) ---
+        pre_steps = self.pre_steps
         t_row = np.asarray(self.tSim, dtype=float).reshape(1, n_times)
-        self.var_traj_symb = alg_func.map(n_times)(
-            t_row, state_cols, ca.repmat(self.variables_symb, 1, n_times)
-        )  # SX: shape (n_vars, n_times)
+
+        # A traced input is a row of values over time rather than one constant.
+        traced_rows = {
+            self._var_idx_to_const_pos(idx): self._trace_values(
+                idx, np.asarray(self.tSim, dtype=float) - (self.start_time + self.pre_time))
+            for idx in self._traces}
 
         # --- Numeric pass (for get_results / get_all_results) ---
-        # Evaluate the symbolic trajectory at current numeric param values
-        x0 = self._x0_numeric()
-        var_func = ca.Function('var_traj', [self.states_symb, self.variables_symb], [self.var_traj_symb])
-        self.var_traj_dm = np.array(var_func(ca.DM(x0), ca.DM(self.variables)))  # (n_vars, n_times)
+        p_num = np.repeat(np.asarray(self.variables, dtype=float).reshape(-1, 1), n_times, 1)
+        for pos, row in traced_rows.items():
+            p_num[pos, :] = row
+        self.var_traj_dm = np.array(alg_map(
+            t_row, ca.DM(self.state_traj_dm[:, pre_steps:]), ca.DM(p_num)))  # (n_vars, n_times)
+
+        # --- Symbolic pass (for AD), on first access ---
+        def _symbolic():
+            p_symb = ca.repmat(self.variables_symb, 1, n_times)
+            for pos, row in traced_rows.items():
+                p_symb[pos, :] = ca.DM(row).T
+            return alg_map(t_row, self.state_traj_symb[:, pre_steps:], p_symb)
+        self._var_traj_symb = None
+        self._var_traj_symb_builder = _symbolic  # SX: shape (n_vars, n_times)
+
+    @property
+    def state_traj_symb(self):
+        """The state trajectory of the last run() as SX in (states_symb, variables_symb)."""
+        if self._state_traj_symb is None and self._state_traj_symb_builder is not None:
+            self._state_traj_symb = self._state_traj_symb_builder()
+        return self._state_traj_symb
+
+    @state_traj_symb.setter
+    def state_traj_symb(self, value):
+        self._state_traj_symb = value
+        self._state_traj_symb_builder = None
+
+    @property
+    def var_traj_symb(self):
+        """The algebraic-variable trajectory of the last run() as SX, over the sim window."""
+        if self._var_traj_symb is None and self._var_traj_symb_builder is not None:
+            self._var_traj_symb = self._var_traj_symb_builder()
+        return self._var_traj_symb
+
+    @var_traj_symb.setter
+    def var_traj_symb(self, value):
+        self._var_traj_symb = value
+        self._var_traj_symb_builder = None
 
     # ---- simulation ----
     def _run_semi_implicit_euler(self, total_steps):
@@ -598,35 +850,188 @@ class SimulationHelper(ExperimentTimeMixin):
         out_idx = [k * n_sub for k in range(1, total_steps + 1)]
         return full[:, out_idx]  # x at output steps 1..total_steps
 
+    def _run_sundials_grid(self, total_steps):
+        """One CVODES/IDAS integration over the whole output grid; sets state_traj_dm.
+
+        The integrator is built with the output times as its grid, so SUNDIALS keeps its step
+        size and history from one output time to the next and reports the state at each.
+        Parameters are constant within a run(), which is one sub-experiment, so nothing
+        between two output times needs a restart; a sub-experiment boundary is a new run().
+        The result is a CasADi call node in (x0, p), so a jacobian of anything built from it
+        differentiates through the integrator.
+
+        A constant driven by a protocol trace enters as a control, linear in time between the
+        trace's points, which join the grid. Where a trace steps (a repeated time) the run is
+        split and CVODES restarts from the state at the step; nowhere else.
+
+        Each integrator runs in time since the start of its segment, with the segment's start
+        time as an extra parameter (the model sees ``t = start + tau``), so it serves every
+        segment with the same grid, traced inputs and options -- each sub-experiment of a
+        protocol included. They are cached on those.
+        """
+        x0_symb = self.x0_symb
+        x0_p = ca.Function('x0_p', [self.states_symb, self.variables_symb],
+                           [x0_symb, self.variables_symb_integrator])
+        x0_num, p_num = x0_p(ca.DM(self._x0_numeric()), ca.DM(self.variables))
+        if total_steps <= 0:
+            self.state_traj_dm = np.array(x0_num)
+            self.state_traj_symb = x0_symb
+            return
+        t0 = float(self.t_eval[0])
+        dt = float(self.dt)
+        out_grid = [k * dt for k in range(1, total_steps + 1)]
+        traced = sorted(self._traces)
+        # Trace times, in tau (time since t0): from the end of pre_time.
+        sim_start = float(self.pre_time) + (t0 - float(self.start_time))
+        tol = 1e-9 * dt
+
+        def on_grid(tau):
+            """tau, or the output time it coincides with."""
+            k = int(round(tau / dt))
+            return k * dt if 1 <= k <= total_steps and abs(k * dt - tau) <= tol else tau
+
+        knots, steps = set(), set()
+        for idx in traced:
+            t_trace = self._traces[idx][0]
+            for i, tt in enumerate(t_trace):
+                tau = on_grid(float(tt) + sim_start)
+                if 0.0 < tau < out_grid[-1]:
+                    knots.add(tau)
+                    if (i > 0 and t_trace[i - 1] == tt) or (
+                            i + 1 < len(t_trace) and t_trace[i + 1] == tt):
+                        steps.add(tau)
+        grid = sorted(set(out_grid) | knots)
+        col = {g: i for i, g in enumerate(grid)}
+        out_cols = [col[g] for g in out_grid]
+        bounds = [0.0] + sorted(steps) + [grid[-1]]
+
+        integrator_opts = self._build_integrator_opts()
+        model_key = (os.path.abspath(self.model_path), os.path.getmtime(self.model_path))
+        segments = []  # (integrator, start tau, control matrix or None)
+        for lo, hi in zip(bounds[:-1], bounds[1:]):
+            seg_grid = [g for g in grid if lo < g <= hi]
+            local = [g - lo for g in seg_grid]
+            key = model_key + (self.solve_ivp_method, tuple(np.round(np.asarray(local) / dt, 9)),
+                               tuple(traced))
+            # The symbolic trajectory (AD) uses the jit integrator where CasADi can differentiate
+            # through it (jit_supports_ad); on 3.7 it uses a non-jit one, as ca.forward does not
+            # return from a jit-compiled CVODES integrator there.
+            plain_opts = integrator_opts if jit_supports_ad() else {
+                k: v for k, v in integrator_opts.items()
+                if k not in ('jit', 'compiler', 'jit_options', 'jit_name', 'jit_cleanup')}
+            for opts in ({id(o): o for o in (integrator_opts, plain_opts)}.values()):
+                if key + (repr(opts),) not in _INTEGRATORS:
+                    with _jit_build(opts.get('jit', False)):
+                        _INTEGRATORS[key + (repr(opts),)] = self._sundials_integrator(
+                            local, len(traced), opts)
+            U = None
+            if traced:
+                # Rows (intercept, slope) per grid interval, in the segment's own time.
+                lefts = [lo] + seg_grid[:-1]
+                U = np.zeros((2 * len(traced), len(seg_grid)))
+                for j, idx in enumerate(traced):
+                    for i, (left, right) in enumerate(zip(lefts, seg_grid)):
+                        a, b = self._trace_pieces(idx, left - sim_start, right - sim_start)
+                        U[2 * j, i] = a + b * (lo - sim_start)
+                        U[2 * j + 1, i] = b
+                U = ca.DM(U)
+            segments.append((_INTEGRATORS[key + (repr(integrator_opts),)],
+                             _INTEGRATORS[key + (repr(plain_opts),)], lo, U))
+        self.F = segments[0][0]
+        self.F_map = None
+
+        def integrate(x0, p, symbolic=False):
+            columns, x = [], x0
+            for F_numeric, F_symbolic, lo, U in segments:
+                F = F_symbolic if symbolic else F_numeric
+                call = {} if U is None else {"u": U}
+                xf = F(x0=x, p=ca.vertcat(p, t0 + lo), **call)["xf"]
+                columns.append(xf)
+                x = xf[:, -1]
+            return ca.horzcat(*columns)[:, out_cols]
+
+        # Numeric pass: the initial state and integrator parameters at the current values,
+        # then the integrator on numbers. x0_symb may be the symbolic end state of the
+        # previous sub-experiment (AD mode), so it is evaluated rather than read.
+        with _jit_build(integrator_opts.get('jit', False)):
+            self.state_traj_dm = np.array(ca.horzcat(x0_num, integrate(x0_num, p_num)))
+
+        # Symbolic pass, built on first access of state_traj_symb: calling the integrator on SX
+        # makes one output node per state and output time, which costs more than the solve.
+        p_symb = self.variables_symb_integrator
+        self._state_traj_symb = None
+        self._state_traj_symb_builder = lambda: ca.horzcat(
+            x0_symb, integrate(x0_symb, p_symb, symbolic=True))
+
+    def _sundials_integrator(self, grid, n_traced, integrator_opts):
+        """A CVODES/IDAS integrator over ``grid`` (time since its start, tau), with parameters
+        (constants, start time) and, for ``n_traced`` traced inputs, a control
+        (intercept, slope) per input per grid interval: input = intercept + slope * tau."""
+        tau = ca.SX.sym('tau')
+        t_start = ca.SX.sym('t_start')
+        rates = ca.substitute(self.rates_symb_t, self.t_symb, t_start + tau)
+        ode = {"x": self.states_symb, "p": ca.vertcat(self.variables_symb_integrator, t_start),
+               "t": tau}
+        if n_traced:
+            u = ca.SX.sym('u', 2 * n_traced)
+            traced = sorted(self._traces)
+            inputs = ca.vertcat(*[u[2 * j] + u[2 * j + 1] * tau for j in range(n_traced)])
+            prims = ca.vertcat(*[self.variables_all_symb[idx] for idx in traced])
+            rates = ca.substitute(rates, prims, inputs)
+            ode["u"] = u
+        ode["ode"] = rates
+        return ca.integrator("F", self.solve_ivp_method, ode, 0.0, grid, integrator_opts)
+
+    def _warn_if_time_dependent(self):
+        """The fixed-step methods integrate the autonomous rates_symb (t = start_time)."""
+        if self.rates_depend_on_time:
+            warnings.warn(
+                f"this model's rates depend on the variable of integration, but solver_info "
+                f"method {self.solve_ivp_method!r} integrates them with time held at "
+                f"{self.start_time}. Use method 'cvodes' or 'idas', which pass the time to "
+                f"the model.")
+
     def run(self):
+        if self._traces and self.solve_ivp_method not in _GRID_METHODS:
+            raise NotImplementedError(
+                f"solver_info method {self.solve_ivp_method!r} cannot drive a variable from a "
+                f"protocol trace; use method 'cvodes' or 'idas'.")
         # Integrate full pre_time + sim_time horizon so slicing by pre_steps
         # returns the expected sim-time segment.
         total_steps = int(max(0, len(self.t_eval) - 1))
 
         if self.solve_ivp_method == 'semi_implicit_euler':
+            self._warn_if_time_dependent()
             res_xf = self._run_semi_implicit_euler(total_steps)
         elif self.solve_ivp_method in ('bdf', 'BDF'):
+            self._warn_if_time_dependent()
             # Symbolic implicit BDF (rootfinder per step) — supports CasADi AD.
             res_xf = self._run_symbolic_bdf(total_steps)
+        elif self.solve_ivp_method in _GRID_METHODS:
+            res_xf = None
+            self._run_sundials_grid(total_steps)
         else:
+            self._warn_if_time_dependent()
             ode = {
                 "x": self.states_symb,
                 "p": self.variables_symb_integrator,
                 "ode": self.rates_symb,
             }
             integrator_opts = self._build_integrator_opts()
-            self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt, integrator_opts)
-            self.F_map = self.F.mapaccum(total_steps)
+            with _jit_build(integrator_opts.get('jit', False)):
+                self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt,
+                                       integrator_opts)
+                self.F_map = self.F.mapaccum(total_steps)
             res_xf = self.F_map(x0=self.x0_symb, p=self.variables_symb_integrator)["xf"]
 
-        # Symbolic trajectory — SX function of (states_symb, variables_symb); required for AD
-        self.state_traj_symb = ca.horzcat(self.x0_symb, res_xf)
+        if res_xf is not None:
+            # Symbolic trajectory — SX function of (states_symb, variables_symb); required for AD
+            self.state_traj_symb = ca.horzcat(self.x0_symb, res_xf)
 
-        # Numeric trajectory — evaluate symbolic graph at current param values for get_results()
-        x0 = self._x0_numeric()
-        p_int = self._integrator_p_numeric()
-        traj_func = ca.Function('state_traj', [self.states_symb, self.variables_symb], [self.state_traj_symb])
-        self.state_traj_dm = np.array(traj_func(ca.DM(x0), ca.DM(self.variables)))  # (n_states, total_steps+1)
+            # Numeric trajectory — evaluate symbolic graph at current param values for get_results()
+            x0 = self._x0_numeric()
+            traj_func = ca.Function('state_traj', [self.states_symb, self.variables_symb], [self.state_traj_symb])
+            self.state_traj_dm = np.array(traj_func(ca.DM(x0), ca.DM(self.variables)))  # (n_states, total_steps+1)
 
         self._has_run = True
         self._post_process()
@@ -821,6 +1226,7 @@ class SimulationHelper(ExperimentTimeMixin):
 
     def reset_and_clear(self, only_one_exp=-1):
         self._do_ad = False
+        self._traces = {}
         self._init_state()
 
     def reset_states(self):
