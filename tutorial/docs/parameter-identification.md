@@ -1393,9 +1393,10 @@ libcuflynx wrote one) is refused: run the workflow again.
 
 ### Step kinds
 
-A step's `kind` is `calibration` unless it says otherwise. The other kinds run the analyses
-`cuflynx-sensitivity`, `cuflynx-train-emulator` and `cuflynx-identifiability` run, on the step's
-model, obs_data and params_for_id, and only calibrations' values are merged into the target.
+A step's `kind` is `calibration` unless it says otherwise. `sensitivity`, `emulation` and
+`identifiability` run the analyses `cuflynx-sensitivity`, `cuflynx-train-emulator` and
+`cuflynx-identifiability` run, on the step's model, obs_data and params_for_id. Only the values
+of calibrations and `set` steps are merged into the target.
 
 | `kind` | What it does | Needs | Takes from |
 |---|---|---|---|
@@ -1404,17 +1405,83 @@ model, obs_data and params_for_id, and only calibrations' values are merged into
 | `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `reduction`; no model or files | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
 | `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
+| `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
+| `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
 
 The keys that pass something on, each naming one step of the kind shown:
 
 | Key | Names a | What this step gets |
 |---|---|---|
-| `fixed_from` | calibration | its values, fixed in this step's model (above) |
+| `fixed_from` | calibration or set | its values, fixed in this step's model (above) |
 | `priors_from` | calibration with `store_distribution` | its posterior, as a prior (below) |
 | `result_from` | calibration | its values, including those of the parameters this step analyses: a local sensitivity or identifiability analysis is then at that fit |
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
 | `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
+
+A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
+entry names a parameter as the target does, and gives a `reason`:
+
+```json
+{"id": "sglt1_amount", "kind": "set", "set": [
+  {"parameter": "SGLT1/Scale_SGLT1", "scale": 14, "of": "sglt1_fit",
+   "reason": "the amount the whole-cell flux needs"},
+  {"parameter": "GLUT2_api/Scale_GLUT2", "value": 10, "reason": "kept from the source model"},
+  {"parameter": "Kir/g_K", "scale": 3.37, "of": "inherited", "reason": "raised at this condition"}
+]}
+```
+
+`value` sets a number. `scale` multiplies the value named by `of`: a calibration or set step
+(which runs first), or `inherited`, the value the target itself gives the parameter. A later step
+takes the values with `fixed_from`, and they are merged into the target with the calibrated
+values, in run order, so a later step's value wins a parameter both give. They are marked
+`set_by_hand`, with their reason, in the provenance diagram, the target's parameters and the
+calibrated parameters file, and are never reported as calibrated.
+
+A **sweep** runs its model at each point and keeps every run. It feeds nothing forward: no step
+can take from it, and its values do not reach the target. It can start from values with
+`fixed_from` or at a calibration's result with `result_from`:
+
+```json
+{"id": "sglt1_dose", "kind": "sweep", "model": "resources/enterocyte_module_array.json",
+ "result_from": "whole_cell", "settings": {"sim_time": 100.0},
+ "sweep": {"design": "grid", "outputs": ["enterocyte/c_Na"],
+           "parameters": {"SGLT1/Scale_SGLT1": {"min": 1, "max": 20, "points": 7, "scale": "log"},
+                          "Kir/A_Kir": {"values": [0, 1, 2]}}}}
+```
+
+A parameter is named as in a params_for_id and takes `[min, max]`, `{"min", "max", "points",
+"scale"}` (5 points by default; `"scale": "log"` spaces them by ratio), `{"values": [...]}`, or
+`{"factors": [...]}`, multiples of the value the step's model gives it. `design` is `grid`, every
+combination, or `one_at_a_time`, each parameter's values with the others at the model's values.
+`outputs` are variables recorded over time. An `obs_data` gives the protocol in place of
+`sim_time` and `pre_time`, and its `prediction_items` with an operation give one feature per point.
+Each feature is drawn against the swept parameters as a `feature_vs_input` plot, for
+`one_at_a_time` or a grid of at most two parameters. A sweep does not read `data_items`.
+
+A prediction run on the calibrated model takes `"on_target": true` in place of `model` and
+`fixed_from`. It runs on the target, given every calibration's and set step's values as the target
+merges them (a later step wins), after all of them. In the diagram it sits below the merged box,
+with one box under it naming the files it wrote: their folder once, then each file, done only when
+every file exists. Parameters that move together go in a `zip` group: the i-th
+point takes each member's i-th value, so their lists have one length, and the design treats the
+group as one parameter. With `"parameters": {}` the sweep is one run of its protocol. A long rest
+before a run, or the same run at several levels of an input, is the `obs_data` protocol: every
+point runs all its experiments and sub-experiments.
+
+```json
+{"id": "energy_cost", "kind": "sweep", "on_target": true,
+ "obs_data": "protocols/rest_then_glucose_15_40_obs_data.json", "settings": {"dt": 1.0},
+ "sweep": {"outputs": ["enterocyte/v_NKA"], "zip": [["GLUT2_api/Scale_GLUT2", "GLUT2_bas/Scale_GLUT2"]],
+           "parameters": {"GLUT2_api/Scale_GLUT2": {"values": [0, 0.1, 1, 10]},
+                          "GLUT2_bas/Scale_GLUT2": {"values": [1, 1, 10, 100]}}}}
+```
+
+The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, `parameters`,
+`outputs`, `features` and `feature_values`, and for each experiment `time_<e>` and `trace_<e>`
+(points, outputs, times); `sweep_manifest.json` has the design, each parameter's values and the
+errors. Under MPI the points are spread across the ranks. A failed point stays as a NaN row, and
+the step fails only when every point fails.
 
 A **reduction** ranks the sensitivity step's parameters by the `criterion` (`max`, default, or
 `mean`) over the observables of their `index_type` index (`ST`, total, default, or `S1`), keeps
@@ -1541,7 +1608,9 @@ names the target's as `target_model.parameters_path`.
 A run writes `provenance_graph.json` and `provenance.svg` when it finishes. The diagram opens a
 report: paste the SVG into the page, where it takes the page's text colour. `cuflynx-provenance
 <output_dir>` writes both again, and it needs only the output directory, not the module library.
-The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`.
+The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`. It is closed, so its
+`schema_version` goes up whenever it gains or changes a node kind, edge style or key, and a
+reader (`read_provenance_graph`, `provenance_svg`) refuses a version it does not know.
 
 One box stands for each step, in order, with the model source, the measured values, the values
 set by hand and the target. Each value the target uses is marked with what set it:
@@ -1563,8 +1632,28 @@ Each step's inputs show as `current`, `stale` or `missing`. A step's result is s
 files or settings changed since it ran, or when a step it took something from is stale or ran
 again after it, and a later step refuses to reuse it (`Run the workflow from ...`). A changed
 module library is shown and warned about but does not make a step stale, because a library holds
-far more than one model uses. Steps outside the workflow, such as a build before it or plots after
-it, are not tracked.
+far more than one model uses. A build before the workflow is not tracked.
+
+Figure scripts that run after the workflow and read its results are declared, never run, in the
+optional top-level `external_figures`:
+
+```json
+"external_figures": [
+  {"id": "paper_plots", "command": "make paper-plots WF_OUT=<run>", "from": "target",
+   "description": "the authors' figure scripts on the calibrated model",
+   "reads": ["paper_plots/calibrated_parameters.json"],
+   "writes": ["paper_plots/calibrated/Fig9/fig9.png", "~/papers/enterocyte/fig15.png"]}
+]
+```
+
+`from` is the step whose results the script reads, or `"target"` for the merged model. A path in
+`reads` or `writes` is absolute (`~` allowed) or relative to the run's output directory. Each
+script is a dashed box, outside the workflow, with an arrow from `from` and one box under it naming
+the files it writes (their folder once, then each file). It is `stale` when a file it reads, or the
+result of `from`, is newer than the oldest file it writes, or when `from` is stale; it is not run
+while a file it writes is missing. The files and their status are in the box's `inputs` in the
+graph. `external_figures` can be added after a run: the graph reads them from the workflow file
+as it is now, and adding them does not make the run stale.
 
 ### Distributions and priors
 
