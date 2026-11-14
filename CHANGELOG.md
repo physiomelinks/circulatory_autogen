@@ -23,6 +23,27 @@ number of vessels at a node (node sums #609, node rule D #617).
   it suggests a lumped `vv` vessel between them.
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+
+### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
+
+- The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
+  `VARIABLE_INFO[] = {};` when the model has no constants, computed constants or algebraic
+  variables. An empty initialiser is not standard C, and MSVC 14.44 stopped on it with an internal
+  compiler error, so these models did not build in CUFLynx's Windows app.
+  `c_code_with_one_variables_array` now writes one placeholder entry there; `VARIABLE_COUNT`
+  stays 0, so the entry is never read. GCC and Clang builds are unchanged in behaviour.
+
+### Added — a pre-release test suite
+
+- `tests/test_solver_matrix.py` checks every forward backend against one converged
+  CVODE_myokit reference, by scaled RMS, a shift-tolerant maximum and the mean/min/max
+  features, with the gates in `tests/_solver_metrics.py`. CI also runs the `mpi` tests outside
+  the param-id files (test-mpi-rest), the simulation and solver-matrix tests at the oldest
+  supported backend versions (test-min-deps) and the batched C solvers under MSVC
+  (test-windows). `CUFLYNX_REQUIRED_BACKENDS` turns a skip for a backend the job installed into
+  a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
+  release (CONTRIBUTING.md).
+
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:

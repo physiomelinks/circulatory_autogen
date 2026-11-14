@@ -54,8 +54,17 @@ def myokit_sundials():
             'build_type': sundials_build_type(includes)}
 
 
+def compiler_path(windows=None, which=shutil.which, env=None):
+    """The C compiler CMake picks: $CC, else MSVC's cl on Windows (CMake's default generator
+    there is Visual Studio, even with MinGW's cc on PATH), else cc or gcc."""
+    windows = os.name == 'nt' if windows is None else windows
+    env = os.environ if env is None else env
+    names = ['cl', 'cc', 'gcc'] if windows else ['cc', 'gcc', 'cl']
+    return env.get('CC') or next((p for p in map(which, names) if p), None)
+
+
 def _compiler():
-    cc = os.environ.get('CC') or shutil.which('cc') or shutil.which('gcc') or shutil.which('cl')
+    cc = compiler_path()
     if not cc:
         return None
     try:

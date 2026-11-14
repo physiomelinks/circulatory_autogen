@@ -23,8 +23,9 @@ import numpy as np
 import pytest
 
 from _reference_solutions import reference_solution, run_states, state_names
-from _solver_metrics import (ROUND_TRIP, SHIFT_STEPS, TOLERANCES, convergence_order,
-                             feature_error, scaled_rms, shift_tolerant_max, worst)
+from _solver_metrics import (COST_TOLERANCE, COST_TOLERANCE_DEFAULT, DIVISION_GUARD, ROUND_TRIP,
+                             SHIFT_STEPS, TOLERANCES, convergence_order, feature_error,
+                             scaled_rms, shift_tolerant_max, worst)
 
 pytestmark = [pytest.mark.integration, pytest.mark.solver]
 
@@ -50,8 +51,17 @@ LARGE = ['physiological', 'cvs_model_0d', 'control_parasymp']
 
 
 def _solver_info(backend, dt):
-    if backend in ('CVODE_myokit', 'CVODE_libopencor'):
+    if backend == 'CVODE_myokit':
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt, 'MaximumNumberOfSteps': 10 ** 6}
+    if backend == 'CVODE_libopencor':
+        # MaximumStep dt/10, as the reference runs. At MaximumStep dt, libOpenCOR is 1.7e-5 rms
+        # off on 3compartment, and on control_parasymp its beat-2 atrial contraction starts ~60 ms
+        # late (chi_a 0.37 of its range off). That model's atrial clock (heart vp_wCont) steps at
+        # the atrial start without event location, so round-off there shifts the onset in about
+        # one run in 10-25 on any CVODE path and tolerance; dt/10 is a setting where it does
+        # not, not a fix. At dt/10 both models are within 2e-6 rms.
+        return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt / 10,
+                'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'BE_batched_c':
         return {'method': 'trbdf2', 'rtol': 1e-6}
     if backend == 'CVODES_batched_c':
@@ -94,7 +104,6 @@ EXCLUDED.update({
 # Solvers and methods of SOLVER_SCHEMA that are covered by another test, not by the matrix.
 # Each names that test. test_every_solver_in_schema_has_a_matrix_row reads this.
 COVERED_ELSEWHERE = {
-    'CVODE_opencor': 'removed by #638 (CVODE_libopencor replaces it)',
     'CVODE': 'test_cpp_cvode_matches_the_reference (model_type cpp)',
     'RK4': 'test_cpp_template_generator.py (fixed-step cpp builds)',
     'explEul': 'test_cpp_template_generator.py (fixed-step cpp builds)',
@@ -116,9 +125,6 @@ COVERED_METHODS.update({('aadc_semi_implicit', m): 'test_aadc_solvers.py (releas
 
 def _skip_unless_available(backend):
     if backend == 'CVODE_libopencor':
-        from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA
-        if backend not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']:
-            pytest.skip('CVODE_libopencor is not a solver here yet (it arrives with #638)')
         pytest.importorskip('libopencor')
     elif backend == 'casadi_integrator':
         pytest.importorskip('casadi')
@@ -196,10 +202,15 @@ def _reference(models, name):
     return reference_solution(models.cellml(name), sim_time, dt, atol)
 
 
-def _assert_close(x, ref, names, gates, label):
+def _assert_close(x, ref, names, gates, label, record_property=None):
+    """Each metric's worst state against its gate. The measured values go into the junit
+    properties (`measured_<metric>`), where the margin under each gate can be read from CI."""
     report = {metric: worst(f(x, ref), names) for metric, f in
               (('scaled_rms', scaled_rms), ('shift_max', shift_tolerant_max),
                ('features', feature_error))}
+    if record_property is not None:
+        for metric, (value, state) in report.items():
+            record_property(f'measured_{metric}', f'{value:.3e} {state}')
     failed = {m: v for m, v in report.items() if v[0] > gates[m]}
     assert not failed, (f'{label}: ' + '; '.join(
         f'{m} {v[0]:.2e} in {v[1]} (gate {gates[m]:.0e})' for m, v in failed.items()))
@@ -258,7 +269,7 @@ def test_forward_matches_converged_reference(backend, model, models, record_prop
         x = run_states(helper, names)
     finally:
         _close(helper)
-    _assert_close(x, ref, names, TOLERANCES[backend], f'{backend} on {model}')
+    _assert_close(x, ref, names, TOLERANCES[backend], f'{backend} on {model}', record_property)
 
 
 # --------------------------------------------------------------------------- fixed-step order
@@ -385,7 +396,6 @@ def _x0(engine):
 
 
 _COST_BACKENDS = ['CVODE_libopencor', 'BE_batched_c', 'CVODES_batched_c', 'casadi_integrator']
-_COST_TOLERANCE = {'BE_batched_c': 1e-2}  # relative; every other backend is held to 1e-3
 
 
 @pytest.mark.parametrize('backend', _COST_BACKENDS)
@@ -415,8 +425,12 @@ def test_cost_and_features_agree_across_backends(backend, models, tmp_path, reco
     labels = [str(n) for n in engine.obs_info['operands']]
     gate = TOLERANCES[backend]['features']
     error, label = worst(feature_error(obs, ref_obs), labels)
+    cost_error = abs(float(cost) / float(ref_cost) - 1)
+    record_property('measured_features', f'{error:.3e} {label}')
+    record_property('measured_cost_rel', f'{cost_error:.3e}')
     assert error < gate, f'{label}: feature error {error:.2e} (gate {gate:.0e})'
-    assert float(cost) == pytest.approx(float(ref_cost), rel=_COST_TOLERANCE.get(backend, 1e-3))
+    assert float(cost) == pytest.approx(
+        float(ref_cost), rel=COST_TOLERANCE.get(backend, COST_TOLERANCE_DEFAULT))
 
 
 # --------------------------------------------------------------------------- gradients
@@ -558,7 +572,8 @@ def test_cpp_cvode_matches_the_reference(models, tmp_path, record_property):
     missing = [s for s in short if s not in columns]
     assert not missing, f'states not in the cpp output: {missing}'
     x = np.array([columns[s] for s in short])
-    _assert_close(x, ref, names, TOLERANCES['cpp_CVODE'], f'cpp CVODE on {model}')
+    _assert_close(x, ref, names, TOLERANCES['cpp_CVODE'], f'cpp CVODE on {model}',
+                  record_property)
 
 
 # --------------------------------------------------------------------------- division guard
@@ -607,7 +622,8 @@ def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
         runs[backend] = run_states(helper, names)
         _close(helper)
     error, state = worst(feature_error(runs['casadi_integrator'], runs['CVODE_myokit']), names)
-    assert error < TOLERANCES['casadi_integrator']['features'] * 10, (error, state)
+    record_property('measured_features', f'{error:.3e} {state}')
+    assert error < DIVISION_GUARD, (error, state)
 
 
 # --------------------------------------------------------------------------- coverage of the schema
