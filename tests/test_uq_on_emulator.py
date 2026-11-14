@@ -167,8 +167,12 @@ def _uq_options(library):
         # Metropolis steps one parameter at a time -- so the default 1000 would triple an
         # already heavier chain. Cheap here because each evaluation is an emulator prediction
         # rather than a solve, but there is no reason to pay for warm-up this test does not need.
-        options['num_tune'] = 200
-        options['num_steps'] = 1500
+        # Each draw is four emulator evaluations (~1 ms each), so the draws are the test's cost:
+        # 1700 per chain took 124 s in CI. At 500 (45 s locally), eight runs recovered the
+        # posterior mean within 0.021 (run-to-run SD 0.011) and the sd within 0.012, against
+        # the 0.05 and 0.08 asserted below.
+        options['num_tune'] = 100
+        options['num_steps'] = 400
     return options
 
 

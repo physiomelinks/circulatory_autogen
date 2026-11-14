@@ -948,16 +948,15 @@ def test_a_validation_only_experiment_is_not_calibrated_but_is_validated(
     pid = CVS0DParamID.init_from_dict(config)
     assert 'experiment(s) [1] have no data_items' in capsys.readouterr().out
     spy = _RunSpy(monkeypatch)
-    # Every rank runs each step (they are collective, as in a calibration); rank 0 checks.
     pid.run()
-    pid.simulate_with_best_param_vals()
-    pid.plot_outputs()
-    calibration_calls, calibration_experiments = list(spy.calls), spy.experiments()
-    spy.calls.clear()
-    pid.save_prediction_data()
     if mpi_comm.Get_rank() != 0:
         return
-    assert calibration_calls and calibration_experiments == {0}, calibration_calls
+    pid.simulate_with_best_param_vals()
+    pid.plot_outputs()
+    assert spy.calls and spy.experiments() == {0}, spy.calls
+
+    spy.calls.clear()
+    pid.save_prediction_data()
     assert 1 in spy.experiments()
     p = float(pid.param_id.best_param_vals[0])
     with open(os.path.join(pid.output_dir, validation.VALIDATION_RESULTS_FILE)) as f:
