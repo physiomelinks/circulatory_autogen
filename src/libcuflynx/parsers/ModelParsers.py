@@ -687,7 +687,8 @@ class CSV0DModelParser(object):
             if len(matches) == 0:
                 # the other entries apart from name in this row are left empty
                 parameters_list.append([param_tuple[0], param_tuple[1], param_tuple[2],
-                                        'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED', '', ''])
+                                        'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED',
+                                        *[''] * len(PROVENANCE_KEYS)])
                 continue
 
             row = matches[0]

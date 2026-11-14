@@ -97,6 +97,10 @@
           "type": "string",
           "description": "Why the value was chosen. Required when origin is set_by_hand."
         },
+        "fixed_constants": {
+          "type": "string",
+          "description": "The fixed constants of the derivation that calculates the value, as JSON text: a list of {derivation, name, value, units} with the origin, data_reference and reason the derivation declares for each. cuflynx-derive --write sets it; a provenance diagram draws each constant with its origin. Default: none."
+        },
         "derivation": {
           "type": "string",
           "description": "The name of the derivation in the <name>_derivations.json beside this file that calculates the value; value is then its cached result, which cuflynx-derive checks and --write refreshes. Its origin must be derived. A calibrated value has no derivation. Default: none."
