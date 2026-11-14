@@ -13,6 +13,8 @@ orders of magnitude (on 3compartment [aortic_root/C, par/C] the wrong and right 
 to 1e-5 relative). Here the member sensitivities are synthetic and comparable, so the plain
 sum, the weighted sum, and the first member alone are three numbers far apart.
 """
+import contextlib
+
 import numpy as np
 import pytest
 
@@ -78,6 +80,13 @@ class _FakePid:
 
     def get_obs_output_dict(self, operands):
         return {'const': [float(np.mean(operands[0][0]))]}
+
+    def _item_belongs_to_segment(self, JJ, exp_idx, sub_idx):
+        return True
+
+    @contextlib.contextmanager
+    def evaluating_segment(self, exp_idx, sub_idx):
+        yield
 
 
 def _grouped_info():
