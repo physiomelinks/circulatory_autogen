@@ -463,10 +463,6 @@ def test_casadi_ad_gradient_matches_fd(models, tmp_path, record_property):
     _assert_gradient('CasADi AD', g_ad, g_fd)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'Myokit FSA cost gradient on Lotka_Volterra (max features) differs from the FD and from '
-    'CasADi AD: d/dalpha 37.24 vs 37.86, d/dgamma -1.18 vs -0.115, on Myokit 1.39.1 and 1.40.0 '
-    'alike, so not the sensitivity error control of #387.'))
 def test_myokit_fsa_gradient_matches_fd(models, tmp_path, record_property):
     record_property('backend', 'CVODE_myokit')
     _, g_fsa, _, g_fd = _gradients(tmp_path, models)
