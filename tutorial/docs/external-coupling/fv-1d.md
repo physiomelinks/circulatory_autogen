@@ -92,6 +92,12 @@ src/libcuflynx/coupler/run_coupler1d0d.bash generated_models/aortic_bif_hybrid_c
 | `solver0d_path` | `<cpp_generated_models_dir>/build/main0d`, as built with CMake |
 | `initFile_sim1d_path` | user input `cpp_1d_model_config_path` |
 | `inputFold`, `networkName`, `ODEsolver` | the generated model's folder, name and C++ solver |
+| `exit_grace_s` | optional, default 60: the seconds the coupler waits for one solver after the other has finished. When a solver exits non-zero, or the other has not finished by then, the coupler stops the other and exits with status 1. |
+
+With `ODEsolver: CVODE` the 0D model reports each internal step attempt to the 1D solver, which
+weights its boundary fluxes by the attempt's share of the coupling step. An attempt CVODE rejects
+is retried from the same time with a smaller step, and the retry replaces its contribution, so
+the accepted attempts' weights sum to 1.
 
 ## How close is the hybrid model to the 0D one?
 

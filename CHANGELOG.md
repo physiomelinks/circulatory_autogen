@@ -13,13 +13,41 @@ next release; add to that section as you land a change.
   image notebook. The defaults are what the tutorials teach with.
 - `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
   notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
-  settings cell, and checks the key outputs: about 70 s for `generation_and_calibration.ipynb`
-  (including the C++ 0D build and run) and 20 s for `generation_and_calibration_test.ipynb`.
+  settings cell, and checks the key outputs: about 110 s for `generation_and_calibration.ipynb`
+  (including the C++ 0D build and run and the hybrid run), 20 s for
+  `generation_and_calibration_test.ipynb` and 6 s for `image_to_hemodynamics_model.ipynb`.
   The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
-- Two cells of `generation_and_calibration.ipynb` do not run: the 1D coupler run and the plot of
-  its output, because the 1D solver exits with `Sum of integration weights > 1` on the hybrid
-  model. `image_to_hemodynamics_model.ipynb` runs up to its last code cell, where
-  `image_proc_funcs.py` no longer matches the module configs; its test is a strict `xfail`.
+- The hybrid section of `generation_and_calibration.ipynb` runs too: its run length is two
+  settings, `hybrid_num_periods` (3) and `hybrid_period_s` (1.0 s), which the quick test sets to
+  two periods of 10 ms (the full run takes about 4 minutes per simulated second). The coupler's
+  pipes go under `generated_models_dir/coupler_pipes/` rather than `/tmp/`.
+- `image_to_hemodynamics_model.ipynb` runs to the end on a synthetic segmentation in the quick
+  test; the full run (example-image download) stays `manual`. `image_proc_funcs.py` built its
+  parameters for the model named in `user_inputs.yaml` (`3compartment` in a checkout, whose
+  `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
+  built, and read modules only from `module_config_user/`. It now takes the vessels of its own
+  module array and finds their modules with `ModuleSources`, as model generation does. The
+  microvasculature network's pressure inlet, `P_inlet` / `nn_micro`, which the pipeline puts
+  before every inlet vessel, is back in `module_config_user/microvasculature_network_module_config.json`:
+  its vessels connect through `flow_port` / `pressure_port`, which the `vessel_port` of the
+  built-in `inlet_pressure` module (its #155 replacement) cannot join.
+
+### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
+
+- With the 0D model on CVODE, the 1D solver weights its boundary fluxes by each 0D step attempt
+  within a coupling step. An attempt CVODE rejected (error test or nonlinear solve) was counted at
+  its full size and its retry not at all, so the weights could sum to more than 1 and the 1D
+  solver stopped (`Sum of integration weights > 1`, on `cvs_model_with_arm_hybrid` at the first
+  coupling step). The generated `cvodeRhs` now reports every attempt, retries included, and
+  the 1D solver replaces a rejected attempt's contribution with its retry's
+  (`solver1d/auxCouplingFunctions.CvodeSubstepWeights`). The first step of a run, which was not
+  reported, is too. The weight check allows the time tolerance the 0D model rounds step ends to.
+- The coupler waited for ever on its pipes when one solver stopped. It now stops the other one
+  and exits with status 1 when a solver exits non-zero, or when the other has not finished
+  `exit_grace_s` (coupler_config, default 60 s) after the first. The 1D solver exits non-zero on
+  its errors (it exited 0 on several).
+- `run_coupler1d0d.bash` runs the solvers with one BLAS/OpenMP thread (unless set): the 1D
+  solver's arrays are small, and threaded BLAS used six cores for no gain.
 - Notebook fixes this needed: `generation_and_calibration.ipynb` read `aortic_root/u` from a model
   without it and ran the C++ 0D model through the coupler script (which needs a hybrid model's
   `coupler_config.json`), and passed `MaximumStep` to the C++ generator; `generation_and_calibration_test.ipynb`

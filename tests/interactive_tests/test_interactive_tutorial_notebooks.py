@@ -10,9 +10,7 @@ length, optimiser calls, Sobol samples, ...) at the values the tutorial teaches 
 
 Outputs go to a temporary ``$CUFLYNX_USER_DIR`` so a run never writes into the checkout.
 
-Two cells of the hybrid section of generation_and_calibration.ipynb are replaced by ``pass`` in both
-runs (``SKIPPED_CELLS``), because the 1D solver fails on that model; every other cell of every
-notebook is executed.
+Every cell of every notebook is executed (``SKIPPED_CELLS`` names any cell that cannot run).
 """
 
 from __future__ import annotations
@@ -33,34 +31,20 @@ from ipykernel.kernelspec import write_kernel_spec  # noqa: E402
 
 NOTEBOOK_ROOT = Path(__file__).resolve().parents[2] / "tutorial" / "interactive"
 
-#: image_to_hemodynamics_model.ipynb runs up to its last code cell, where image_proc_funcs.py fails
-#: building the parameter array: the vessel-module lookup reads only module_config_user/, which no
-#: longer holds the modules the helper asks for (``no modules found ... venous vp``); reading the
-#: package's generators/resources too gets past that and then stops at ``KeyError: 'u_ext'``, so the
-#: helper needs porting to the current module configs. strict: the day it is fixed, this fails.
-IMAGE_PIPELINE_BROKEN = pytest.mark.xfail(
-    strict=True, raises=nbclient.exceptions.CellExecutionError,
-    reason="image_proc_funcs.py does not run against the current module configs",
-)
-
 #: Wall-clock limit for one quick notebook run, and for any single cell of it.
 QUICK_NOTEBOOK_BUDGET_S = 300
 #: Single-cell limit for the full-settings runs.
 FULL_CELL_TIMEOUT_S = 1800
 
 #: Cells that cannot run, as (a line of the cell, why). The cell is replaced by ``pass``.
-SKIPPED_CELLS = {
-    "generation_and_calibration.ipynb": [
-        ('subprocess.run(["./run_coupler1d0d.bash", solver_hyb_dir]',
-         "the coupler runs, but the 1D solver exits with 'Sum of integration weights > 1' on "
-         "cvs_model_with_arm_hybrid, so the coupler waits on pipes the solver never opens"),
-        ("sol1d = np.genfromtxt(output_hyb_1d",
-         "reads the 1D solver's output, which the cell above never produces"),
-    ],
-}
+SKIPPED_CELLS = {}
 
 QUICK_SETTINGS = {
-    "generation_and_calibration.ipynb": dict(num_warmup_periods=6, sa_num_samples=4, ga_num_calls=30),
+    # The hybrid 0D-1D run takes about 4 minutes per simulated second: two "periods" of 10 ms
+    # (the coupler saves from the second-last period on) still exercise generation, both builds,
+    # the coupling and the plots of its output.
+    "generation_and_calibration.ipynb": dict(num_warmup_periods=6, sa_num_samples=4, ga_num_calls=30,
+                                             hybrid_num_periods=2, hybrid_period_s=0.01),
     "generation_and_calibration_test.ipynb": dict(warmup_time_s=8.0, sa_num_samples=4, ga_num_calls=30),
     # own_image_path is added by the test: a tiny synthetic segmentation.
     "image_to_hemodynamics_model.ipynb": dict(
@@ -170,6 +154,9 @@ def _check_main_outputs(user_dir: Path):
     assert any(out.rglob("protocol_runner_calibrated.png"))
     assert any((out / "sensitivity").rglob("*.png"))
     assert (models / "simulation_outputs_cpp").exists()  # the C++ 0D model was built and run
+    # the hybrid run: the 1D solver's output for the vessel the notebook plots
+    sol1d = list((user_dir / "generated_models" / "files_1d").rglob("sol1D_A_aorta_ascending_3.txt"))
+    assert len(sol1d) == 1 and sol1d[0].stat().st_size > 0
 
 
 def _check_test_notebook_outputs(user_dir: Path):
@@ -245,7 +232,6 @@ def test_generation_and_calibration_test_notebook_quick(tmp_path, monkeypatch):
                               QUICK_NOTEBOOK_BUDGET_S, QUICK_NOTEBOOK_BUDGET_S, tmp_path, monkeypatch)
 
 
-@IMAGE_PIPELINE_BROKEN
 @pytest.mark.integration
 @pytest.mark.slow
 def test_image_to_hemodynamics_notebook_quick(tmp_path, monkeypatch):
@@ -277,7 +263,6 @@ def test_generation_and_calibration_test_notebook_full(tmp_path, monkeypatch):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.manual
-@IMAGE_PIPELINE_BROKEN
 def test_image_to_hemodynamics_notebook_full(tmp_path, monkeypatch):
     """Downloads the example images (Dropbox) and segments a 10% sub-volume: about ten minutes."""
     _run_image_notebook(FULL_SETTINGS["image_to_hemodynamics_model.ipynb"],

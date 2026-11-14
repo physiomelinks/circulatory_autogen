@@ -760,45 +760,19 @@ class VesselNetwork():
         print('Network Solved!')
 
     def generate_parameter_array(self, inp_data_dict=None):
+        """parameter_df for the module array in self.vessel_df: a row (value -1, TO_DO) for each
+        constant of each vessel's module, and the global constants with their defaults.
 
-        # --- LAZY LOAD & BYPASS ---
-        # import pandas as pd
-        
-        # 1. Setup Path to Source (Bypassing generate_param_array.py)
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.dirname(root_dir)
-        root_dir = os.path.dirname(root_dir)
-
-        # 3. Import Parsers
-        try:
-            from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
-            from libcuflynx.parsers.ModelParsers import CSV0DModelParser
-        except ImportError as e:
-            # libcuflynx has to be installed for this: pip install libcuflynx (or pip install -e .
-            # in a checkout). There is no path to fix up any more.
-            print(f"CRITICAL ERROR: Could not import libcuflynx.parsers ({e}). "
-                  f"Install the package with: pip install libcuflynx")
-            raise e
-        # -------------------------------
+        Modules are looked up the way model generation finds them (ModuleSources): the built-in
+        modules, module_config_user/ in a checkout, and the external_modules_dir /
+        module_library_dirs of ``inp_data_dict`` when one is given."""
+        from libcuflynx.utilities.module_library import ModuleSources
 
         print('Generating Parameter Array...')
 
-        user_inputs_dir = os.path.join(root_dir, 'user_run_files')
-
-        yaml_parser = YamlFileParser()
-        inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict)
-
-        file_prefix = inp_data_dict['file_prefix']
-        resources_dir = inp_data_dict['resources_dir']
-        vessels_csv_abs_path = inp_data_dict['vessels_csv_abs_path']
-        parameters_csv_abs_path = inp_data_dict['parameters_csv_abs_path']
-
-        parser = CSV0DModelParser(inp_data_dict)
-
-        vessels_df = vessels_df = pd.read_csv(parser.vessel_filename, header=0, dtype=str, skipinitialspace=True)
-        vessels_df = vessels_df.fillna('')
-
+        vessels_df = self.vessel_df.fillna('')
         nVess = vessels_df.shape[0]
+        module_registry = ModuleSources(inp_data_dict or {}).component_registry()
 
         column_types = {
             'variable_name': 'str',
@@ -807,26 +781,6 @@ class VesselNetwork():
             'data_reference': 'str'
         }
         self.parameter_df = pd.DataFrame(columns=column_types.keys()).astype(column_types)
-
-        # module_config_fold1 = root_dir_src + '/generators/resources/'
-        module_config_fold2 = root_dir + '/module_config_user/'
-        modules = []
-        # for filename in os.listdir(module_config_fold1):
-        #     if filename.endswith(".json"):
-        #         with open(os.path.join(module_config_fold1, filename), "r") as file:
-        #             temp_data = json.load(file)
-        #             if isinstance(temp_data, list):
-        #                 modules.extend(temp_data)
-        #             else:
-        #                 modules.append(temp_data)
-        for filename in os.listdir(module_config_fold2):
-            if filename.endswith(".json"):
-                with open(os.path.join(module_config_fold2, filename), "r") as file:
-                    temp_data = json.load(file)
-                    if isinstance(temp_data, list):
-                        modules.extend(temp_data)
-                    else:
-                        modules.append(temp_data)
 
         default_global_const = [['T', 'second', 1.0, 'user_defined'],
                                 ['rho',	'Js2_per_m5', '1040.0',	'known'],
@@ -895,15 +849,10 @@ class VesselNetwork():
             typeBC = vessels_df.at[i,'module_subtype']
             typeV = vessels_df.at[i,'module_type']
 
-            matches = [entry for entry in modules if entry.get('module_subtype')==typeBC and entry.get('module_type')==typeV]
-            if len(matches)>1:
-                sys.exit('ERROR :: multiple modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
-
-            if len(matches)==0:
-                sys.exit('ERROR :: no modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
-
-            mod = matches[0]
-            modType = mod['module_type']
+            mod = module_registry.get((typeV, typeBC))
+            if mod is None:
+                raise KeyError(f'No module config defines module_type {typeV!r} with module_subtype '
+                               f'{typeBC!r} (vessel {nameV}).')
             vars = mod['variables_and_units']
             nVars = len(vars)
             for j in range(nVars):
@@ -947,9 +896,7 @@ class VesselNetwork():
                                         'data_reference': 'TO_DO'}
                 self.parameter_df = pd.concat([self.parameter_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        self.write_parameters_file(parameters_csv_abs_path)
-                    
-        print('DONE :: Parameters array file for model '+file_prefix+' generated and saved.')
+        print('DONE :: Parameters array generated.')
 
     def populate_parameter_array(self):
 

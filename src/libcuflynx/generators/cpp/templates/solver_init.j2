@@ -39,7 +39,7 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     sunrealtype reltol = {{ reltol }};
     sunrealtype abstol = {{ abstol }};
     CVodeSStolerances(solver, reltol, abstol);
-    nstOld = 0;
+    resetStepReport();
     tOld = voi;
 {% else %}
     // Fixed-step explicit schemes (explEul / Heun / midpoint / RK4) use the work arrays

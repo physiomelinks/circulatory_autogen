@@ -116,8 +116,11 @@ public:
 
     // CVODE bookkeeping used by the right-hand side callback.
     void *cvodeMem() const { return solver; }
-    long int nstOld = 0;
+    long int nstOld = -1; // CVODE's step count and step size at the last reported step attempt
+    double hOld = 0.0;
     double tOld = 0.0;
+    // Forget the last reported attempt, after a CVodeReInit (which restarts the step count).
+    void resetStepReport() { nstOld = -1; hOld = 0.0; }
 {% endif %}
 
 private:

@@ -2763,6 +2763,34 @@
       },
 
       {
+        "module_type":"P_inlet",
+        "module_subtype":"nn_micro",
+        "module_format":"cellml",
+        "component_file":"microvasculature_network_modules.cellml",
+        "component_type":"constant_pressure_BC_type_micro",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"flow_port",
+            "variables":["v"]
+          },
+          {
+            "port_type":"pressure_port",
+            "variables":["P"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "boundary_condition"],
+          ["P", "J_per_m3", "access", "constant"]
+        ]
+      },
+
+      {
         "module_type":"P_outlet",
         "module_subtype":"nn_micro",
         "module_format":"cellml",
