@@ -946,11 +946,14 @@ def test_a_validation_only_experiment_is_not_calibrated_but_is_validated(
                                                         'max_patience': 30})
     _generate(config, mpi_comm)
     pid = CVS0DParamID.init_from_dict(config)
-    assert 'experiment(s) [1] have no data_items' in capsys.readouterr().out
+    # Rank 0 alone prints the notice, so it is checked after the calibration every rank runs:
+    # a rank that failed it first would leave the others waiting in the optimiser's Gatherv.
+    notice = capsys.readouterr().out
     spy = _RunSpy(monkeypatch)
     pid.run()
     if mpi_comm.Get_rank() != 0:
         return
+    assert 'experiment(s) [1] have no data_items' in notice
     pid.simulate_with_best_param_vals()
     pid.plot_outputs()
     assert spy.calls and spy.experiments() == {0}, spy.calls
