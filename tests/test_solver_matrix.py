@@ -53,10 +53,12 @@ def _solver_info(backend, dt):
     if backend == 'CVODE_myokit':
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt, 'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'CVODE_libopencor':
-        # MaximumStep dt/10, as the reference runs. At MaximumStep dt, libOpenCOR's CVODE takes
-        # another branch of control_parasymp's control (chi_a 0.37 of its range off; Myokit at
-        # the same settings is within 3e-6), and is 1.7e-5 rms off on 3compartment. At dt/10, or
-        # at atol 1e-12, or at rtol 1e-9, it is within 1e-6 on both.
+        # MaximumStep dt/10, as the reference runs. At MaximumStep dt, libOpenCOR is 1.7e-5 rms
+        # off on 3compartment, and on control_parasymp its beat-2 atrial contraction starts ~60 ms
+        # late (chi_a 0.37 of its range off). That model's atrial clock (heart vp_wCont) steps at
+        # the atrial start without event location, so round-off there shifts the onset in about
+        # one run in 10-25 on any CVODE path and tolerance; dt/10 is a setting where it does
+        # not, not a fix. At dt/10 both models are within 2e-6 rms.
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt / 10,
                 'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'BE_batched_c':
