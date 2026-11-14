@@ -512,14 +512,15 @@ jobs:
 
     - uses: ./.github/actions/install-system-deps
 
-    # One rank: several of these tests drive a param-id or sensitivity object from rank 0
-    # alone, which leaves its COMM_WORLD collectives unmatched on two ranks, and the next
-    # test deadlocks. Multi-rank calibration is covered by test-param-id-mpi.
+    # Two ranks, as these tests are meant to run: every rank takes part in the param-id,
+    # sensitivity and sampling collectives and rank 0 checks the results. A test that drives
+    # such an object from rank 0 alone leaves its collectives unmatched and the next test
+    # deadlocks, which only a multi-rank run shows.
     - name: Run the remaining MPI tests
       env:
         CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,autoemulate
       run: |
-        mpiexec -n 1 python -m pytest tests/ -m "mpi and not full_scale_model" --with-mpi \
+        mpiexec -n 2 python -m pytest tests/ -m "mpi and not full_scale_model" --with-mpi \
           --ignore=tests/test_param_id.py --ignore=tests/test_sensitivity_analysis.py \
           --ignore=tests/test_profile_likelihood.py --ignore=tests/executable \
           --ci-shard "mpi-rest:${{ matrix.shard }}" -v --tb=short --durations=0 \
