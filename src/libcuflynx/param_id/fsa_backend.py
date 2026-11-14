@@ -29,6 +29,21 @@ from libcuflynx.parsers.PrimitiveParsers import modifier_weights_by_index, param
 # trace up by name, so the combined trace travels under a name no model variable can have.
 _THETA_KEY = '<theta>'
 
+# Relative step of the central directional difference along the exact sensitivity S. It acts on
+# fixed operand traces, so there is no integration noise to step over: a cost that is quadratic
+# in its features is differenced exactly at any step, and the step only has to stay small enough
+# that the argmax/argmin of a max/min feature does not move to another output point. Two peaks
+# of a trace can be within 4e-5 of each other (Lotka_Volterra's y: 51.8036 at t=0.59 and
+# 51.8055 at t=4.08); a step of 1e-3 of the parameter moves the max from one to the other on
+# one side only, and the difference then averages the two peaks' sensitivities. Roundoff in
+# raw_p - raw_m is ~eps * cost / (h * gradient), negligible at this step.
+_DIRECTIONAL_REL_STEP = 1e-6
+
+
+def _directional_step(pj):
+    """The directional-difference step for a parameter at value pj."""
+    return _DIRECTIONAL_REL_STEP * abs(pj) if pj != 0.0 else _DIRECTIONAL_REL_STEP
+
 
 def operand_sensitivities(sim_helper, dependent_names, param_names, sensitivities=None):
     """d(operand_trace)/d(param) for every param that carries a sensitivity.
@@ -115,8 +130,7 @@ def observable_feature_sensitivities(pid, param_vals):
         if not entry_has_sensitivity(pid, j, has_sensitivity):
             continue
         entry_sens = combined_entry_sensitivities(pid, sens, j)
-        pj = float(param_vals[j])
-        h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+        h = _directional_step(float(param_vals[j]))
         pert_p = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, h)
         pert_m = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, -h)
         const_p = np.asarray(pid.get_obs_output_dict(pert_p)['const'], dtype=float)
@@ -320,13 +334,9 @@ def get_jac_cost(pid, param_vals, return_cost=False):
                 # an ungrouped parameter). The directional-difference machinery below is
                 # unchanged; the three cases fall out of the weights fixed at ensure_setup.
                 entry_sens = combined_entry_sensitivities(pid, sens, j)
-                pj = float(param_vals[j])
-                # Central directional difference along the exact sensitivity S. The step acts
-                # on fixed operand traces (not the solver), so it is immune to integration
-                # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
-                # while staying small enough that argmax/argmin of max/min observables is
-                # stable and linear operations (mean) are reproduced exactly.
-                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+                # Central directional difference along the exact sensitivity S; see
+                # _DIRECTIONAL_REL_STEP for the step.
+                h = _directional_step(float(param_vals[j]))
                 pert_p = perturb_operands_along_sensitivity(
                     pid, operands, entry_sens, _THETA_KEY, h)
                 pert_m = perturb_operands_along_sensitivity(
