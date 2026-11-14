@@ -23,8 +23,9 @@ import numpy as np
 import pytest
 
 from _reference_solutions import reference_solution, run_states, state_names
-from _solver_metrics import (ROUND_TRIP, SHIFT_STEPS, TOLERANCES, convergence_order,
-                             feature_error, scaled_rms, shift_tolerant_max, worst)
+from _solver_metrics import (COST_TOLERANCE, COST_TOLERANCE_DEFAULT, DIVISION_GUARD, ROUND_TRIP,
+                             SHIFT_STEPS, TOLERANCES, convergence_order, feature_error,
+                             scaled_rms, shift_tolerant_max, worst)
 
 pytestmark = [pytest.mark.integration, pytest.mark.solver]
 
@@ -395,7 +396,6 @@ def _x0(engine):
 
 
 _COST_BACKENDS = ['CVODE_libopencor', 'BE_batched_c', 'CVODES_batched_c', 'casadi_integrator']
-_COST_TOLERANCE = {'BE_batched_c': 1e-2}  # relative; every other backend is held to 1e-3
 
 
 @pytest.mark.parametrize('backend', _COST_BACKENDS)
@@ -429,7 +429,8 @@ def test_cost_and_features_agree_across_backends(backend, models, tmp_path, reco
     record_property('measured_features', f'{error:.3e} {label}')
     record_property('measured_cost_rel', f'{cost_error:.3e}')
     assert error < gate, f'{label}: feature error {error:.2e} (gate {gate:.0e})'
-    assert float(cost) == pytest.approx(float(ref_cost), rel=_COST_TOLERANCE.get(backend, 1e-3))
+    assert float(cost) == pytest.approx(
+        float(ref_cost), rel=COST_TOLERANCE.get(backend, COST_TOLERANCE_DEFAULT))
 
 
 # --------------------------------------------------------------------------- gradients
@@ -622,7 +623,7 @@ def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
         _close(helper)
     error, state = worst(feature_error(runs['casadi_integrator'], runs['CVODE_myokit']), names)
     record_property('measured_features', f'{error:.3e} {state}')
-    assert error < TOLERANCES['casadi_integrator']['features'] * 10, (error, state)
+    assert error < DIVISION_GUARD, (error, state)
 
 
 # --------------------------------------------------------------------------- coverage of the schema
