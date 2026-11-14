@@ -868,11 +868,17 @@ def select_ci_shard(config, items, shards=None):
         config.hook.pytest_deselected(items=deselected)
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
+
+    Runs after pytest's own -m/-k deselection, so the one-rank totals count only the tests
+    that were kept. On more than one rank this hook drops the other ranks' one-rank tests
+    from ``items``; a deselection after that never subtracted them, and rank 0 waited
+    30 minutes per result file at the end of the run.
     """
     import os
 
