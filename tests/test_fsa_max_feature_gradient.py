@@ -49,15 +49,23 @@ def custom_max(x, series_output=False):
 """
 
 
-def _engine(tmp_path, cellml, operation=None, do_ad=True, solver_info=None):
+def _engine(tmp_path, cellml, operation=None, do_ad=True, solver_info=None, obs=None,
+            params_doc=None):
     """An engine on Lotka_Volterra's obs_data (max of x and of y), gaussian_MLE pinned.
 
     ``operation='custom_max'`` swaps both maxes for a user operation with no exact rule.
+    ``obs`` and ``params_doc`` replace the obs_data and params_for_id.
     """
     from libcuflynx.param_id.paramID import CVS0DParamID
     os.makedirs(str(tmp_path), exist_ok=True)
-    with open(os.path.join(RESOURCES, 'Lotka_Volterra_obs_data.json')) as f:
-        obs = json.load(f)
+    if obs is None:
+        with open(os.path.join(RESOURCES, 'Lotka_Volterra_obs_data.json')) as f:
+            obs = json.load(f)
+    params_path = os.path.join(RESOURCES, 'Lotka_Volterra_params_for_id.json')
+    if params_doc is not None:
+        params_path = os.path.join(str(tmp_path), 'params_for_id.json')
+        with open(params_path, 'w') as f:
+            json.dump(params_doc, f)
     for item in obs['data_items']:
         item['cost_type'] = 'gaussian_MLE'
         if operation:
@@ -72,8 +80,7 @@ def _engine(tmp_path, cellml, operation=None, do_ad=True, solver_info=None):
         outer = CVS0DParamID(
             model_path=cellml, model_type='cellml', param_id_method='sp_minimize',
             file_name_prefix='Lotka_Volterra',
-            params_for_id_path=os.path.join(RESOURCES, 'Lotka_Volterra_params_for_id.json'),
-            param_id_obs_path=obs_path, sim_time=None, pre_time=None, dt=0.01,
+            params_for_id_path=params_path, param_id_obs_path=obs_path, sim_time=None, pre_time=None, dt=0.01,
             solver_info=solver_info or {'solver': 'CVODE_myokit', 'rtol': 1e-8, 'atol': 1e-10},
             do_ad=do_ad, DEBUG=True, param_id_output_dir=str(tmp_path),
             operation_funcs_external_path=ops_path)
@@ -185,3 +192,84 @@ def test_every_exact_tangent_rule_is_the_derivative_of_its_operation():
               - np.asarray(func(*[x - h * t for x, t in zip(xs, ts)]))) / (2 * h)
         np.testing.assert_allclose(func.exact_tangent(xs, ts), fd, rtol=1e-6, atol=1e-8,
                                    err_msg=name)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('name', ['mean_in_range', 'max_in_range', 'min_in_range',
+                                  'max_minus_min_in_range'])
+def test_the_in_range_rules_read_their_window(name):
+    """With the trace's global max and min before the window, each rule is the derivative of
+    the operation over the window, and not the one at the global extremes."""
+    from libcuflynx.param_id.operation_funcs import get_operation_funcs_dict_for_mode
+    func = get_operation_funcs_dict_for_mode('numpy')[name]
+    rng = np.random.default_rng(1)
+    x = rng.uniform(1.0, 2.0, 50)
+    x[3], x[4] = 5.0, -5.0           # global max and min, outside [0.5, 0.9]
+    t = rng.normal(size=50)
+    window = dict(start_frac=0.5, end_frac=0.9)
+    h = 1e-7
+    fd = (func(x + h * t, **window) - func(x - h * t, **window)) / (2 * h)
+    got = func.exact_tangent([x], [t], **window)
+    np.testing.assert_allclose(got, fd, rtol=1e-6)
+    whole = (func(x + h * t) - func(x - h * t)) / (2 * h)
+    assert abs(got - whole) > 1e-3
+
+
+def _forbid_the_difference_along_s(monkeypatch):
+    from libcuflynx.param_id import fsa_backend
+
+    def refuse(*args, **kwargs):
+        raise AssertionError('the exact path must not difference along S')
+    monkeypatch.setattr(fsa_backend, 'perturb_operands_along_sensitivity', refuse)
+
+
+def test_a_modifier_entry_on_the_exact_path_is_the_weighted_sum(lotka_volterra_cellml, tmp_path,
+                                                                monkeypatch):
+    """theta scaling alpha and gamma: d/dtheta = 5 d/dalpha + 3 d/dgamma at theta = 1, both
+    from exact rules."""
+    _forbid_the_difference_along_s(monkeypatch)
+    plain, _ = _engine(tmp_path / 'plain', lotka_volterra_cellml)
+    modifier_doc = {'version': 1, 'params': [
+        {'name': 'theta', 'modifies': ['Lotka_Volterra/alpha', 'Lotka_Volterra/gamma'],
+         'modifier': 'scale', 'min': 0.2, 'max': 5.0, 'name_for_plotting': 'theta'}]}
+    scaled, _ = _engine(tmp_path / 'scaled', lotka_volterra_cellml, params_doc=modifier_doc)
+    with contextlib.redirect_stdout(io.StringIO()):
+        g = np.ravel(np.asarray(plain.get_gradient(_x0(plain)), dtype=float))
+        g_theta = float(np.ravel(scaled.get_gradient(np.array([1.0])))[0])
+    assert g_theta == pytest.approx(5.0 * g[0] + 3.0 * g[3], rel=1e-5)
+
+
+def test_the_exact_path_is_chosen_per_sub_experiment(lotka_volterra_cellml, tmp_path):
+    """A user operation in one sub-experiment leaves the other on the exact path."""
+    from libcuflynx.param_id import fsa_backend
+
+    def item(name, operand, operation, sub, value):
+        return {'data_item_name': name, 'trace_name_for_plotting': name,
+                'data_type': 'constant', 'operation': operation, 'operands': [operand],
+                'unit': 'dimensionless', 'weight': 1.0, 'value': value, 'std': 3,
+                'cost_type': 'gaussian_MLE', 'experiment_idx': 0, 'subexperiment_idx': sub,
+                'plot_type': 'horizontal'}
+    obs = {'protocol_info': {'pre_times': [0.0], 'sim_times': [[2.5, 2.5]],
+                             'params_to_change': {}},
+           'prediction_items': [],
+           'data_items': [item('x_s0', 'Lotka_Volterra/x', 'custom_max', 0, 30.0),
+                          item('y_s1', 'Lotka_Volterra/y', 'max', 1, 35.0)]}
+    engine, _ = _engine(tmp_path, lotka_volterra_cellml, obs=obs)
+    x0 = _x0(engine)
+    engine._ensure_fsa_setup()
+    with contextlib.redirect_stdout(io.StringIO()):
+        _, operands_list, _ = engine.get_cost_obs_and_pred_from_params(
+            x0, reset=True, only_one_exp=0)
+    history = engine.sim_helper._fsa_sensitivities_history
+    for sub, expect_exact in ((0, False), (1, True)):
+        sens = fsa_backend.operand_sensitivities(
+            engine.sim_helper, engine._fsa_dependent_names, engine._fsa_param_names_flat,
+            sensitivities=history[sub])
+        entry = fsa_backend.combined_entry_sensitivities(engine, sens, 0)
+        exact = fsa_backend.exact_obs_tangent(engine, operands_list[sub], entry, 0, sub)
+        assert (exact is not None) == expect_exact, sub
+    # Sub-experiment 1's item is y's max: its derivative is S at the argmax.
+    y = np.asarray(operands_list[1][1][0], dtype=float)
+    s_y = np.asarray(history[1], dtype=float)[:, engine._fsa_dependent_names.index(
+        'Lotka_Volterra/y'), 0]
+    assert exact[1]['const'][1] == pytest.approx(s_y[np.argmax(y)], rel=1e-12)

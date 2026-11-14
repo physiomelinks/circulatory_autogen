@@ -46,38 +46,29 @@ def _directional_step(pj):
     return _DIRECTIONAL_REL_STEP * abs(pj) if pj != 0.0 else _DIRECTIONAL_REL_STEP
 
 
-def exact_obs_tangent(pid, operands, sens, exp_idx=None, sub_idx=None):
+def exact_obs_tangent(pid, operands, sens, exp_idx=None, sub_idx=None, obs=None):
     """d(observables)/d(theta) by each operation's exact_tangent rule, or None.
 
-    ``operands`` is one sub-experiment's operand traces and ``sens[var][_THETA_KEY]`` the
-    sensitivity of operand ``var`` along theta. Returns ``(obs_dict, tangent)``, the
-    observables of ``get_obs_output_dict`` and their derivatives in the same 'const'/'series'
-    layout. None when an item has no exact rule -- an operation without ``exact_tangent``, a
-    frequency item, or operation_kwargs naming another item -- and the caller differences
-    along S instead.
+    ``operands`` is the operand traces of segment (exp_idx, sub_idx) -- None for the whole
+    study -- and ``sens[var][_THETA_KEY]`` the sensitivity of operand ``var`` along theta.
+    Returns ``(obs, tangent)``: the observables of ``get_obs_output_dict`` (``obs`` when given)
+    and their derivatives in the same 'const'/'series' layout. Only the segment's own items
+    count, as the others are constant placeholders here. None when one of those has no exact
+    rule -- an operation without ``exact_tangent``, a frequency item, a string in its
+    operation_kwargs, or a series whose derivative is not the shape of the series -- and the
+    caller differences along S instead.
     """
     info = pid.obs_info
     funcs = pid.operation_funcs_dict
-    kwargs_by_item = []
-    for JJ in range(len(operands)):
-        op = info["operations"][JJ]
-        if info["data_types"][JJ] == 'frequency':
-            return None
-        raw = {}
-        if op is not None:
-            if getattr(funcs[op], 'exact_tangent', None) is None:
-                return None
-            raw = info["operation_kwargs"][JJ]
-            raw = raw if isinstance(raw, dict) else {}
-            if any(isinstance(v, str) for v in raw.values()):
-                return None
-        kwargs_by_item.append(raw)
     const_t, series_t = [], []
     for JJ, operand_arrays in enumerate(operands):
         data_type = info["data_types"][JJ]
         xs = [np.asarray(a, dtype=float) for a in operand_arrays]
+        op = info["operations"][JJ]
         if not pid._item_belongs_to_segment(JJ, exp_idx, sub_idx):
             t = np.zeros_like(xs[0]) if data_type == 'series' else 0.0
+        elif data_type == 'frequency':
+            return None
         else:
             ts = []
             for var, x in zip(info["operands"][JJ], xs):
@@ -87,19 +78,24 @@ def exact_obs_tangent(pid, operands, sens, exp_idx=None, sub_idx=None):
                     L = min(x.shape[0], np.asarray(s_trace).shape[0])
                     t[:L] = np.asarray(s_trace, dtype=float)[:L]
                 ts.append(t)
-            op = info["operations"][JJ]
             if op is None:
                 t = ts[0]
             else:
-                kwargs = resolve_operation_kwargs(kwargs_by_item[JJ], funcs[op],
-                                                  operation_name=op, num_operands=len(xs))
-                t = funcs[op].exact_tangent(xs, ts, **kwargs)
+                rule = getattr(funcs[op], 'exact_tangent', None)
+                raw = info["operation_kwargs"][JJ] if rule is not None else None
+                raw = raw if isinstance(raw, dict) else {}
+                if rule is None or any(isinstance(v, str) for v in raw.values()):
+                    return None
+                kwargs = resolve_operation_kwargs(raw, funcs[op], operation_name=op,
+                                                  num_operands=len(xs))
+                t = rule(xs, ts, **kwargs)
         if data_type == 'constant':
             const_t.append(float(t))
         elif data_type == 'series':
             series_t.append(np.asarray(t, dtype=float))
-    with pid.evaluating_segment(exp_idx, sub_idx):
-        obs = pid.get_obs_output_dict(operands)
+    if obs is None:
+        with pid.evaluating_segment(exp_idx, sub_idx):
+            obs = pid.get_obs_output_dict(operands)
     for base, t in zip(obs['series'] or [], series_t):
         if np.shape(base) != np.shape(t):
             return None
@@ -198,13 +194,14 @@ def observable_feature_sensitivities(pid, param_vals):
     has_sensitivity = (set(pid.sim_helper._fsa_eligible_param_names or [])
                        | set(getattr(pid.sim_helper, '_fsa_chain_rule_map', None) or {}))
 
+    nominal_obs = pid.get_obs_output_dict(operands)
     const_to_obs = pid.obs_info["const_idx_to_obs_idx"]
     out = {pid._observable_label(obs_idx): {} for obs_idx in const_to_obs}
     for j, label in enumerate(labels):
         if not entry_has_sensitivity(pid, j, has_sensitivity):
             continue
         entry_sens = combined_entry_sensitivities(pid, sens, j)
-        exact = exact_obs_tangent(pid, operands, entry_sens)
+        exact = exact_obs_tangent(pid, operands, entry_sens, obs=nominal_obs)
         if exact is not None:
             d_feature = exact[1]['const']
         else:
@@ -404,6 +401,8 @@ def get_jac_cost(pid, param_vals, return_cost=False):
             # init-value chain-rule params, synthesised identically (see operand_sensitivities).
             sens = operand_sensitivities(
                 pid.sim_helper, pid._fsa_dependent_names, flat_names, sensitivities=sens_arr)
+            with pid.evaluating_segment(exp_idx, sub_idx):
+                nominal_obs = pid.get_obs_output_dict(operands)
 
             for j in range(n_params):
                 if not entry_has_sensitivity(pid, j, has_sensitivity):
@@ -417,7 +416,8 @@ def get_jac_cost(pid, param_vals, return_cost=False):
                 # difference of the cost along them; otherwise a central difference along S in
                 # the operand traces. See _DIRECTIONAL_REL_STEP for the step.
                 h = _directional_step(float(param_vals[j]))
-                exact = exact_obs_tangent(pid, operands, entry_sens, exp_idx, sub_idx)
+                exact = exact_obs_tangent(pid, operands, entry_sens, exp_idx, sub_idx,
+                                          obs=nominal_obs)
                 if exact is not None:
                     obs, tangent = exact
                     raw_p = float(pid.cost_calc(_step_obs(obs, tangent, h),
