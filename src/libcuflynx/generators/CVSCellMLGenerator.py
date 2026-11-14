@@ -494,6 +494,8 @@ class CVS0DCellMLGenerator(object):
             if 'origin' in params.dtype.names:
                 params[idx]['origin'] = CALIBRATED
                 params[idx]['reason'] = ''
+                if 'fixed_constants' in params.dtype.names:
+                    params[idx]['fixed_constants'] = ''
 
     def __write_parameters_json(self):
         # <prefix>_parameters.json beside the generated model: every value the model uses, in the
