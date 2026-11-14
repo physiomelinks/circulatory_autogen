@@ -12,9 +12,9 @@ Two resolution modes:
    Initialised with STATE_INFO / VARIABLE_INFO lists from a libCellML-generated
    Python module. `resolve(name)` returns `(kind, index)`.
 
-2. **Key mode** (opencor / myokit helpers)
+2. **Key mode** (libopencor / myokit helpers)
    Static `resolve_key(name, *keyed_dicts, separator)` searches runtime
-   string-keyed dicts (e.g. OpenCOR data.states(), Myokit qname_to_var).
+   string-keyed dicts (e.g. libOpenCOR state names, Myokit qname_to_var).
    Returns `(kind, matched_key)`.
 
 Canonical alias patterns tried (in order):
@@ -121,7 +121,7 @@ class VariableNameResolver:
         return self.all_state_names() + self.all_variable_names()
 
     # ------------------------------------------------------------------
-    # Key mode (opencor / myokit helpers) — static interface
+    # Key mode (libopencor / myokit helpers) — static interface
     # ------------------------------------------------------------------
 
     @classmethod
@@ -138,7 +138,7 @@ class VariableNameResolver:
             Each dict-like is tested with ``key in d``.
         separator : str
             Key separator used internally by the backend.
-            '/' for OpenCOR CellML names; '.' for Myokit qnames.
+            '/' for libOpenCOR CellML names; '.' for Myokit qnames.
 
         Returns
         -------

@@ -1,12 +1,13 @@
 """
 Solver wrapper factory.
 
-Provides access to OpenCOR, Myokit, and SciPy-based solvers through a common API.
+Provides access to the Myokit, libOpenCOR, SciPy, CasADi and other solvers through a common API.
 """
 import os
 import traceback
 
 from libcuflynx.solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
+from libcuflynx.parsers.solver_names import canonical_solver_name
 
 #: Why each optional backend failed to import, keyed by backend name. A backend is optional
 #: because it may genuinely not be installed -- but the import can also fail for reasons that
@@ -25,10 +26,11 @@ def _record_import_error(name, exc):
 
 #: The pip extra that installs each optional backend, for the message a user gets when it is
 #: missing (#435). "CasADi is not available" is only half an answer when CasADi is an extra --
-#: the actionable half is which extra. Backends with no extra (OpenCOR, AADC) are absent from
-#: this map on purpose: neither is on PyPI under a libcuflynx extra.
+#: the actionable half is which extra. AADC has no extra: it is not on PyPI under a libcuflynx
+#: extra.
 BACKEND_EXTRAS = {
     'CasADi': 'casadi',
+    'libOpenCOR': 'libopencor',
     'emulator': 'emulation',
 }
 
@@ -66,26 +68,23 @@ except Exception as _exc:                                # noqa: BLE001 - reason
     MyokitSimulationHelper = None
     _record_import_error('Myokit', _exc)
 
-# OpenCOR is the one backend that cannot be pip-installed at all (its `opencor` module only
-# exists inside an OpenCOR install), so opencor_helper deliberately imports without it and
-# raises from require_opencor() instead -- see that module. That keeps this import a normal
-# success in a pip environment, and keeps the try/except here for the *other* kind of failure
-# (a broken numpy, a syntax error), which is what BACKEND_IMPORT_ERRORS exists to distinguish.
+# libopencor_helper imports without libOpenCOR and raises from require_libopencor() when the
+# solver is selected, so this try/except only catches other import failures.
 try:
-    from libcuflynx.solver_wrappers.opencor_helper import (
-        OpenCORUnavailableError, SimulationHelper as OpenCORSimulationHelper,
-        is_opencor_available, require_opencor)
+    from libcuflynx.solver_wrappers.libopencor_helper import (
+        LibOpenCORUnavailableError, SimulationHelper as LibOpenCORSimulationHelper,
+        is_libopencor_available, require_libopencor)
 except Exception as _exc:
-    OpenCORSimulationHelper = None
-    OpenCORUnavailableError = RuntimeError
+    LibOpenCORSimulationHelper = None
+    LibOpenCORUnavailableError = RuntimeError
 
-    def is_opencor_available():
+    def is_libopencor_available():
         return False
 
-    def require_opencor(solver='CVODE_opencor'):
-        raise RuntimeError(_unavailable_message('OpenCOR', solver))
+    def require_libopencor(solver='CVODE_libopencor'):
+        raise RuntimeError(_unavailable_message('libOpenCOR', solver))
 
-    _record_import_error('OpenCOR', _exc)
+    _record_import_error('libOpenCOR', _exc)
 
 try:
     from libcuflynx.solver_wrappers.batched_c_helper import SimulationHelper as BatchedCSimulationHelper
@@ -135,7 +134,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
                           emulator_bundle=None, out_of_bounds: str = 'error'):
     """Create a `SimulationHelper` for the requested solver.
 
-    Returns the appropriate backend (OpenCOR, Myokit, SciPy, or CasADi) based on
+    Returns the appropriate backend (Myokit, libOpenCOR, SciPy, CasADi, ...) based on
     ``solver`` and ``model_type``. All backends share the common
     [`SimulationHelper`][solver_wrappers.python_solver_helper.SimulationHelper]
     method surface.
@@ -144,11 +143,10 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         model_path: Path to the generated model file.
         solver: Solver identifier. One of:
 
-            - ``'CVODE_opencor'``: OpenCOR CVODE for CellML models (default). Only
-              available inside an OpenCOR install -- `opencor` is not on PyPI, so a pip
-              install raises `OpenCORUnavailableError` here and points at ``CVODE_myokit``.
-            - ``'CVODE_myokit'``: Myokit CVODE for CellML models. Drop-in replacement for
-              ``CVODE_opencor``, and what a pip install should use.
+            - ``'CVODE_myokit'``: Myokit CVODE for CellML models (the default).
+            - ``'CVODE_libopencor'``: libOpenCOR CVODE for CellML models. Needs the
+              ``libopencor`` extra (Python 3.12 or later); raises
+              `LibOpenCORUnavailableError` without it.
             - ``'BE_batched_c'``: generated C for CellML models, each block of independent
               states integrated on its own by adaptive backward Euler, on ``solver_info``
               ``threads`` threads (needs a C compiler and CMake).
@@ -193,7 +191,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
                                         out_of_bounds=out_of_bounds)
 
     # Define valid solver types
-    cellml_solvers = ['CVODE_opencor', 'CVODE_myokit', 'BE_batched_c', 'CVODES_batched_c']
+    cellml_solvers = ['CVODE_myokit', 'CVODE_libopencor', 'BE_batched_c', 'CVODES_batched_c']
     python_solvers = ['solve_ivp']
     solve_ivp_methods = ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'RK4', 'forward_euler']
     casadi_solvers = ['casadi_integrator']
@@ -208,16 +206,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
 
 
     # Check for explicit solver specification with validation
-    if solver == 'CVODE_opencor':
-        if is_python_model:
-            raise ValueError("CVODE_opencor solver cannot be used with Python models. Use a solve_ivp method instead.")
-        # Selecting the solver is the point at which "there is no opencor here" becomes the
-        # user's problem, so say so here rather than letting a NoneType or a raw
-        # ModuleNotFoundError escape. A no-op when OpenCOR is present.
-        require_opencor('CVODE_opencor')
-        if OpenCORSimulationHelper is None:
-            raise RuntimeError(_unavailable_message('OpenCOR', 'CVODE_opencor'))
-        return OpenCORSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
+    solver = canonical_solver_name(solver)
+    if solver == 'CVODE_libopencor':
+        if model_type not in (None, 'cellml'):
+            raise ValueError("CVODE_libopencor runs CellML models (model_type 'cellml').")
+        require_libopencor('CVODE_libopencor')
+        if LibOpenCORSimulationHelper is None:
+            raise RuntimeError(_unavailable_message('libOpenCOR', 'CVODE_libopencor'))
+        return LibOpenCORSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver == 'CVODE_myokit':
         if is_python_model:
             raise ValueError("CVODE_myokit solver cannot be used with Python models. Use a solve_ivp method instead.")
@@ -235,7 +231,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         return CVODESBatchedCSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver in python_solvers:
         if not is_python_model:
-            raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_opencor or CVODE_myokit for CellML models.")
+            raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_myokit or CVODE_libopencor for CellML models.")
         if not model_path.endswith('.py'):
             raise ValueError(f"model_path {model_path} does not end with .py, which is required for Python models")
         return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
@@ -270,13 +266,10 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     # Backward compatibility logic
     if is_python_model:
         return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
-    # Default to OpenCOR for CellML models. This is the implicit path -- the caller named no
-    # solver at all -- so it needs the same explanation as the explicit one; without it a pip
-    # user got `TypeError: 'NoneType' object is not callable` from this very line.
-    require_opencor('CVODE_opencor')
-    if OpenCORSimulationHelper is None:
-        raise RuntimeError(_unavailable_message('OpenCOR', 'CVODE_opencor'))
-    return OpenCORSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
+    # CellML models default to Myokit, as SOLVER_SCHEMA['default_solver_by_model_type'] does.
+    if MyokitSimulationHelper is None:
+        raise RuntimeError(_unavailable_message('Myokit', 'CVODE_myokit'))
+    return MyokitSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
 
 def get_simulation_helper_from_inp_data_dict(inp_data_dict):
     """Create a `SimulationHelper` from a configuration dict.
@@ -310,10 +303,10 @@ __all__ = [
     "MyokitSimulationHelper",
     "BatchedCSimulationHelper",
     "CVODESBatchedCSimulationHelper",
-    "OpenCORSimulationHelper",
-    "OpenCORUnavailableError",
-    "is_opencor_available",
-    "require_opencor",
+    "LibOpenCORSimulationHelper",
+    "LibOpenCORUnavailableError",
+    "is_libopencor_available",
+    "require_libopencor",
     "CasADiPythonSimulationHelper",
     "EmulatorSimulationHelper",
     "ExternalSimulationHelper",

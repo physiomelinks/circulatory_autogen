@@ -8,12 +8,6 @@ import os
 import sys
 from sys import exit
 import math as math
-try:
-    import opencor as oc
-    opencor_available = True
-except:
-    opencor_available = False
-    pass
 import time
 import matplotlib
 matplotlib.use('Agg')
@@ -117,8 +111,8 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 
 # This mcmc_object will be an instance of the ParamID class
 # it needs to be global so that it can be used in calculate_lnlikelihood()
-# without having its attributes pickled. opencor simulation objects
-# can't be pickled because they are pyqt.
+# without having its attributes pickled: simulation helpers (libOpenCOR and
+# Myokit hold compiled models) can't be pickled.
 mcmc_object = None
 
 #: The UQ backends that parallelise across MPI ranks by farming likelihood evaluations out to a
@@ -128,7 +122,7 @@ _POOL_BACKED_UQ_LIBRARIES = ('emcee', 'zeus')
 
 
 # numpy 2.0 renamed trapz to trapezoid and removed the old name; numpy 1.x has only the old one,
-# and this project supports both (CI runs 2.2 while the OpenCOR shell ships 1.26). Bound once here
+# and this project supports both. Bound once here
 # rather than branched at the call site, and named for what it does rather than for either
 # spelling.
 try:
@@ -411,8 +405,7 @@ class CVS0DParamID():
         if self.mcmc_instead:
             # This mcmc_object will be an instance of the ParamID class
             # it needs to be global so that it can be used in calculate_lnlikelihood()
-            # without having its attributes pickled. opencor simulation objects
-            # can't be pickled because they are pyqt.
+            # without having its attributes pickled: simulation helpers can't be pickled.
             global mcmc_object 
             mcmc_object = MCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
@@ -1962,7 +1955,7 @@ OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
 
 class ParamID():
     """
-    Class for doing parameter identification on opencor models
+    Class for doing parameter identification on simulated models
     """
 
     #: True once the sim helper is an emulator of the scalar observable features (#333). A class
@@ -2034,7 +2027,7 @@ class ParamID():
             self.operation_funcs_dict_symbolic = self.operation_funcs_dict
             self.cost_funcs_dict_symbolic = self.cost_funcs_dict
 
-        # set up opencor simulation
+        # set up the simulation helper
         self.dt = dt
         if self.protocol_info is not None:
             if self.protocol_info['sim_times'][0][0] is not None:
@@ -4226,7 +4219,7 @@ def sample_with_checkpoints(sampler, initial_state, num_steps, save_chain, save_
 
 class MCMC(ParamID):
     """
-    Class for doing mcmc on opencor models
+    Class for doing mcmc on simulated models
     
     # TODO check the parallelisation for this mcmc
     """

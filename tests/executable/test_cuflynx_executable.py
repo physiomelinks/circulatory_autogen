@@ -181,9 +181,8 @@ def app(tmp_path_factory):
 
         conf = _req("POST", "/api/config", {
             "ca_dir": str(ROOT),
-            # Pin the backend: analyses inherit the engine's solver, and leaving it at a
-            # CA default of CVODE_opencor -- which is not installed and never will be
-            # here -- makes the run depend on what was persisted.
+            # Pin the backend: analyses inherit the engine's solver, so leaving it unset
+            # makes the run depend on what was persisted.
             "generated_model_format": "cellml",
             "solver": "CVODE_myokit",
             "solver_info": {"dt": 0.01},

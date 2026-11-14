@@ -1,6 +1,6 @@
 name: Benchmarks
 
-# Runs the CI-safe optimiser benchmarks (those that do NOT need OpenCOR — currently both the
+# Runs the CI optimiser benchmarks (currently both the
 # FitzHugh-Nagumo and the stiff 3compartment comparisons, which run on Myokit/CasADi),
 # refreshes the results table in the parameter-identification docs, and (on the default branch)
 # opens a PR with the refreshed table. Merging that PR triggers the Docs Release workflow
@@ -47,7 +47,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]" "mkdocs-material>=9.0" "mkdocstrings[python]>=0.24"
 
-      - name: Run CI-safe benchmarks (no OpenCOR), update docs, capture results
+      - name: Run CI benchmarks, update docs, capture results
         id: bench
         continue-on-error: true   # still email/summarise results even if an assertion fails
         run: |

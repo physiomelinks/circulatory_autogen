@@ -68,8 +68,7 @@ def build_config(output_dir, resources_dir, generated_models_dir,
         'file_prefix': FILE_PREFIX,
         'input_param_file': FILE_PREFIX + '_parameters.json',
         'model_type': 'cellml',
-        # Myokit, not OpenCOR: OpenCOR's Python module is not on PyPI, and this has to
-        # run wherever the tests do.
+        # Myokit, which is installed with libcuflynx, so this runs wherever the tests do.
         'solver': 'CVODE_myokit',
         'solver_info': {'solver': 'CVODE_myokit',
                         'MaximumStep': 0.001},

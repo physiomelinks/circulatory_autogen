@@ -415,6 +415,59 @@ def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
     assert np.all(np.isfinite(sol1d))
 
 
+def _short_coupled_run(cpp_dir, t0, n_cc=1, **settings):
+    """Rewrite the generated coupler_config.json for a run of n_cc periods of t0 seconds."""
+    path = cpp_dir / 'coupler_config.json'
+    config = json.loads(path.read_text())
+    config.update(T0=t0, nCC=n_cc, **settings)
+    path.write_text(json.dumps(config))
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_coupled_fv1d_run_survives_rejected_cvode_steps(user_inputs_dir, resources_dir, tmp_path):
+    """cvs_model_with_arm_hybrid (the tutorial's hybrid model): CVODE rejects 0D step attempts
+    inside the coupling steps from the first one on. Each rejected attempt is retried and must
+    replace its own contribution to the 1D boundary fluxes; counted as well, the weights of the
+    first step summed to 1.29 and the 1D solver stopped ("Sum of integration weights > 1")."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    ini = tmp_path / '1d' / 'run000' / 'input.ini'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'cvs_model_with_arm_hybrid', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir), cpp_1d_model_config_path=str(ini),
+                             dt=0.001, pre_time=0.0, sim_time=1.0, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    inp['solver_info'] = {'solver': 'CVODE', 'dt_solver': 0.001, 'MaximumNumberOfSteps': 5000}
+    assert generate_with_new_architecture(False, inp)
+    _short_coupled_run(cpp_dir, t0=0.01)  # about 50 coupling steps
+    log = _run_coupled(cpp_dir, tmp_path, timeout=300)
+    assert 'integration weights' not in log
+    sol1d = np.genfromtxt(ini.parent / 'res' / 'sol1D_A_aorta_ascending_3.txt')
+    assert sol1d.shape[0] > 5 and np.all(np.isfinite(sol1d))
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_coupler_stops_when_a_solver_fails(user_inputs_dir, resources_dir, tmp_path):
+    """A solver that dies leaves the other blocked on a pipe: the coupler stops it and exits
+    non-zero instead of waiting for ever."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    ini = tmp_path / '1d' / 'run000' / 'input.ini'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'aortic_bif_hybrid_V1', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir), cpp_1d_model_config_path=str(ini),
+                             dt=0.01, pre_time=0.0, sim_time=1.1, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    assert generate_with_new_architecture(False, inp)
+    # the "1D solver" exits with status 1 as soon as it starts
+    _short_coupled_run(cpp_dir, t0=0.05, python_path=shutil.which('false'))
+    with pytest.raises(AssertionError) as failed:
+        _run_coupled(cpp_dir, tmp_path, timeout=120)
+    message = str(failed.value)
+    assert 'timed out' not in message
+    assert 'the 1D solver failed (exit status 1); stopping the 0D solver' in message
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 def test_provider_api_module_couples_through_ports(user_inputs_dir, resources_dir, tmp_path):

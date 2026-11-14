@@ -129,9 +129,17 @@ def test_microvasculature_config_has_no_duplicate_input_flow_modules():
     with open(micro) as rf:
         entries = json.load(rf)
     module_types = {e.get('module_type') for e in entries}
-    # the duplicated input BC modules are gone (use the boundary_condition modules instead, #155)
-    assert 'P_inlet' not in module_types
+    # the duplicated input-flow BC module is gone (use the boundary_condition modules instead, #155)
     assert 'Q_inlet' not in module_types
+    # The pressure inlet stays: the micro vessels connect through flow_port / pressure_port, which
+    # the boundary_condition modules' vessel_port cannot join, and the image-to-model pipeline
+    # (tutorial/interactive/image_proc_funcs.py) puts one before every inlet vessel. It mirrors
+    # P_outlet.
+    inlets = [e for e in entries if e.get('module_type') == 'P_inlet']
+    outlet = next(e for e in entries if e.get('module_type') == 'P_outlet')
+    assert len(inlets) == 1
+    assert inlets[0]['exit_ports'] == outlet['entrance_ports'] and not inlets[0]['entrance_ports']
+    assert inlets[0]['variables_and_units'] == outlet['variables_and_units']
 
     bc = os.path.join(root, 'src', 'libcuflynx', 'generators', 'resources',
                       'boundary_condition_modules_config.json')

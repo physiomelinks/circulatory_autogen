@@ -95,7 +95,7 @@ computeRates   (libCellML)    rates, reading the externals just received
 | Heun | `0`, then `dt` |
 | midpoint | `0`, then `dt/2` |
 | RK4 | `0`, `dt/2`, `dt/2`, `dt` |
-| CVODE | `hcur` on the first call of a new internal step, `0` otherwise (Newton and Jacobian calls) |
+| CVODE | `hcur` on the first call of each step attempt, `0` otherwise (Newton and Jacobian calls). A retry after a failed attempt (smaller `hcur`, same step count) is reported again; the 1D solver replaces the failed attempt's contribution with it |
 
 The FV 1D solver weights its own update by these values, so don't change them.
 
@@ -139,7 +139,7 @@ Declares `Model0d`. It includes the libCellML header inside `extern "C"`, becaus
 ### `model0d.cpp.j2`
 Implements `Model0d`:
 - the callback;
-- `cvodeRhs`, which works out the CVODE `dtLoc` from the step counter;
+- `cvodeRhs`, which works out the CVODE `dtLoc` from the step counter and step size;
 - `DelayHistory`, a time-stamped history with linear interpolation. It returns the first value before `t0 + delay`, and grows as needed, so it works with variable CVODE steps;
 - the constructor, which zero-fills the arrays (libCellML fills them with NaN) and seeds `ext_cache`;
 - `initialise`/`snapshot`/`restore`, `computeRates`, and `solveOneStep` with every solver.

@@ -5,6 +5,80 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the tutorial notebooks run end to end in CI, with quick settings
+
+- Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
+  warm-up length, Sobol samples and genetic-algorithm calls in the two calibration notebooks;
+  pip install, example-image download, Fiji, an image of your own, sub-volume and Ilastik in the
+  image notebook. The defaults are what the tutorials teach with.
+- `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
+  notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
+  settings cell, and checks the key outputs: about 110 s for `generation_and_calibration.ipynb`
+  (including the C++ 0D build and run and the hybrid run), 20 s for
+  `generation_and_calibration_test.ipynb` and 6 s for `image_to_hemodynamics_model.ipynb`.
+  The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
+- The hybrid section of `generation_and_calibration.ipynb` runs too: its run length is two
+  settings, `hybrid_num_periods` (3) and `hybrid_period_s` (1.0 s), which the quick test sets to
+  two periods of 10 ms (the full run takes about 4 minutes per simulated second). The coupler's
+  pipes go under `generated_models_dir/coupler_pipes/` rather than `/tmp/`.
+- `image_to_hemodynamics_model.ipynb` runs to the end on a synthetic segmentation in the quick
+  test; the full run (example-image download) stays `manual`. `image_proc_funcs.py` built its
+  parameters for the model named in `user_inputs.yaml` (`3compartment` in a checkout, whose
+  `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
+  built, and read modules only from `module_config_user/`. It now takes the vessels of its own
+  module array and finds their modules with `ModuleSources`, as model generation does. The
+  microvasculature network's pressure inlet, `P_inlet` / `nn_micro`, which the pipeline puts
+  before every inlet vessel, is back in `module_config_user/microvasculature_network_module_config.json`:
+  its vessels connect through `flow_port` / `pressure_port`, which the `vessel_port` of the
+  built-in `inlet_pressure` module (its #155 replacement) cannot join.
+
+### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
+
+- With the 0D model on CVODE, the 1D solver weights its boundary fluxes by each 0D step attempt
+  within a coupling step. An attempt CVODE rejected (error test or nonlinear solve) was counted at
+  its full size and its retry not at all, so the weights could sum to more than 1 and the 1D
+  solver stopped (`Sum of integration weights > 1`, on `cvs_model_with_arm_hybrid` at the first
+  coupling step). The generated `cvodeRhs` now reports every attempt, retries included, and
+  the 1D solver replaces a rejected attempt's contribution with its retry's
+  (`solver1d/auxCouplingFunctions.CvodeSubstepWeights`). The first step of a run, which was not
+  reported, is too. The weight check allows the time tolerance the 0D model rounds step ends to.
+- The coupler waited for ever on its pipes when one solver stopped. It now stops the other one
+  and exits with status 1 when a solver exits non-zero, or when the other has not finished
+  `exit_grace_s` (coupler_config, default 60 s) after the first. The 1D solver exits non-zero on
+  its errors (it exited 0 on several).
+- `run_coupler1d0d.bash` runs the solvers with one BLAS/OpenMP thread (unless set): the 1D
+  solver's arrays are small, and threaded BLAS used six cores for no gain.
+- Notebook fixes this needed: `generation_and_calibration.ipynb` read `aortic_root/u` from a model
+  without it and ran the C++ 0D model through the coupler script (which needs a hybrid model's
+  `coupler_config.json`), and passed `MaximumStep` to the C++ generator; `generation_and_calibration_test.ipynb`
+  had a hard-coded checkout path, the old `from_dict` / `CVS0DParamID(...)` calls and an unregistered
+  custom feature. Outputs go to `$CUFLYNX_USER_DIR`, or the checkout when it is unset.
+
+### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
+
+- **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
+  OpenCOR's simulation engine as a Python library: `pip install "libcuflynx[libopencor]"`
+  (wheels for Python 3.12 or later; `[dev]` and `[all]` include it there). `solver_info` takes
+  `MaximumStep`, `MaximumNumberOfSteps`, `rtol` and `atol` (`SOLVER_INFO_FIELDS`). It supports
+  everything `CVODE_opencor` did: `pre_time`, multi-sub-experiment protocols with constant
+  `params_to_change`, `offline_pre_time`, states and `*_init` constants set by calibration,
+  results for states, algebraic variables and constants. It has no time-varying inputs
+  (`protocol_traces` / `protocol_shapes` raise `NotImplementedError`) and no forward
+  sensitivities, so calibrations with it use finite-difference gradients.
+- `solver: CVODE_opencor` is an alias for `CVODE_libopencor` (OpenCOR's bundled Python shell is
+  not needed). Naming it runs libOpenCOR and emits a `FutureWarning`; without libOpenCOR
+  installed, the `CVODE_libopencor` install error applies. The `opencor_helper` module, the
+  `need_opencor` test marker and the disabled `test-with-opencor` CI job are gone;
+  `need_libopencor` tests skip without libopencor and run in the `test-libopencor` job.
+  `user_run_files/python_path.sh` names `venv/bin/python` (it is read by `run_pytest.sh` only).
+- A `cellml` model with no solver named runs on `CVODE_myokit`, the schema's default, in the
+  solver factory too.
+- `benchmarks/solver_comparison.py` runs the same models (built-in, or `--model-file`) through
+  Myokit, libOpenCOR and CasADi cvodes (JIT off and on), whichever are installed, at equal
+  tolerances, maximum step and output grid, and writes setup, first-run and median run times,
+  CVODE step counts where exposed and the error against a reference backend, as JSON and
+  Markdown.
+
 ### Added — fixed constants in the provenance diagram
 
 Decided by Finbar Argus on 2026-11-14, a follow-up to the parameter derivations below.

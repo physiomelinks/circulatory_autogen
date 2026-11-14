@@ -130,3 +130,22 @@ def test_no_other_test_in_test_UQ_escaped_the_marker():
                 and 'manual' not in _markers_on(getattr(test_UQ, name))]
 
     assert unmarked == [], f'test_UQ.py tests missing the manual marker: {unmarked}'
+
+
+@pytest.mark.unit
+def test_notebook_execution_tests_are_manual():
+    """They run notebooks as scripts with the python_path.sh interpreter (1800 s timeout each), so
+    they run only with --run-manual, whatever python_path.sh names."""
+    import importlib.util
+    import os
+    path = os.path.join(os.path.dirname(__file__), 'interactive_tests',
+                        'test_interactive_tutorial_notebooks.py')
+    spec = importlib.util.spec_from_file_location('notebook_tests_for_markers', path)
+    notebooks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(notebooks)
+    executing = [name for name in dir(notebooks)
+                 if name.startswith('test_') and name.endswith(
+                     ('executes_as_script', 'executes_as_script_when_dependencies_exist'))]
+    assert len(executing) == 2, executing
+    for name in executing:
+        assert 'manual' in _markers_on(getattr(notebooks, name)), name

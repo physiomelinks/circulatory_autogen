@@ -132,7 +132,7 @@ def test_solver_integrator_keys_derived_from_schema():
     for solver, fields in SOLVER_INFO_FIELDS.items():
         assert _SOLVER_INTEGRATOR_KEYS[solver] == {f['name'] for f in fields}
     cvode = {'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}
-    assert _SOLVER_INTEGRATOR_KEYS['CVODE_opencor'] == cvode
+    assert _SOLVER_INTEGRATOR_KEYS['CVODE_libopencor'] == cvode
     # CVODE_myokit is deliberately not in that family: myokit.Simulation exposes only
     # set_max_step_size / set_min_step_size / set_tolerance, so myokit_helper never reads
     # MaximumNumberOfSteps and advertising it would render a dead control downstream.
@@ -390,6 +390,7 @@ def test_solver_consumer_map_is_derived_from_the_factory_dispatch():
                      'vacuously')
     # Spot-check the two shapes the dispatch uses: `solver == 'x'` and `solver in some_list`.
     assert derived['CVODE_myokit'] == ['libcuflynx/solver_wrappers/myokit_helper.py']
+    assert derived['CVODE_libopencor'] == ['libcuflynx/solver_wrappers/libopencor_helper.py']
     assert derived['casadi_integrator'] == ['libcuflynx/solver_wrappers/casadi_python_solver_helper.py']
     # solve_ivp is dispatched via a list rather than an equality.
     assert derived['solve_ivp'] == ['libcuflynx/solver_wrappers/python_solver_helper.py']
@@ -430,10 +431,9 @@ def test_each_solver_setting_is_read_by_that_solvers_consumer():
     advertise MaximumStep/rtol/atol (the emitted C++ hardcodes its tolerances and steps at
     dt_solver).
 
-    CVODE_opencor forwards solver_info wholesale into OpenCOR's odeSolverProperties() instead of
-    reading each key by name, so its evidence is the alias branches (rtol -> RelativeTolerance)
-    and its default block rather than four separate lookups. That is still a read of the name in
-    code, which is what _setting_names_read requires.
+    CVODE_libopencor maps each key to a SolverCvode property through a table, so its evidence is
+    that table and its default block rather than four separate lookups. That is still a read of
+    the name in code, which is what _setting_names_read requires.
     """
     phantom = {}
     for solver, consumers in _consumers_by_solver().items():
@@ -909,8 +909,8 @@ def test_cellml_solver_accepts_maximum_step_keys():
         'method': 'CVODE',
         'MaximumStep': 0.001,
     })
-    validate_solver_info('CVODE_opencor', {
-        'solver': 'CVODE_opencor',
+    validate_solver_info('CVODE_libopencor', {
+        'solver': 'CVODE_libopencor',
         'method': 'CVODE',
         'MaximumStep': 0.001,
         'MaximumNumberOfSteps': 5000,
@@ -959,7 +959,7 @@ def test_solve_ivp_rejects_maximum_step_keys():
 
 
 def test_myokit_default_solver_info_needs_no_migration():
-    """CA's own cellml default must validate for myokit, not just opencor --
+    """CA's own cellml default must validate for myokit, not just libopencor --
     otherwise the default config would be rejected by its own validator."""
     from libcuflynx.parsers.PrimitiveParsers import _solver_info_default_for
 
@@ -968,10 +968,10 @@ def test_myokit_default_solver_info_needs_no_migration():
     assert defaults['MaximumStep'] == 0.001
     validate_solver_info('CVODE_myokit', defaults)
 
-    # opencor keeps it: it is a real setting there.
-    opencor = _solver_info_default_for('cellml', 'CVODE_opencor')
-    assert opencor['MaximumNumberOfSteps'] == 5000
-    validate_solver_info('CVODE_opencor', opencor)
+    # libopencor keeps it: it is a real setting there.
+    libopencor = _solver_info_default_for('cellml', 'CVODE_libopencor')
+    assert libopencor['MaximumNumberOfSteps'] == 5000
+    validate_solver_info('CVODE_libopencor', libopencor)
 
 
 def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
@@ -988,11 +988,11 @@ def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
     assert default_gradient_source('casadi_python') == 'AD'
     assert default_gradient_source('casadi_python', 'casadi_integrator', 'cvodes') == 'AD'
     assert default_gradient_source('python') == 'FD'
-    assert default_gradient_source('cellml', 'CVODE_opencor') == 'FD'
+    assert default_gradient_source('cellml', 'CVODE_libopencor') == 'FD'
     assert default_gradient_source('casadi_python', use_emulator=True) == 'FD'
     # Exactly one default per menu.
     for mt, sv in [('casadi_python', 'casadi_integrator'), ('cellml', 'CVODE_myokit'),
-                   ('cellml', 'CVODE_opencor'), ('python', 'solve_ivp')]:
+                   ('cellml', 'CVODE_libopencor'), ('python', 'solve_ivp')]:
         assert sum(src['default'] for src in gradient_sources(mt, sv)) == 1, (mt, sv)
 
 
@@ -1069,7 +1069,7 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     assert len(fsa) == 1 and fsa[0]['do_ad'] is True
 
     # No analytic source for cellml under a non-FSA solver, or for non-AD model types.
-    for mt, sv in [('cellml', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
+    for mt, sv in [('cellml', 'CVODE_libopencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
         srcs = gradient_sources(mt, sv)
         _check_shape(srcs)
         assert [s['value'] for s in srcs] == ['FD'], (mt, sv)
@@ -1609,23 +1609,16 @@ def test_the_uq_entry_points_take_UQ_options_only():
 
 @pytest.mark.unit
 def test_a_config_that_names_no_solver_gets_one_a_pip_install_can_provide():
-    """`cellml` must default to CVODE_myokit, not CVODE_opencor.
-
-    OpenCOR's Python module is not on PyPI, so `CVODE_opencor` is the one backend a
-    `pip install libcuflynx` cannot supply. Defaulting to it meant a user who wrote a
-    minimal config and left `solver` out was routed straight at the unavailable one --
-    invisible in a checkout, because the shipped `user_inputs.yaml` sets it explicitly,
-    and invisible in CI for the same reason.
+    """`cellml` must default to CVODE_myokit, which a plain `pip install libcuflynx` provides
+    (CVODE_libopencor needs an extra and Python 3.12 or later).
 
     Three reads must agree: the schema, the solver_info default, and the implicit
     fallback in `parse_user_inputs_file`.
     """
     assert SOLVER_SCHEMA['default_solver_by_model_type']['cellml'] == 'CVODE_myokit'
     assert get_solver_info_default('cellml')['solver'] == 'CVODE_myokit'
-    # Still *offered*, just not the default: it works fine inside OpenCOR, and removing it
-    # would make `solver: CVODE_opencor` fail validation instead of reaching the message
-    # that names CVODE_myokit as the replacement.
-    assert 'CVODE_opencor' in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
+    assert 'CVODE_libopencor' in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
+    assert 'CVODE_opencor' not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
 
 
 @pytest.mark.unit

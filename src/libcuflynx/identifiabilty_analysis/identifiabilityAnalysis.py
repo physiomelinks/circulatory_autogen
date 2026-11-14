@@ -12,12 +12,6 @@ from matplotlib.ticker import FuncFormatter
 # `try: import corner / except ImportError`.
 from libcuflynx.utilities.lazy_imports import require_corner
 import math as math
-try:
-    import opencor as oc
-    opencor_available = True
-except:
-    opencor_available = False
-    pass
 import time
 import matplotlib
 matplotlib.use('Agg')

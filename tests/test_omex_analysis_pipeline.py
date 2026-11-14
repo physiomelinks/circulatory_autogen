@@ -36,8 +36,7 @@ def _cellml_backend_available(python_executable):
             "-c",
             (
                 "import importlib.util; "
-                "print(bool(importlib.util.find_spec('opencor')) or "
-                "bool(importlib.util.find_spec('myokit')))"
+                "print(bool(importlib.util.find_spec('myokit')))"
             ),
         ],
         capture_output=True,

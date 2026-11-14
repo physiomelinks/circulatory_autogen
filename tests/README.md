@@ -1,6 +1,6 @@
 # Running Tests
 
-This project uses pytest for testing. Since the project depends on OpenCOR's Python shell, tests must be run using OpenCOR's bundled Python interpreter.
+This project uses pytest for testing, in a venv with `pip install -e ".[dev]"`. The `CVODE_libopencor` tests (marker `need_libopencor`) skip unless libOpenCOR is installed, which needs Python 3.12 or later.
 
 ## Quick Start
 
@@ -17,9 +17,9 @@ Run in parallel and verbose without the slow compare_optimisers (this is the fas
 ```
 
 This script automatically:
-1. Sources the OpenCOR Python shell path from `user_run_files/python_path.sh`
+1. Reads the interpreter from `user_run_files/python_path.sh`
 2. Installs pytest and related packages if needed
-3. Runs pytest with the OpenCOR Python interpreter
+3. Runs pytest with that interpreter under `mpiexec`
 
 ## Running Specific Tests
 
@@ -63,17 +63,22 @@ You can pass any pytest arguments to the script:
 pytest -v -s
 ```
 
+The notebook execution tests (`tests/interactive_tests/test_interactive_tutorial_notebooks.py`,
+up to 1800 s each, run with the `python_path.sh` interpreter) are marked `manual`: they are not
+collected unless you pass `--run-manual`, e.g.
+`./run_pytest.sh tests/interactive_tests/test_interactive_tutorial_notebooks.py --run-manual`.
+
 
 ## Manual Setup
 
 If you prefer to run pytest manually, you can:
 
-1. Source the OpenCOR Python path:
+1. Source the interpreter path:
    ```bash
    source user_run_files/python_path.sh
    ```
 
-2. Install pytest in the OpenCOR Python environment:
+2. Install pytest in that environment:
    ```bash
    ${python_path} -m pip install pytest pytest-cov pytest-mpi pytest-xdist
    ```
@@ -126,5 +131,5 @@ Use pytest markers to categorize tests:
 
 The `conftest.py` file provides:
 - `project_root` - Returns the project root directory
-- `opencor_python_path` - Returns the OpenCOR Python shell path (if available)
+- `configured_python_path` - The interpreter `user_run_files/python_path.sh` names, if it exists
 
