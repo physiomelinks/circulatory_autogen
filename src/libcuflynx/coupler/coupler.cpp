@@ -50,6 +50,8 @@ private:
     const char* char_T0;
     int nCC;
     const char* char_nCC;
+    // Seconds the coupler waits for one solver after the other has finished.
+    double exit_grace_s = 60.0;
 
     std::string initStatePath;
     const char* char_initStatePath;
@@ -74,34 +76,37 @@ private:
     std::string pipePath_dt1, pipePath_dt2, pipePath_dt3, pipePath_dt4;
     std::string pipePath_vol1, pipePath_vol2;
 
-    const char* one_to_parent_dt;
-    const char* parent_to_one_dt;
-    const char* zero_to_parent_dt;
-    const char* parent_to_zero_dt;
+    const char* one_to_parent_dt = nullptr;
+    const char* parent_to_one_dt = nullptr;
+    const char* zero_to_parent_dt = nullptr;
+    const char* parent_to_zero_dt = nullptr;
 
-    const char* one_to_parent_vol;
-    const char* parent_to_zero_vol;
+    const char* one_to_parent_vol = nullptr;
+    const char* parent_to_zero_vol = nullptr;
 
+
+    void removePipes() {
+        for (size_t i = 0; i < N1d0d; ++i) {
+            if (one_to_parent[i]) unlink(one_to_parent[i]);
+            if (parent_to_one[i]) unlink(parent_to_one[i]);
+            if (zero_to_parent[i]) unlink(zero_to_parent[i]);
+            if (parent_to_zero[i]) unlink(parent_to_zero[i]);
+        }
+
+        if (one_to_parent_dt) unlink(one_to_parent_dt);
+        if (parent_to_one_dt) unlink(parent_to_one_dt);
+        if (zero_to_parent_dt) unlink(zero_to_parent_dt);
+        if (parent_to_zero_dt) unlink(parent_to_zero_dt);
+
+        if (one_to_parent_vol) unlink(one_to_parent_vol);
+        if (parent_to_zero_vol) unlink(parent_to_zero_vol);
+    }
 
     void cleanup() {
         if (process_one > 0) kill(process_one, SIGTERM);
         if (process_zero > 0) kill(process_zero, SIGTERM);
-        
-        // Remove named pipes
-        for (size_t i = 0; i < N1d0d; ++i) {
-            unlink(one_to_parent[i]);
-            unlink(parent_to_one[i]);
-            unlink(zero_to_parent[i]);
-            unlink(parent_to_zero[i]);
-        }
 
-        unlink(one_to_parent_dt);
-        unlink(parent_to_one_dt);
-        unlink(zero_to_parent_dt);
-        unlink(parent_to_zero_dt);
-
-        unlink(one_to_parent_vol);
-        unlink(parent_to_zero_vol);
+        removePipes();
 
         // Free each dynamically allocated string
         for (auto& pipe : one_to_parent) {
@@ -136,6 +141,7 @@ public:
             ODEsolver = config.value("ODEsolver", "CVODE");
             T0 = config.value("T0", 1.1);
             nCC = config.value("nCC", 5);
+            exit_grace_s = config.value("exit_grace_s", 60.0);
             
             // coupler_config.json is written by the C++ generator (generators/cpp) from the api
             // block of the process the 0D model is coupled to; these defaults are only fallbacks.
@@ -352,6 +358,10 @@ public:
                 exit(1);
 
             }
+
+            // A write to a solver that has stopped returns an error instead of killing the coupler
+            // (set after the forks, so the solvers keep the default).
+            signal(SIGPIPE, SIG_IGN);
 
             // Parent process handles communication between processes
             // The three processes (zero, one & coupler) are running "in parallel" 
@@ -638,20 +648,86 @@ public:
                 }
             });
 
-            // Wait for both processes
-            int one_status, zero_status;
-            waitpid(process_one, &one_status, 0);
-            waitpid(process_zero, &zero_status, 0);
+            // Wait for both processes. When one stops, the other is blocked on a pipe that will
+            // never be written: if the first one failed, or the other has not finished within
+            // exit_grace_s, stop it and exit non-zero instead of waiting forever.
+            int one_status = 0, zero_status = 0;
+            int status = 0;
+            pid_t first = waitpid(-1, &status, 0);
+            while (first > 0 && first != process_one && first != process_zero) {
+                first = waitpid(-1, &status, 0);
+            }
+            const bool first_is_one = (first == process_one);
+            (first_is_one ? one_status : zero_status) = status;
+            const pid_t other = first_is_one ? process_zero : process_one;
+            const char *first_name = first_is_one ? "1D solver" : "0D solver";
+            const char *other_name = first_is_one ? "0D solver" : "1D solver";
+            bool failed = !childSucceeded(status);
+            bool other_done = false;
+            if (!failed) {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(exit_grace_s);
+                while (std::chrono::steady_clock::now() < deadline) {
+                    if (waitpid(other, &status, WNOHANG) == other) {
+                        other_done = true;
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            }
+            if (failed || !other_done) {
+                if (failed) {
+                    std::cerr << "Coupler :: Error :: the " << first_name << " failed (" << describeStatus(status)
+                              << "); stopping the " << other_name << "." << std::endl;
+                } else {
+                    std::cerr << "Coupler :: Error :: the " << first_name << " finished but the " << other_name
+                              << " did not within " << exit_grace_s << " s; stopping it." << std::endl;
+                }
+                kill(other, SIGKILL);
+                waitpid(other, &status, 0);
+                process_one = -1;
+                process_zero = -1;
+                // The relay thread may be blocked on a pipe: leave it, remove the pipes and exit
+                // without freeing anything it may still read.
+                relay_thread.detach();
+                removePipes();
+                std::cout.flush();
+                std::cerr.flush();
+                std::_Exit(1);
+            }
+            (first_is_one ? zero_status : one_status) = status;
+            failed = !childSucceeded(status);
 
             std::cout << "Coupler :: Waiting for relay thread to join..." << std::endl;
             relay_thread.join();
-            
+            process_one = -1;
+            process_zero = -1;
+
+            if (failed) {
+                std::cerr << "Coupler :: Error :: the " << other_name << " failed (" << describeStatus(status) << ")." << std::endl;
+                cleanup();
+                std::cout.flush();
+                std::_Exit(1);
+            }
             std::cout << "### Coupler :: Both processes terminated successfully with status codes : " << one_status << " " << zero_status << " ###" << std::endl;
             
             cleanup();
 
             std::cout << "### DONE ###" << std::endl;
 
+        }
+
+        static bool childSucceeded(int status) {
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        }
+
+        static std::string describeStatus(int status) {
+            if (WIFEXITED(status)) {
+                return "exit status " + std::to_string(WEXITSTATUS(status));
+            }
+            if (WIFSIGNALED(status)) {
+                return "killed by signal " + std::to_string(WTERMSIG(status));
+            }
+            return "status " + std::to_string(status);
         }
 
         ~ProcessManager() {
