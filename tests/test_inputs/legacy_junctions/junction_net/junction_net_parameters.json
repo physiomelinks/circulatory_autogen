@@ -1,0 +1,256 @@
+{
+ "schema_version": 1,
+ "global": {
+  "rho": {
+   "value": 1050,
+   "units": "Js2_per_m5",
+   "data_reference": "test value"
+  },
+  "mu": {
+   "value": 0.004,
+   "units": "Js_per_m3",
+   "data_reference": "test value"
+  },
+  "g": {
+   "value": 9.81,
+   "units": "m_per_s2",
+   "data_reference": "test value"
+  },
+  "beta_g": {
+   "value": 0,
+   "units": "dimensionless",
+   "data_reference": "test value"
+  },
+  "a_vessel": {
+   "value": 0.2802,
+   "units": "dimensionless",
+   "data_reference": "test value"
+  },
+  "b_vessel": {
+   "value": -505.3,
+   "units": "per_m",
+   "data_reference": "test value"
+  },
+  "c_vessel": {
+   "value": 0.1324,
+   "units": "dimensionless",
+   "data_reference": "test value"
+  },
+  "d_vessel": {
+   "value": -11.14,
+   "units": "per_m",
+   "data_reference": "test value"
+  }
+ },
+ "inflow": {
+  "v_1": {
+   "value": 4e-06,
+   "units": "m3_per_s",
+   "data_reference": "test value"
+  },
+  "v_2": {
+   "value": 2e-06,
+   "units": "m3_per_s",
+   "data_reference": "test value"
+  }
+ },
+ "J": {
+  "E": {
+   "value": 1600000,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "l": {
+   "value": 0.01,
+   "units": "metre",
+   "data_reference": "test value"
+  },
+  "r_0": {
+   "value": 0.002,
+   "units": "metre",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 10640.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "theta": {
+   "value": 0,
+   "units": "dimensionless",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "s1": {
+  "R": {
+   "value": 20000000.0,
+   "units": "Js_per_m6",
+   "data_reference": "test value"
+  },
+  "C": {
+   "value": 1e-08,
+   "units": "m6_per_J",
+   "data_reference": "test value"
+  },
+  "I": {
+   "value": 100000.0,
+   "units": "Js2_per_m6",
+   "data_reference": "test value"
+  },
+  "q_0": {
+   "value": 0.0,
+   "units": "m3",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "p2": {
+  "R": {
+   "value": 40000000.0,
+   "units": "Js_per_m6",
+   "data_reference": "test value"
+  },
+  "C": {
+   "value": 1e-08,
+   "units": "m6_per_J",
+   "data_reference": "test value"
+  },
+  "I": {
+   "value": 100000.0,
+   "units": "Js2_per_m6",
+   "data_reference": "test value"
+  },
+  "q_0": {
+   "value": 0.0,
+   "units": "m3",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "p3": {
+  "R": {
+   "value": 30000000.0,
+   "units": "Js_per_m6",
+   "data_reference": "test value"
+  },
+  "C": {
+   "value": 1e-08,
+   "units": "m6_per_J",
+   "data_reference": "test value"
+  },
+  "I": {
+   "value": 100000.0,
+   "units": "Js2_per_m6",
+   "data_reference": "test value"
+  },
+  "q_0": {
+   "value": 0.0,
+   "units": "m3",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "p4": {
+  "R": {
+   "value": 50000000.0,
+   "units": "Js_per_m6",
+   "data_reference": "test value"
+  },
+  "C": {
+   "value": 1e-08,
+   "units": "m6_per_J",
+   "data_reference": "test value"
+  },
+  "I": {
+   "value": 100000.0,
+   "units": "Js2_per_m6",
+   "data_reference": "test value"
+  },
+  "q_0": {
+   "value": 0.0,
+   "units": "m3",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "M": {
+  "R": {
+   "value": 10000000.0,
+   "units": "Js_per_m6",
+   "data_reference": "test value"
+  },
+  "C": {
+   "value": 1e-08,
+   "units": "m6_per_J",
+   "data_reference": "test value"
+  },
+  "I": {
+   "value": 100000.0,
+   "units": "Js2_per_m6",
+   "data_reference": "test value"
+  },
+  "q_0": {
+   "value": 0.0,
+   "units": "m3",
+   "data_reference": "test value"
+  },
+  "u_0": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  },
+  "u_ext": {
+   "value": 0.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ },
+ "out": {
+  "P": {
+   "value": 1066.0,
+   "units": "J_per_m3",
+   "data_reference": "test value"
+  }
+ }
+}

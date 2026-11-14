@@ -5,6 +5,24 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — `cuflynx-upgrade junctions`
+
+The module library (circulatory-autogen-modules) removes its junction module types: vessels whose
+compliant end now has a summing port (`"multi_port": ["sum", "True"]`) do what they did, for any
+number of vessels at a node (node sums #609, node rule D #617).
+
+- `cuflynx-upgrade junctions <module_array> --module-library-dir <library>/modules` converts a
+  model: each junction version is retyped to the version the library's `renames.json` names in an
+  entry marked `"by": "cuflynx-upgrade junctions"` (same equations); an `inlet_flow constant_2`
+  becomes two `constant` sources; a `flow_merge`/`flow_split` is removed and its neighbours joined.
+  It renames what changed in `<prefix>_parameters.json`, `<prefix>_obs_data*.json` and
+  `<prefix>_params_for_id*.json`: `v_in_sum`/`v_out_sum` to `v_in`/`v_out`, and a numbered port
+  flow (`J/v_out_1`) to the inflow of the neighbour on that port (`s1/v`). Values the new version
+  has no variable for are dropped and listed. Run it after `cuflynx-upgrade module-names`.
+- The refusal of a node with several ends on both sides no longer suggests a `2in2out_junction`;
+  it suggests a lumped `vv` vessel between them.
+- The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
+  `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
