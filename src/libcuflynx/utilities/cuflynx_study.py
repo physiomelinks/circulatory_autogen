@@ -1362,8 +1362,9 @@ def export_working_dir(working_dir, zip_path):
 
     - every archived user_inputs yaml (``inputs/user_inputs/``) names its output directories
       relative to where it is unzipped. ``param_id_output_dir`` is the unzipped working dir. An
-      outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``, as do an
-      absolute ``param_reduction_options`` ``sensitivity_dir`` and ``output_dir``,
+      outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``, as does an
+      outside ``param_reduction_options`` ``sensitivity_dir``; an outside ``output_dir`` becomes
+      ``<sensitivity_dir>/<its name>`` and one inside the working dir stays where it is,
       ``generated_models_dir`` ``generated_models`` and ``emulator_dir`` the default under
       ``emulators/``, and a yaml the parser cannot read is kept as it is, with a warning;
     - every such yaml names its inputs by their stored copies, the versions its own run used
