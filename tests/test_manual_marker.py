@@ -130,3 +130,28 @@ def test_no_other_test_in_test_UQ_escaped_the_marker():
                 and 'manual' not in _markers_on(getattr(test_UQ, name))]
 
     assert unmarked == [], f'test_UQ.py tests missing the manual marker: {unmarked}'
+
+
+@pytest.mark.unit
+def test_notebook_execution_tests_are_manual():
+    """The notebooks with their shipped settings (the *_full tests, up to 1800 s a cell) run only
+    with --run-manual; the *_quick ones, with small settings injected, run in CI."""
+    import importlib.util
+    import os
+    path = os.path.join(os.path.dirname(__file__), 'interactive_tests',
+                        'test_interactive_tutorial_notebooks.py')
+    spec = importlib.util.spec_from_file_location('notebook_tests_for_markers', path)
+    notebooks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(notebooks)
+    tests = [name for name in dir(notebooks) if name.startswith('test_') and name.endswith('_notebook_full')
+             or name.startswith('test_') and name.endswith('_notebook_quick')]
+    full = sorted(name for name in tests if name.endswith('_full'))
+    quick = sorted(name for name in tests if name.endswith('_quick'))
+    assert full == ['test_generation_and_calibration_notebook_full',
+                    'test_generation_and_calibration_test_notebook_full',
+                    'test_image_to_hemodynamics_notebook_full'], full
+    assert [n.replace('_quick', '_full') for n in quick] == full, quick
+    for name in full:
+        assert 'manual' in _markers_on(getattr(notebooks, name)), name
+    for name in quick:
+        assert 'manual' not in _markers_on(getattr(notebooks, name)), name

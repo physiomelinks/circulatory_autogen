@@ -12,6 +12,63 @@ import os
 import sys
 
 
+class CvodeSubstepWeights:
+    """Weights of the 0D CVODE internal steps within one global coupling step of length ``dt``.
+
+    The 0D model reports each internal step attempt once, as (timeLoc, dtLoc): timeLoc is the end
+    of the attempt (CVODE evaluates the first right-hand side of a step at t_n + h) and dtLoc its
+    size h; every other right-hand-side call reports dtLoc = 0. An attempt that CVODE rejects
+    (error test or nonlinear-solver failure) is retried from the same t_n with a smaller h, so a
+    reported attempt that starts before the previous one ends replaces it.
+
+    ``add`` returns the weight dtLoc / dt of a reported attempt and, for a retry, first restores
+    the boundary fluxes saved before the attempt it replaces. The accepted attempts tile the
+    global step, so the weights sum to 1.
+    """
+
+    def __init__(self, dt, tol):
+        self.dt = dt
+        self.tol = tol
+        self.weights = []
+        self._last = None      # index in weights of the last reported attempt
+        self._last_end = None
+        self._last_h = None
+        self._saved = None     # the boundary fluxes before the last reported attempt
+
+    def is_retry(self, timeLoc, dtLoc):
+        """True when the attempt starts before the last one ends: CVODE rejected that one."""
+        if self._last is None or dtLoc < self.tol:
+            return False
+        return (timeLoc - dtLoc) < self._last_end - 0.5 * self._last_h
+
+    def add(self, timeLoc, dtLoc, fluxes):
+        """Record one report; ``fluxes`` are the accumulating boundary-flux arrays, restored in place
+        on a retry. Returns the weight of this report."""
+        if dtLoc < self.tol:
+            self.weights.append(0.)
+            return 0.
+        if self.is_retry(timeLoc, dtLoc):
+            for f, saved in zip(fluxes, self._saved):
+                f[:] = saved
+            self.weights[self._last] = 0.
+        else:
+            self._saved = [np.copy(f) for f in fluxes]
+        w = dtLoc / self.dt
+        self.weights.append(w)
+        self._last = len(self.weights) - 1
+        self._last_end = timeLoc
+        self._last_h = dtLoc
+        return w
+
+    def total(self):
+        return float(np.sum(self.weights))
+
+    def overshoots(self):
+        """True when the accepted attempts cover more than the global step, by more than the time
+        tolerance the 0D model rounds its step ends to."""
+        return (self.total() - 1.0) * self.dt > self.tol
+
+
 class auxCouplingFunctions:
     """
     Class for auxiliary functions for couplings (fully 1D and hybrid 1D-0D), boundary conditions and time evolution

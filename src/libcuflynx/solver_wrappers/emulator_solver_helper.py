@@ -209,7 +209,7 @@ class SimulationHelper(ExperimentTimeMixin):
 
         The protocol executor concatenates each sub-experiment's ``tSim`` onto a cumulative
         time vector and drops the duplicated first sample, so a missing or single-point axis
-        would break the caller rather than the emulator. Mirrors the opencor backend.
+        would break the caller rather than the emulator. Mirrors the libOpenCOR backend.
         """
         self.dt = dt
         self.pre_time = pre_time

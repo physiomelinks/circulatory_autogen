@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- OpenCOR Python environment set up (see [Getting Started](getting-started.md)).
+- A Python environment with libcuflynx installed (see [Getting Started](getting-started.md)); OpenCOR, to open the generated model by hand.
 - A `user_inputs.yaml` file configured with `file_prefix`, `resources_dir`, and `generated_models_dir`.
 - `*_module_array.json` (or `.csv`) and `*_parameters.json` files in your resources directory.
 

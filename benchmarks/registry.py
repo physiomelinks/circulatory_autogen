@@ -7,7 +7,7 @@ orchestrator selects benchmarks from this lightweight map instead. ``benchmark_s
 is built from the same keys, and ``tests/test_benchmarks.py`` asserts the two stay in sync.
 """
 
-# name -> whether the benchmark runs in CI (must not need OpenCOR)
+# name -> whether the benchmark runs in CI
 BENCHMARK_CI = {
     'fitzhugh_nagumo': True,
     'three_compartment': True,

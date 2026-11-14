@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- A working OpenCOR Python environment (see [Getting Started](getting-started.md)).
+- A Python environment with libcuflynx installed (see [Getting Started](getting-started.md)).
 - The example resource files in `resources/`.
 
 ![Simple Model of Cardiovascular System](images/cardiovascular-system.png)

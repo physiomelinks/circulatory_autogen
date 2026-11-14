@@ -64,7 +64,7 @@ class ProtocolRunner:
             ``user_inputs_path_override`` if set).
         solver: Solver identifier passed to
             [`get_simulation_helper`][solver_wrappers.get_simulation_helper],
-            e.g. ``'CVODE_myokit'`` or ``'CVODE_opencor'``.
+            e.g. ``'CVODE_myokit'`` or ``'CVODE_libopencor'``.
         model_type: Backend family (``'cellml'`` / ``'python'`` /
             ``'casadi_python'``); falls back to ``inp_data_dict['model_type']``.
     """
