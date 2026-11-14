@@ -208,8 +208,23 @@ def _run_image_notebook(settings, cell_timeout, budget, tmp_path, monkeypatch, s
                            set_user_dir=False)  # the image pipeline writes beside its notebook
     print(f"\n{name}: {elapsed:.0f}s")
     _assert_every_cell_ran(nb, name)
-    assert (work / "resources" / "user_output" / "image_to_model_parameters.json").exists()
-    assert (work / "resources" / "user_output" / "image_to_model_module_array.csv").exists()
+    params_path = work / "resources" / "user_output" / "image_to_model_parameters.json"
+    array_path = work / "resources" / "user_output" / "image_to_model_module_array.csv"
+    assert params_path.exists() and array_path.exists()
+    # The network's open ends are left unconnected: their pressure boundary conditions (the
+    # inlets' u_in, the outlets' u_out) are parameters, as model generation asks for them.
+    import json
+    import pandas as pd
+    array = pd.read_csv(array_path, dtype=str).fillna("")
+    params = json.loads(params_path.read_text())
+    assert not array["module_type"].isin(["P_inlet", "P_outlet"]).any()
+    inlets = array.loc[array["inp_instances"] == "", "name"]
+    outlets = array.loc[array["out_instances"] == "", "name"]
+    assert len(inlets) and len(outlets)
+    for name in inlets:
+        assert float(params[name]["u_in"]["value"]) == pytest.approx(6666.12)
+    for name in outlets:
+        assert float(params[name]["u_out"]["value"]) == pytest.approx(666.612)
     if budget is not None:
         assert elapsed < budget, f"{name} took {elapsed:.0f}s; a quick run has {budget}s"
 

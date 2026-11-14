@@ -27,10 +27,10 @@ next release; add to that section as you land a change.
   `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
   built, and read modules only from `module_config_user/`. It now takes the vessels of its own
   module array and finds their modules with `ModuleSources`, as model generation does. The
-  microvasculature network's pressure inlet, `P_inlet` / `nn_micro`, which the pipeline puts
-  before every inlet vessel, is back in `module_config_user/microvasculature_network_module_config.json`:
-  its vessels connect through `flow_port` / `pressure_port`, which the `vessel_port` of the
-  built-in `inlet_pressure` module (its #155 replacement) cannot join.
+  network's open ends are no longer joined to pressure-inlet / pressure-outlet nodes (`P_inlet`
+  was removed in #155): an inlet vessel's entrance and an outlet vessel's exit are left
+  unconnected, generation makes their boundary conditions parameters (`<vessel>/u_in`,
+  `<vessel>/u_out`), and the pipeline writes the inlet and outlet pressures into them.
 
 ### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
 
