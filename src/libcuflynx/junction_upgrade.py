@@ -305,7 +305,7 @@ def _model_files(array_path, pattern):
 def upgrade_junctions(path, module_library_dirs, external_modules_dir=None, dry_run=False,
                       entries=None, configs=None):
     '''Convert the module array at ``path`` and the model files beside it; returns the changes.'''
-    from libcuflynx.utilities.parameters_file import write_parameters_file
+    from libcuflynx.utilities.parameters_file import read_parameters_file, write_parameters_file
     entries = entries if entries is not None else library_entries(module_library_dirs)
     if configs is None:
         configs = config_index(list(module_library_dirs) + ([external_modules_dir] if external_modules_dir else []))
@@ -319,8 +319,7 @@ def upgrade_junctions(path, module_library_dirs, external_modules_dir=None, dry_
 
     params, prefix = _model_files(path, '_parameters.json')
     for p in params:
-        with open(p, encoding='utf-8') as f:
-            doc = json.load(f)
+        doc = read_parameters_file(p)   # numbers keep their text
         doc, param_notes = convert_parameters(doc, names, removed, split_into, retyped, configs)
         if param_notes:
             print(f'{p}:\n  ' + '\n  '.join(param_notes))
