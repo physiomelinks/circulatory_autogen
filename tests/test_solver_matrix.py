@@ -94,7 +94,6 @@ EXCLUDED.update({
 # Solvers and methods of SOLVER_SCHEMA that are covered by another test, not by the matrix.
 # Each names that test. test_every_solver_in_schema_has_a_matrix_row reads this.
 COVERED_ELSEWHERE = {
-    'CVODE_opencor': 'removed by #638 (CVODE_libopencor replaces it)',
     'CVODE': 'test_cpp_cvode_matches_the_reference (model_type cpp)',
     'RK4': 'test_cpp_template_generator.py (fixed-step cpp builds)',
     'explEul': 'test_cpp_template_generator.py (fixed-step cpp builds)',
@@ -116,9 +115,6 @@ COVERED_METHODS.update({('aadc_semi_implicit', m): 'test_aadc_solvers.py (releas
 
 def _skip_unless_available(backend):
     if backend == 'CVODE_libopencor':
-        from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA
-        if backend not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']:
-            pytest.skip('CVODE_libopencor is not a solver here yet (it arrives with #638)')
         pytest.importorskip('libopencor')
     elif backend == 'casadi_integrator':
         pytest.importorskip('casadi')
@@ -196,10 +192,15 @@ def _reference(models, name):
     return reference_solution(models.cellml(name), sim_time, dt, atol)
 
 
-def _assert_close(x, ref, names, gates, label):
+def _assert_close(x, ref, names, gates, label, record_property=None):
+    """Each metric's worst state against its gate. The measured values go into the junit
+    properties (`measured_<metric>`), where the margin under each gate can be read from CI."""
     report = {metric: worst(f(x, ref), names) for metric, f in
               (('scaled_rms', scaled_rms), ('shift_max', shift_tolerant_max),
                ('features', feature_error))}
+    if record_property is not None:
+        for metric, (value, state) in report.items():
+            record_property(f'measured_{metric}', f'{value:.3e} {state}')
     failed = {m: v for m, v in report.items() if v[0] > gates[m]}
     assert not failed, (f'{label}: ' + '; '.join(
         f'{m} {v[0]:.2e} in {v[1]} (gate {gates[m]:.0e})' for m, v in failed.items()))
@@ -258,7 +259,7 @@ def test_forward_matches_converged_reference(backend, model, models, record_prop
         x = run_states(helper, names)
     finally:
         _close(helper)
-    _assert_close(x, ref, names, TOLERANCES[backend], f'{backend} on {model}')
+    _assert_close(x, ref, names, TOLERANCES[backend], f'{backend} on {model}', record_property)
 
 
 # --------------------------------------------------------------------------- fixed-step order
@@ -415,6 +416,9 @@ def test_cost_and_features_agree_across_backends(backend, models, tmp_path, reco
     labels = [str(n) for n in engine.obs_info['operands']]
     gate = TOLERANCES[backend]['features']
     error, label = worst(feature_error(obs, ref_obs), labels)
+    cost_error = abs(float(cost) / float(ref_cost) - 1)
+    record_property('measured_features', f'{error:.3e} {label}')
+    record_property('measured_cost_rel', f'{cost_error:.3e}')
     assert error < gate, f'{label}: feature error {error:.2e} (gate {gate:.0e})'
     assert float(cost) == pytest.approx(float(ref_cost), rel=_COST_TOLERANCE.get(backend, 1e-3))
 
@@ -558,7 +562,8 @@ def test_cpp_cvode_matches_the_reference(models, tmp_path, record_property):
     missing = [s for s in short if s not in columns]
     assert not missing, f'states not in the cpp output: {missing}'
     x = np.array([columns[s] for s in short])
-    _assert_close(x, ref, names, TOLERANCES['cpp_CVODE'], f'cpp CVODE on {model}')
+    _assert_close(x, ref, names, TOLERANCES['cpp_CVODE'], f'cpp CVODE on {model}',
+                  record_property)
 
 
 # --------------------------------------------------------------------------- division guard
@@ -607,6 +612,7 @@ def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
         runs[backend] = run_states(helper, names)
         _close(helper)
     error, state = worst(feature_error(runs['casadi_integrator'], runs['CVODE_myokit']), names)
+    record_property('measured_features', f'{error:.3e} {state}')
     assert error < TOLERANCES['casadi_integrator']['features'] * 10, (error, state)
 
 

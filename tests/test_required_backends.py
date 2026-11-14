@@ -10,7 +10,7 @@ import textwrap
 
 import pytest
 
-from _backend_info import backend_info, sundials_build_type, sundials_warning
+from _backend_info import backend_info, compiler_path, sundials_build_type, sundials_warning
 from _required_backends import missing_backend
 
 pytestmark = pytest.mark.unit
@@ -28,7 +28,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
     # not about a missing backend, or about one this job does not require
     ('casadi 3.7 cannot differentiate a jit-compiled integrator', None),
     ("could not import 'autoemulate'", None),
-    ('CVODE_libopencor is not a solver here yet (it arrives with #638)', None),
+    ('CVODE_libopencor rows run on Python 3.12 and later', None),
 ])
 def test_a_skip_names_a_missing_required_backend(reason, backend):
     required = ['myokit', 'casadi', 'aadc', 'cmake', 'sundials', 'libopencor']
@@ -106,3 +106,11 @@ def test_an_unoptimised_sundials_is_warned_about_not_refused(tmp_path):
     assert 'Debug' in sundials_warning('Debug')
     assert sundials_warning('Release') is None
     assert sundials_warning(None) is None  # SUNDIALS 6 records no build type
+
+
+@pytest.mark.parametrize('windows, expected', [(True, '/bin/cl'), (False, '/bin/cc')])
+def test_the_header_names_the_compiler_cmake_builds_with(windows, expected):
+    """On Windows with MinGW's cc on PATH, CMake still builds with MSVC's cl."""
+    which = {'cl': '/bin/cl', 'cc': '/bin/cc', 'gcc': '/bin/gcc'}.get
+    assert compiler_path(windows=windows, which=which, env={}) == expected
+    assert compiler_path(windows=windows, which=which, env={'CC': '/x/clang'}) == '/x/clang'

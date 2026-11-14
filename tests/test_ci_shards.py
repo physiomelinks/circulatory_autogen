@@ -57,11 +57,18 @@ def test_no_test_is_in_two_groups(suite):
             assert owner[path] == group, f'{entry} ({group}) is inside {path} ({owner[path]})'
 
 
-def _sharded_jobs():
+# Jobs that shard a suite but run only some of its groups: test-min-deps reruns the simulation
+# and solver-matrix groups of `main` at the oldest backend versions.
+PARTIAL_JOBS = {'test-min-deps': ('main', ['simulation', 'solver-matrix'])}
+
+
+def _sharded_jobs(partial=False):
     with open(WORKFLOW) as f:
         jobs = yaml.safe_load(f)['jobs']
     found = []
     for name, job in jobs.items():
+        if (name in PARTIAL_JOBS) != partial:
+            continue
         commands = '\n'.join(step.get('run', '') for step in job.get('steps', []))
         match = re.search(r'--ci-shard "([\w-]+):\$\{\{ matrix\.shard \}\}"', commands)
         if match:
@@ -71,6 +78,13 @@ def _sharded_jobs():
 
 def test_the_workflow_shards_jobs():
     assert {suite for _, suite, _ in _sharded_jobs()} == set(SHARDS)
+
+
+def test_the_partial_jobs_run_the_groups_they_name():
+    found = {name: (suite, list(matrix)) for name, suite, matrix in _sharded_jobs(partial=True)}
+    assert found == PARTIAL_JOBS
+    for suite, groups in found.values():
+        assert set(groups) <= set(SHARDS[suite]), groups
 
 
 @pytest.mark.parametrize('job, suite, matrix', _sharded_jobs(), ids=lambda v: str(v))
