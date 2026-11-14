@@ -50,8 +50,15 @@ LARGE = ['physiological', 'cvs_model_0d', 'control_parasymp']
 
 
 def _solver_info(backend, dt):
-    if backend in ('CVODE_myokit', 'CVODE_libopencor'):
+    if backend == 'CVODE_myokit':
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt, 'MaximumNumberOfSteps': 10 ** 6}
+    if backend == 'CVODE_libopencor':
+        # MaximumStep dt/10, as the reference runs. At MaximumStep dt, libOpenCOR's CVODE takes
+        # another branch of control_parasymp's control (chi_a 0.37 of its range off; Myokit at
+        # the same settings is within 3e-6), and is 1.7e-5 rms off on 3compartment. At dt/10, or
+        # at atol 1e-12, or at rtol 1e-9, it is within 1e-6 on both.
+        return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt / 10,
+                'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'BE_batched_c':
         return {'method': 'trbdf2', 'rtol': 1e-6}
     if backend == 'CVODES_batched_c':
