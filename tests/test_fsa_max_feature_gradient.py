@@ -1,12 +1,14 @@
 """The Myokit FSA gradient of a max feature whose trace has two near-equal peaks.
 
 Lotka_Volterra's y peaks at 51.8036 (t=0.59) and 51.8055 (t=4.08). The max feature is y at the
-second peak, so its derivative is d y/d p there. The FSA gradient is a central difference along
-the CVODES sensitivity S on the fixed operand traces; a step large enough to move the max to the
-first peak on one side averages in that peak's sensitivity instead.
+second peak, so its derivative is d y/d p there. A central difference along the CVODES
+sensitivity S with a step large enough to move the max to the first peak on one side averages in
+that peak's sensitivity instead.
 
-The reference is the chain rule over the same run's own sensitivities, read at each feature's
-argmax: it shares every number with the gradient except the differencing, so it isolates it.
+The built-in max has an exact rule (S at the argmax). The reference for it is the chain rule over
+the same run's own sensitivities, read at each feature's argmax: it shares every number with the
+gradient except how the features are differentiated. A user operation has no rule, so it takes
+the difference along S, checked against a finite difference of the cost.
 """
 import contextlib
 import io
@@ -35,14 +37,35 @@ def lotka_volterra_cellml(tmp_path_factory):
     return os.path.join(folder, 'Lotka_Volterra', 'Lotka_Volterra.cellml')
 
 
-def _engine(tmp_path, cellml):
-    """An FSA engine on Lotka_Volterra's obs_data (max of x and of y), gaussian_MLE pinned."""
+_CUSTOM_MAX = """import numpy as np
+from libcuflynx.param_id.operation_funcs import series_to_constant
+
+
+@series_to_constant
+def custom_max(x, series_output=False):
+    if series_output:
+        return x
+    return float(np.max(x))
+"""
+
+
+def _engine(tmp_path, cellml, operation=None, do_ad=True, solver_info=None):
+    """An engine on Lotka_Volterra's obs_data (max of x and of y), gaussian_MLE pinned.
+
+    ``operation='custom_max'`` swaps both maxes for a user operation with no exact rule.
+    """
     from libcuflynx.param_id.paramID import CVS0DParamID
+    os.makedirs(str(tmp_path), exist_ok=True)
     with open(os.path.join(RESOURCES, 'Lotka_Volterra_obs_data.json')) as f:
         obs = json.load(f)
     for item in obs['data_items']:
         item['cost_type'] = 'gaussian_MLE'
-    obs_path = os.path.join(str(tmp_path), 'obs.json')
+        if operation:
+            item['operation'] = operation
+    ops_path = os.path.join(str(tmp_path), 'custom_ops.py')
+    with open(ops_path, 'w') as f:
+        f.write(_CUSTOM_MAX)
+    obs_path = os.path.join(str(tmp_path), f'obs_{operation}_{do_ad}.json')
     with open(obs_path, 'w') as f:
         json.dump(obs, f)
     with contextlib.redirect_stdout(io.StringIO()):
@@ -51,8 +74,9 @@ def _engine(tmp_path, cellml):
             file_name_prefix='Lotka_Volterra',
             params_for_id_path=os.path.join(RESOURCES, 'Lotka_Volterra_params_for_id.json'),
             param_id_obs_path=obs_path, sim_time=None, pre_time=None, dt=0.01,
-            solver_info={'solver': 'CVODE_myokit', 'rtol': 1e-8, 'atol': 1e-10},
-            do_ad=True, DEBUG=True, param_id_output_dir=str(tmp_path))
+            solver_info=solver_info or {'solver': 'CVODE_myokit', 'rtol': 1e-8, 'atol': 1e-10},
+            do_ad=do_ad, DEBUG=True, param_id_output_dir=str(tmp_path),
+            operation_funcs_external_path=ops_path)
     engine = outer.param_id
     engine.output_dir = str(tmp_path)
     return engine, obs['data_items']
@@ -111,3 +135,53 @@ def test_fsa_feature_sensitivity_is_the_sensitivity_at_the_argmax(lotka_volterra
     for label, trace, column in zip(labels, traces, columns):
         got = np.array(list(sens[label].values()), dtype=float)
         np.testing.assert_allclose(got, column[np.argmax(trace)], rtol=1e-6)
+
+
+def test_a_user_operation_takes_the_difference_along_s_and_matches_fd(lotka_volterra_cellml,
+                                                                      tmp_path):
+    from libcuflynx.param_id import fsa_backend
+    engine, _ = _engine(tmp_path / 'fsa', lotka_volterra_cellml, operation='custom_max')
+    x0 = _x0(engine)
+    with contextlib.redirect_stdout(io.StringIO()):
+        grad = np.ravel(np.asarray(engine.get_gradient(x0), dtype=float))
+        _, operands_list, _ = engine.get_cost_obs_and_pred_from_params(
+            x0, reset=True, only_one_exp=0)
+    sens = fsa_backend.operand_sensitivities(
+        engine.sim_helper, engine._fsa_dependent_names, engine._fsa_param_names_flat)
+    entry = fsa_backend.combined_entry_sensitivities(engine, sens, 0)
+    assert fsa_backend.exact_obs_tangent(engine, operands_list[0], entry, 0, 0) is None
+
+    tight = {'solver': 'CVODE_myokit', 'rtol': 1e-12, 'atol': 1e-14, 'MaximumStep': 1e-3}
+    fd_engine, _ = _engine(tmp_path / 'fd', lotka_volterra_cellml, operation='custom_max',
+                           do_ad=False, solver_info=tight)
+    with contextlib.redirect_stdout(io.StringIO()):
+        fd = np.array([(float(fd_engine.get_cost_from_params(x0 + e))
+                        - float(fd_engine.get_cost_from_params(x0 - e))) / (2 * e[i])
+                       for i, e in enumerate(np.diag(1e-4 * np.abs(x0)))])
+    # Per component, within 1e-3 of the FD or of 1e-3 of its largest component: the FSA run is
+    # at rtol 1e-8, which leaves d/dgamma (-0.115, beside d/dbeta -882) ~5e-4 off.
+    tolerance = 1e-3 * np.maximum(np.abs(fd), 1e-3 * np.max(np.abs(fd)))
+    assert np.all(np.abs(grad - fd) <= tolerance), f'{grad} != FD {fd}'
+
+
+@pytest.mark.unit
+def test_every_exact_tangent_rule_is_the_derivative_of_its_operation():
+    """Each built-in rule against a central difference of its own operation, on random traces
+    (no ties, so every max/min is differentiable), with the operation's default kwargs."""
+    from libcuflynx.param_id.operation_funcs import get_operation_funcs_dict_for_mode
+    rng = np.random.default_rng(0)
+    funcs = get_operation_funcs_dict_for_mode('numpy')
+    ruled = {name: f for name, f in funcs.items() if getattr(f, 'exact_tangent', None)}
+    assert {'max', 'min', 'mean', 'max_minus_min', 'addition', 'subtraction', 'multiplication',
+            'division', 'mean_in_range', 'max_in_range', 'min_in_range',
+            'max_minus_min_in_range'} <= set(ruled)
+    for name, func in ruled.items():
+        xs = [rng.uniform(1.0, 2.0, 50), rng.uniform(1.0, 2.0, 50)]
+        ts = [rng.normal(size=50), rng.normal(size=50)]
+        n = 2 if name in ('addition', 'subtraction', 'multiplication', 'division') else 1
+        xs, ts = xs[:n], ts[:n]
+        h = 1e-7
+        fd = (np.asarray(func(*[x + h * t for x, t in zip(xs, ts)]))
+              - np.asarray(func(*[x - h * t for x, t in zip(xs, ts)]))) / (2 * h)
+        np.testing.assert_allclose(func.exact_tangent(xs, ts), fd, rtol=1e-6, atol=1e-8,
+                                   err_msg=name)
