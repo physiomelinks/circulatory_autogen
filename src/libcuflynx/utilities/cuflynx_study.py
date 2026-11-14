@@ -1202,6 +1202,24 @@ def _portable_user_inputs(data, folder, root, moved, used, inputs):
         relative = place(original, os.path.join('sensitivity', os.path.basename(original)))
         out['sa_options'] = dict(sa_options, output_dir=os.path.relpath(relative, 'sensitivity'))
 
+    reduction = out.get('param_reduction_options')
+    if isinstance(reduction, dict) and any(
+            _is_absolute(reduction.get(key)) for key in ('sensitivity_dir', 'output_dir')):
+        # the parser reads sensitivity_dir relative to <W>/sensitivity, output_dir to sensitivity_dir
+        reduction = dict(reduction)
+        sens = reduction.get('sensitivity_dir')
+        if _is_absolute(sens):
+            sens = os.path.normpath(sens)
+            sens_rel = place(sens, os.path.join('sensitivity', os.path.basename(sens)))
+            reduction['sensitivity_dir'] = os.path.relpath(sens_rel, 'sensitivity')
+        else:
+            sens_rel = os.path.join('sensitivity', sens or '.')
+        if _is_absolute(reduction.get('output_dir')):
+            target = os.path.normpath(reduction['output_dir'])
+            target_rel = place(target, os.path.join(sens_rel, os.path.basename(target)))
+            reduction['output_dir'] = os.path.relpath(target_rel, sens_rel)
+        out['param_reduction_options'] = reduction
+
     settings = out.get('emulator_settings')
     if (isinstance(settings, dict) and _is_absolute(settings.get('emulator_dir'))
             and not out.get('use_emulator')):
