@@ -1177,7 +1177,8 @@ def _portable_user_inputs(data, folder, root, moved, used, inputs):
     """A parsed archived yaml, held in ``folder`` of the working dir ``root``, as a zip holds it.
 
     The parser takes ``param_id_output_dir`` and ``generated_models_dir`` relative to the yaml
-    and ``sa_options`` ``output_dir`` relative to ``<W>/sensitivity``. ``moved`` gets
+    and ``sa_options`` ``output_dir`` and ``param_reduction_options`` ``sensitivity_dir`` relative to
+    ``<W>/sensitivity`` (its ``output_dir`` relative to its ``sensitivity_dir``). ``moved`` gets
     ``{outside directory: its path relative to the working dir}``; ``used`` and ``inputs`` are
     those of :func:`_portable_inputs`.
     """
@@ -1201,6 +1202,26 @@ def _portable_user_inputs(data, folder, root, moved, used, inputs):
         original = os.path.normpath(sa_options['output_dir'])
         relative = place(original, os.path.join('sensitivity', os.path.basename(original)))
         out['sa_options'] = dict(sa_options, output_dir=os.path.relpath(relative, 'sensitivity'))
+
+    reduction = out.get('param_reduction_options')
+    if isinstance(reduction, dict) and any(
+            _is_absolute(reduction.get(key)) for key in ('sensitivity_dir', 'output_dir')):
+        # the parser reads sensitivity_dir relative to <W>/sensitivity, output_dir to sensitivity_dir
+        reduction = dict(reduction)
+        sens = reduction.get('sensitivity_dir')
+        if _is_absolute(sens):
+            sens = os.path.normpath(sens)
+            sens_rel = place(sens, os.path.join('sensitivity', os.path.basename(sens)))
+            reduction['sensitivity_dir'] = os.path.relpath(sens_rel, 'sensitivity')
+        else:
+            # unset, the parser takes the Sobol run's output_dir (already rewritten above)
+            sens = sens or (out.get('sa_options') or {}).get('output_dir') or '.'
+            sens_rel = os.path.join('sensitivity', sens)
+        if _is_absolute(reduction.get('output_dir')):
+            target = os.path.normpath(reduction['output_dir'])
+            target_rel = place(target, os.path.join(sens_rel, os.path.basename(target)))
+            reduction['output_dir'] = os.path.relpath(target_rel, sens_rel)
+        out['param_reduction_options'] = reduction
 
     settings = out.get('emulator_settings')
     if (isinstance(settings, dict) and _is_absolute(settings.get('emulator_dir'))
@@ -1341,7 +1362,9 @@ def export_working_dir(working_dir, zip_path):
 
     - every archived user_inputs yaml (``inputs/user_inputs/``) names its output directories
       relative to where it is unzipped. ``param_id_output_dir`` is the unzipped working dir. An
-      outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``,
+      outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``, as does an
+      outside ``param_reduction_options`` ``sensitivity_dir``; an outside ``output_dir`` becomes
+      ``<sensitivity_dir>/<its name>`` and one inside the working dir stays where it is,
       ``generated_models_dir`` ``generated_models`` and ``emulator_dir`` the default under
       ``emulators/``, and a yaml the parser cannot read is kept as it is, with a warning;
     - every such yaml names its inputs by their stored copies, the versions its own run used
