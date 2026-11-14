@@ -216,11 +216,13 @@ def test_data_item_group_shows_fit_and_data(
     config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
                                temp_generated_models_dir, str(obs_path))
     _generate(config, mpi_comm)
-    if mpi_comm.Get_rank() != 0:
-        return
+    # Every rank builds the param-id object (its constructor is collective); rank 0 saves and
+    # checks the plots.
     pid = CVS0DParamID.init_from_dict(config)
     pid.set_best_param_vals(np.array([0.5, 1.0]))
     pid.save_prediction_data()
+    if mpi_comm.Get_rank() != 0:
+        return
     assert os.path.getsize(os.path.join(pid.output_dir, "x_SS_vs_x_init.png")) > 0
     assert os.path.getsize(os.path.join(pid.output_dir, "x_over_time_exp_1.png")) > 0
 

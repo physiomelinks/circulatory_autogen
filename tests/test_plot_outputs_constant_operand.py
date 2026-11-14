@@ -85,9 +85,10 @@ def test_plot_outputs_draws_a_constant_operand_as_a_flat_line(
     if comm.Get_rank() == 0:
         assert generate_with_new_architecture(False, config), "benchmark generation failed"
     comm.Barrier()
-    if comm.Get_rank() != 0:
-        return
 
+    # Every rank builds and drives the param-id object, as a calibration does: its constructor
+    # and plot_outputs make COMM_WORLD collectives, which a rank that returned early would leave
+    # unmatched. Rank 0 alone draws the pages and checks them.
     pages = {}
     save = ParamIDPlotOutputs._save_reconstruction_figure_bundle
 
@@ -107,6 +108,8 @@ def test_plot_outputs_draws_a_constant_operand_as_a_flat_line(
         pid.plot_outputs()
     finally:
         pid.close_simulation()
+    if comm.Get_rank() != 0:
+        return
 
     page = next(lines for ylabel, lines in pages.items() if ylabel.startswith("$p$"))
     t, trace = page["output"]

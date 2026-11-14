@@ -634,6 +634,19 @@ def _generate(config, comm):
     comm.Barrier()
 
 
+def _on_every_rank(config, best_param_vals):
+    """A param-id object at ``best_param_vals``, after save_prediction_data.
+
+    Every rank builds it and calls save_prediction_data, as a run does: the constructor makes
+    COMM_WORLD collectives, and a rank that skipped it would leave them unmatched, so the next
+    MPI test would deadlock. save_prediction_data writes on rank 0 only.
+    """
+    pid = CVS0DParamID.init_from_dict(config)
+    pid.set_best_param_vals(np.array(best_param_vals, dtype=float))
+    pid.save_prediction_data()
+    return pid
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
@@ -850,11 +863,9 @@ def test_save_prediction_data_validates_a_feature_end_to_end(
     config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
                                temp_generated_models_dir, obs_path)
     _generate(config, mpi_comm)
+    pid = _on_every_rank(config, [2.0, 1.0])
     if mpi_comm.Get_rank() != 0:
         return
-    pid = CVS0DParamID.init_from_dict(config)
-    pid.set_best_param_vals(np.array([2.0, 1.0]))
-    pid.save_prediction_data()
     with open(os.path.join(pid.output_dir, validation.VALIDATION_RESULTS_FILE)) as f:
         items = {item['data_item_name']: item for item in json.load(f)['items']}
     assert items['x_max']['operation'] == 'max'
@@ -937,15 +948,16 @@ def test_a_validation_only_experiment_is_not_calibrated_but_is_validated(
     pid = CVS0DParamID.init_from_dict(config)
     assert 'experiment(s) [1] have no data_items' in capsys.readouterr().out
     spy = _RunSpy(monkeypatch)
+    # Every rank runs each step (they are collective, as in a calibration); rank 0 checks.
     pid.run()
-    if mpi_comm.Get_rank() != 0:
-        return
     pid.simulate_with_best_param_vals()
     pid.plot_outputs()
-    assert spy.calls and spy.experiments() == {0}, spy.calls
-
+    calibration_calls, calibration_experiments = list(spy.calls), spy.experiments()
     spy.calls.clear()
     pid.save_prediction_data()
+    if mpi_comm.Get_rank() != 0:
+        return
+    assert calibration_calls and calibration_experiments == {0}, calibration_calls
     assert 1 in spy.experiments()
     p = float(pid.param_id.best_param_vals[0])
     with open(os.path.join(pid.output_dir, validation.VALIDATION_RESULTS_FILE)) as f:
@@ -1044,12 +1056,10 @@ def test_subexperiment_idx_picks_the_segment_for_validation_and_features(
     config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
                                temp_generated_models_dir, obs_path)
     _generate(config, mpi_comm)
+    p, q = 0.5, 1.0                           # x < 2 decays, so max is the segment's start
+    pid = _on_every_rank(config, [p, q])
     if mpi_comm.Get_rank() != 0:
         return
-    p, q = 0.5, 1.0                           # x < 2 decays, so max is the segment's start
-    pid = CVS0DParamID.init_from_dict(config)
-    pid.set_best_param_vals(np.array([p, q]))
-    pid.save_prediction_data()
     with open(os.path.join(pid.output_dir, validation.VALIDATION_RESULTS_FILE)) as f:
         got = {item['data_item_name']: item for item in json.load(f)['items']}
     assert got['x_sub0']['model'] == pytest.approx(_x_exp1(p, t_obs), abs=2e-3)
@@ -1141,11 +1151,9 @@ def test_save_prediction_data_outputs_are_stable(
     config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
                                temp_generated_models_dir, obs_path)
     _generate(config, mpi_comm)
+    pid = _on_every_rank(config, [0.5, 1.0])
     if mpi_comm.Get_rank() != 0:
         return
-    pid = CVS0DParamID.init_from_dict(config)
-    pid.set_best_param_vals(np.array([0.5, 1.0]))
-    pid.save_prediction_data()
 
     written = sorted(f for f in os.listdir(pid.output_dir)
                      if f.startswith('prediction_variable_') or
