@@ -504,6 +504,16 @@ def test_the_zips_yaml_keeps_nothing_the_parser_works_out_again():
     assert sorted(out) == ['generated_model_path', 'generated_models_dir', 'param_id_output_dir']
 
 
+def test_the_zips_yaml_holds_the_reduction_paths_relative():
+    raw = {'param_id_output_dir': '/w',
+           'param_reduction_options': {'method': 'pca', 'sensitivity_dir': '/w/sensitivity/sa',
+                                       'output_dir': '/w/sensitivity/sa/param_reduction'}}
+    out = cuflynx_study._portable_user_inputs(raw, os.path.join('inputs', 'user_inputs'), '/w',
+                                              {}, {}, set())
+    assert out['param_reduction_options'] == {'method': 'pca', 'sensitivity_dir': 'sa',
+                                              'output_dir': 'param_reduction'}
+
+
 def test_export_points_each_yaml_at_the_version_its_own_run_used(study, tmp_path, clock,
                                                                  monkeypatch):
     """An edited obs_data gives a second version, and going back to the first content a third
