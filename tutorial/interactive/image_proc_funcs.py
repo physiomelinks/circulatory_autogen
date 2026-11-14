@@ -714,47 +714,11 @@ class VesselNetwork():
         self.vessel_df = self.vessel_df.drop('junc_type', axis=1)
         self.vessel_df = self.vessel_df.dropna(how='all')
 
-        ### // Add inlet and outlet modules to vessel_df // ###
-
-        inlet_vessels_all = np.array(self.vessel_df['inp_instances'])
-        outlet_vessels_all = np.array(self.vessel_df['out_instances'])
-
-        inlet_vessels_locs = np.where(inlet_vessels_all == None)[0]
-        outlet_vessels_locs = np.where(outlet_vessels_all == None)[0]
-
-        inlet_vessels_names = np.array(self.vessel_df.loc[inlet_vessels_locs, 'name'])
-        outlet_vessels_names = np.array(self.vessel_df.loc[outlet_vessels_locs, 'name'])
-
-        self.vessel_df.loc[inlet_vessels_locs, 'inp_instances'] = inlet_vessels_names + '_PI'
-        self.vessel_df.loc[outlet_vessels_locs, 'out_instances'] = outlet_vessels_names + '_PO'
-
-        # [MODIFIED] Added x, y, z extraction for Inlets
-        inlet_vessels_dict = {'name': inlet_vessels_names + '_PI',
-                              'module_subtype': np.repeat('nn', len(inlet_vessels_names)),
-                              'module_type': 'P_inlet',
-                              'inp_instances': np.repeat(None, len(inlet_vessels_names)),
-                              'out_instances': np.array(self.vessel_df.loc[inlet_vessels_locs, 'name']),
-                              'x': np.array(self.vessel_df.loc[inlet_vessels_locs, 'x']), # Copy parent x
-                              'y': np.array(self.vessel_df.loc[inlet_vessels_locs, 'y']), # Copy parent y
-                              'z': np.array(self.vessel_df.loc[inlet_vessels_locs, 'z'])  # Copy parent z
-                              }
-
-        # [MODIFIED] Added x, y, z extraction for Outlets
-        outlet_vessels_dict = {'name': outlet_vessels_names + '_PO',
-                              'module_subtype': np.repeat('nn', len(outlet_vessels_names)),
-                              'module_type': 'P_outlet',
-                              'inp_instances': np.array(self.vessel_df.loc[outlet_vessels_locs, 'name']), 
-                              'out_instances': np.repeat(None, len(outlet_vessels_names)),
-                              'x': np.array(self.vessel_df.loc[outlet_vessels_locs, 'x']), # Copy parent x
-                              'y': np.array(self.vessel_df.loc[outlet_vessels_locs, 'y']), # Copy parent y
-                              'z': np.array(self.vessel_df.loc[outlet_vessels_locs, 'z'])  # Copy parent z
-                              }
-        
-        inlet_vessels_df = pd.DataFrame(inlet_vessels_dict)
-        outlet_vessels_df = pd.DataFrame(outlet_vessels_dict)
-        
-        inlet_outlet_vessels_df = pd.concat([inlet_vessels_df, outlet_vessels_df], ignore_index=True)
-        self.vessel_df = pd.concat([self.vessel_df, inlet_outlet_vessels_df], ignore_index=True)
+        ### // Inlet and outlet vessels // ###
+        # They are left unconnected on their open side: model generation makes a boundary
+        # condition no module supplies (the inlet's u_in, the outlet's u_out) a parameter, which
+        # populate_parameter_array sets to the inlet and outlet pressures.
+        self.vessel_df = self.vessel_df.reset_index(drop=True)
         self.vessel_df['module_subtype'] = self.vessel_df['module_subtype'].astype(str) + '_micro'
 
         print('Network Solved!')
@@ -853,19 +817,24 @@ class VesselNetwork():
             if mod is None:
                 raise KeyError(f'No module config defines module_type {typeV!r} with module_subtype '
                                f'{typeBC!r} (vessel {nameV}).')
+            # the ports on a side with no neighbour: their boundary conditions are parameters
+            open_ports = [port for side, neighbours in (('entrance_ports', vessels_df.at[i, 'inp_instances']),
+                                                        ('exit_ports', vessels_df.at[i, 'out_instances']))
+                          if not str(neighbours).strip() for port in (mod.get(side) or [])]
+            open_port_vars = {var for port in open_ports for var in port.get('variables', [])}
             vars = mod['variables_and_units']
             nVars = len(vars)
             for j in range(nVars):
                 var = vars[j]
                 if var[-1]=='variable':
                     pass
-                elif var[-1]=='boundary_condition':
+                elif var[-1]=='boundary_condition' and var[0] not in open_port_vars:
                     pass
                 elif var[-1]=='global_constant':
                     var_new = [var[0], var[1]]
                     if var_new not in global_const:
                         global_const.append(var_new)
-                elif var[-1]=='constant':
+                elif var[-1] in ('constant', 'boundary_condition'):
                     var_name = var[0]+'_'+nameV
                     self.parameter_file_names[var_name] = f'{nameV}/{var[0]}'
                     new_row = {'variable_name': var_name,
@@ -913,9 +882,6 @@ class VesselNetwork():
 
         for vessel_name in vessel_name_series:
 
-            if (vessel_name.endswith('_PI') == True) | (vessel_name.endswith('_PO') == True): ### If the current 'vessel' is a pressure BC module...
-                continue ### Ignore current 'vessel'
-            
             variable_name_locs = self.parameter_df['variable_name'].str.contains(vessel_name, na=False) ### Get the boolean mask of parameter names with the current vessel name
             variable_names_with_vessel_name = self.parameter_df.loc[variable_name_locs, 'variable_name'] ### Get all parameter names with the current vessel_names
             extracted_parameter_types = variable_names_with_vessel_name.str.split('_' + vessel_name, n=1).str[0] ### Get the parameter name w/o the vessel name
@@ -967,8 +933,8 @@ class VesselNetwork():
                 based on its 'module_type'.
             2.  Calculates the hydraulic resistance of each vessel using the Hagen-Poiseuille equation.
             3.  Constructs a graph of the vascular network.
-            4.  Identifies pressure boundary conditions: vessels with 'PI' (pressure inlet) in their
-                name are high-pressure, and 'PO' (pressure outlet) are low-pressure.
+            4.  Identifies pressure boundary conditions: a vessel with no input vessel meets the
+                (high) inlet pressure, one with no output vessel the (low) outlet pressure.
             5.  Models the network as a system of linear equations weighted by conductance (1/resistance).
             6.  Solves the system to find the pressure at each internal vessel.
             7.  Returns a DataFrame with vessel name, calculated pressure, radius, and length.
@@ -1106,6 +1072,11 @@ class VesselNetwork():
                 for target_vessel in row['out_instances'] + row['inp_instances']:
                     if target_vessel in valid_vessel_names:
                         G.add_edge(source_vessel, target_vessel)
+                # the open ends: the inlet and outlet pressures, as boundary nodes of the solve
+                if not row['inp_instances']:
+                    G.add_edge(source_vessel, source_vessel + '_PI')
+                if not row['out_instances']:
+                    G.add_edge(source_vessel, source_vessel + '_PO')
 
             # --- 4. Identify Boundary and Internal Nodes ---
             boundary_pressures = {}
@@ -1178,13 +1149,14 @@ class VesselNetwork():
 
             vessel_param_df['u_0'] = vessel_param_df['vessel_name'].map(result_lookup_map)
 
-            for vessel_name in vessel_name_series:
-
-                if ('_PI' in vessel_name) | ('_PO' in vessel_name):
-
-                    P = copy(vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'u_0'].iloc[0])
-                    vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'u_0'] = np.nan
-                    vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'P'] = str(P)
+            # the pressure boundary conditions of the open ends (generation asks for them as the
+            # inlet vessels' u_in and the outlet vessels' u_out)
+            for _, row in network_vessels_df.iterrows():
+                at = vessel_param_df['vessel_name'] == row['name']
+                if not row['inp_instances'] and 'u_in' in vessel_param_df:
+                    vessel_param_df.loc[at, 'u_in'] = ARTERIAL_PRESSURE
+                if not row['out_instances'] and 'u_out' in vessel_param_df:
+                    vessel_param_df.loc[at, 'u_out'] = VENOUS_PRESSURE
 
             vessel_param_df['u_ext'] = vessel_param_df['u_ext'].replace('to_fill', 0.)
             vessel_param_df['theta'] = vessel_param_df['u_ext'].replace('to_fill', 0.)
