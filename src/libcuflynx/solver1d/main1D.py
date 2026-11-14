@@ -993,6 +993,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     # Time loop
     start = timing.time()
 
+    failed = False
     while run_one==True: # for it in range(NMAX):
         
         try:
@@ -1027,7 +1028,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 # wait for and read 0d time step data from coupler
                 parent_data_bytes = read_pipe_dt.read(FLOAT_SIZE * DATA_LENGTH)
                 if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                    sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe", file=sys.stderr)
+                    sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe")
                 
                 parent_data_dt = np.frombuffer(parent_data_bytes, dtype=np.float64)
                 dt0D = parent_data_dt[1]
@@ -1049,7 +1050,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 dtLoc = 0.0
                 if ODEsolver=='CVODE':
                     dtFrac = []
-                    weights = []
+                    substeps = coupling.CvodeSubstepWeights(dt, tolTime)
+                    weights = substeps.weights
+                    boundary_fluxes = [f for i in range(nVess) for f in (v[i].FnumQBCL, v[i].FnumQBCR)]
 
                 for i in range(nVess):
                     if ODEsolver=="PETSC":
@@ -1063,7 +1066,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                     # wait for and read 0d solver internal time step data from coupler
                     parent_data_bytes = read_pipe_dt.read(FLOAT_SIZE * DATA_LENGTH)
                     if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                        sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe", file=sys.stderr)
+                        sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe")
                     
                     parent_data_dt = np.frombuffer(parent_data_bytes, dtype=np.float64)
                     timeLoc = parent_data_dt[0]
@@ -1077,14 +1080,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                     
                     
                     if ODEsolver=="CVODE":
-                        if dtLoc<tolTime:
-                            weights.append( 0. )
-                        else:
-                            weights.append( dtLoc/dt )
-
-                        if round(np.sum(weights),8)>1.0:
-                            print("1d solver :: ERROR: Sum of integration weights > 1 : ", np.sum(weights), round(np.sum(weights),8), weights)
-                            sys.exit()
+                        substeps.add(timeLoc, dtLoc, boundary_fluxes)
+                        if substeps.overshoots():
+                            sys.exit(f"1d solver :: ERROR: Sum of integration weights > 1 : {substeps.total()} {weights}")
 
                     # print("1d solver :: sub-step ", count, " || ", time, dt, " || ", timeLoc, dtLoc, " || ",  (time+dt), timeLoc)
 
@@ -1095,14 +1093,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         pipeID = str(i+1)
                         if "port_volume_sum" in pipe_1d_0d_info[pipeID]:
                             if pipe_1d_0d_info[pipeID]["port_volume_sum"] == 1:
-                                print("ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.")
-                                sys.exit()
+                                sys.exit("1d solver :: ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.")
                         
                         # wait for and read data from coupler for each 1d-0d connection
                         # Read data as numpy array
                         parent_data_bytes = read_pipe[i].read(FLOAT_SIZE * DATA_LENGTH)
                         if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                            sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for pipe "+pipeID, file=sys.stderr)
+                            sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for pipe "+pipeID)
                         
                         parent_data.append( np.frombuffer(parent_data_bytes, dtype=np.float64) )
                         
@@ -1407,6 +1404,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         
         except Exception as e:
             print(f"1d solver :: Error: {e}", file=sys.stderr)
+            failed = True
             break
 
 
@@ -1433,6 +1431,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     print(f"1d solver :: 1D final time : {round(time,5)} s || Number of cardiac cycles : {int(round(time,5)/T0)}")
     print(f"1d solver :: Number of 1D iterations : {it}")
     print(f"1d solver :: 1D CPU time : {CPUtime} s") # in seconds (since the epoch)    
+    if failed:
+        sys.exit(1)  # a non-zero status tells the coupler the 1D side failed
     # print('#######################################################################')
 
 

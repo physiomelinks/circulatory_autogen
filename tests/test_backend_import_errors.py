@@ -8,13 +8,16 @@ That is not a cosmetic difference. A fresh CI runner where two MPI ranks import 
 can race on creating ``~/.config/myokit/myokit.ini``, and the resulting message told us myokit
 was not installed -- when it was, and the real error had already been discarded.
 """
+import warnings
+
 import pytest
 
 from libcuflynx.solver_wrappers import (
     BACKEND_IMPORT_ERRORS, _record_import_error, _unavailable_message, get_simulation_helper)
-from libcuflynx.solver_wrappers import opencor_helper
-from libcuflynx.solver_wrappers.opencor_helper import (
-    OpenCORUnavailableError, is_opencor_available, opencor_unavailable_message, require_opencor)
+from libcuflynx.solver_wrappers import libopencor_helper
+from libcuflynx.solver_wrappers.libopencor_helper import (
+    LibOpenCORUnavailableError, is_libopencor_available, libopencor_unavailable_message,
+    require_libopencor)
 
 
 @pytest.mark.unit
@@ -91,91 +94,99 @@ def test_every_optional_backend_records_its_failures():
 
 
 # ---------------------------------------------------------------------------
-# OpenCOR is the one backend that is not merely optional but *unshippable* (issue #436).
+# libOpenCOR (CVODE_libopencor) is an extra whose wheels need Python 3.12 or later, so asking for
+# it without it installed must say how to install it and what to use instead.
 #
-# `opencor` is provided by an OpenCOR install and is not on PyPI, so `pip install libcuflynx`
-# has every solver except CVODE_opencor. Before this, asking for it gave
-# `ModuleNotFoundError: No module named 'opencor'` -- or, on the implicit cellml default,
-# `TypeError: 'NoneType' object is not callable` -- neither of which tells a user that the
-# fix is one word in user_inputs.yaml.
-#
-# These tests force absence with monkeypatch rather than relying on the environment, so they
-# assert the same thing under plain pytest (no OpenCOR) and under ./run_pytest.sh in an
-# OpenCOR shell. They are deliberately NOT marked need_opencor.
+# These tests force absence with monkeypatch, so they assert the same thing whether or not this
+# interpreter has libopencor.
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def opencor_absent(monkeypatch):
-    """Make the OpenCOR backend look uninstalled, whatever this interpreter actually has."""
-    monkeypatch.setattr(opencor_helper, 'oc', None)
-    monkeypatch.setattr(opencor_helper, 'OPENCOR_IMPORT_ERROR',
-                        "ModuleNotFoundError: No module named 'opencor'")
+def libopencor_absent(monkeypatch):
+    """Make the libOpenCOR backend look uninstalled, whatever this interpreter actually has."""
+    monkeypatch.setattr(libopencor_helper, 'oc', None)
+    monkeypatch.setattr(libopencor_helper, 'LIBOPENCOR_IMPORT_ERROR',
+                        "ModuleNotFoundError: No module named 'libopencor'")
 
 
 @pytest.mark.unit
-def test_the_opencor_helper_module_imports_without_opencor():
-    """The module must be importable in a pip install: the factory imports every backend
-    eagerly, and so do a couple of plotting/utility modules. Only *using* it may fail."""
-    assert opencor_helper.SimulationHelper is not None
-    assert is_opencor_available() is (opencor_helper.oc is not None)
+def test_the_libopencor_helper_module_imports_without_libopencor():
+    """The factory imports every backend eagerly, so the module must import without
+    libopencor. Only using it may fail."""
+    assert libopencor_helper.SimulationHelper is not None
+    assert is_libopencor_available() is (libopencor_helper.oc is not None)
 
 
 @pytest.mark.unit
-def test_the_unavailable_message_names_the_drop_in_alternative(opencor_absent):
-    message = opencor_unavailable_message()
-    # the actual fix, not just the diagnosis
+def test_the_unavailable_message_names_the_extra_and_the_alternative(libopencor_absent):
+    message = libopencor_unavailable_message()
+    assert 'pip install "libcuflynx[libopencor]"' in message
+    assert '3.12' in message
     assert 'CVODE_myokit' in message
-    assert 'drop-in replacement' in message
-    # why it is missing, so nobody goes looking for a pip package that does not exist
-    assert 'PyPI' in message
-    assert 'pip install' in message
-    # and where the OpenCOR route is written down
-    assert opencor_helper.OPENCOR_DOCS_URL in message
-    assert 'getting-started' in message
 
 
 @pytest.mark.unit
-def test_requesting_cvode_opencor_without_opencor_explains_itself(opencor_absent):
-    """Through the factory, which is where a user's `solver: CVODE_opencor` lands."""
-    with pytest.raises(OpenCORUnavailableError) as excinfo:
-        get_simulation_helper(model_path='m.cellml', solver='CVODE_opencor',
+def test_requesting_cvode_libopencor_without_libopencor_explains_itself(libopencor_absent):
+    """Through the factory, which is where a user's `solver: CVODE_libopencor` lands."""
+    with pytest.raises(LibOpenCORUnavailableError) as excinfo:
+        get_simulation_helper(model_path='m.cellml', solver='CVODE_libopencor',
                               model_type='cellml', dt=0.01, sim_time=1.0)
 
     message = str(excinfo.value)
-    assert 'CVODE_myokit' in message
-    assert "No module named 'opencor'" in message
-    assert 'PyPI' in message
-    # RuntimeError is what get_simulation_helper documents for an unavailable backend, and
-    # what test_solvers.py's skip_on_error path catches; the new type must not break that.
+    assert "No module named 'libopencor'" in message
+    assert 'libcuflynx[libopencor]' in message
+    # RuntimeError is what get_simulation_helper documents for an unavailable backend.
     assert isinstance(excinfo.value, RuntimeError)
 
 
 @pytest.mark.unit
-def test_the_implicit_cellml_default_explains_itself_too(opencor_absent):
-    """Naming no solver at all still routes CellML models to OpenCOR, and used to die with
-    `TypeError: 'NoneType' object is not callable` from inside the factory."""
-    with pytest.raises(OpenCORUnavailableError) as excinfo:
-        get_simulation_helper(model_path='m.cellml', solver=None,
-                              model_type='cellml', dt=0.01, sim_time=1.0)
-
-    assert 'CVODE_myokit' in str(excinfo.value)
+def test_cvode_opencor_is_an_alias_for_cvode_libopencor():
+    """CVODE_opencor resolves to CVODE_libopencor with one FutureWarning, wherever the
+    name is given; it needs no libOpenCOR to resolve."""
+    from libcuflynx.parsers.PrimitiveParsers import validate_solver_info
+    from libcuflynx.parsers.solver_names import canonical_solver_name
+    with pytest.warns(FutureWarning, match='solver CVODE_opencor now runs libOpenCOR; '
+                                                'name it CVODE_libopencor'):
+        assert canonical_solver_name('CVODE_opencor') == 'CVODE_libopencor'
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert canonical_solver_name('CVODE_libopencor') == 'CVODE_libopencor'
+    with pytest.warns(FutureWarning):
+        validate_solver_info('CVODE_opencor', {'solver': 'CVODE_opencor'})
+    with pytest.warns(FutureWarning):
+        try:
+            get_simulation_helper(model_path='m.cellml', solver='CVODE_opencor',
+                                  model_type='cellml', dt=0.01, sim_time=1.0)
+        except Exception as exc:
+            # Without libOpenCOR the factory reaches CVODE_libopencor's own error;
+            # with it, the missing model file is the error.
+            assert 'opencor' in str(exc).lower() or 'm.cellml' in str(exc)
 
 
 @pytest.mark.unit
-def test_the_refusal_does_not_fire_when_opencor_is_present(monkeypatch):
-    """The failure mode to guard against: breaking real OpenCOR runs, which CI cannot catch
-    because CI has no OpenCOR. Standing in a sentinel for the module is the closest an
-    OpenCOR-less environment can get to asserting that require_opencor() is a no-op."""
-    monkeypatch.setattr(opencor_helper, 'oc', object())
-    assert is_opencor_available() is True
-    assert require_opencor() is None  # no raise, no return value
+def test_the_implicit_cellml_default_is_myokit(monkeypatch):
+    """Naming no solver routes a CellML model to CVODE_myokit, the schema's default."""
+    from libcuflynx import solver_wrappers
+    from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA
+    assert SOLVER_SCHEMA['default_solver_by_model_type']['cellml'] == 'CVODE_myokit'
+    built = []
+    monkeypatch.setattr(solver_wrappers, 'MyokitSimulationHelper',
+                        lambda *args, **kwargs: built.append(args) or 'myokit')
+    assert get_simulation_helper(model_path='m.cellml', solver=None, model_type='cellml',
+                                 dt=0.01, sim_time=1.0) == 'myokit'
 
 
 @pytest.mark.unit
-def test_a_broken_opencor_import_is_still_reported_as_broken(opencor_absent, monkeypatch):
-    """`import opencor` failing for a reason other than absence must keep saying so (#410),
-    rather than being flattened into the pip-install advice."""
-    monkeypatch.setattr(opencor_helper, 'OPENCOR_IMPORT_ERROR',
-                        'ImportError: libQt5Core.so.5: cannot open shared object file')
-    assert 'libQt5Core.so.5' in opencor_unavailable_message()
+def test_the_refusal_does_not_fire_when_libopencor_is_present(monkeypatch):
+    monkeypatch.setattr(libopencor_helper, 'oc', object())
+    assert is_libopencor_available() is True
+    assert require_libopencor() is None
+
+
+@pytest.mark.unit
+def test_a_broken_libopencor_import_is_still_reported_as_broken(libopencor_absent, monkeypatch):
+    """`import libopencor` failing for a reason other than absence must keep saying so (#410)."""
+    monkeypatch.setattr(libopencor_helper, 'LIBOPENCOR_IMPORT_ERROR',
+                        'ImportError: GLIBC_2.34 not found')
+    assert 'GLIBC_2.34' in libopencor_unavailable_message()

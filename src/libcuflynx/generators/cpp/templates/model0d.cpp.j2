@@ -52,9 +52,13 @@ int makeDirectories(const std::string &path)
 
 {% set CB = ', externalVariableCallback' if has_externals else '' %}
 {% if solver == 'CVODE' %}
-// Right-hand side for CVODE. dtLoc is the internal step CVODE is currently taking, or 0 when the
-// call is not the first of a new internal step (e.g. Newton or finite-difference Jacobian calls);
-// coupled models (the FV 1D solver) weight their own update with it.
+// Right-hand side for CVODE. dtLoc is the size h of the internal step attempt CVODE is taking, on
+// the first call of each attempt, and 0 on every other call (Newton iterations, Jacobian
+// differences, the initial step-size estimate). An attempt is new when CVODE's step count has
+// moved (the last attempt was accepted) or its step size has changed without it (the last attempt
+// failed its error test or nonlinear solve and is retried from the same time with a smaller h).
+// Coupled models (the FV 1D solver) weight their own update with it, and replace a failed
+// attempt's contribution with its retry's.
 static int cvodeRhs(sunrealtype voi_, N_Vector y, N_Vector yDot, void *userData)
 {
     Model0d *model = static_cast<Model0d *>(userData);
@@ -62,12 +66,11 @@ static int cvodeRhs(sunrealtype voi_, N_Vector y, N_Vector yDot, void *userData)
     long int nst;
     CVodeGetCurrentStep(model->cvodeMem(), &hcur);
     CVodeGetNumSteps(model->cvodeMem(), &nst);
-    double dtLoc;
-    if (nst == model->nstOld) {
-        dtLoc = 0.0;
-    } else {
+    double dtLoc = 0.0;
+    if (hcur > 0.0 && (nst != model->nstOld || hcur != model->hOld)) {
         dtLoc = hcur;
         model->nstOld = nst;
+        model->hOld = hcur;
     }
     model->tOld = voi_;
     model->computeRates(voi_, dtLoc, N_VGetArrayPointer_Serial(y), N_VGetArrayPointer_Serial(yDot),
@@ -200,7 +203,7 @@ void Model0d::reinitialiseSolver()
     if (solver != nullptr) {
         CVodeReInit(solver, voi, y);
         tOld = voi;
-        nstOld = 0; // CVodeReInit restarts CVODE's step count
+        resetStepReport();
     }
 {% endif %}
 }
@@ -254,7 +257,7 @@ void Model0d::initialiseVariablesAndComputeConstants()
         // y wraps the states array; restart CVODE from the initialised states.
         CVodeReInit(solver, voi, y);
         tOld = voi;
-        nstOld = 0; // CVodeReInit restarts CVODE's step count
+        resetStepReport();
     }
 {% endif %}
 }
@@ -295,6 +298,7 @@ int Model0d::solveOneStep(double dtLoc)
         // restart there (at order 1, small step) and carry on, as a coupled run does every step.
         for (int retry = 0; retry < 2 && (flag == CV_ERR_FAILURE || flag == CV_CONV_FAILURE); ++retry) {
             CVodeReInit(solver, voi, y);
+            resetStepReport();
             CVodeSetStopTime(solver, voiEnd);
             flag = CVode(solver, voiEnd, y, &voi, CV_NORMAL);
         }

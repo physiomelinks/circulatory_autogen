@@ -11,7 +11,7 @@ Those files should be added to the `[CA_dir]/resources` directory (or your custo
 
 - A generated model (see [Model Generation and Simulation](model-generation-simulation.md)).
 - `param_id_obs_path` and `params_for_id` files in your resources directory.
-- OpenCOR Python environment with MPI if running in parallel.
+- A Python environment with libcuflynx installed, and the `mpi` extra if running in parallel.
 
 
 ## Creating params_for_id file
@@ -109,7 +109,7 @@ calibration have a change in value (e.g. change in drug concentration, change in
 
 - **pre_times**: The amount of simulation that is done before you want to compare to observables or plot (this part of the simulation is thrown away. This
 is mainly used to simulate for an amout of time to reach steady state or periodic state. shape = (number of experiments)
-- **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Calibration runs it once, before the first evaluation, and every evaluation starts from its end state. Supported by the `CVODE_myokit`, `CVODE_opencor`, `casadi_python`, `python` (`solve_ivp`) and `aadc_python` backends; an emulator ignores it (its training already covered the warmup) and an `external_python` model raises, because its `run()` always starts from the initial condition. A traced input (`protocol_traces` / `protocol_shapes`) is held at its value at the start of experiment 0 during this warmup. It cannot be combined with a calibration parameter that sets a state's initial value: the frozen state would not move with that parameter, so the run stops with `OFFLINE_PRE_TIME_INIT_STATE_ERROR` (reformulate in terms of a constant parameter, e.g. total volume rather than initial LV volume). Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
+- **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Calibration runs it once, before the first evaluation, and every evaluation starts from its end state. Supported by the `CVODE_myokit`, `CVODE_libopencor`, `casadi_python`, `python` (`solve_ivp`) and `aadc_python` backends; an emulator ignores it (its training already covered the warmup) and an `external_python` model raises, because its `run()` always starts from the initial condition. A traced input (`protocol_traces` / `protocol_shapes`) is held at its value at the start of experiment 0 during this warmup. It cannot be combined with a calibration parameter that sets a state's initial value: the frozen state would not move with that parameter, so the run stops with `OFFLINE_PRE_TIME_INIT_STATE_ERROR` (reformulate in terms of a constant parameter, e.g. total volume rather than initial LV volume). Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
 - **sim_times**: The length in time of each subexperiment. shape=(number of experiments, number of subexperiments) -- Note: the shape isn't completely correct here, the number of subexperiments can be different for each experiment
 - **params_to_change**: A dictionary where the key is a parameter name and the entry is the assigned value of that parameter in each (experiment_idx, subexperiment_idx).
 - **experiment_colors**: The line color for the plots of each experiment. 
@@ -728,15 +728,15 @@ Before doing calibration, a solver for the model needs to be chosen
 - **model_type** defaults to `cellml`. A config that names a solver but no model_type takes
   that solver's model_type, so `solver: casadi_integrator` alone is a `casadi_python` run.
 - **solver** defines the solver family. Options depend on `model_type`:
-    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
+    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_libopencor` (libOpenCOR: the `libopencor` extra, Python 3.12 or later; no protocol traces or FSA gradients). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
     - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit` (on by default) compiles the model to C (see below).
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
       `casadi_integrator` when those are not given
-    - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_opencor`)
-    - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_opencor` and the C++ solvers)
+    - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
+    - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_libopencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
     - **jit** (`casadi_integrator`, default `true`): generate C for the model's right-hand side
       and its derivatives and compile it, once per process per model, timeline and options.
@@ -1093,7 +1093,7 @@ The realistic, many-parameter case: recover four enzyme v_max values from metabo
 True parameters: Vmax_GLK=226.452, Vmax_PGI=339.677, Vmax_PYK=1088.71, Vmax_GAPDH_f=1184.52.
 <!-- BENCHMARK_RESULTS_END -->
 
-The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.
+The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.
 
 ## Running parameter identification
 
@@ -1716,4 +1716,4 @@ You should have a calibrated model in `generated_models/[file_prefix]_[obs_file_
 
 - If you see `params_for_id_path ... does not exist`, confirm `params_for_id_file` or `file_prefix` and your `resources_dir`.
 - If you see `obs_dt is required for series entries`, add `obs_dt` to each series data item in `obs_data.json`.
-- If MPI errors occur, ensure OpenMPI/MPICH is installed and `mpi4py` is available in the OpenCOR environment.
+- If MPI errors occur, ensure OpenMPI/MPICH is installed and `mpi4py` is available in your environment (`pip install "libcuflynx[mpi]"`).

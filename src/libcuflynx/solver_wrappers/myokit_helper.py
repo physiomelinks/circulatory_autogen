@@ -286,7 +286,7 @@ def _is_trace_label(label):
 
 class SimulationHelper(ExperimentTimeMixin):
     """
-    Myokit-based solver wrapper matching the OpenCOR SimulationHelper interface.
+    Myokit-based solver wrapper with the common SimulationHelper interface.
 
     Key supported solver_info keys:
     - MaximumStep: mapped to Simulation.set_max_step_size
@@ -1339,7 +1339,7 @@ class SimulationHelper(ExperimentTimeMixin):
     def update_times(self, dt, start_time, sim_time, pre_time):
         # Preserve the current state across reset() so multi-sub-experiment
         # protocols continue from the previous sub-experiment's end state, matching
-        # the OpenCOR and solve_ivp backends. Myokit's reset() reverts to the
+        # the libOpenCOR and solve_ivp backends. Myokit's reset() reverts to the
         # *default* (initial) state; run() only set_state()s the end state, not the
         # default state, so without this restore every sub-experiment after the
         # first would restart from the model initial conditions.

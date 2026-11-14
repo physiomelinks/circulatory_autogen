@@ -54,7 +54,7 @@ def aadc_license_available():
 
 
 # ----------------------------------------------------------------------------------------
-# FitzHugh-Nagumo (fast, non-stiff, multi-modal) -- CI-safe (no OpenCOR)
+# FitzHugh-Nagumo (fast, non-stiff, multi-modal) -- runs in CI
 # ----------------------------------------------------------------------------------------
 
 def fitzhugh_nagumo_config(base_config, resources_dir, output_dir, generated_models_dir,
@@ -306,7 +306,6 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.json',
         'model_type': 'cellml',
-        # Myokit (not OpenCOR) so the gradient-free baselines run in CI without OpenCOR.
         'solver': 'CVODE_myokit',
         'pre_time': 20,
         'sim_time': 2,
@@ -462,7 +461,7 @@ def assert_three_compartment(result, mpi_comm):
 # Physiome Model Repository, not generated from CA's CSV module arrays. Demonstrates that the
 # benchmarks (and CA's calibration) can consume any valid CellML placed at the expected path.
 # Non-stiff, oscillatory -> multimodal (a wrong rate constant puts the oscillation out of phase
-# with the data, the same trap FitzHugh-Nagumo has). CI-safe (Myokit, no OpenCOR).
+# with the data, the same trap FitzHugh-Nagumo has). Runs in CI (Myokit).
 # ----------------------------------------------------------------------------------------
 
 # Ground-truth parameters the synthetic obs data was generated at (the model's own PMR values).
@@ -788,9 +787,8 @@ def assert_teusink(result, mpi_comm):
     mpi_comm.Barrier()
 
 
-# Registry: which benchmarks run in which context. 'ci' benchmarks must not need OpenCOR.
-# All current benchmarks run on Myokit/CasADi (no OpenCOR), so all are CI-enabled; the flag
-# is kept so a future OpenCOR-only benchmark can opt out of CI.
+# Registry: which benchmarks run in which context. All current benchmarks run on Myokit/CasADi,
+# so all are CI-enabled; the flag lets a benchmark too slow or too dependent for CI opt out.
 BENCHMARKS = {
     'fitzhugh_nagumo': {'run': run_fitzhugh_nagumo, 'assert': assert_fitzhugh_nagumo,
                         'ci': BENCHMARK_CI['fitzhugh_nagumo']},
