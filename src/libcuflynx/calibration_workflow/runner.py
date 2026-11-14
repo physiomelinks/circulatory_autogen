@@ -58,11 +58,13 @@ from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      resolve_workflow)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
-from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
+from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
+from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
                                                   WorkflowError, load_workflow,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
+from libcuflynx.utilities.mpi_utils import run_on_root
 from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
@@ -229,16 +231,7 @@ class _Run:
 
     def on_root(self, fn):
         '''``fn()`` on rank 0, its result (or the exception it raised) on every rank.'''
-        outcome = None
-        if self.rank == 0:
-            try:
-                outcome = ('ok', fn())
-            except BaseException as exc:  # noqa: B902 - re-raised on every rank below
-                outcome = ('error', exc)
-        outcome = self.comm.bcast(outcome, root=0)
-        if outcome[0] == 'error':
-            raise outcome[1]
-        return outcome[1]
+        return run_on_root(self.comm, fn)
 
     def step_dir(self, step_id):
         return os.path.join(self.output_dir, step_id)
@@ -618,23 +611,22 @@ class _Run:
     def _run_reduction(self, step, settings):
         def reduce():
             source = self.require_current(step.sensitivity_from, step.id)
-            reduction = SobolReduction.from_options(step.reduction)
+            reduction = ParamReduction.from_options(step.reduction)
             step_dir = self.step_dir(step.id)
             if os.path.isdir(step_dir):
                 shutil.rmtree(step_dir)
             os.makedirs(step_dir)
             out = reduced_params_for_id_path(self.output_dir, step.id)
             try:
-                ranked = reduction.reduce(source['sobol_indices'],
-                                          source['params_for_id_used'], out)
+                selected = reduction.reduce(source['sensitivity_dir'],
+                                            source['params_for_id_used'], out)
             except ValueError as exc:
                 raise WorkflowStepError(step.id, f'reducing "{step.sensitivity_from}": '
                                                  f'{exc}') from exc
             return {'sensitivity_step': step.sensitivity_from,
-                    'reduction': reduction.as_dict(),
-                    'selected': [{'parameter': name, 'score': float(score)}
-                                 for name, score in ranked],
-                    'kept_rows': len(ranked), 'params_for_id': out}
+                    'reduction': reduction.as_dict(), 'selected': selected,
+                    'kept_rows': len(selected), 'params_for_id': out,
+                    'report': os.path.join(step_dir, REDUCTION_REPORT_FILE)}
 
         return self.on_root(reduce)
 
@@ -1152,7 +1144,14 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     value set at the path the target names it by -- ``<vessel>/<variable>`` in a
     module array's file (a vessel inside a super instance, ``sys__C/q``, at ``sys/C/q``), the
     module's own path in a parameterisation. So the result reproduces the run without the
-    module library. Only ``path`` is written; the target's files are not changed.'''
+    module library. Only ``path`` is written; the target's files are not changed.
+
+    A merged value's leaf loses ``derivation`` and ``reason`` and gets origin ``calibrated``
+    (``parameters_file.calibrated_leaf``), or ``set_by_hand`` with the set step's reason, so
+    ``cuflynx-derive --write`` never overwrites it. The derived value is not lost: the target's
+    parameters file still holds it, its derivations file still calculates it
+    (``cuflynx-derive``), and the step's generated parameters file (``generated.parameters_path``
+    in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
     kind = pf.MODEL if target.kind == 'array' else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)
@@ -1163,11 +1162,13 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     for record in merged_parameters:
         name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
         place = pf.name_path(name, kind)
-        leaf = dict(pf.get_leaf(doc, place) or {'units': record.get('units', '')})
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
-        leaf.update(value='%.10g' % record['value'],
-                    data_reference=f'{how} workflow {workflow_name}, step '
-                                   f'{record["from_step"]} ({today})', **_how_set(record))
+        leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
+                                  '%.10g' % record['value'],
+                                  f'{how} workflow {workflow_name}, step '
+                                  f'{record["from_step"]} ({today})')
+        # a set step's value: origin set_by_hand, with its reason
+        leaf.update(_how_set(record))
         if 'sourced' in leaf:
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)

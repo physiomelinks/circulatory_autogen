@@ -15,8 +15,8 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 2,
-      "description": "The schema is closed (additionalProperties false; enums for a node's kind and an edge's style), so schema_version goes up whenever it gains or changes a kind, style or key, and a reader refuses a version it does not know. 2 added the figure and external node kinds and the writes and reads edge styles."
+      "const": 3,
+      "description": "The schema is closed (additionalProperties false; enums for a node's kind and an edge's style), so schema_version goes up whenever it gains or changes a kind, style or key, and a reader refuses a version it does not know. 2 added the figure and external node kinds and the writes and reads edge styles; 3 the derived origin and mark, and values calibrated before the run (origin calibrated, from_step null)."
     },
     "workflow": {
       "type": "object",
@@ -144,6 +144,7 @@
       "enum": [
         "calibrated",
         "measured",
+        "derived",
         "inherited",
         "set_by_hand",
         "unclassified"
@@ -217,7 +218,7 @@
             "string",
             "null"
           ],
-          "description": "The step that calibrated it."
+          "description": "The step of this run that calibrated it; null for every other value, including one calibrated before the run (origin calibrated in its parameters file)."
         },
         "data_reference": {
           "type": "string"
@@ -301,6 +302,7 @@
           "enum": [
             "calibrated",
             "measured",
+            "derived",
             "inherited",
             "set_by_hand",
             "unclassified",

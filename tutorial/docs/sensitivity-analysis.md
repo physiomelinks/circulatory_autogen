@@ -115,6 +115,73 @@ To run the script, use the following command (which utilizes **MPI for paralleli
 
 After successful execution, you will find the SA plots—including the first, second, and total order indices—in the directory specified by `output_dir`.
 
+## Parameter reduction
+
+A Sobol analysis can choose the parameters to calibrate, for two reasons:
+
+1. **Redundancy.** Parameters that move the data the same way cannot be told apart. Keep one
+   parameter per direction the data can fix. On the 3compartment study
+   (`benchmarks/param_reduction_3compartment`) calibrating all seven parameters is not
+   identifiable (the Fisher information is singular or has condition number about 1e16), while
+   the reduced fits have condition numbers of 12-16 and agree between seeds.
+2. **Noise-blindness.** A large Sobol index on an output that moves by less than its noise is
+   not worth fitting. The reduction measures every effect in units of the obs_data noise.
+
+With `do_param_reduction: true`,
+`run_sensitivity_analysis.sh` follows the Sobol run with a reduction and writes the kept entries
+of your params_for_id file as `reduced_params_for_id.json`, ready to calibrate:
+
+```yaml
+do_param_reduction: true
+param_reduction_options:
+  method: pca            # or sobol
+  # n_params: 3          # pca: at most this many; sobol: needed
+  # index_type: ST       # ST or S1
+  # min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)
+  # variance_fraction: 1.0  # pca; 1 = no relative cut
+  # min_index: 0.05      # pca
+  # criterion: max       # sobol
+  # threshold: 0.01      # sobol
+  # sensitivity_dir: ... # default sa_options.output_dir
+  # output_dir: ...      # default <sensitivity_dir>/param_reduction
+```
+
+**`method: pca`** (the default) asks how many independent ways the parameters move the data,
+and keeps one parameter for each:
+
+1. Each output over the Sobol samples is centred and divided by its obs_data `std` over the
+   square root of its `weight`, the scale the `gaussian_MLE` cost measures it on. A change of 1
+   is then one noise std.
+2. Principal component analysis of these scaled outputs gives modes: independent directions
+   in which the parameters move the data, largest variance first. A mode whose std is at least
+   `min_mode_std` (default 1, the noise) is **informative**; the others move the data by less
+   than the noise and cannot be fitted. Only the leading modes that together explain
+   `variance_fraction` of the variance are considered. The default, 1, is no relative cut. A
+   smaller value ignores the noise: a mode that moves the data by several noise stds but has a
+   small share of the variance can be dropped.
+3. Sobol indices are computed for each mode's score, from the same samples.
+4. Going through the informative modes, largest first, the reduction keeps the parameter, not
+   kept already, with the largest index for that mode. A mode that no free parameter reaches
+   `min_index` for is skipped. It stops after `n_params`, by default one per informative mode.
+
+The number of informative modes is an upper bound on how many parameters the data can tell
+apart. Two parameters that move the data the same way (only their product matters, say) share
+a mode, so only one is kept. A parameter that drives an output strongly, but by less than that
+output's noise, is not kept.
+
+**`method: sobol`** keeps the `n_params` parameters with the highest Sobol index over the
+outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the
+noise and counts correlated outputs separately.
+
+Both write `param_reduction.json`: the options and the kept parameters with their scores. For
+`pca` each kept parameter also has its mode, and the report lists every mode's std and variance
+share. `pca_modes.csv` holds each mode's loadings on the outputs, `pca_mode_sobol_indices.csv`
+the indices per mode (in the layout of the Sobol indices CSV), and `pca_mode_sobol_ST.png` a
+heatmap of them. A `pca` reduction reads `all_outputs_n<N>_Sobol_samples.csv`,
+`..._outputs.csv` and `sobol_problem.json`, which every Sobol run writes. In a calibration
+workflow, a `reduction` step does the same (see
+[calibration workflows](parameter-identification.md)).
+
 ## Deriving an observable from other observables
 
 Sensitivity analysis uses the same `data_items` as calibration, so a feature built from other

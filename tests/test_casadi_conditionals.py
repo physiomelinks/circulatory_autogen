@@ -53,19 +53,9 @@ def _load_generated_model(model_path):
 
 
 def _patch_casadi_math(module):
-    import casadi as ca
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import patch_casadi_math
 
-    for name, func in {
-        "log": ca.log,
-        "exp": ca.exp,
-        "sin": ca.sin,
-        "cos": ca.cos,
-        "tan": ca.tan,
-        "sqrt": ca.sqrt,
-        "floor": ca.floor,
-        "pow": ca.power,
-    }.items():
-        setattr(module, name, func)
+    patch_casadi_math(module)
 
 
 def _symbolic_compute_variables(model_path):
@@ -195,3 +185,80 @@ def test_casadi_solver_uses_full_variables_model_array(
     param_name = "parameters/K_p_pid_control"
     helper.set_param_vals([[param_name]], [[2.0]])
     assert helper.variables_model[helper.var_name_to_idx[param_name]] == 2.0
+
+
+_MATH_FUNCTIONS_CELLML = """<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="math_functions">
+  <component name="c">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="0" interface="public"/>
+    <variable name="a" units="dimensionless" initial_value="2.5" interface="public"/>
+    <variable name="b" units="dimensionless" initial_value="0.7" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><plus/>
+          <apply><tanh/><ci>a</ci></apply>
+          <apply><log/><logbase><cn cellml:units="dimensionless">10</cn></logbase><ci>a</ci></apply>
+          <apply><rem/><ci>a</ci><ci>b</ci></apply>
+          <apply><ceiling/><ci>a</ci></apply>
+          <apply><arcsinh/><ci>a</ci></apply>
+        </apply>
+      </apply>
+    </math>
+  </component>
+</model>
+"""
+
+
+@pytest.mark.unit
+def test_casadi_python_math_functions_are_casadis(tmp_path):
+    """tanh, log10, fmod, ceil and asinh run on CasADi symbols: math's give NaN (or raise) there."""
+    import math
+
+    import numpy as np
+
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import SimulationHelper
+
+    cellml = tmp_path / "math_functions.cellml"
+    cellml.write_text(_MATH_FUNCTIONS_CELLML)
+    model_path = PythonGenerator(str(cellml), output_dir=str(tmp_path), casadi_compat=True).generate()
+    helper = SimulationHelper(model_path, dt=0.1, sim_time=1.0,
+                              solver_info={"method": "cvodes", "max_step_size": 0.01, "max_num_steps": 5000})
+    assert helper.run()
+    x = np.asarray(helper.get_results([["c/x"]], flatten=True)).ravel()
+    a, b = 2.5, 0.7
+    rate = math.tanh(a) + math.log10(a) + math.fmod(a, b) + math.ceil(a) + math.asinh(a)
+    assert np.isfinite(x).all()
+    assert x[-1] == pytest.approx(rate * 1.0, rel=1e-8)
+
+
+# name -> (arguments inside the function's domain, reference value from Python's math)
+_MATH_POINTS = {
+    "log10": (2.5,), "ceil": (2.5,), "fmod": (2.5, 0.7),
+    "asin": (0.3,), "acos": (0.3,), "atan": (0.3,),
+    "sinh": (0.6,), "cosh": (0.6,), "tanh": (0.6,),
+    "asinh": (0.6,), "acosh": (1.7,), "atanh": (0.4,),
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", sorted(_MATH_POINTS))
+def test_patch_casadi_math_covers_function_on_symbols(name):
+    """Each of the 12 added math functions builds a CasADi graph that matches Python's math at a point."""
+    import math
+    import types
+
+    import casadi as ca
+
+    from libcuflynx.solver_wrappers.casadi_python_solver_helper import patch_casadi_math
+
+    args = _MATH_POINTS[name]
+    module = types.SimpleNamespace(**{name: getattr(math, name)})
+    patch_casadi_math(module)
+    syms = [ca.SX.sym(f"x{i}") for i in range(len(args))]
+    expr = getattr(module, name)(*syms)
+    assert isinstance(expr, ca.SX)
+    value = float(ca.Function("f", syms, [expr])(*args))
+    assert value == pytest.approx(getattr(math, name)(*args), rel=1e-12)

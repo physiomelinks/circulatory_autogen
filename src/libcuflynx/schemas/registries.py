@@ -25,7 +25,9 @@ def _registries():
                                                       TIME_COURSE_KINDS)
     from libcuflynx.parsers.PrimitiveParsers import PARAM_PRIOR_TYPES
     from libcuflynx.reporting.variable_mapping import KINDS as MAPPING_KINDS
-    from libcuflynx.sensitivity_analysis.parameter_reduction import INDEX_TYPES
+    from libcuflynx.sensitivity_analysis.parameter_reduction import (INDEX_TYPES, PATH_OPTIONS,
+                                                                     REDUCTIONS,
+                                                                     option_descriptors)
     from libcuflynx.sensitivity_analysis.sobol_ranking import CRITERIA
     from libcuflynx.utilities.config_schemas import VARIABLE_ACCESS, VARIABLE_KINDS
     from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES
@@ -49,9 +51,14 @@ def _registries():
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/prior/oneOf/1/properties/kind/enum'):
             list(PRIOR_KINDS),
         (CALIBRATION_WORKFLOW_SCHEMA,
-         '/$defs/step/properties/reduction/properties/index_type/enum'): list(INDEX_TYPES),
+         '/$defs/param_reduction_options/properties/method/enum'): list(REDUCTIONS),
         (CALIBRATION_WORKFLOW_SCHEMA,
-         '/$defs/step/properties/reduction/properties/criterion/enum'): list(CRITERIA),
+         '/$defs/param_reduction_options/properties/index_type/enum'): list(INDEX_TYPES),
+        (CALIBRATION_WORKFLOW_SCHEMA,
+         '/$defs/param_reduction_options/properties/criterion/enum'): list(CRITERIA),
+        # the param_reduction_options a workflow step may set: all but the paths
+        (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/param_reduction_options/properties'):
+            [name for name in option_descriptors() if name not in PATH_OPTIONS],
         # the settings a workflow may set: the keys of its settings object
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/settings/properties'): list(ALLOWED_SETTINGS),
         (VARIABLE_MAPPING_SCHEMA, '/$defs/row/properties/kind/anyOf/0/enum'): list(MAPPING_KINDS),

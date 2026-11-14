@@ -284,12 +284,29 @@ def load_workflow(source, module_library_dirs=None):
     return parse_workflow(raw, path=path, module_library_dirs=module_library_dirs)
 
 
+def _refuse_reduction_options_outside_reduction_steps(raw, where):
+    '''param_reduction_options belong to a reduction step's own settings, one set per step.'''
+    if not isinstance(raw, dict):
+        return
+    hint = ('param_reduction_options are the options of one reduction step: put them in that '
+            'step\'s "settings".')
+    if isinstance(raw.get('settings'), dict) and 'param_reduction_options' in raw['settings']:
+        raise WorkflowError(f'{where}: the workflow\'s settings have no param_reduction_options; '
+                            + hint)
+    for step in raw.get('steps') or []:
+        if (isinstance(step, dict) and step.get('kind', 'calibration') != 'reduction'
+                and 'param_reduction_options' in (step.get('settings') or {})):
+            raise WorkflowError(f'{where}: step "{step.get("id")}" is not a reduction step and '
+                                f'has no param_reduction_options; ' + hint)
+
+
 def parse_workflow(raw, path=None, module_library_dirs=None):
     where = path or 'calibration workflow'
     # The schema owns the file's structure (keys, types, enums, what each kind of step needs);
     # what follows reads it, and checks what spans keys and steps.
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
     from libcuflynx.schemas.validation import SchemaValidationError, validate
+    _refuse_reduction_options_outside_reduction_steps(raw, where)
     try:
         validate(CALIBRATION_WORKFLOW_SCHEMA, raw, source=where, what='calibration workflow')
     except SchemaValidationError as exc:
@@ -392,6 +409,22 @@ def _settings(value, base_dir):
     return settings
 
 
+def _reduction_options(options, label):
+    '''The full options of a reduction step (every option its method reads, defaults filled
+    in), checked by building the reduction. The paths are the workflow's to decide.'''
+    from libcuflynx.sensitivity_analysis.parameter_reduction import (PATH_OPTIONS,
+                                                                     ParamReduction)
+    paths = sorted(set(options) & set(PATH_OPTIONS))
+    if paths:
+        raise WorkflowError(f'{label}: a workflow reads the sensitivity_from step\'s results and '
+                            f'writes where it decides, so param_reduction_options has no '
+                            f'{paths}.')
+    try:
+        return ParamReduction.from_options(options).as_dict()
+    except ValueError as exc:
+        raise WorkflowError(f'{label}: {exc}') from exc
+
+
 def _prior_source(value):
     if isinstance(value, str):
         return PriorSource(step=value)
@@ -420,32 +453,46 @@ def _step(value, where, base_dir):
     if kind == 'identifiability' and not refs['result_from']:
         raise WorkflowError(f'{label}: an identifiability step needs "result_from", the '
                             f'calibration whose result it analyses.')
-    for options_key in ('reduction', 'set', 'sweep'):
+    # A reduction step's options are settings.param_reduction_options; set and sweep steps
+    # carry theirs under their own key.
+    for options_key in ('set', 'sweep'):
         if (kind == options_key) != (options_key in value):
             raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
                                 f'step, and a {options_key} step needs it.')
+    if 'reduction' in value:
+        raise WorkflowError(f'{label}: a reduction step\'s options go in '
+                            f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
 
     if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
-                                     'vessel', 'vessel_map', 'settings') if k in value)
+                                     'vessel', 'vessel_map') if k in value)
         if present:
             reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
                      else 'declares values for the target')
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
     if kind == 'set':
+        if 'settings' in value:
+            raise WorkflowError(f'{label}: a set step declares values for the target and has '
+                                f'no "settings".')
         entries = [_set_entry(entry) for entry in value['set']]
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=scale_sources(entries), set_values=entries,
                     description=value.get('description', '') or '')
     if kind == 'reduction':
-        options = value['reduction']
+        settings = dict(value.get('settings') or {})
+        other = sorted(set(settings) - {'param_reduction_options'})
+        if other:
+            raise WorkflowError(f'{label}: a reduction step\'s only setting is '
+                                f'"param_reduction_options", not {other}.')
+        options = dict(settings.get('param_reduction_options') or {})
+        if 'param_reduction_options' not in settings:
+            raise WorkflowError(f'{label}: a reduction step needs "settings": '
+                                f'{{"param_reduction_options": {{...}}}}.')
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=[refs['sensitivity_from']],
                     sensitivity_from=refs['sensitivity_from'],
-                    reduction={'top_n': options['top_n'],
-                               'index_type': options.get('index_type', 'ST'),
-                               'criterion': options.get('criterion', 'max'),
-                               'threshold': options.get('threshold')},
+                    reduction=_reduction_options(options, label),
+                    settings={'param_reduction_options': options},
                     description=value.get('description', '') or '')
 
     if value.get('on_target'):

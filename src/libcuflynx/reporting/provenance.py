@@ -2,15 +2,19 @@
 How a calibration workflow run's values were set: a graph of the run, and that graph as SVG.
 
 :func:`provenance_graph` reads a run's output directory alone, so it needs no module library.
-Its nodes are the model source, one node for each step, a node for the measured values and one
-for the values set by hand in the parameters files (when there are any), and the merged target
-the simulation runs. A sweep's node has no arrow onward: nothing takes its values. Each value the
-target uses is marked with what set it:
+Its nodes are the model source, one node for each step, a node each for the measured values, the
+derived values, the fixed constants of the derivations (when a derived value has any), the values
+set by hand in the parameters files and the values calibrated before
+the run (when there are any), and the merged target the simulation runs. A sweep's node has no
+arrow onward: nothing takes its values. Each value the target uses is marked with what set it:
 
-* **calibrated**: a step fitted it (the step's results and the run's merged parameters say so).
+* **calibrated**: a step fitted it (the step's results and the run's merged parameters say so),
+  or its entry in the parameters has origin ``calibrated`` (fitted before this run; its
+  data_reference says by what).
 * **set_by_hand**: a set step declared it, with its reason, or the ``origin`` of its entry in the
   parameters says so.
-* **measured**, **inherited**: the ``origin`` of its entry in the parameters.
+* **measured**, **derived**, **inherited**: the ``origin`` of its entry in the parameters
+  (``derived``: a parameter derivation calculated it from data).
 * **unclassified**: nothing says. A value is never counted as inherited by default.
 
 :func:`write_provenance` writes ``provenance_graph.json``, checked against
@@ -26,12 +30,15 @@ from xml.sax.saxutils import escape, quoteattr
 from libcuflynx.calibration_workflow.spec import INHERITED_BASE, scale_sources
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
+from libcuflynx.utilities.parameters_file import (CALIBRATED, DERIVED, INHERITED, MEASURED,
+                                                  SET_BY_HAND)
 
 #: The graph's schema is closed (no unknown keys; enums for a node's kind and an edge's style), so
 #: SCHEMA_VERSION goes up whenever the schema gains or changes a kind, style or key. A reader
 #: refuses a version it does not know rather than misdraw it. 2 added the figure and external
-#: node kinds and the writes and reads edge styles.
-SCHEMA_VERSION = 2
+#: node kinds and the writes and reads edge styles; 3 the derived origin and mark, and the box of
+#: values calibrated before the run (origin calibrated with no from_step).
+SCHEMA_VERSION = 3
 #: the schema versions this module reads
 SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION,)
 GRAPH_FILE = 'provenance_graph.json'
@@ -39,27 +46,30 @@ SVG_FILE = 'provenance.svg'
 SOURCE_NODE = '__source__'
 MEASURED_NODE = '__measured__'
 HAND_NODE = '__set_by_hand__'
+DERIVED_NODE = '__derived__'
+FIXED_NODE = '__fixed_constants__'
+EARLIER_NODE = '__calibrated_earlier__'
 TARGET_NODE = '__target__'
 #: the kind of the one box naming the files a sweep step or a figure script wrote
 FIGURE = 'figure'
 #: a script outside the workflow that reads its results (``external_figures``)
 EXTERNAL = 'external'
-CALIBRATED = 'calibrated'
-MEASURED, INHERITED, SET_BY_HAND = parameters_file.ORIGINS
 UNCLASSIFIED = 'unclassified'
 MIXED = 'mixed'
-MARKS = (CALIBRATED, MEASURED, INHERITED, SET_BY_HAND, UNCLASSIFIED)
+MARKS = (CALIBRATED, MEASURED, DERIVED, INHERITED, SET_BY_HAND, UNCLASSIFIED)
 CURRENT, STALE, MISSING = 'current', 'stale', 'missing'
 #: how many values the drawn box of hand-set or measured values lists; the graph has them all
 DRAWN_VALUES = 6
 
 _SOURCE_KEYS = ('fixed_from', 'priors_from', 'emulator_from', 'result_from', 'sensitivity_from',
                 'params_for_id_from')
-_MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', INHERITED: 'inherited',
-                SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified', MIXED: 'mixed'}
+_MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', DERIVED: 'derived',
+                INHERITED: 'inherited', SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified',
+                MIXED: 'mixed'}
 # mid-tones that read on a light and on a dark page
-_MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', INHERITED: '#8a8f98',
-                 SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4', MIXED: '#8a8f98'}
+_MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', DERIVED: '#1a9aa8',
+                 INHERITED: '#8a8f98', SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4',
+                 MIXED: '#8a8f98'}
 _STALE_COLOUR = '#d9483b'
 _EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4', 'writes': '2 3',
                 'reads': '2 3'}
@@ -135,8 +145,9 @@ def _graph_steps(run):
             'depends_on': depends, 'fixed_from': sources.get('fixed_from', []),
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
-            'reduction': raw.get('reduction'), 'set': raw.get('set'),
-            'sweep': raw.get('sweep'), 'on_target': bool(raw.get('on_target'))})
+            'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
+            'set': raw.get('set'), 'sweep': raw.get('sweep'),
+            'on_target': bool(raw.get('on_target'))})
     return steps
 
 
@@ -396,6 +407,33 @@ def _values_node(node_id, title, origin, values):
             'counts': _counts(values), 'parameters': values, 'inputs': []}
 
 
+def _fixed_constants(rows, values):
+    '''The fixed constants of the derivations that calculate the target's derived values, as
+    graph values named ``<derivation>/<constant>``, each once. A constant's origin is the one its
+    derivation declares, ``unclassified`` when it declares none. The ``fixed_constants`` key of
+    a derived row holds them as JSON text.'''
+    found = {}
+    for row, value in zip(rows, values):
+        if value['origin'] != DERIVED or not row.get(parameters_file.FIXED_CONSTANTS):
+            continue
+        for entry in json.loads(row[parameters_file.FIXED_CONSTANTS]):
+            origin = entry.get('origin')
+            origin = origin if origin in parameters_file.ORIGINS else UNCLASSIFIED
+            name = f'{entry["derivation"]}/{entry["name"]}'
+            found.setdefault(name, _value(
+                {'variable_name': name, 'value': entry['value'], 'units': entry.get('units', ''),
+                 'data_reference': entry.get('data_reference', ''),
+                 'reason': entry.get('reason', '')}, origin))
+    return list(found.values())
+
+
+def _fixed_line(value):
+    units = f' {value["units"]}' if value['units'] else ''
+    note = value['reason'] if value['origin'] == SET_BY_HAND else value['data_reference']
+    return (f'`{value["name"]}` = {value["value"]}{units}, {_MARK_LABELS[value["origin"]]}'
+            + (f': {note}' if note else ''))
+
+
 def provenance_graph(output_dir):
     '''The provenance graph of the workflow run in ``output_dir``, as a JSON-ready dict:
 
@@ -432,7 +470,8 @@ def provenance_graph(output_dir):
         return _value(dict(row, reason=record.get('reason', '')),
                       record.get('origin', CALIBRATED), record['from_step'])
 
-    values = [target_value(row) for row in _target_rows(run)]
+    rows = _target_rows(run)
+    values = [target_value(row) for row in rows]
     target_counts = _counts(values)
 
     for node in nodes:
@@ -440,7 +479,8 @@ def provenance_graph(output_dir):
         if step_id == TARGET_NODE:
             node.update(mark=None, status='done' if (result or {}).get('target_model')
                         else 'not_run', stale=any(stale.values()), counts=target_counts,
-                        parameters=[v for v in values if v['origin'] == CALIBRATED], inputs=[])
+                        parameters=[v for v in values if v['origin'] == CALIBRATED
+                                    and v['from_step'] is not None], inputs=[])
             continue
         step_result = run['steps'].get(step_id)
         done = _done(step_result)
@@ -490,13 +530,27 @@ def provenance_graph(output_dir):
               for s in steps if any(entry.get('of') == INHERITED_BASE
                                     for entry in s.get('set') or [])]
     for node_id, title, origin in ((MEASURED_NODE, 'Measured values', MEASURED),
-                                   (HAND_NODE, 'Values set by hand', SET_BY_HAND)):
-        # a set step's values are in its own box
+                                   (DERIVED_NODE, 'Derived values', DERIVED),
+                                   (HAND_NODE, 'Values set by hand', SET_BY_HAND),
+                                   (EARLIER_NODE, 'Values calibrated before this run',
+                                    CALIBRATED)):
+        # a step's values (calibrated, or declared by a set step) are in its own box
         given = [v for v in values if v['origin'] == origin and not v['from_step']]
         if given:
             extra.append(_values_node(node_id, title, origin, given))
             edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
                           'style': 'given'})
+    constants = _fixed_constants(rows, values)
+    if constants:
+        counts = _counts(constants)
+        # first in its row, so its arrow to the derived values (first in the next) crosses none
+        extra.insert(0, {'id': FIXED_NODE, 'title': 'Fixed constants of derivations',
+                         'kind': 'values', 'mark': _mark(counts),
+                         'lines': [_fixed_line(v) for v in constants], 'status': 'done',
+                         'stale': False, 'counts': counts, 'parameters': constants, 'inputs': []})
+        # a constant comes from a derived value the target uses, so the derived box exists
+        edges.append({'from': FIXED_NODE, 'to': DERIVED_NODE, 'label': 'constants of',
+                      'style': 'given'})
     for entry in _external_figures(run, result):
         from_node = TARGET_NODE if entry['from'] == 'target' else entry['from']
         if from_node != TARGET_NODE and from_node not in stale:
@@ -646,10 +700,17 @@ def _git_text(name, state):
     return f'{name}: {state["commit"][:10]}{dirty}'
 
 
-def _summary(counts):
-    '''The target's values by what set them, the unclassified always among them.'''
-    return ' · '.join(f'{counts.get(mark, 0)} {_MARK_LABELS[mark]}' for mark in MARKS
-                      if counts.get(mark) or mark == UNCLASSIFIED)
+def _summary(graph):
+    '''The target's values by what set them, the unclassified always among them, and, when the
+    derivations have fixed constants, how many of those are unclassified.'''
+    counts = graph['counts']
+    parts = [f'{counts.get(mark, 0)} {_MARK_LABELS[mark]}' for mark in MARKS
+             if counts.get(mark) or mark == UNCLASSIFIED]
+    fixed = next((n for n in graph['nodes'] if n['id'] == FIXED_NODE), None)
+    if fixed:
+        n = fixed['counts'].get(UNCLASSIFIED, 0)
+        parts.append(f'{n} unclassified constant{"" if n == 1 else "s"}')
+    return ' · '.join(parts)
 
 
 class ProvenanceVersionError(ValueError):
@@ -684,7 +745,7 @@ def provenance_svg(graph):
     Refuses a graph of a ``schema_version`` it does not read.'''
     check_schema_version(graph)
     places, lanes, width, height = _layout(graph)
-    footer = [f'Values of the target: {_summary(graph["counts"])}',
+    footer = [f'Values of the target: {_summary(graph)}',
               f'Output directory: {graph["workflow"]["output_dir"]}',
               _git_text('libcuflynx', graph['code'].get('libcuflynx_git')),
               _git_text('project', graph['code'].get('project_git')),
@@ -699,7 +760,7 @@ def provenance_svg(graph):
                                          break_on_hyphens=False)]
     total = height + _LINE * (len(footer) + 1)
     claim = (f'Provenance of calibration workflow {graph["workflow"]["name"]}: '
-             f'{_summary(graph["counts"])}.')
+             f'{_summary(graph)}.')
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {total:.0f}" '
              f'role="img" aria-label={quoteattr(claim)} font-family="sans-serif" '
              f'style="max-width:100%;height:auto">',
