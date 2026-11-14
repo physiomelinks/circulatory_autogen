@@ -1,7 +1,6 @@
-# import opencor as oc
 import numpy as np
 import os
-from libcuflynx.solver_wrappers.opencor_helper import SimulationHelper
+from libcuflynx.solver_wrappers.libopencor_helper import SimulationHelper
 from libcuflynx.utilities import paperPlotSetup
 paperPlotSetup.Setup_Plot(3)
 import matplotlib

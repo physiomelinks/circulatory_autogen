@@ -72,6 +72,9 @@ if [[ -n "$PIPE_DIR" ]]; then
     rm -f "$PIPE_DIR"/zero_to_* "$PIPE_DIR"/one_to_* "$PIPE_DIR"/parent_to_*
 fi
 
+# The 1D solver works on small arrays, where threaded BLAS only adds CPU load.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}" OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}" MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
+
 echo "*** RUNNING THE COUPLER NOW ***"
 
 "$FOLDERcoupler/build/coupler" "$FOLDERcpp/$FILEconfig" || exit 1

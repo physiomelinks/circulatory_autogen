@@ -1,7 +1,6 @@
 """
 Pytest configuration file for circulatory_autogen tests.
 
-This file sets up the test environment to work with OpenCOR's Python shell.
 It provides fixtures for test data, configuration, and deterministic randomness.
 """
 import os
@@ -251,8 +250,7 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """
-    Configure pytest to work with OpenCOR Python environment.
-    This ensures the src directory is in the Python path for imports.
+    Register the runtime markers and silence the terminal on non-root MPI ranks.
     """
     global _PYTEST_CONFIG
     _PYTEST_CONFIG = config
@@ -268,7 +266,7 @@ def pytest_configure(config):
         config.pluginmanager.set_blocked("terminalreporter")
 
     # Keep runtime marker registration aligned with pyproject strict markers.
-    config.addinivalue_line("markers", "need_opencor: tests requiring OpenCOR backend")
+    config.addinivalue_line("markers", "need_libopencor: skipped unless libopencor is installed")
     config.addinivalue_line("markers", "solver: solver-focused tests")
     # Ensure pytest-xdist group marker is registered (also in pyproject for strict markers)
     config.addinivalue_line("markers", "xdist_group(name): serialize a group of tests under pytest-xdist")
@@ -551,18 +549,17 @@ def project_root():
 
 
 @pytest.fixture(scope="session")
-def opencor_python_path():
+def configured_python_path():
     """
-    Fixture that attempts to read the OpenCOR Python shell path.
-    Returns None if the path cannot be determined.
+    The interpreter user_run_files/python_path.sh names, or None when it does not exist here.
     """
     root_dir = os.path.join(os.path.dirname(__file__), '..')
-    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
+    python_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
     
-    if os.path.exists(opencor_path_file):
+    if os.path.exists(python_path_file):
         try:
             # Read the shell script and extract the path
-            with open(opencor_path_file, 'r') as f:
+            with open(python_path_file, 'r') as f:
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
@@ -574,7 +571,7 @@ def opencor_python_path():
                         if os.path.exists(path):
                             return path
         except Exception as e:
-            pytest.skip(f"Could not read OpenCOR Python path: {e}")
+            pytest.skip(f"Could not read python_path.sh: {e}")
     
     return None
 
@@ -754,6 +751,22 @@ def test_model_configs():
     ]
 
 
+def skip_without_libopencor(items):
+    """Skip the ``need_libopencor`` tests when ``libopencor`` is not importable.
+
+    libOpenCOR's wheels need Python 3.12 or later, so on older interpreters the
+    CVODE_libopencor tests skip rather than fail.
+    """
+    import importlib.util
+    if importlib.util.find_spec('libopencor') is not None:
+        return
+    skip = pytest.mark.skip(reason='needs libopencor: pip install "libcuflynx[libopencor]" '
+                                   '(Python 3.12 or later)')
+    for item in items:
+        if 'need_libopencor' in item.keywords:
+            item.add_marker(skip)
+
+
 def drop_manual_tests(config, items):
     """Deselect the ``manual`` tests unless ``--run-manual`` was passed.
 
@@ -843,6 +856,7 @@ def pytest_collection_modifyitems(config, items):
 
     drop_manual_tests(config, items)
     select_ci_shard(config, items)
+    skip_without_libopencor(items)
 
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]

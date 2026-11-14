@@ -29,10 +29,9 @@
 # alternative is an ImportError raised inside rank 3 of an MPI job, which is a much worse
 # way to be told that `pip install -e .` was never run.
 #
-# Note that `python_path.sh` is not sourced here. It exists only for the OpenCOR route
-# (see the deprecation note at the top of it); someone who pip-installed libcuflynx has no
-# reason to have it configured. If you do want a specific interpreter -- OpenCOR's
-# `pythonshell`, or a venv you have not activated -- set CUFLYNX_PYTHON to it and the
+# Note that `python_path.sh` is not sourced here: it names run_pytest.sh's interpreter, and
+# someone who pip-installed libcuflynx has no reason to have it configured. If you do want a
+# specific interpreter -- a venv you have not activated -- set CUFLYNX_PYTHON to it and the
 # stage runs as `$CUFLYNX_PYTHON -m <module>`, which needs no entry point on PATH.
 
 require_cuflynx() {
@@ -74,7 +73,7 @@ require_cuflynx() {
         "" \
         "       Then re-run this script. In a new shell, activate the environment first." \
         "" \
-        "       Already have an interpreter with libcuflynx installed (OpenCOR's pythonshell," \
+        "       Already have an interpreter with libcuflynx installed (another venv," \
         "       a conda env, a venv you would rather not activate)? Point CUFLYNX_PYTHON at it:" \
         "" \
         "           CUFLYNX_PYTHON=/path/to/python ./${0##*/} ..." >&2
@@ -124,7 +123,7 @@ require_cuflynx_module() {
         "" \
         "       Then re-run this script. In a new shell, activate the environment first." \
         "" \
-        "       Already have an interpreter with libcuflynx installed (OpenCOR's pythonshell," \
+        "       Already have an interpreter with libcuflynx installed (another venv," \
         "       a conda env, a venv you would rather not activate)? Point CUFLYNX_PYTHON at it:" \
         "" \
         "           CUFLYNX_PYTHON=/path/to/python ./${0##*/} ..." >&2

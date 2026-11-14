@@ -714,91 +714,29 @@ class VesselNetwork():
         self.vessel_df = self.vessel_df.drop('junc_type', axis=1)
         self.vessel_df = self.vessel_df.dropna(how='all')
 
-        ### // Add inlet and outlet modules to vessel_df // ###
-
-        inlet_vessels_all = np.array(self.vessel_df['inp_instances'])
-        outlet_vessels_all = np.array(self.vessel_df['out_instances'])
-
-        inlet_vessels_locs = np.where(inlet_vessels_all == None)[0]
-        outlet_vessels_locs = np.where(outlet_vessels_all == None)[0]
-
-        inlet_vessels_names = np.array(self.vessel_df.loc[inlet_vessels_locs, 'name'])
-        outlet_vessels_names = np.array(self.vessel_df.loc[outlet_vessels_locs, 'name'])
-
-        self.vessel_df.loc[inlet_vessels_locs, 'inp_instances'] = inlet_vessels_names + '_PI'
-        self.vessel_df.loc[outlet_vessels_locs, 'out_instances'] = outlet_vessels_names + '_PO'
-
-        # [MODIFIED] Added x, y, z extraction for Inlets
-        inlet_vessels_dict = {'name': inlet_vessels_names + '_PI',
-                              'module_subtype': np.repeat('nn', len(inlet_vessels_names)),
-                              'module_type': 'P_inlet',
-                              'inp_instances': np.repeat(None, len(inlet_vessels_names)),
-                              'out_instances': np.array(self.vessel_df.loc[inlet_vessels_locs, 'name']),
-                              'x': np.array(self.vessel_df.loc[inlet_vessels_locs, 'x']), # Copy parent x
-                              'y': np.array(self.vessel_df.loc[inlet_vessels_locs, 'y']), # Copy parent y
-                              'z': np.array(self.vessel_df.loc[inlet_vessels_locs, 'z'])  # Copy parent z
-                              }
-
-        # [MODIFIED] Added x, y, z extraction for Outlets
-        outlet_vessels_dict = {'name': outlet_vessels_names + '_PO',
-                              'module_subtype': np.repeat('nn', len(outlet_vessels_names)),
-                              'module_type': 'P_outlet',
-                              'inp_instances': np.array(self.vessel_df.loc[outlet_vessels_locs, 'name']), 
-                              'out_instances': np.repeat(None, len(outlet_vessels_names)),
-                              'x': np.array(self.vessel_df.loc[outlet_vessels_locs, 'x']), # Copy parent x
-                              'y': np.array(self.vessel_df.loc[outlet_vessels_locs, 'y']), # Copy parent y
-                              'z': np.array(self.vessel_df.loc[outlet_vessels_locs, 'z'])  # Copy parent z
-                              }
-        
-        inlet_vessels_df = pd.DataFrame(inlet_vessels_dict)
-        outlet_vessels_df = pd.DataFrame(outlet_vessels_dict)
-        
-        inlet_outlet_vessels_df = pd.concat([inlet_vessels_df, outlet_vessels_df], ignore_index=True)
-        self.vessel_df = pd.concat([self.vessel_df, inlet_outlet_vessels_df], ignore_index=True)
+        ### // Inlet and outlet vessels // ###
+        # They are left unconnected on their open side: model generation makes a boundary
+        # condition no module supplies (the inlet's u_in, the outlet's u_out) a parameter, which
+        # populate_parameter_array sets to the inlet and outlet pressures.
+        self.vessel_df = self.vessel_df.reset_index(drop=True)
         self.vessel_df['module_subtype'] = self.vessel_df['module_subtype'].astype(str) + '_micro'
 
         print('Network Solved!')
 
     def generate_parameter_array(self, inp_data_dict=None):
+        """parameter_df for the module array in self.vessel_df: a row (value -1, TO_DO) for each
+        constant of each vessel's module, and the global constants with their defaults.
 
-        # --- LAZY LOAD & BYPASS ---
-        # import pandas as pd
-        
-        # 1. Setup Path to Source (Bypassing generate_param_array.py)
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.dirname(root_dir)
-        root_dir = os.path.dirname(root_dir)
-
-        # 3. Import Parsers
-        try:
-            from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
-            from libcuflynx.parsers.ModelParsers import CSV0DModelParser
-        except ImportError as e:
-            # libcuflynx has to be installed for this: pip install libcuflynx (or pip install -e .
-            # in a checkout). There is no path to fix up any more.
-            print(f"CRITICAL ERROR: Could not import libcuflynx.parsers ({e}). "
-                  f"Install the package with: pip install libcuflynx")
-            raise e
-        # -------------------------------
+        Modules are looked up the way model generation finds them (ModuleSources): the built-in
+        modules, module_config_user/ in a checkout, and the external_modules_dir /
+        module_library_dirs of ``inp_data_dict`` when one is given."""
+        from libcuflynx.utilities.module_library import ModuleSources
 
         print('Generating Parameter Array...')
 
-        user_inputs_dir = os.path.join(root_dir, 'user_run_files')
-
-        yaml_parser = YamlFileParser()
-        inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict)
-
-        file_prefix = inp_data_dict['file_prefix']
-        resources_dir = inp_data_dict['resources_dir']
-        vessels_csv_abs_path = inp_data_dict['vessels_csv_abs_path']
-        parameters_csv_abs_path = inp_data_dict['parameters_csv_abs_path']
-
-        parser = CSV0DModelParser(inp_data_dict)
-
-        vessels_df = vessels_df = pd.read_csv(parser.vessel_filename, header=0, dtype=str, skipinitialspace=True)
-        vessels_df = vessels_df.fillna('')
-
+        vessels_df = self.vessel_df.fillna('')
         nVess = vessels_df.shape[0]
+        module_registry = ModuleSources(inp_data_dict or {}).component_registry()
 
         column_types = {
             'variable_name': 'str',
@@ -807,26 +745,6 @@ class VesselNetwork():
             'data_reference': 'str'
         }
         self.parameter_df = pd.DataFrame(columns=column_types.keys()).astype(column_types)
-
-        # module_config_fold1 = root_dir_src + '/generators/resources/'
-        module_config_fold2 = root_dir + '/module_config_user/'
-        modules = []
-        # for filename in os.listdir(module_config_fold1):
-        #     if filename.endswith(".json"):
-        #         with open(os.path.join(module_config_fold1, filename), "r") as file:
-        #             temp_data = json.load(file)
-        #             if isinstance(temp_data, list):
-        #                 modules.extend(temp_data)
-        #             else:
-        #                 modules.append(temp_data)
-        for filename in os.listdir(module_config_fold2):
-            if filename.endswith(".json"):
-                with open(os.path.join(module_config_fold2, filename), "r") as file:
-                    temp_data = json.load(file)
-                    if isinstance(temp_data, list):
-                        modules.extend(temp_data)
-                    else:
-                        modules.append(temp_data)
 
         default_global_const = [['T', 'second', 1.0, 'user_defined'],
                                 ['rho',	'Js2_per_m5', '1040.0',	'known'],
@@ -895,28 +813,28 @@ class VesselNetwork():
             typeBC = vessels_df.at[i,'module_subtype']
             typeV = vessels_df.at[i,'module_type']
 
-            matches = [entry for entry in modules if entry.get('module_subtype')==typeBC and entry.get('module_type')==typeV]
-            if len(matches)>1:
-                sys.exit('ERROR :: multiple modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
-
-            if len(matches)==0:
-                sys.exit('ERROR :: no modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
-
-            mod = matches[0]
-            modType = mod['module_type']
+            mod = module_registry.get((typeV, typeBC))
+            if mod is None:
+                raise KeyError(f'No module config defines module_type {typeV!r} with module_subtype '
+                               f'{typeBC!r} (vessel {nameV}).')
+            # the ports on a side with no neighbour: their boundary conditions are parameters
+            open_ports = [port for side, neighbours in (('entrance_ports', vessels_df.at[i, 'inp_instances']),
+                                                        ('exit_ports', vessels_df.at[i, 'out_instances']))
+                          if not str(neighbours).strip() for port in (mod.get(side) or [])]
+            open_port_vars = {var for port in open_ports for var in port.get('variables', [])}
             vars = mod['variables_and_units']
             nVars = len(vars)
             for j in range(nVars):
                 var = vars[j]
                 if var[-1]=='variable':
                     pass
-                elif var[-1]=='boundary_condition':
+                elif var[-1]=='boundary_condition' and var[0] not in open_port_vars:
                     pass
                 elif var[-1]=='global_constant':
                     var_new = [var[0], var[1]]
                     if var_new not in global_const:
                         global_const.append(var_new)
-                elif var[-1]=='constant':
+                elif var[-1] in ('constant', 'boundary_condition'):
                     var_name = var[0]+'_'+nameV
                     self.parameter_file_names[var_name] = f'{nameV}/{var[0]}'
                     new_row = {'variable_name': var_name,
@@ -947,9 +865,7 @@ class VesselNetwork():
                                         'data_reference': 'TO_DO'}
                 self.parameter_df = pd.concat([self.parameter_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        self.write_parameters_file(parameters_csv_abs_path)
-                    
-        print('DONE :: Parameters array file for model '+file_prefix+' generated and saved.')
+        print('DONE :: Parameters array generated.')
 
     def populate_parameter_array(self):
 
@@ -966,9 +882,6 @@ class VesselNetwork():
 
         for vessel_name in vessel_name_series:
 
-            if (vessel_name.endswith('_PI') == True) | (vessel_name.endswith('_PO') == True): ### If the current 'vessel' is a pressure BC module...
-                continue ### Ignore current 'vessel'
-            
             variable_name_locs = self.parameter_df['variable_name'].str.contains(vessel_name, na=False) ### Get the boolean mask of parameter names with the current vessel name
             variable_names_with_vessel_name = self.parameter_df.loc[variable_name_locs, 'variable_name'] ### Get all parameter names with the current vessel_names
             extracted_parameter_types = variable_names_with_vessel_name.str.split('_' + vessel_name, n=1).str[0] ### Get the parameter name w/o the vessel name
@@ -1020,8 +933,8 @@ class VesselNetwork():
                 based on its 'module_type'.
             2.  Calculates the hydraulic resistance of each vessel using the Hagen-Poiseuille equation.
             3.  Constructs a graph of the vascular network.
-            4.  Identifies pressure boundary conditions: vessels with 'PI' (pressure inlet) in their
-                name are high-pressure, and 'PO' (pressure outlet) are low-pressure.
+            4.  Identifies pressure boundary conditions: a vessel with no input vessel meets the
+                (high) inlet pressure, one with no output vessel the (low) outlet pressure.
             5.  Models the network as a system of linear equations weighted by conductance (1/resistance).
             6.  Solves the system to find the pressure at each internal vessel.
             7.  Returns a DataFrame with vessel name, calculated pressure, radius, and length.
@@ -1159,6 +1072,11 @@ class VesselNetwork():
                 for target_vessel in row['out_instances'] + row['inp_instances']:
                     if target_vessel in valid_vessel_names:
                         G.add_edge(source_vessel, target_vessel)
+                # the open ends: the inlet and outlet pressures, as boundary nodes of the solve
+                if not row['inp_instances']:
+                    G.add_edge(source_vessel, source_vessel + '_PI')
+                if not row['out_instances']:
+                    G.add_edge(source_vessel, source_vessel + '_PO')
 
             # --- 4. Identify Boundary and Internal Nodes ---
             boundary_pressures = {}
@@ -1231,13 +1149,14 @@ class VesselNetwork():
 
             vessel_param_df['u_0'] = vessel_param_df['vessel_name'].map(result_lookup_map)
 
-            for vessel_name in vessel_name_series:
-
-                if ('_PI' in vessel_name) | ('_PO' in vessel_name):
-
-                    P = copy(vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'u_0'].iloc[0])
-                    vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'u_0'] = np.nan
-                    vessel_param_df.loc[vessel_param_df['vessel_name'] == vessel_name, 'P'] = str(P)
+            # the pressure boundary conditions of the open ends (generation asks for them as the
+            # inlet vessels' u_in and the outlet vessels' u_out)
+            for _, row in network_vessels_df.iterrows():
+                at = vessel_param_df['vessel_name'] == row['name']
+                if not row['inp_instances'] and 'u_in' in vessel_param_df:
+                    vessel_param_df.loc[at, 'u_in'] = ARTERIAL_PRESSURE
+                if not row['out_instances'] and 'u_out' in vessel_param_df:
+                    vessel_param_df.loc[at, 'u_out'] = VENOUS_PRESSURE
 
             vessel_param_df['u_ext'] = vessel_param_df['u_ext'].replace('to_fill', 0.)
             vessel_param_df['theta'] = vessel_param_df['u_ext'].replace('to_fill', 0.)

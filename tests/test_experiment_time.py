@@ -59,7 +59,7 @@ _PROTOCOL = {"pre_times": [0.5], "sim_times": [[1.0, 1.0]], "params_to_change": 
 # backend -> (model_type, solver, how the model file is made)
 _BACKENDS = {
     "myokit": ("cellml", "CVODE_myokit", "cellml"),
-    "opencor": ("cellml", "CVODE_opencor", "cellml"),
+    "libopencor": ("cellml", "CVODE_libopencor", "cellml"),
     "python": ("python", "solve_ivp", "python"),
     "casadi": ("casadi_python", "casadi_integrator", "casadi"),
     "aadc": ("aadc_python", "aadc_semi_implicit", "aadc"),
@@ -67,7 +67,7 @@ _BACKENDS = {
 }
 _SOLVER_INFO = {
     "myokit": {"MaximumStep": 0.01},
-    "opencor": {"MaximumStep": 0.01},
+    "libopencor": {"MaximumStep": 0.01},
     "python": {"method": "RK45"},
     "casadi": {"method": "cvodes"},
 }
@@ -90,7 +90,7 @@ def _model_file(kind, tmp_path):
 
 @pytest.mark.parametrize("backend", [
     "myokit",
-    pytest.param("opencor", marks=pytest.mark.need_opencor),
+    pytest.param("libopencor", marks=pytest.mark.need_libopencor),
     "python",
     "casadi",
     "aadc",

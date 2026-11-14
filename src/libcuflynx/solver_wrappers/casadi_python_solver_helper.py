@@ -138,7 +138,7 @@ class SimulationHelper(ExperimentTimeMixin):
     """
     CasADi-based solver for libCellML-generated Python modules.
 
-    Matches the key interface of the OpenCOR SimulationHelper:
+    Matches the key interface of the other SimulationHelper backends:
     - run()
     - update_times(dt, start_time, sim_time, pre_time)
     - get_results / get_all_results / get_all_variable_names
@@ -1042,7 +1042,7 @@ class SimulationHelper(ExperimentTimeMixin):
         self._post_process()
 
         # Record the integration end state so the next sub-experiment can continue from here
-        # (matching the Myokit/OpenCOR backends). The carry is applied in update_times, not by
+        # (matching the Myokit/libOpenCOR backends). The carry is applied in update_times, not by
         # mutating self.states here: self.states must stay at this run's initial condition so
         # post-run inspection (get_init_param_vals, a re-run, _post_process reference checks)
         # sees the same state it integrated from.
