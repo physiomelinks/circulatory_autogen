@@ -66,7 +66,7 @@ def test_refuses_an_n_to_m_node():
         check_vessel_nodes(df)
     message = str(err.value)
     assert '2 outlets meet 2 inlets at one node' in message
-    assert '2in2out_junction (vv)' in message and 'lumped vessel (vv)' in message
+    assert 'lumped vessel (vv)' in message and 'junction' not in message
 
 
 def test_accepts_a_split_and_a_merge_that_follow_the_rule():
