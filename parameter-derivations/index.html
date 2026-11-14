@@ -1,0 +1,1711 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/parameter-derivations/">
+      
+      
+        <link rel="prev" href="../methods-latex/">
+      
+      
+        <link rel="next" href="../example-3compartment-model/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Deriving parameters from experimental data - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#deriving-parameters-from-experimental-data" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Deriving parameters from experimental data
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coupling to External Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coupling to External Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/python-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Couple your own Python model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fenics-tissue-o2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FEniCS: tissue O2 and capillaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fenics-ne-varicosity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FEniCS: NE around a varicosity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fv-1d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1D finite-volume coupling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods-latex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing up a model and its calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deriving parameters from experimental data
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deriving parameters from experimental data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-inputs-input_items-in-obs_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The inputs: input_items in obs_data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-derivations-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The derivations file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The derivations file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-cellml-derivation-model-preferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A CellML derivation model (preferred)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-python-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Python function
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-parameters-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The parameters file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The parameters file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-derived-parameter-is-calibrated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a derived parameter is calibrated
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cuflynx-derive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cuflynx-derive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#packing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Packing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-inputs-input_items-in-obs_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The inputs: input_items in obs_data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-derivations-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The derivations file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The derivations file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-cellml-derivation-model-preferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A CellML derivation model (preferred)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-python-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Python function
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-parameters-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The parameters file
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The parameters file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-derived-parameter-is-calibrated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a derived parameter is calibrated
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cuflynx-derive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cuflynx-derive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#packing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Packing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="deriving-parameters-from-experimental-data">Deriving parameters from experimental data</h1>
+<p>Many parameters are calculated from measurements rather than measured: a bed's resistance from
+the mean arterial and central venous pressures and its flow, a compliance from stroke volume and
+pulse pressure. A <strong>derivations file</strong> records each calculation: its inputs, with their values,
+uncertainties and sources, the equation, and the parameters it sets. <code>cuflynx-derive</code> evaluates it,
+checks the values cached in the parameters file, and with <code>--write</code> updates them.</p>
+<p>Derivations are for data only. They never run inside a simulation; a parameter you calibrate stays a
+model parameter in <code>params_for_id</code>, and a derived value can be its starting value.</p>
+<h2 id="the-inputs-input_items-in-obs_data">The inputs: <code>input_items</code> in obs_data</h2>
+<p>A number a derivation reads that is not a calibration target goes in the obs_data's
+<code>input_items</code>, beside <code>data_items</code> and <code>prediction_items</code>. Input items are never scored, plotted or
+validated against.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">"input_items"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"data_item_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CVP_Smith2001"</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">,</span><span class="w"> </span><span class="nt">"std"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mmHg"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"data_reference"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Smith2001"</span><span class="p">,</span><span class="w"> </span><span class="nt">"comment"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Table 2, supine adults"</span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"data_item_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CO_Rowell1986"</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">1e-4</span><span class="p">,</span><span class="w"> </span><span class="nt">"std"</span><span class="p">:</span><span class="w"> </span><span class="mf">1e-5</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"m3_per_s"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"data_reference"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Rowell1986"</span><span class="p">,</span><span class="w"> </span><span class="nt">"comment"</span><span class="p">:</span><span class="w"> </span><span class="s2">"6 L/min"</span><span class="p">}</span>
+<span class="p">]</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data_item_name</code></td>
+<td>Required. Unique across the file's data, prediction and input items.</td>
+</tr>
+<tr>
+<td><code>value</code>, <code>unit</code></td>
+<td>Required. One number and its unit (a CellML unit name).</td>
+</tr>
+<tr>
+<td><code>std</code></td>
+<td>Its standard deviation.</td>
+</tr>
+<tr>
+<td><code>data_reference</code></td>
+<td>Where it comes from (a citation key, DOI or reference); carried into each derivation's inputs. An input item does not take <code>source</code>: one with it is refused, naming <code>data_reference</code> (a data item's <code>source</code> is still read as its <code>data_reference</code>, with a warning).</td>
+</tr>
+<tr>
+<td><code>comment</code>, <code>species</code>, <code>location</code></td>
+<td>Free text; not read.</td>
+</tr>
+<tr>
+<td><code>prob_dist_params</code></td>
+<td>The number as a distribution; not read yet.</td>
+</tr>
+</tbody>
+</table>
+<p>A derivation may also read a <code>data_item</code> with a constant value, when the same number is a
+calibration target and an input (mean arterial pressure, say): then the target and the input are
+one number.</p>
+<h2 id="the-derivations-file">The derivations file</h2>
+<p><code>&lt;name&gt;_derivations.json</code> sits beside the <code>&lt;name&gt;_parameters.json</code> it sets, with its CellML and
+Python files next to it or below it. Paths in it are relative to it.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"derivations"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"R_T0"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"MAP"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"data_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MAP"</span><span class="p">},</span>
+<span class="w">              </span><span class="nt">"CVP"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CVP_Smith2001"</span><span class="p">},</span>
+<span class="w">              </span><span class="nt">"Q"</span><span class="p">:</span><span class="w">   </span><span class="p">{</span><span class="nt">"parameter"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Systemic_T/Q_T0"</span><span class="p">}},</span>
+<span class="w">   </span><span class="nt">"outputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"R"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Systemic_T/R_T0"</span><span class="p">},</span>
+<span class="w">   </span><span class="nt">"cellml"</span><span class="p">:</span><span class="w"> </span><span class="s2">"derivations/systemic_resistance.cellml"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"comment"</span><span class="p">:</span><span class="w"> </span><span class="s2">"the bed's resistance from its pressure drop and flow"</span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Q_T0"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"CO"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CO_Rowell1986"</span><span class="p">},</span>
+<span class="w">              </span><span class="nt">"frac"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"parameter"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Systemic_T/frac"</span><span class="p">}},</span>
+<span class="w">   </span><span class="nt">"outputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"Q"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Systemic_T/Q_T0"</span><span class="p">},</span>
+<span class="w">   </span><span class="nt">"python"</span><span class="p">:</span><span class="w"> </span><span class="s2">"derivations/derivation_funcs.py:flow_share"</span><span class="p">}]}</span>
+</code></pre></div>
+<ul>
+<li><strong><code>inputs</code></strong> map each symbol to exactly one source: <code>parameter</code> (a path in the parameters file,
+  as in <code>params_for_id</code>: <code>instance/variable</code>, <code>heart/lv/E_A</code>, <code>global/R</code>), <code>input_item</code> or
+  <code>data_item</code>. Its units are the source's.</li>
+<li><strong><code>outputs</code></strong> map each symbol to the parameter it sets. The parameter must be in the parameters
+  file, with its units. Each parameter is set by one derivation at most.</li>
+<li><strong>Chains</strong>: an input may be another derivation's output (above, <code>R_T0</code> reads <code>Q_T0</code>).
+  Derivations run in the order their inputs need, whatever their order in the file; a loop is an
+  error.</li>
+<li><strong>Method</strong>: exactly one of <code>cellml</code> or <code>python</code>.</li>
+<li><strong><code>fixed_constants</code></strong> (<code>cellml</code> only): constants of the CellML model that keep their initial
+  value from the CellML file, such as the gas constant. See below.</li>
+</ul>
+<p>The structure is defined by <code>src/libcuflynx/schemas/derivations.schema.json</code>.</p>
+<h3 id="a-cellml-derivation-model-preferred">A CellML derivation model (preferred)</h3>
+<p>The equation is a CellML 2.0 model. Its inputs are constants named as the input symbols (their
+initial values are placeholders); its outputs are computed constants named as the output symbols.
+Every constant of the model must be an input or a fixed constant: one the derivation leaves out
+is an error, not its placeholder. The model may import units or components from other CellML files
+beside it or below it.</p>
+<p>A constant whose initial value is its value, such as a physical constant, is listed in the
+derivation's <code>fixed_constants</code> instead of its inputs:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"E_K"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"T"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"T_body"</span><span class="p">},</span><span class="w"> </span><span class="nt">"K_o"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"K_o"</span><span class="p">},</span>
+<span class="w">            </span><span class="nt">"K_i"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input_item"</span><span class="p">:</span><span class="w"> </span><span class="s2">"K_i"</span><span class="p">}},</span>
+<span class="w"> </span><span class="nt">"outputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"E"</span><span class="p">:</span><span class="w"> </span><span class="s2">"membrane/E_K"</span><span class="p">},</span>
+<span class="w"> </span><span class="nt">"cellml"</span><span class="p">:</span><span class="w"> </span><span class="s2">"derivations/nernst.cellml"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"fixed_constants"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"R"</span><span class="p">,</span><span class="w"> </span><span class="s2">"F"</span><span class="p">]}</span>
+</code></pre></div>
+<p><code>R</code> and <code>F</code> keep the values and units the CellML file gives them. Every other constant must still
+be an input, so a forgotten input is still an error. Naming a fixed constant that is not a
+constant of the model (a computed constant, or no variable at all), or that is also an input, is
+an error. Each derivation's result records its fixed constants with their values and units
+(<code>fixed_constants</code> of the result: <code>{"R": {"value": 8.314, "units": "J_per_K_per_mol"}}</code>), and
+<code>cuflynx-derive</code> prints them:</p>
+<div class="highlight"><pre><span></span><code>E_K (cellml)
+  fixed constant R = 8.314 J_per_K_per_mol (from the CellML file)
+  fixed constant F = 96485.0 C_per_mol (from the CellML file)
+  membrane/E_K: cached -0.0897, derived -0.0897 V
+</code></pre></div>
+<p>A fixed constant may say what set its value, as <code>{"name": "R", "origin": "measured",
+"data_reference": "[CODATA][2018][gas_constant]"}</code> (<code>origin</code>: <code>measured</code>, <code>inherited</code> or
+<code>set_by_hand</code>; <code>set_by_hand</code> needs a <code>reason</code>). <code>cuflynx-derive --write</code> records each derived
+parameter's fixed constants, with value, units and origin, in its <code>fixed_constants</code> key, and a
+calibration workflow's provenance diagram draws them in a "Fixed constants of derivations" box
+in the row above the derived values. A constant given as a bare name has no origin and is drawn
+<code>unclassified</code>.</p>
+<p>A number written in the equation itself (<code>&lt;cn&gt;</code>) needs no listing, but a named fixed constant
+shows its value and units where the derivation is reviewed.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">&lt;component</span><span class="w"> </span><span class="na">name=</span><span class="s">"derivation"</span><span class="nt">&gt;</span>
+<span class="w">  </span><span class="nt">&lt;variable</span><span class="w"> </span><span class="na">name=</span><span class="s">"MAP"</span><span class="w"> </span><span class="na">units=</span><span class="s">"Pa"</span><span class="w"> </span><span class="na">initial_value=</span><span class="s">"0"</span><span class="nt">/&gt;</span>
+<span class="w">  </span><span class="nt">&lt;variable</span><span class="w"> </span><span class="na">name=</span><span class="s">"CVP"</span><span class="w"> </span><span class="na">units=</span><span class="s">"Pa"</span><span class="w"> </span><span class="na">initial_value=</span><span class="s">"0"</span><span class="nt">/&gt;</span>
+<span class="w">  </span><span class="nt">&lt;variable</span><span class="w"> </span><span class="na">name=</span><span class="s">"Q"</span><span class="w"> </span><span class="na">units=</span><span class="s">"m3_per_s"</span><span class="w"> </span><span class="na">initial_value=</span><span class="s">"1"</span><span class="nt">/&gt;</span>
+<span class="w">  </span><span class="nt">&lt;variable</span><span class="w"> </span><span class="na">name=</span><span class="s">"R"</span><span class="w"> </span><span class="na">units=</span><span class="s">"J_s_per_m6"</span><span class="nt">/&gt;</span>
+<span class="w">  </span><span class="nt">&lt;math</span><span class="w"> </span><span class="na">xmlns=</span><span class="s">"http://www.w3.org/1998/Math/MathML"</span><span class="nt">&gt;</span>
+<span class="w">    </span><span class="nt">&lt;apply&gt;&lt;eq/&gt;&lt;ci&gt;</span>R<span class="nt">&lt;/ci&gt;</span>
+<span class="w">      </span><span class="nt">&lt;apply&gt;&lt;divide/&gt;&lt;apply&gt;&lt;minus/&gt;&lt;ci&gt;</span>MAP<span class="nt">&lt;/ci&gt;&lt;ci&gt;</span>CVP<span class="nt">&lt;/ci&gt;&lt;/apply&gt;&lt;ci&gt;</span>Q<span class="nt">&lt;/ci&gt;&lt;/apply&gt;</span>
+<span class="w">    </span><span class="nt">&lt;/apply&gt;</span>
+<span class="w">  </span><span class="nt">&lt;/math&gt;</span>
+<span class="nt">&lt;/component&gt;</span>
+</code></pre></div>
+<p>libCellML validates and analyses the model, and generates its Python code, which is evaluated
+once. Any issue is an error, including units that do not balance in an equation. An input whose
+units differ from its variable's but have the same dimension is converted (MAP in mmHg into <code>Pa</code>
+above, if the model defines <code>mmHg</code>); so is an output whose parameter is in other units of the same
+dimension. Units of different dimensions are an error. Implicit equations are refused: use a
+Python function for those. An output that is not a finite number (a division by zero flow, say) is
+an error.</p>
+<p>You can write the model in CellML Text and convert it with physiomelinks' <code>cellml-text-editor</code>, or
+edit it in PhLynx's Instance Editor (the CellML Text and Math Editor tabs) and export the
+component.</p>
+<h3 id="a-python-function">A Python function</h3>
+<p>For a calculation CellML cannot state (an implicit equation, a network solve), name a function as
+<code>file.py:function</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">flow_share</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span> <span class="n">units</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""The flow through a bed: its share of the cardiac output."""</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s1">'Q'</span><span class="p">:</span> <span class="n">inputs</span><span class="p">[</span><span class="s1">'CO'</span><span class="p">]</span> <span class="o">*</span> <span class="n">inputs</span><span class="p">[</span><span class="s1">'frac'</span><span class="p">]}</span>
+</code></pre></div>
+<p>It is called with <code>inputs</code> (<code>{symbol: value}</code>, in each source's units) and <code>units</code> (<code>{symbol:
+units}</code> for the inputs and outputs), and returns <code>{output symbol: value}</code> in the output parameters'
+units: it converts units itself. A template is in <code>funcs_user/derivation_funcs_example.py</code>.</p>
+<h2 id="the-parameters-file">The parameters file</h2>
+<p>A derived parameter keeps its value, as a cache every reader of the parameters file uses as it is,
+names its derivation, and has origin <code>derived</code> (a leaf with <code>derivation</code> and another origin, or
+none, is refused):</p>
+<div class="highlight"><pre><span></span><code><span class="nt">"R_T0"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">146654199.99999994</span><span class="p">,</span><span class="w"> </span><span class="nt">"units"</span><span class="p">:</span><span class="w"> </span><span class="s2">"J_s_per_m6"</span><span class="p">,</span>
+<span class="w">         </span><span class="nt">"data_reference"</span><span class="p">:</span><span class="w"> </span><span class="s2">"derived; derivation R_T0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"origin"</span><span class="p">:</span><span class="w"> </span><span class="s2">"derived"</span><span class="p">,</span><span class="w"> </span><span class="nt">"derivation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"R_T0"</span><span class="p">}</span>
+</code></pre></div>
+<p>The provenance diagram of a calibration workflow marks such a value <code>derived</code>.</p>
+<h3 id="when-a-derived-parameter-is-calibrated">When a derived parameter is calibrated</h3>
+<p>A derived value is only a calibration's start value. When a calibration fits the parameter, the
+calibrated leaf has origin <code>calibrated</code> and no <code>derivation</code>: <code>write_calibrated_parameters</code> (a
+workflow's <code>&lt;name&gt;_calibrated_parameters.json</code>) and generation with fit parameters
+(<code>cuflynx-generate True</code>) both write it so. <code>cuflynx-derive</code> prints a calibrated parameter's
+derived value but neither checks nor writes it, so <code>--write</code> can never overwrite a calibrated
+value.</p>
+<p>The derived value is not lost:</p>
+<ul>
+<li>the parameters file the calibration started from still has it, with its <code>derivation</code>: a
+  workflow writes only the calibrated file;</li>
+<li>the derivations file still calculates it: <code>cuflynx-derive</code> prints it beside the calibrated value;</li>
+<li>each workflow step's generated parameters file (<code>generated.parameters_path</code> in its result)
+  holds it as the value that step started from.</li>
+</ul>
+<h2 id="cuflynx-derive"><code>cuflynx-derive</code></h2>
+<div class="highlight"><pre><span></span><code>cuflynx-derive BVC_derivations.json --obs BVC_obs_data.json
+cuflynx-derive BVC_derivations.json --obs BVC_obs_data.json --write
+</code></pre></div>
+<p>The first evaluates every derivation and prints each parameter's cached and derived value. It exits
+0 when every cached value matches within a relative tolerance of 1e-9 and 1 otherwise, so a test or
+CI job can run it. A parameter that names a derivation that does not set it is reported too.
+<code>--write</code> writes the derived values into the parameters file, and adds <code>derivation</code> and origin
+<code>derived</code> to each output parameter; every other key and parameter is kept, and a calibrated
+parameter (origin <code>calibrated</code>) is left as it is. It exits 1 when a parameter still names a
+derivation that does not set it, which <code>--write</code> cannot fix: remove that <code>derivation</code> key. A file or
+derivation that cannot be read or evaluated is an error message and exit 2.</p>
+<p><code>--obs</code> may be given several times; <code>--parameters</code> names the parameters file when it is not
+<code>&lt;name&gt;_parameters.json</code> beside the derivations file. From Python:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.derivations</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span><span class="n">check_derivations</span><span class="p">,</span> <span class="n">evaluate_derivations</span><span class="p">,</span> <span class="n">load_derivations</span><span class="p">,</span>
+                                    <span class="n">read_parameters</span><span class="p">)</span>
+<span class="n">doc</span> <span class="o">=</span> <span class="n">read_parameters</span><span class="p">(</span><span class="s1">'BVC_parameters.json'</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">evaluate_derivations</span><span class="p">(</span><span class="n">load_derivations</span><span class="p">(</span><span class="s1">'BVC_derivations.json'</span><span class="p">),</span> <span class="n">doc</span><span class="p">,</span> <span class="p">[</span><span class="s1">'BVC_obs_data.json'</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">check_derivations</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">doc</span><span class="p">))</span>   <span class="c1"># [] when the cache is current</span>
+</code></pre></div>
+<p>Each result carries its inputs with their values, units, standard deviations and sources, and its
+fixed constants with their values and units, for a review page or a table.</p>
+<h2 id="packing">Packing</h2>
+<p><code>pack_workflow</code> (and <code>cuflynx-calibration-workflow --pack</code>) copies the derivations file beside each
+parameters file it packs, with the CellML and Python files it reads at the same paths relative to
+it, so they go into the OMEX archive CUFLynx makes from the pack. A CellML derivation model brings
+the CellML files it imports. A derivation's files must be in the derivations file's directory or
+below it. A module version from a library is packed whole, with its derivations.</p>
+<p>A study's working dir does the same: when the parameters file is copied into
+<code>inputs/system/&lt;date&gt;/</code>, its derivations file and the files it reads are copied beside it, and an
+edit to any of them makes a new dated copy.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
