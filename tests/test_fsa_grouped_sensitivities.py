@@ -52,7 +52,11 @@ class _FakePid:
 
     def __init__(self, param_id_info, eligible=('a/C', 'b/C')):
         self.param_id_info = param_id_info
-        self.obs_info = {"operands": [['v']], "const_idx_to_obs_idx": [0]}
+        # An operation with no exact_tangent rule, so the gradient is the difference along S
+        # through get_cost_from_operands below.
+        self.obs_info = {"operands": [['v']], "const_idx_to_obs_idx": [0],
+                         "data_types": ['constant'], "operations": ['mean_of_v']}
+        self.operation_funcs_dict = {'mean_of_v': np.mean}
         self.protocol_info = {"num_experiments": 1, "num_sub_per_exp": [1],
                               "sim_times": [[1.0]]}
         self.sim_helper = _FakeSimHelper({'v': {'a/C': _S_A, 'b/C': _S_B}}, eligible)
