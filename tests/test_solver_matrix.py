@@ -56,10 +56,12 @@ def _solver_info(backend, dt):
     if backend == 'CVODE_libopencor':
         # MaximumStep dt/10, as the reference runs. At MaximumStep dt, libOpenCOR is 1.7e-5 rms
         # off on 3compartment, and on control_parasymp its beat-2 atrial contraction starts ~60 ms
-        # late (chi_a 0.37 of its range off). That model's atrial clock (heart vp_wCont) steps at
-        # the atrial start without event location, so round-off there shifts the onset in about
-        # one run in 10-25 on any CVODE path and tolerance; dt/10 is a setting where it does
-        # not, not a fix. At dt/10 both models are within 2e-6 rms.
+        # late: shift-tolerant max 0.95 and scaled RMS 0.20 on heart_module/zeta_miv_pre, and a
+        # feature error of 0.37 on heart_module/chi_a, each relative to the state's range. That
+        # model's atrial clock (heart vp_wCont) steps at the atrial start without event location,
+        # so round-off there shifts the onset in about one run in 10-25 on any CVODE path and
+        # tolerance; dt/10 is a setting where it does not, not a fix. At dt/10 both models are
+        # within 2e-6 rms.
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt / 10,
                 'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'BE_batched_c':
