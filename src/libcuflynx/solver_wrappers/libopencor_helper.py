@@ -100,6 +100,10 @@ class SimulationHelper(ExperimentTimeMixin):
         self.cellml_path = cellml_path
         self.protocol_info = None
 
+        # libOpenCOR's FileManager hands back the File it already holds for a name, contents
+        # included, so each helper gets a name of its own (the counter): two helpers on the same
+        # CellML file would otherwise share, and overwrite, one File. False: the contents are set
+        # below, never read from that (virtual) path.
         self._file = oc.File(
             f'cuflynx-{os.getpid()}-{next(_file_counter)}-{os.path.basename(cellml_path)}', False)
         self._file.contents = list(self._flattened_model(cellml_path).encode('utf-8'))

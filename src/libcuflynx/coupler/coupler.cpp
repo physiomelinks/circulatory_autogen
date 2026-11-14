@@ -50,7 +50,12 @@ private:
     const char* char_T0;
     int nCC;
     const char* char_nCC;
-    // Seconds the coupler waits for one solver after the other has finished.
+    // Seconds the coupler waits for one solver after the other has finished. The two run in
+    // lock-step (every step and right-hand side waits on the other), so neither can be more than a
+    // step behind; after the last step each only closes its pipes and output files. In the coupled
+    // tests the second finished 0.1-0.2 s after the first (aortic_bif_hybrid_V1 over a 1.1 s
+    // period, cvs_model_with_arm_hybrid over 10 ms), so 60 s leaves a wide margin and still ends a
+    // hung run within a minute.
     double exit_grace_s = 60.0;
 
     std::string initStatePath;
@@ -665,10 +670,14 @@ public:
             bool failed = !childSucceeded(status);
             bool other_done = false;
             if (!failed) {
-                const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(exit_grace_s);
+                const auto first_done = std::chrono::steady_clock::now();
+                const auto deadline = first_done + std::chrono::duration<double>(exit_grace_s);
                 while (std::chrono::steady_clock::now() < deadline) {
                     if (waitpid(other, &status, WNOHANG) == other) {
                         other_done = true;
+                        std::cout << "Coupler :: the " << other_name << " finished "
+                                  << std::chrono::duration<double>(std::chrono::steady_clock::now() - first_done).count()
+                                  << " s after the " << first_name << std::endl;
                         break;
                     }
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
