@@ -262,8 +262,12 @@ def py(e):
             return f'(-({py(args[0])}))'
         if op in OPS:
             return '(' + OPS[op].join(f'({py(a)})' for a in args) + ')'
-        if op in ('floor', 'cos', 'sin', 'exp'):
+        if op in ('floor', 'cos', 'sin', 'exp', 'tanh'):
             return f'math.{op}({py(args[0])})'
+        if op in ('abs', 'ln'):
+            return f'{dict(abs="abs", ln="math.log")[op]}({py(args[0])})'
+        if op == 'root' and not any(_loc(a) == 'degree' for a in e[1:]):
+            return f'math.sqrt({py(args[0])})'
         if op in ('max', 'min'):
             return f'{op}(' + ', '.join(py(a) for a in args) + ')'
         if op == 'power':
@@ -280,7 +284,12 @@ def clock_functions(text, clock, values):
     v = CLOCKS[clock]
     root = etree.fromstring(text.encode())
     alg, ode = equations(component_of(root, v['floor']))
-    code = {k: py(e) for k, e in alg.items()}
+    code = {}
+    for k, e in alg.items():      # equations the clock does not need may use operators py() does not know
+        try:
+            code[k] = py(e)
+        except NotImplementedError:
+            code[k] = 'math.nan'
     comp = component_of(root, v['floor'])
     for var in comp.iter('{*}variable'):       # constants given as initial values (eps_1, eps_2)
         iv = var.get('initial_value')
