@@ -26,6 +26,7 @@ next release; add to that section as you land a change.
   state changes by round-off at the onset.
 - A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
   `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+<<<<<<< HEAD
 ### Added — `cuflynx-upgrade junctions`
 
 The module library (circulatory-autogen-modules) removes its junction module types: vessels whose
@@ -44,6 +45,8 @@ number of vessels at a node (node sums #609, node rule D #617).
   it suggests a lumped `vv` vessel between them.
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+=======
+>>>>>>> prep/648-after-643
 
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
@@ -64,7 +67,10 @@ number of vessels at a node (node sums #609, node rule D #617).
   (test-windows). `CUFLYNX_REQUIRED_BACKENDS` turns a skip for a backend the job installed into
   a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
   release (CONTRIBUTING.md).
+<<<<<<< HEAD
 
+=======
+>>>>>>> prep/648-after-643
 
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
