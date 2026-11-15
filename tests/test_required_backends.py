@@ -25,6 +25,9 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
     ('SUNDIALS not found by CMake (set SUNDIALS_DIR)', 'sundials'),
     ('needs CMake and a C compiler', 'cmake'),
     ("could not import 'libopencor'", 'libopencor'),
+    # the need_libopencor skip (conftest.skip_without_libopencor)
+    ('needs libopencor: pip install "libcuflynx[libopencor]" (Python 3.12 or later)',
+     'libopencor'),
     # not about a missing backend, or about one this job does not require
     ('casadi 3.7 cannot differentiate a jit-compiled integrator', None),
     ("could not import 'autoemulate'", None),
