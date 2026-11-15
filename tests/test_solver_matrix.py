@@ -58,8 +58,6 @@ def _solver_info(backend, dt):
         # opens where its pressure difference crosses zero, with no event location, and at
         # MaximumStep dt the switch time lands late in about 1 run in 30 (scaled RMS 1.74e-5 on
         # heart_module/zeta_miv_pre), with none at dt/3 or below. The valve law is a follow-up.
-        # dt/10 does not fix control_parasymp's atrial-onset failure: Myokit and libOpenCOR both
-        # hit it at any MaximumStep from dt to dt/10 (see _CLOCK_XFAIL).
         return {'rtol': 1e-8, 'atol': 1e-10, 'MaximumStep': dt / 10,
                 'MaximumNumberOfSteps': 10 ** 6}
     if backend == 'BE_batched_c':
@@ -258,21 +256,8 @@ def test_the_lotka_volterra_reference_matches_the_committed_golden(models):
 
 _PAIRS = [(b, m) for b, ms in MATRIX.items() for m in ms]
 
-# The heart clock of control_parasymp and control_phys_asd (CAM heart vp_wCont / cardiac_clock)
-# steps at the atrial onset with no event location, so round-off at that step can start the
-# atrial contraction 30-75 ms early or late, and every metric is then ~1 off. Myokit and
-# libOpenCOR both do it, in about 1 run in 8-10, at any MaximumStep from dt to dt/10. Non-strict:
-# a run that misses the step still passes. The clock fix (CAM #77 with #76, CA #648) removes it.
-_CLOCK_XFAIL = pytest.mark.xfail(
-    strict=False,
-    reason='heart clock atrial-onset round-off (vp_wCont / cardiac_clock, no event location) '
-           'shifts the onset in ~1 run in 8-10 on every backend; fixed by CAM #77 (with #76) '
-           'and CA #648, which remove this xfail')
-
-
 def _pair_param(backend, model):
-    marks = [_CLOCK_XFAIL] if model == 'control_parasymp' else []
-    return pytest.param(backend, model, marks=marks, id=f'{backend}-{model}')
+    return pytest.param(backend, model, id=f'{backend}-{model}')
 
 
 @pytest.mark.parametrize('backend, model', [_pair_param(b, m) for b, m in _PAIRS])
@@ -617,7 +602,6 @@ def control_phys_asd(tmp_path_factory):
             'names': state_names(cellml)}
 
 
-@_CLOCK_XFAIL
 def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
                                                             record_property):
     """control_phys_asd's chemoreflex divides by quantities that change sign. casadi_python
