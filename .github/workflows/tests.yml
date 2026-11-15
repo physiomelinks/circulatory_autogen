@@ -731,9 +731,9 @@ jobs:
         CUFLYNX_REQUIRE_PHLYNX: "1"
         # A test that skips because one of these is missing fails (tests/_required_backends.py):
         # this job installs them all, so such a skip means an install broke, not that the
-        # test does not apply. `.[dev]` installs libopencor on Python 3.12, where the solver
-        # matrix's CVODE_libopencor rows must run.
-        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,cmake,sundials${{ (matrix.python-version == '3.12' && matrix.shard == 'solver-matrix') && ',libopencor' || '' }}
+        # test does not apply. `.[dev]` installs libopencor on Python 3.12 only, so every 3.12
+        # shard requires it: its need_libopencor tests and CVODE_libopencor rows must run there.
+        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,cmake,sundials${{ matrix.python-version == '3.12' && ',libopencor' || '' }}
         CUFLYNX_TEST_CACHE: /home/runner/.cache/cuflynx-test-references
       run: |
         # Run the non-MPI suite. The need_libopencor tests run where `.[dev]` installed

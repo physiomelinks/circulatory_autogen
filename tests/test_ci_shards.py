@@ -76,6 +76,39 @@ def _sharded_jobs(partial=False):
     return found
 
 
+def _required_backends(env_value, matrix):
+    """CUFLYNX_REQUIRED_BACKENDS for one matrix entry: the workflow's ``${{ a && b || c }}``
+    expressions evaluated with that entry's values."""
+    def evaluate(match):
+        expression = re.sub(r'matrix\.([\w-]+)', lambda m: repr(str(matrix[m.group(1)])),
+                            match.group(1))
+        expression = expression.replace('&&', ' and ').replace('||', ' or ')
+        return str(eval(expression, {'__builtins__': {}}))
+    return set(re.sub(r'\$\{\{(.*?)\}\}', evaluate, env_value).split(','))
+
+
+def test_every_python_3_12_test_shard_requires_libopencor():
+    """`.[dev]` installs libopencor on 3.12 (pyproject), so a broken install must fail the
+    need_libopencor tests on every 3.12 shard rather than skip them green; 3.10 and 3.11 do
+    not install it, so there it is not required."""
+    with open(WORKFLOW) as f:
+        job = yaml.safe_load(f)['jobs']['test']
+    env = next(step['env']['CUFLYNX_REQUIRED_BACKENDS'] for step in job['steps']
+               if 'CUFLYNX_REQUIRED_BACKENDS' in step.get('env', {}))
+    matrix = job['strategy']['matrix']
+    excluded = [tuple(sorted(e.items())) for e in matrix.get('exclude', [])]
+    checked = 0
+    for version in matrix['python-version']:
+        for shard in matrix['shard']:
+            entry = {'python-version': version, 'shard': shard}
+            if tuple(sorted(entry.items())) in excluded:
+                continue
+            required = _required_backends(env, entry)
+            assert ('libopencor' in required) == (version == '3.12'), (entry, required)
+            checked += 1
+    assert checked > 0
+
+
 def test_the_workflow_shards_jobs():
     assert {suite for _, suite, _ in _sharded_jobs()} == set(SHARDS)
 
