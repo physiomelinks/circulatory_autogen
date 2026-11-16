@@ -1155,10 +1155,25 @@ anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
           emulator/                   an emulator trained elsewhere
           workflows/<workflow_name>/  a calibration workflow, packed (see Calibration workflows)
         user_inputs/user_inputs_<yymmdd>.yaml  each day's resolved config
-    <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
+    <prefix>_calibrated.cellml        the model with the best fit written in, from
+                                      CVS0DParamID.write_calibrated_model (a pipeline bundle's
+                                      run_pipeline.py writes it after its calibration)
+    <method>_<prefix>_<obs_data>/     each calibration, <method> its param_id_method
+    mcmc_<prefix>_<obs_data>/         the MCMC run (mcmc_chain.npy, its statistics and plots),
+                                      a directory of its own beside the calibration it follows
     sensitivity/                      Sobol and local sensitivity output
     emulators/                        trained emulators
 ```
+
+A calibration and the MCMC run that follows it each have a directory and an entry in the
+manifest's `runs`. The obs_data and params_for_id a run used are the copies in `inputs/` that
+its manifest entry names; a run with no working dir (`write_cuflynx_study: false` or
+`cuflynx_study_copy_inputs: false`) copies them into its run directory instead, with a
+`_<yymmdd>_<HHMMSS>` suffix.
+
+A pipeline bundle written by `cuflynx-generate-pipeline` is a working dir too: its
+`run_pipeline.py` writes the manifest, the run directories, `sensitivity/` and `inputs/` into
+the bundle folder.
 
 An input is copied when the manifest is written, once per content, into a folder named for the
 date-time (local time) it was first used, for example `inputs/obs_data/2026-10-31_091502/obs.json`.
