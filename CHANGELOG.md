@@ -120,6 +120,39 @@ number of vessels at a node (node sums #609, node rule D #617).
 - `workflow_model(..., 'target')` takes the obs_data, params_for_id and results of the last
   calibration on the target that has run, not the first, and marks merged values set by hand
   with their `origin` and `reason`.
+### Added — calibration workflows can express a GUI study
+
+- **A CellML model as a workflow's target and steps' model:**
+  `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` (`parameters` optional;
+  `spec.CellMLModel`, the builder's `cellml_model()`). Its parameters are its constants, named
+  `component/variable`. A step runs a flattened copy with its values written in
+  (`utility_funcs.change_parameter_values_and_save`, checked after writing), as
+  `model_type: cellml`. `write_calibrated` writes `<stem>_calibrated_parameters.json` and
+  `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
+- **`start_from`** on a calibration: a calibration or set step whose values of the step's own
+  parameters are where its fit starts (the model is generated with them, so they are x0). They
+  are not fixed. The builder's `add_calibration(start_from=)`.
+- **A `uq` step kind:** MCMC or a Laplace approximation (`UQ_options.method`: `mcmc`, `laplace`)
+  at `result_from` (a calibration or set step) or at the model's values, with no fit. It stores
+  its distribution (`<step>/distribution/`), which `priors_from` takes. The builder's
+  `add_uq()`. Outside a workflow, `param_id_run_script.run_uq(inp_data_dict, best_param_vals,
+  method)`, and `do_uq` with `method: laplace`. `ANALYSIS_OPTIONS['uq']` offers `laplace` and
+  its `num_samples`. A calibration with `store_distribution` and `method: laplace` is refused
+  (use a uq step).
+- **`emulator_dir`** on a calibration, sensitivity or uq step: an emulator trained outside the
+  workflow, in place of `emulator_from`; hashed into the step's inputs and packed.
+- An identifiability step's `result_from` is optional (the analysis is then at the model's
+  values), and `result_from` may name a set step.
+- After a calibration step, the observables at its best fit and the error vectors
+  (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
+  calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
+  identifiability or uq step its point (`at_source`).
+
+### Fixed
+
+- Local sensitivity analysis run from a configuration that names its obs_data and params_for_id
+  files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,
+  ground-truth data and params for id": its engine now reads those files itself.
 
 ### Added — external Python models in calibration workflows
 

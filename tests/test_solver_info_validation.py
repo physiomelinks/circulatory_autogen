@@ -511,7 +511,7 @@ def test_analysis_options_schema_well_formed():
         'include_prediction_items'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
-                           'num_tune', 'pymc_method', 'chain_save_every'}
+                           'num_tune', 'pymc_method', 'chain_save_every', 'num_samples'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     # num_points / range_factor / optimiser_options are the profile_likelihood settings.
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method',
@@ -732,7 +732,7 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # Only what is implemented may be offered: a menu entry a front-end can select but CA
         # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
         # surrogate methods and the pyMC backend land.
-        ('uq', 'method'): ['mcmc'],
+        ('uq', 'method'): ['mcmc', 'laplace'],
         # 'zeus' is still accepted by _build_sampler for backwards compatibility but is
         # deliberately not advertised: it is not a CA dependency and there is no extra that
         # installs it, so offering it in a menu would be a control that fails for most users.

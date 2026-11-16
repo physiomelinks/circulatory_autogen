@@ -140,6 +140,72 @@ class ResolvedExternal:
         return []
 
 
+@dataclass
+class ResolvedCellML:
+    '''A CellML model: its file and its constants (``{'component/variable': {value, units}}``),
+    with the values of its ``parameters`` file over them. Its vessels are the components.'''
+    model: object                  # spec.CellMLModel
+    constants: dict
+
+    kind = 'cellml'
+
+    @property
+    def parameters(self):
+        return {name: c['value'] for name, c in self.constants.items()}
+
+    @property
+    def parameters_path(self):
+        return self.model.parameters
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.constants}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+def read_cellml_parameters(model, where=''):
+    '''The constants of the CellML model ``model`` (a spec.CellMLModel) as ResolvedCellML holds
+    them, its parameters file's values over the CellML's. A name must be ``component/variable``
+    with a plain component, as a workflow names it as vessel and parameter; the parameters file
+    sets only constants of the model.'''
+    from libcuflynx.calibration_workflow.cellml_model import read_cellml_constants
+    from libcuflynx.utilities import parameters_file as pf
+    constants = read_cellml_constants(model.path, where)
+    for name in constants:
+        component = name.partition('/')[0]
+        if naming.LEVEL_SEPARATOR in component or naming.is_global(component):
+            raise WorkflowError(f'{where}: {model.path} has component "{component}"; a workflow '
+                                f'names a CellML model\'s parameters component/variable, with no '
+                                f'"{naming.LEVEL_SEPARATOR}" in the component and none named '
+                                f'"{naming.GLOBAL_VESSEL}".')
+    if model.parameters:
+        if not os.path.isfile(model.parameters):
+            raise WorkflowError(f'{where}: its parameters file {model.parameters} does not '
+                                f'exist.')
+        unknown = []
+        for place, leaf in pf.leaves(pf.read_parameters_file(model.parameters, kind=pf.MODEL)):
+            name = '/'.join(place)
+            if name not in constants:
+                unknown.append(name)
+                continue
+            try:
+                value = float(leaf.get('value'))
+            except (TypeError, ValueError) as exc:
+                raise WorkflowError(f'{where}: {model.parameters} gives "{name}" the value '
+                                    f'{leaf.get("value")!r}, not a number.') from exc
+            constants[name] = dict(constants[name], value=value)
+        if unknown:
+            raise WorkflowError(f'{where}: {model.parameters} sets {sorted(unknown)}, which are '
+                                f'not constants of {model.path} (its constants: '
+                                f'{sorted(constants)}).')
+    return constants
+
+
 def read_external_parameters(path, where=''):
     '''``{'component/variable': default}`` of the external model at ``path`` (its
     ``SIM_HELPER.parameters``, checked as the external helper checks them). A name must be
@@ -338,11 +404,10 @@ def resolve_workflow(workflow):
                                      selection=selection)
         for parameter in parameters:
             declared = f'{parameter.vessel}/{parameter.param}'
-            if model.kind == 'external' and declared not in model.parameters:
+            if model.kind in ('external', 'cellml') and declared not in model.parameters:
                 raise WorkflowError(
-                    f'{where}: {params_for_id or "its sweep"} names "{declared}", which the '
-                    f'external model {model.model.path} does not declare (SIM_HELPER.parameters: '
-                    f'{sorted(model.parameters)}).')
+                    f'{where}: {params_for_id or "its sweep"} names "{declared}", which '
+                    f'{_declares(model)}.')
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
                     f'{where}: {params_for_id} names vessel "{parameter.vessel}", which '
@@ -370,7 +435,7 @@ def resolve_workflow(workflow):
                               components=components, supermodules=supermodules)
     for step in workflow.steps:
         flows = step.fixed_from + [p.step for p in step.priors_from] + \
-            ([step.result_from] if step.result_from else [])
+            [s for s in (step.result_from, step.start_from) if s]
         for source in flows:
             mapped = result.map_between(source, step.id)
             if not any(mapped(p.vessel) for p in resolved[source].parameters):
@@ -402,10 +467,9 @@ def _resolve_set_step(step, target, claimed):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
                                 f'"{parameter.vessel}", which the target does not have (its '
                                 f'vessels: {sorted(target.vessels)}).')
-        if target.kind == 'external' and entry['parameter'] not in target.parameters:
-            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not declared by '
-                                f'the external model {target.model.path} (SIM_HELPER.parameters: '
-                                f'{sorted(target.parameters)}).')
+        if target.kind in ('external', 'cellml') and entry['parameter'] not in target.parameters:
+            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not '
+                                f'{_declared_by(target)}.')
         resolved.parameters.append(parameter)
         claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
     return resolved
@@ -422,9 +486,28 @@ def _swept_parameters(step, model):
     return parameters
 
 
+def _declares(model):
+    '''Why a name is not a parameter of a file model, for an error.'''
+    if model.kind == 'cellml':
+        return (f'is not a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'the external model {model.model.path} does not declare (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
+def _declared_by(model):
+    if model.kind == 'cellml':
+        return (f'a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'declared by the external model {model.model.path} (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
 def _resolve_model(model, components, supermodules, where):
     if model.kind == 'library':
         return _resolve_parameterisation(model, components, supermodules, where)
+    if model.kind == 'cellml':
+        return ResolvedCellML(model=model, constants=read_cellml_parameters(model, where))
     if model.kind == 'external':
         return ResolvedExternal(model=model, parameters=read_external_parameters(model.path, where))
     try:
@@ -443,7 +526,7 @@ def _resolve_model(model, components, supermodules, where):
 
 def _vessel_map(step, model, workflow_target, target, supermodules):
     '''How the step's model is named in the target (see the module docstring).'''
-    if model.kind == 'external':
+    if model.kind in ('external', 'cellml'):
         return naming.Renamed({}, model.vessels)    # the target is the same file
     if model.kind == 'array':
         mapping = dict(step.vessel_map)

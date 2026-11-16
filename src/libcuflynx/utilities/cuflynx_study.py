@@ -176,7 +176,8 @@ WORKFLOW_PATH_KEYS = ('file', 'source', 'result', 'manifest', 'run', 'module_arr
                       'generated_parameters',
                       'calibrated_parameters', 'param_id_output_dir', 'distribution_dir',
                       'sensitivity_dir', 'sobol_indices', 'emulator_dir', 'sweep_dir',
-                      'sweep_results')
+                      'sweep_results', 'calibrated_model', 'percent_error_vec',
+                      'error_vec_names', 'uq_output_dir', 'cellml_model_path')
 #: The ones naming the workflow's inputs, copied in when they are outside the working dir.
 WORKFLOW_INPUT_KEYS = ('file', 'source', 'module_array', 'parameters', 'obs_data',
                        'params_for_id')

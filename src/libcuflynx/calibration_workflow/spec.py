@@ -13,8 +13,12 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``emulation`` -- trains an emulator (``emulator_settings``) that later calibration and
   sensitivity steps run on through ``emulator_from``, with the emulation step's model; it may
   be trained on a reduction's parameters (``params_for_id_from``);
-* ``identifiability`` -- identifiability analysis (``ia_options``) at a calibration's result
-  (``result_from``);
+* ``identifiability`` -- identifiability analysis (``ia_options``) at a calibration's or set
+  step's values (``result_from``), or at the model's own values;
+* ``uq`` -- uncertainty quantification at a point, without a fit of its own: MCMC started there,
+  or a Laplace approximation there (``UQ_options.method``). The point is a calibration's or set
+  step's values (``result_from``), or the model's own values. It stores the distribution it
+  finds, so a later calibration may take it with ``priors_from``;
 * ``set`` -- declares values or scales by hand, each with a ``reason``. It runs nothing: later
   steps take its values with ``fixed_from``, and they reach the target as calibrated values do;
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
@@ -33,11 +37,17 @@ Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an
 * an external Python model, ``{"external_model_path": "model.py"}`` (a ``.py`` defining
   ``SIM_HELPER``, run as ``model_type: external_python``). It is never generated: a step runs
   the file with its values in an ``external_parameters_file``. A step with one needs the same
-  file as the target.
+  file as the target, or
+* a CellML model, ``{"cellml_model_path": "model.cellml", "parameters": "values.json"}``
+  (``parameters`` optional: a parameters file whose values replace the CellML's). Its parameters
+  are its constants, named ``component/variable``. A step runs a flattened copy with its values
+  written in. A step with one needs the same file as the target.
 
 Paths are relative to the workflow file. A step may take the calibrated values of earlier steps
 as fixed parameter values (``fixed_from``) or, from steps that stored their posterior
-(``store_distribution``), as priors (``priors_from``).
+(``store_distribution``, or a ``uq`` step), as priors (``priors_from``). A calibration may start
+its own parameters from an earlier step's values (``start_from``). A step may run on an emulator
+trained by an emulation step (``emulator_from``) or outside the workflow (``emulator_dir``).
 
 Only the file is checked here. Whether its files and modules exist, and where a step's model sits
 in the target, is checked in ``resolve.py``.
@@ -67,7 +77,7 @@ PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
-              'sweep')
+              'sweep', 'uq')
 DEFAULT_KIND = 'calibration'
 #: the kinds that name no model, and read no files of their own
 _NO_MODEL_KINDS = ('reduction', 'set')
@@ -75,17 +85,22 @@ _NO_MODEL_KINDS = ('reduction', 'set')
 INHERITED_BASE = 'inherited'
 #: the source keys of a step and the kinds of step each may name
 SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulation',),
-                'result_from': ('calibration',), 'sensitivity_from': ('sensitivity',),
-                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set')}
+                'result_from': ('calibration', 'set'), 'sensitivity_from': ('sensitivity',),
+                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set'),
+                'start_from': ('calibration', 'set'), 'priors_from': ('calibration', 'uq')}
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
 _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
-                                'sweep'),
-                 'emulator_from': ('calibration', 'sensitivity'),
-                 'result_from': ('sensitivity', 'identifiability', 'sweep'),
+                                'sweep', 'uq'),
+                 'emulator_from': ('calibration', 'sensitivity', 'uq'),
+                 'emulator_dir': ('calibration', 'sensitivity', 'uq'),
+                 'result_from': ('sensitivity', 'identifiability', 'sweep', 'uq'),
                  'sensitivity_from': ('reduction',),
-                 'params_for_id_from': ('calibration', 'emulation')}
+                 'params_for_id_from': ('calibration', 'emulation'),
+                 'start_from': ('calibration',)}
 #: the analysis options each kind needs in its settings
 _KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options'}
+#: the methods of a uq step (its ``UQ_options.method``), the first the default
+UQ_METHODS = ('mcmc', 'laplace')
 # a module array file's name is <prefix><suffix>
 ARRAY_SUFFIXES = ('_module_array.csv', '_module_array.json', '_vessel_array.csv',
                   '_vessel_array.json')
@@ -172,6 +187,35 @@ class ExternalModel:
         return {'external_model_path': self.path}
 
 
+@dataclass(frozen=True)
+class CellMLModel:
+    '''A CellML model file. Its parameters are its constants, named ``component/variable``; the
+    component is the vessel. ``parameters`` (optional) is a parameters file whose values replace
+    the CellML's.'''
+    path: str
+    parameters: str = None
+
+    kind = 'cellml'
+
+    @property
+    def prefix(self):
+        return self.label()
+
+    def label(self):
+        return os.path.splitext(os.path.basename(self.path))[0]
+
+    def as_dict(self):
+        out = {'cellml_model_path': self.path}
+        if self.parameters:
+            out['parameters'] = self.parameters
+        return out
+
+
+#: the model kinds that are one file run as it is: a workflow with one has it as its target and
+#: as every step's model
+FILE_MODEL_KINDS = ('external', 'cellml')
+
+
 def array_prefix(path):
     '''The file prefix of a module array file (``aorta`` for ``aorta_module_array.csv``).'''
     name = os.path.basename(path)
@@ -212,7 +256,9 @@ class Step:
     priors_from: list = field(default_factory=list)
     store_distribution: bool = False
     emulator_from: str = None      # an emulation step whose emulator (and model) this step uses
-    result_from: str = None        # a calibration step whose result this step analyses
+    emulator_dir: str = None       # an emulator trained outside the workflow, which it runs on
+    result_from: str = None        # a calibration or set step whose values this step analyses
+    start_from: str = None         # (calibration) the step its own parameters start from
     sensitivity_from: str = None   # (reduction) the Sobol step whose indices it reads
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
@@ -226,7 +272,8 @@ class Step:
         '''``{key: [step ids]}`` of every step this one takes something from.'''
         out = {'fixed_from': list(self.fixed_from),
                'priors_from': [p.step for p in self.priors_from]}
-        for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from'):
+        for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from',
+                    'start_from'):
             if getattr(self, key):
                 out[key] = [getattr(self, key)]
         scaled = scale_sources(self.set_values)
@@ -408,10 +455,15 @@ def _path(value, base_dir):
 def _model(value, base_dir):
     '''A ``model`` (or the workflow ``target``): a module array path, ``{"module_array",
     "parameters"}``, a library module ``{"module_type", "version", "parameterisation"}``, or
-    (a step's) a selection of the target's instances ``{"select": [...]}``, or an external
-    Python model ``{"external_model_path"}``.'''
+    (a step's) a selection of the target's instances ``{"select": [...]}``, an external
+    Python model ``{"external_model_path"}``, or a CellML model ``{"cellml_model_path",
+    "parameters"}``.'''
     if isinstance(value, str):
         value = {'module_array': value}
+    if 'cellml_model_path' in value:
+        return CellMLModel(_path(value['cellml_model_path'], base_dir),
+                           _path(value['parameters'], base_dir) if value.get('parameters')
+                           else None)
     if 'external_model_path' in value:
         return ExternalModel(_path(value['external_model_path'], base_dir))
     if 'select' in value:
@@ -468,20 +520,26 @@ def _step(value, where, base_dir):
     label = f'{where}: step "{step_id}"'
     kind = value.get('kind', DEFAULT_KIND)
     refs = {key: (value[key].strip() if value.get(key) else None) for key in
-            ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from')}
+            ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from',
+             'start_from')}
+    emulator_path = _path(value['emulator_dir'], base_dir) if value.get('emulator_dir') else None
     fixed_from = list(value.get('fixed_from', []))
     priors_from = [_prior_source(p) for p in value.get('priors_from', [])]
     store = value.get('store_distribution', False)
     for key, users in _SOURCE_USERS.items():
-        if dict(refs, fixed_from=fixed_from).get(key) and kind not in users:
+        if dict(refs, fixed_from=fixed_from, emulator_dir=emulator_path).get(key) and \
+                kind not in users:
             raise WorkflowError(f'{label}: a {kind} step has no "{key}" (it is for '
                                 f'{" and ".join(users)} steps).')
     if (priors_from or store) and kind != 'calibration':
         raise WorkflowError(f'{label}: "priors_from" and "store_distribution" are for '
                             f'calibration steps, not a {kind} step.')
-    if kind == 'identifiability' and not refs['result_from']:
-        raise WorkflowError(f'{label}: an identifiability step needs "result_from", the '
-                            f'calibration whose result it analyses.')
+    if emulator_path and refs['emulator_from']:
+        raise WorkflowError(f'{label}: "emulator_dir" and "emulator_from" both name the '
+                            f'emulator it runs on; give one.')
+    if refs['start_from'] and refs['emulator_from']:
+        raise WorkflowError(f'{label}: a step on an emulator ("emulator_from") runs on the '
+                            f'emulation step\'s model as it was given, so it has no "start_from".')
     # A reduction step's options are settings.param_reduction_options; set and sweep steps
     # carry theirs under their own key.
     for options_key in ('set', 'sweep'):
@@ -569,6 +627,7 @@ def _step(value, where, base_dir):
                 fixed_from=fixed_from, priors_from=priors_from, store_distribution=store,
                 emulator_from=refs['emulator_from'], result_from=refs['result_from'],
                 params_for_id_from=refs['params_for_id_from'],
+                start_from=refs['start_from'], emulator_dir=emulator_path,
                 sweep=_sweep(value['sweep']) if kind == 'sweep' else {},
                 settings=_settings(value.get('settings', {}), base_dir),
                 description=value.get('description', '') or '')
@@ -656,6 +715,8 @@ def check_workflow(workflow):
         if needed and not workflow.step_settings(step).get(needed):
             raise WorkflowError(f'{step.kind} step "{step.id}" needs "{needed}" in its settings '
                                 f'(or the workflow\'s).')
+        if step.kind == 'uq':
+            _check_uq_step(workflow, step)
         if step.kind == 'set':
             _check_set_step(workflow, step)
         if step.kind == 'sweep':
@@ -664,7 +725,8 @@ def check_workflow(workflow):
     for step in workflow.steps:
         prior_steps = [p.step for p in step.priors_from]
         for source in prior_steps:
-            if not workflow.step(source).store_distribution:
+            if workflow.step(source).kind == 'calibration' and \
+                    not workflow.step(source).store_distribution:
                 raise WorkflowError(
                     f'step "{step.id}" takes priors from "{source}", but "{source}" does not '
                     f'store its distribution. Set "store_distribution": true on "{source}".')
@@ -681,6 +743,11 @@ def check_workflow(workflow):
                 f'step "{step.id}" stores its distribution, which is sampled by MCMC after '
                 f'the fit, but no "UQ_options" are set for it (at least num_steps and '
                 f'num_walkers; see the UQ section of the parameter-identification docs).')
+        if step.store_distribution and uq_method(settings) != 'mcmc':
+            raise WorkflowError(
+                f'step "{step.id}" stores its distribution, which is an MCMC chain, but its '
+                f'UQ_options.method is {uq_method(settings)!r}. For a Laplace approximation at '
+                f'its fit, add a uq step with "result_from": "{step.id}".')
         if step.priors_from and not (step.store_distribution or uses_log_posterior(settings)):
             raise WorkflowError(
                 f'step "{step.id}" takes priors, but neither samples a posterior '
@@ -690,22 +757,56 @@ def check_workflow(workflow):
     return workflow
 
 
+_FILE_MODEL_WORDS = {'external': ('the external Python model', 'external_model_path'),
+                     'cellml': ('the CellML model', 'cellml_model_path')}
+
+
 def _check_external_models(workflow):
-    '''An external model is run as it is, so its steps calibrate the target itself: the target is
-    the same file, and every step that runs a model runs that file.'''
+    '''An external Python or a CellML model is run as it is, so its steps calibrate the target
+    itself: the target is the same file, and every step that runs a model runs that file. A
+    CellML model runs as model_type cellml.'''
     target = workflow.target
     steps = [s for s in workflow.steps if s.model is not None and not s.on_target]
-    external = [s.id for s in steps if s.model.kind == 'external']
-    if target.kind != 'external':
-        if external:
-            raise WorkflowError(f'steps {external} run an external Python model, so the target '
-                                f'must be that file ({{"external_model_path": ...}}); this '
-                                f'target is {target.label()}.')
+    for kind, (words, key) in _FILE_MODEL_WORDS.items():
+        named = [s.id for s in steps if s.model.kind == kind]
+        if named and target.kind != kind:
+            article = 'an' if kind == 'external' else 'a'
+            raise WorkflowError(f'steps {named} run {article}{words[3:]}, so the '
+                                f'target must be that file ({{"{key}": ...}}); this target is '
+                                f'{target.label()}.')
+    if target.kind not in FILE_MODEL_KINDS:
         return
+    words = _FILE_MODEL_WORDS[target.kind][0]
     other = [s.id for s in steps if s.model != target]
     if other:
-        raise WorkflowError(f'the target is the external Python model {target.path}, so every '
-                            f'step\'s model is that file; steps {other} name another model.')
+        raise WorkflowError(f'the target is {words} {target.path}, so every step\'s model is '
+                            f'that file; steps {other} name another model.')
+    if target.kind == 'cellml':
+        for where, settings in [('the workflow', workflow.settings)] + \
+                [(f'step "{s.id}"', workflow.step_settings(s)) for s in steps]:
+            model_type = settings.get('model_type', 'cellml')
+            if model_type != 'cellml':
+                raise WorkflowError(f'{where}: the target is the CellML model {target.path}, '
+                                    f'which runs as model_type cellml, not {model_type!r}.')
+
+
+def uq_method(settings):
+    '''The method of a uq step with these (merged) settings: ``UQ_options.method`` (the debug
+    options' when DEBUG is set), default mcmc.'''
+    options = (settings.get('debug_UQ_options') if settings.get('DEBUG') else None) or \
+        settings.get('UQ_options') or {}
+    return options.get('method', UQ_METHODS[0])
+
+
+def _check_uq_step(workflow, step):
+    settings = workflow.step_settings(step)
+    if not settings.get('UQ_options') and not settings.get('debug_UQ_options'):
+        raise WorkflowError(f'uq step "{step.id}" needs "UQ_options" in its settings (or the '
+                            f'workflow\'s): its method, and for mcmc num_steps and num_walkers.')
+    method = uq_method(settings)
+    if method not in UQ_METHODS:
+        raise WorkflowError(f'uq step "{step.id}": UQ_options.method is {method!r}; one of '
+                            f'{list(UQ_METHODS)}.')
 
 
 def _check_set_step(workflow, step):
