@@ -1,7 +1,10 @@
 """Run one model of the parameter-reduction study, after ``make_inputs.py``, under MPI::
 
-    mpiexec -n 4 python run_study.py <model> <out> [--num-samples 256] [--calls 3000]
-        [--seeds 0 1 2] [--methods full pca simple] [--stage all|sa]
+    mpiexec -n 8 python run_study.py <model> <out> [--num-samples 256] [--calls 3000]
+        [--patience 150] [--seeds 0 1 2] [--methods full pca simple] [--stage all|sa]
+
+CA's CMA-ES evaluates one generation of as many candidates as there are ranks, so run it on
+about as many ranks as CMA-ES's default population for the parameter count (8 for 5-7).
 
 1. Sobol analysis of all the parameters against the binned obs_data, followed by the PCA
    reduction (``do_param_reduction``, ``param_reduction_options: {method: pca}``), through
@@ -9,7 +12,8 @@
 2. The simple reduction: top-n by max ST, n the number the PCA reduction kept.
 3. CMA-ES calibrations against the series of all the parameters (``full``) and of each
    reduction, one per seed, through ``run_param_id``. The parameters a reduction drops keep
-   the model's defaults.
+   the model's defaults. A reduction that keeps the same parameters as a method run before it
+   reuses that method's fits.
 
 Each stage writes its result into ``<out>`` and is skipped when that result is there, so a
 stopped study resumes.
@@ -35,6 +39,14 @@ def main(argv=None):
     parser.add_argument('out')
     parser.add_argument('--num-samples', type=int, default=256)
     parser.add_argument('--calls', type=int, default=3000)
+    parser.add_argument('--optimiser', choices=('CMA-ES', 'multi_start'), default='CMA-ES',
+                        help='multi_start: multi_start_sp_minimize (L-BFGS-B, finite-difference '
+                             'gradients) from --starts Sobol-spread starts, as CA\'s benchmarks '
+                             'fit the oscillators; CMA-ES starts from the model\'s defaults')
+    parser.add_argument('--starts', type=int, default=16)
+    parser.add_argument('--patience', type=int, default=150,
+                        help='CMA-ES generations without improvement before it stops (its '
+                             'population is the number of MPI ranks)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2])
     parser.add_argument('--methods', nargs='+', choices=METHODS, default=list(METHODS))
     parser.add_argument('--stage', choices=('all', 'sa'), default='all')
@@ -72,26 +84,51 @@ def main(argv=None):
     comm.Barrier()
 
     from libcuflynx.scripts.param_id_run_script import run_param_id
+    sets = {}
     for method in args.methods:
         params_for_id = p['params_for_id'] if method == 'full' else reduced[method]
         with open(params_for_id) as f:
             targets = [entry['targets'][0] for entry in json.load(f)['params']]
+        # a set another method already calibrates is the same calibration: reuse its fits
+        same = next((m for m, t in sets.items() if set(t) == set(targets)), None)
+        sets[method] = targets
         for seed in args.seeds:
             fit_dir = os.path.join(p['fits'], f'{method}_s{seed}')
             result = os.path.join(fit_dir, 'result.json')
-            if os.path.isfile(result):
+            # decided on rank 0 for every rank: one that saw rank 0's freshly written result
+            # would skip the barrier the others wait at
+            if comm.bcast(os.path.isfile(result) if rank == 0 else None, root=0):
+                continue
+            if same is not None:
+                if rank == 0:
+                    with open(os.path.join(p['fits'], f'{same}_s{seed}', 'result.json')) as f:
+                        reused = json.load(f)
+                    os.makedirs(fit_dir, exist_ok=True)
+                    with open(result, 'w') as f:
+                        json.dump(dict(reused, method=method, same_as=f'{same}_s{seed}'), f,
+                                  indent=1)
+                    say(f'{method}, seed {seed}: the same parameters as {same}, reused')
+                comm.Barrier()
                 continue
             say(f'calibrating {method}, seed {seed}: {targets}')
-            run = run_param_id(raw_inputs(
-                spec, out, p['obs'], params_for_id, fit_dir, param_id_method='CMA-ES',
-                optimiser_options={'num_calls_to_function': args.calls, 'seed': seed,
-                                   'max_patience': 60, 'cost_convergence': 1e-10,
-                                   'cost_type': 'gaussian_MLE'}))
+            if args.optimiser == 'multi_start':
+                method_name, options = 'multi_start_sp_minimize', {
+                    'num_starts': args.starts, 'start_sampling': 'sobol', 'seed': seed,
+                    'no_new_starts_on_convergence': False, 'cost_type': 'gaussian_MLE'}
+            else:
+                method_name, options = 'CMA-ES', {
+                    'num_calls_to_function': args.calls, 'seed': seed,
+                    'max_patience': args.patience, 'cost_convergence': 1e-10,
+                    'cost_type': 'gaussian_MLE'}
+            run = run_param_id(raw_inputs(spec, out, p['obs'], params_for_id, fit_dir,
+                                          param_id_method=method_name, do_ad=False,
+                                          optimiser_options=options))
             if rank == 0:
                 with open(result, 'w') as f:
                     json.dump({'method': method, 'seed': seed, 'calibrated': targets,
                                'best': [float(v) for v in run['best_param_vals']],
-                               'params_for_id': params_for_id,
+                               'params_for_id': params_for_id, 'optimiser': method_name,
+                               'optimiser_options': options,
                                'param_id_output_dir': run['output_dir']}, f, indent=1)
             comm.Barrier()
     say('done')
