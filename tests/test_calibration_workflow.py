@@ -1356,3 +1356,14 @@ def test_new_style_reduction_set_and_sweep_steps_validate_together(library):
     workflow = parse_workflow(raw, path=library['chain_analysed'])
     assert [workflow.step(i).kind for i in ('reduce', 'hand', 'dose')] == [
         'reduction', 'set', 'sweep']
+
+
+@pytest.mark.unit
+def test_debug_without_debug_uq_options_falls_back_to_uq_options():
+    """DEBUG on with no ``debug_UQ_options`` uses ``UQ_options``, not a KeyError."""
+    from libcuflynx.scripts.param_id_run_script import select_uq_options
+    settings = {'DEBUG': True, 'UQ_options': {'num_steps': 7}}
+    assert select_uq_options(settings, True) == {'num_steps': 7}
+    settings['debug_UQ_options'] = {'num_steps': 2}
+    assert select_uq_options(settings, True) == {'num_steps': 2}
+    assert select_uq_options(settings, False) == {'num_steps': 7}
