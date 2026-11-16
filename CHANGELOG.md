@@ -30,6 +30,14 @@ next release; add to that section as you land a change.
   `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
   before this are not made stale by it.
 
+### Fixed — identifiability analysis uses the user operation, cost and modifier files
+
+- `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
+  engine without `operation_funcs_external_path`, `cost_funcs_external_path` and
+  `modifier_funcs_external_path`, so an obs_data naming a user operation stopped with an unknown
+  operation there, although the calibration and sensitivity stages of the same run worked. The
+  script now passes the three paths to the engine, as `param_id_run_script` does.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
