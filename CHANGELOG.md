@@ -5,6 +5,95 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the tutorial notebooks calibrate through a calibration workflow
+
+- Section B of `tutorial/interactive/generation_and_calibration.ipynb` builds a calibration
+  workflow with `WorkflowBuilder`: the obs_data from `ObsDataCreator`, the notebook's own
+  feature through `add_operation`, then the steps `screen` (sensitivity), `top2` (reduction,
+  in place of `choose_most_impactful_params_sobol`) and `fit` (calibration of what `top2`
+  kept), each added and run (`wf.run()`) in its own cell, read with `wf.result` and plotted with
+  `plot_step`. The ProtocolRunner
+  demo runs `wf.model("fit")`. The notebook ends by writing `calibration_workflow.json`, which
+  `cuflynx-calibration-workflow` (also under `mpiexec`) and CUFLynx's Workflow tab run with the
+  same results. Sections A and C are unchanged.
+- The inputs changed so that every route runs the same study: the solver settings are given
+  once, at workflow level (`solver: CVODE_myokit`, `MaximumStep` 0.001, `rtol` 1e-6, `atol` 1e-8,
+  no `dt_solver`), where the notebook replaced `solver_info` with `{"dt_solver": 0.01}`, which
+  dropped the solver's step and tolerances; the Sobol samples and the genetic algorithm are
+  seeded; the genetic algorithm's population is given in full (`DEBUG`'s small sizes) instead
+  of through `DEBUG`; `cost_type`, which the genetic algorithm does not read, is gone; and the
+  protocol has no `offline_pre_time`, which would have overwritten the calibrated initial blood
+  volume `q_lv_init` with a steady state saved at its default value (the warm-up is all
+  `pre_times`).
+- `generation_and_calibration_test.ipynb` is replaced by `workflow_quickstart.ipynb`: every
+  `WorkflowBuilder` call on the 3-compartment model in a few minutes (sensitivity, reduction,
+  calibration, identifiability, an emulator when `[emulation]` is installed, a set step, an
+  on-target sweep; `run()`, `run(only=, ranks=2)`, `status`, `result`, `plan`, `plot_step`,
+  `model`, `WorkflowBuilder.load`, `pack_workflow`). Both notebooks run again from the top in
+  the same folder: steps that are done and current are not run again. Its quick test is the CI coverage of the builder in
+  a kernel.
+
+### Added — building a calibration workflow in Python (`WorkflowBuilder`)
+
+- `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
+  API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+  `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
+  schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
+  `set_value` and `scale_value`; then `check`, `write`, `plan`, `run(only=, from_step=, force=,
+  ranks=)`, `status`, `result`, `model`, `step_dir` and `plot_step`. Each step, and the
+  workflow's settings, are checked against the schema when they are given. obs_data and
+  params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
+  written as files under `data/` beside the workflow. The result is an ordinary workflow file
+  that the command line and CUFLynx run and `pack_workflow` packs.
+  See "Building a workflow in Python" in the parameter-identification docs, and the
+  "Calibration workflows" page of the API reference.
+- `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
+  the rest, printing a line for each step kept, so a script or notebook can be run again;
+  `force=True` runs every step. `check()` (and `plan()`, `run()`) names what a run still
+  needs: a module library when a model names library modules, and the `optimiser_options` the
+  calibration method requires. `result(id)` returns what a step recorded.
+- `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
+  script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
+  remove and list them. The file's header records a checksum of what was generated: a builder
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand,
+  written by something else, or (when writing) holding functions it does not have (another
+  writer added them), until `add_operation(f, overwrite=True)` or
+  `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
+  refuses to rewrite a file whose other top-level statements (a constant, a class) it would
+  drop.
+- `cuflynx-calibration-workflow --stale-only` and `run_calibration_workflow(stale_only=True)`
+  run only the steps that have not run or are stale. Their defaults are unchanged: every step
+  runs.
+- A step can no longer be named `models`, `target`, `_target` or `inputs`, names the run's
+  output directory uses itself (the schema refuses them). `WorkflowBuilder.model` generates
+  under the run's `models/` folder.
+- The genetic algorithm without `optimiser_options.num_calls_to_function` says so, instead of
+  a `KeyError`. The messages for a result a step needs name the Python call
+  (`wf.run(from_step=...)`) beside the command-line option, and a step left out of an `--only`
+  run that never ran is reported as "not run", not as reusing its earlier result.
+- `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
+  to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, checksum line,
+  extra imports, the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one
+  `def` per function): `funcs_file_source`, `write_funcs_file`, `read_funcs_file`,
+  `is_unedited` and `unkept_statements`, for `add_operation` and for CUFLynx's "Custom funcs"
+  dialog. The checksum line is a comment (`# libcuflynx-generated sha256: ...`).
+- A workflow step's recorded inputs include the user function files it runs with
+  (`operation_funcs_external_path`, `cost_funcs_external_path`,
+  `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
+  before this are not made stale by it.
+
+### Fixed — identifiability, plotting and multi-run engines use the user operation, cost and modifier files
+
+- `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
+  engine without `operation_funcs_external_path`, `cost_funcs_external_path` and
+  `modifier_funcs_external_path`, so an obs_data naming a user operation stopped with an unknown
+  operation there, although the calibration and sensitivity stages of the same run worked. The
+  script now passes the three paths to the engine, as `param_id_run_script` does.
+- The same paths were also missing from the engines built by `plot_param_id_script.py`,
+  `run_multiple_param_id.py` and `MCMC_plotter.plot_mcmc_and_predictions`; `MCMC_plotter` now
+  takes and keeps the three paths, and the plot script passes them.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had

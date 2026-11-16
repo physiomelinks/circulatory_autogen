@@ -296,6 +296,11 @@ class GeneticAlgorithmOptimiser(Optimiser):
 
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
+        if self.optimiser_options.get('num_calls_to_function') is None:
+            raise ValueError(
+                'the genetic algorithm (param_id_method: genetic_algorithm, the method when '
+                'none is set) needs optimiser_options.num_calls_to_function, the number of '
+                'cost-function evaluations it may use.')
         if self.optimiser_options['num_calls_to_function'] < num_pop:
             print(f'Number of calls (n_calls={self.optimiser_options["num_calls_to_function"]}) must be greater than the '
                   f'gen alg population (num_pop={num_pop}), exiting')

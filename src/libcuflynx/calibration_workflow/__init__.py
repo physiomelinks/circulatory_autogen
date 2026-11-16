@@ -19,9 +19,13 @@ Entry points: :func:`run_calibration_workflow` (and the ``cuflynx-calibration-wo
 command), :func:`pack_workflow` (every file a run needs, in one directory),
 :func:`plan_workflow`, :func:`load_workflow`, :func:`load_workflow_run`,
 :func:`workflow_model` (the model a GUI tab shows), :class:`StoredDistribution`,
-:func:`generate_model`.
+:func:`generate_model`, and :class:`WorkflowBuilder` (a workflow made by API calls, written
+as the same file).
 '''
 
+from libcuflynx.calibration_workflow.builder import (WorkflowBuilder, library_module,
+                                                     module_array, prior, scale_value,
+                                                     selection, set_value)
 from libcuflynx.calibration_workflow.distributions import StoredDistribution
 from libcuflynx.calibration_workflow.generate import generate_model, generate_parameterisation
 from libcuflynx.calibration_workflow.pack import pack_workflow
@@ -38,9 +42,10 @@ from libcuflynx.calibration_workflow.spec import (ALLOWED_SETTINGS, PRIOR_KINDS,
 
 __all__ = ['ALLOWED_SETTINGS', 'PRIOR_KINDS', 'WORKFLOW_FILE_NAME', 'ModuleArray',
            'Selection', 'StoredDistribution', 'Target', 'UnsetParametersError', 'Workflow',
-           'WorkflowError', 'WorkflowStepError',
+           'WorkflowBuilder', 'WorkflowError', 'WorkflowStepError',
            'generate_model', 'generate_parameterisation',
-           'load_workflow', 'load_workflow_run', 'pack_workflow', 'plan_workflow',
-           'resolve_workflow',
+           'library_module', 'load_workflow', 'load_workflow_run', 'module_array',
+           'pack_workflow', 'plan_workflow', 'prior', 'resolve_workflow', 'scale_value',
+           'selection', 'set_value',
            'run_calibration_workflow', 'TARGET_VIEW', 'workflow_model',
            'workflow_status', 'write_calibrated_parameters_to']

@@ -146,6 +146,79 @@ def csv_to_document(csv_text_or_path):
     return {'version': VERSION, 'params': params}
 
 
+#: the keys of the in-code entry form a calibration needs
+ENTRY_FORM_KEYS = ('vessel_name', 'param_name', 'min', 'max')
+
+
+def entries_to_document(entries):
+    '''The params_for_id document of the in-code entry form: a list of ``{vessel_name,
+    param_name, min, max, ...}`` (what ``CVS0DParamID.set_params_for_id`` takes), where
+    ``vessel_name`` may be a list (or a space-separated string) of vessels sharing one value.
+
+    Each entry becomes ``targets`` ``["<vessel>/<param_name>", ...]``, named after its first
+    target (the default, so not written; ``#1``, ``#2`` ... on a repeated name), with
+    ``param_type``, ``name_for_plotting``, ``comment``, ``prior``, ``min``, ``max``,
+    ``unbounded`` and the ``prior_*`` keys (as ``prior_params``) carried over; empty values are
+    left out. The engine reads the document as
+    it reads the entries (``ObsAndParamDataParser._build_param_id_info_from_df``).
+    '''
+    import math
+    from libcuflynx.parsers.PrimitiveParsers import (PARAMS_FOR_ID_CSV_PRIOR_COLUMNS,
+                                                     PARAM_UNBOUNDED_COLUMN, _truthy_flag)
+    entries = list(entries)
+    if not entries:
+        raise ValueError('No parameter entries provided')
+    missing = [k for k in ENTRY_FORM_KEYS if not any(k in e for e in entries)]
+    if missing:
+        raise ValueError(f'params_for_id is missing required columns: {sorted(missing)}')
+
+    def present(value):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return False
+        return str(value).strip() != ''
+
+    def vessels_of(value):
+        if isinstance(value, (list, tuple)):
+            return [str(v).strip() for v in value]
+        if not present(value):
+            return []
+        return [v.strip() for v in str(value).strip().split() if v.strip()]
+
+    params = []
+    for idx, row in enumerate(entries):
+        vessels = vessels_of(row.get('vessel_name'))
+        param_name = str(row.get('param_name', '')).strip() if present(row.get('param_name')) \
+            else ''
+        if not vessels or not param_name:
+            raise ValueError(
+                f'params_for_id entry {idx}: both vessel_name and param_name are required.')
+        entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
+        entry['name'] = entry['targets'][0]
+        for key in ('param_type', 'name_for_plotting', 'comment', 'prior', 'min', 'max'):
+            if present(row.get(key)):
+                entry[key] = row[key]
+        if present(row.get(PARAM_UNBOUNDED_COLUMN)):
+            entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
+        prior_params = {name: row[name] for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
+                        if present(row.get(name))}
+        if prior_params:
+            entry['prior_params'] = prior_params
+        params.append(entry)
+
+    seen = {}
+    for entry in params:
+        base = entry['name']
+        if base in seen:
+            seen[base] += 1
+            entry['name'] = f'{base}#{seen[base]}'
+        else:
+            seen[base] = 0
+    for entry in params:
+        if entry['name'] == entry['targets'][0]:
+            del entry['name']             # the default name
+    return {'version': VERSION, 'params': params}
+
+
 def _value_json(value):
     if isinstance(value, _Number):
         return str(value)

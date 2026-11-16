@@ -1,9 +1,14 @@
 # API Reference
 
 This section documents the Python API for driving Circulatory Autogen
-programmatically — the same calls used by the
-[interactive tutorial](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/generation_and_calibration.ipynb)
-and by external tools such as the CUFLynx GUI.
+programmatically, and by external tools such as the CUFLynx GUI. The
+[interactive tutorials](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/)
+use it: `generation_and_calibration.ipynb` generates and simulates a model with these calls,
+then calibrates it as a calibration workflow built with `WorkflowBuilder`
+(`libcuflynx.calibration_workflow`), and `workflow_quickstart.ipynb` shows every
+`WorkflowBuilder` call on a small model. A workflow is a file, so the notebooks, the
+`cuflynx-calibration-workflow` command and CUFLynx's Workflow tab run the same study; see
+[Building a workflow in Python](../parameter-identification.md#building-a-workflow-in-python).
 
 The reference pages are generated automatically from the docstrings in
 `src/libcuflynx/`, so they stay in sync with the code.
@@ -39,6 +44,7 @@ analyse pipeline. Each links to its detailed reference page.
 | Run a simulation | [`get_simulation_helper`][libcuflynx.solver_wrappers.get_simulation_helper] / [`get_simulation_helper_from_inp_data_dict`][libcuflynx.solver_wrappers.get_simulation_helper_from_inp_data_dict] | [Simulation](solver-wrappers.md) |
 | Build observation data | [`ObsDataCreator`][libcuflynx.utilities.obs_data_helpers.ObsDataCreator] | [Observation data &amp; utilities](utilities.md) |
 | Calibrate parameters | [`CVS0DParamID`][libcuflynx.param_id.paramID.CVS0DParamID] | [Parameter identification](param-id.md) |
+| Build and run a calibration workflow | [`WorkflowBuilder`][libcuflynx.calibration_workflow.builder.WorkflowBuilder] / [`run_calibration_workflow`][libcuflynx.calibration_workflow.runner.run_calibration_workflow] | [Calibration workflows](calibration-workflow.md) |
 | Sensitivity analysis | [`SensitivityAnalysis`][libcuflynx.sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis] | [Sensitivity analysis](sensitivity.md) |
 | Identifiability analysis | [`IdentifiabilityAnalysis`][libcuflynx.identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis] | [Identifiability analysis](identifiability.md) |
 | Run protocols standalone | [`ProtocolRunner`][libcuflynx.protocol_runners.protocol_runner.ProtocolRunner] | [Protocols](protocols.md) |
