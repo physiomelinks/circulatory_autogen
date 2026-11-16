@@ -1638,7 +1638,7 @@ of calibrations and `set` steps are merged into the target.
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
 | `identifiability` | Laplace identifiability analysis at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
 | `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
-| `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
+| `set` | declares values or scales by hand, each with a reason; with `"point": true` they are only a point for other steps and never reach the target | `set`; no model or files | the calibration or set steps it scales |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
 
 The keys that pass something on, each naming one step of the kind shown:
@@ -1713,6 +1713,19 @@ takes the values with `fixed_from`, and they are merged into the target with the
 values, in run order, so a later step's value wins a parameter both give. They are marked
 `set_by_hand`, with their reason, in the provenance diagram, the target's parameters and the
 calibrated parameters file, and are never reported as calibrated.
+
+A set step with **`"point": true`** declares a point only: a place to start a fit
+(`start_from`) or to analyse at (`result_from`, or `fixed_from`). Its values are not merged into
+the target, and a parameter it shares with a calibration is not "calibrated by more than one
+step". The provenance diagram marks it set by hand, labelled "point only, not in the target".
+CUFLynx writes its slider positions, nominal points and best-fit points this way. The key is
+explicit, rather than inferred from how other steps use the step, so a workflow's meaning does
+not change when a step is added. The builder's `add_set(..., point=True)`.
+
+```json
+{"id": "sliders-1", "kind": "set", "point": true, "set": [
+  {"parameter": "Lotka_Volterra_module/alpha", "value": 4.2, "reason": "slider position"}]}
+```
 
 A **sweep** runs its model at each point and keeps every run. It feeds nothing forward: no step
 can take from it, and its values do not reach the target. It can start from values with

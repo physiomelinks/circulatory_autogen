@@ -189,6 +189,19 @@ def cellml_digest(path):
     return digest.hexdigest()
 
 
+def input_digest(key, path):
+    '''The digest a step's input ``key`` records for ``path``: the CellML model's covers its
+    imports, an emulator's its directory, the module library's every library directory, and any
+    other input's is the file's sha256. Both the runner and the provenance graph use it.'''
+    if key == CELLML_INPUT:
+        return cellml_digest(path)
+    if key == EMULATOR_INPUT:
+        return directory_digest(path)
+    if key == LIBRARY_INPUT:
+        return module_library_digest(path.split(os.pathsep))
+    return sha256(path)
+
+
 def module_library_digest(library_dirs):
     '''The sha256 of the module files under ``library_dirs``: their paths within each directory
     and their contents.'''
@@ -256,6 +269,12 @@ def given_values(result):
 def _from_step_hint(step_id):
     '''How to run from a step, for a Python caller and for the command line.'''
     return f'wf.run(from_step={step_id!r}) in Python, --from-step {step_id} on the command line'
+
+
+def target_values(step, result):
+    '''The records of what a step's result gives the target: none for a point step, whose values
+    are only for ``start_from``, ``result_from`` or ``fixed_from``.'''
+    return [] if step.point else given_values(result)
 
 
 def _how_set(record):
@@ -337,10 +356,11 @@ class _Run:
         inputs = {key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()}
         if rs.model.kind == 'cellml':
             inputs[CELLML_INPUT] = {'path': rs.model.model.path,
-                                    'sha256': cellml_digest(rs.model.model.path)}
+                                    'sha256': input_digest(CELLML_INPUT, rs.model.model.path)}
         if rs.step.emulator_dir and os.path.isdir(rs.step.emulator_dir):
             inputs[EMULATOR_INPUT] = {'path': rs.step.emulator_dir,
-                                      'sha256': directory_digest(rs.step.emulator_dir)}
+                                      'sha256': input_digest(EMULATOR_INPUT,
+                                                             rs.step.emulator_dir)}
         return {**inputs, SETTINGS_INPUT: settings, **self.library_input()}
 
     def _model_free_inputs(self, step):
@@ -1163,7 +1183,7 @@ class _Run:
             result = results.get(step.id)
             if not result or result.get('status') != 'done':
                 continue
-            for record in given_values(result):
+            for record in target_values(step, result):
                 merged[record['target_model_name']] = {
                     'model_name': record['target_model_name'],
                     'host_name': record['target_host_name'],
@@ -1713,7 +1733,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         latest = {}
         for step in workflow.topological_order():
             result = available(step.id)
-            for record in given_values(result) if result else []:
+            for record in target_values(step, result) if result else []:
                 latest[record['target_model_name']] = (record, step.id)
         overrides = {rec['target_host_name']: (rec, sid) for rec, sid in latest.values()}
         calibrated = [{'model_name': name, 'value': rec['value'], 'units': rec.get('units', ''),

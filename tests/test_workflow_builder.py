@@ -144,6 +144,7 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
                            ia_options=IA_OPTIONS, result_from='fit')
     wf.add_set('by_hand', [set_value('C/k', 1.0, reason='the gain is one'),
                            scale_value('A/p', 1.1, of='fit_a', reason='ten percent more')])
+    wf.add_set('start', [set_value('C/k', 2.0, reason='slider position')], point=True)
     wf.add_sweep('sweep_k', parameters={'C/k': [0.9, 1.1]}, outputs=['C/z'],
                  settings={'sim_time': 1.0}, fixed_from=['fit'])
     wf.add_sweep('on_target', on_target=True, parameters={'C/k': {'values': [1.0]}},
@@ -173,6 +174,9 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
     assert steps['by_hand'] == {'id': 'by_hand', 'kind': 'set', 'set': [
         {'parameter': 'C/k', 'value': 1.0, 'reason': 'the gain is one'},
         {'parameter': 'A/p', 'scale': 1.1, 'of': 'fit_a', 'reason': 'ten percent more'}]}
+    assert steps['start'] == {'id': 'start', 'kind': 'set', 'point': True, 'set': [
+        {'parameter': 'C/k', 'value': 2.0, 'reason': 'slider position'}]}
+    assert 'point' not in steps['by_hand']
     assert steps['sweep_k']['sweep'] == {'outputs': ['C/z'], 'parameters': {'C/k': [0.9, 1.1]}}
     assert steps['on_target'] == {'id': 'on_target', 'kind': 'sweep',
                                   'obs_data': os.path.relpath(obs, wf.directory),
@@ -184,7 +188,7 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
     workflow = load_workflow(path)
     assert [s.kind for s in workflow.steps] == [
         'calibration', 'sensitivity', 'reduction', 'emulation', 'calibration', 'calibration',
-        'identifiability', 'set', 'sweep', 'sweep']
+        'identifiability', 'set', 'set', 'sweep', 'sweep']
     assert workflow.step('fit_a').obs_data == os.path.join(wf.directory, 'data',
                                                            'fit_a_obs_data.json')
     assert WorkflowBuilder.load(path).to_dict() == raw

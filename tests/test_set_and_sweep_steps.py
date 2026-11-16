@@ -212,6 +212,44 @@ def test_invalid_set_steps_say_why(library, edit, message):
 
 
 @pytest.mark.unit
+def test_point_is_a_boolean_of_a_set_step(library):
+    raw = _raw(library)
+    raw['steps'].append(dict(_set_step(), point=True))
+    workflow = _parse(library, raw)
+    assert workflow.step('hand').point and not workflow.step('fit_a').point
+    raw['steps'][-1]['point'] = 'yes'
+    with pytest.raises(WorkflowError, match="'yes' is not of type 'boolean'"):
+        _parse(library, raw)
+    raw['steps'][-1]['point'] = True
+    raw['steps'][1]['point'] = False
+    with pytest.raises(WorkflowError, match='"point" is for a set step, not a calibration'):
+        _parse(library, raw)
+    raw['steps'][1]['kind'] = 'calibration'
+    with pytest.raises(WorkflowError, match="'set' was expected"):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
+def test_a_point_step_is_neither_merged_nor_a_second_calibration(library):
+    import warnings
+    raw = _raw(library)
+    raw['steps'] = [{'id': 'scan', 'kind': 'sweep', 'on_target': True,
+                     'settings': {'sim_time': 1.0},
+                     'sweep': {'outputs': ['mod__C/z'], 'parameters': {}}}] + raw['steps'] + \
+        [dict(_set_step(), point=True)]
+    workflow = _parse(library, raw)
+    # an on_target sweep is given the target's values, which a point step is not part of
+    assert workflow.step('scan').fixed_from == ['fit_a', 'rest']
+    from libcuflynx.calibration_workflow.resolve import resolve_workflow
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(workflow)      # A/p is fit_a's and the point's: no warning
+    raw['steps'][-1].pop('point')
+    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        resolve_workflow(_parse(library, raw))
+
+
+@pytest.mark.unit
 def test_a_scale_of_a_sweep_or_an_unknown_step_is_refused(library):
     raw = _raw(library)
     raw['steps'] += [_sweep_step(raw), _set_step(entries=[
@@ -383,6 +421,44 @@ def test_the_diagram_shows_a_set_value_with_its_reason_and_never_as_calibrated(l
     given = next(v for v in nodes['rest']['parameters'] if v['from_step'] == 'hand')
     assert given['origin'] == 'set_by_hand'
     assert 'SET BY HAND' in provenance_svg(graph)
+
+
+@pytest.mark.integration
+def test_a_point_step_is_used_by_later_steps_but_never_reaches_the_target(library, tmp_path):
+    import warnings
+    raw = _raw(library)
+    fit_a, rest = raw['steps']
+    raw['steps'] = [fit_a, dict(_set_step('hand'), point=True),
+                    _set_step('kept', [{'parameter': 'mod__C/k', 'value': 3.0,
+                                        'reason': REASON}]),
+                    dict(rest, fixed_from=['hand'])]
+    out = str(tmp_path / 'out')
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    assert not [w for w in caught if 'more than one step' in str(w.message)]
+    merged = _merged(result)
+    # the target has fit_a's calibrated A/p, not the point's, and the normal set step's C/k
+    assert merged['A/p']['value'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
+    assert merged['A/p']['from_step'] == 'fit_a' and 'origin' not in merged['A/p']
+    assert (merged['C/k']['value'], merged['C/k']['origin']) == (3.0, 'set_by_hand')
+    assert 'hand' not in {r['from_step'] for r in result['merged_parameters']}
+    # the step that takes the point is given its value
+    assert merged['C/q']['value'] == pytest.approx(np.sqrt(Z_C - 2 * 1.5 ** 2), rel=1e-4)
+    fixed = _read_json(os.path.join(out, 'rest', 'step_result.json'))['fixed']
+    assert [(f['model_name'], f['value'], f['from_step']) for f in fixed] == [
+        ('p_mod__A', 1.5, 'hand')]
+
+    graph = provenance_graph(out)
+    nodes = {n['id']: n for n in graph['nodes']}
+    assert nodes['hand']['mark'] == 'set_by_hand'
+    assert nodes['hand']['lines'][-1] == 'point only, not in the target'
+    assert 'point only, not in the target' not in nodes['kept']['lines']
+    edges = {(e['from'], e['to']) for e in graph['edges']}
+    assert ('hand', '__target__') not in edges and ('kept', '__target__') in edges
+    assert ('hand', 'rest') in edges
+    svg = provenance_svg(graph)
+    assert 'point only, not in the target' in svg and 'SET BY HAND' in svg
 
 
 # --------------------------------------------------------------------------------------------

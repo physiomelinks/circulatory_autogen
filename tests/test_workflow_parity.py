@@ -332,6 +332,14 @@ def test_a_cellml_calibration_recovers_the_values_and_writes_the_calibrated_cell
     assert os.path.isfile(os.path.join(out, 'provenance.svg'))
     with open(os.path.join(out, 'provenance_graph.json')) as f:
         assert 'lotka_volterra.cellml' in f.read()
+    # a freshly finished run is current: the graph checks the CellML input with the digest
+    # the runner recorded (the file and its imports), as workflow_status does
+    from libcuflynx.reporting.provenance import provenance_graph
+    graph = provenance_graph(out)
+    assert not graph['workflow']['stale']
+    assert [n['id'] for n in graph['nodes'] if n['stale']] == []
+    cellml_input = [e for n in graph['nodes'] for e in n['inputs'] if e['key'] == 'cellml_model']
+    assert cellml_input and {e['status'] for e in cellml_input} == {'current'}
     from libcuflynx.reporting.flowchart import model_line
     assert model_line(step['model']) == 'CellML model `lotka_volterra.cellml`'
     from libcuflynx.scripts.calibration_workflow_run_script import _model_label

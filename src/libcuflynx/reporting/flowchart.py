@@ -168,6 +168,8 @@ _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from'
                   'start_from': 'starts at its values'}
 #: the kinds whose values are merged into the target
 MERGED_KINDS = ('calibration', 'set')
+#: the line of a set step with ``"point": true``, whose values the target does not merge
+POINT_ONLY = 'point only, not in the target'
 
 
 def _kind_line(s):
@@ -264,6 +266,8 @@ def workflow_graph(steps):
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
+            if s.get('point'):
+                lines.append(POINT_ONLY)
         elif s.get('model') is None:
             lines = ['not run']
         elif kind == 'sweep':
@@ -299,7 +303,7 @@ def workflow_graph(steps):
     # they share
     merged_from = target.get('merged_from')
     for s in step_list:
-        if s.get('kind', 'calibration') in MERGED_KINDS and \
+        if s.get('kind', 'calibration') in MERGED_KINDS and not s.get('point') and \
                 (merged_from is None or s['id'] in merged_from):
             edges.append({'from': s['id'], 'to': '__target__', 'label': '',
                           'style': 'merge'})
