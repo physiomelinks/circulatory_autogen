@@ -274,8 +274,9 @@ class FakeEngine:
 
 
 class FakeClient:
-    def __init__(self, output_dir, emulates=False):
+    def __init__(self, output_dir, emulates=False, mcmc_dir=None):
         self.output_dir = output_dir
+        self.mcmc_dir = mcmc_dir or output_dir
         self.param_id = FakeEngine()
         self.param_id.emulates_features = emulates
         self.obs_info = {
@@ -288,6 +289,10 @@ class FakeClient:
         }
         self.protocol_info = {"num_sub_per_exp": [1]}
 
+    def mcmc_chain_path(self):
+        # as CVS0DParamID's: the MCMC run's directory, which can differ from output_dir
+        return os.path.join(self.mcmc_dir, pp.CHAIN_FILE)
+
 
 @pytest.mark.unit
 def test_an_existing_client_is_used_instead_of_building_one(tmp_path):
@@ -299,6 +304,20 @@ def test_an_existing_client_is_used_instead_of_building_one(tmp_path):
 
     assert result.predictions.shape == (5, 2)
     assert result.used_emulator is False
+
+
+@pytest.mark.unit
+def test_the_chain_is_read_from_the_mcmc_runs_directory(tmp_path):
+    """After a calibration the MCMC has a directory of its own; output_dir is the
+    calibration's, which holds no chain."""
+    mcmc_dir = tmp_path / "mcmc"
+    mcmc_dir.mkdir()
+    write_chain(mcmc_dir, n_params=2)
+    result = pp.posterior_predictive(
+        client=FakeClient(str(tmp_path / "calibration"), mcmc_dir=str(mcmc_dir)),
+        num_samples=5, save=False)
+
+    assert result.predictions.shape == (5, 2)
 
 
 @pytest.mark.unit
