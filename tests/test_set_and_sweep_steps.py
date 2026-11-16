@@ -424,7 +424,9 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     figure = next(n for n in graph['nodes'] if n['id'] == 'scan/files')
     assert (figure['kind'], figure['status'], figure['title']) == ('figure', 'done', '1 file written')
     assert figure['lines'] == ['`scan/sweep/sweep_results.npz`']
-    assert [e['label'] for e in graph['edges'] if e['to'] == 'scan'] == ['fixed']
+    # its model comes from a model source, its fixed value from fit_a
+    assert sorted(e['label'] for e in graph['edges'] if e['to'] == 'scan') == [
+        'fixed', 'generates']
 
 
 @pytest.mark.integration

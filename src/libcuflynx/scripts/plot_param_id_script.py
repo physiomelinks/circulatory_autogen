@@ -109,12 +109,12 @@ def plot_param_id(inp_data_dict=None, generate=True):
     param_id.simulate_with_best_param_vals()
     param_id.plot_outputs()
     if do_uq:
-        if os.path.exists(os.path.join(param_id.output_dir, 'mcmc_chain.npy')):
+        if os.path.exists(param_id.mcmc_chain_path()):
             if not plot_predictions:
                 param_id.plot_mcmc()
         else:
             print('no mcmc chain has been created at ' + 
-                    os.path.join(param_id.output_dir, 'mcmc_chain.npy'))
+                    param_id.mcmc_chain_path())
     param_id.save_prediction_data()
     if do_sensitivity:
         param_id.run_sensitivity(None)

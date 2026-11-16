@@ -1,0 +1,41 @@
+{
+ "schema_version": 1,
+ "workflow_name": "heat1d",
+ "description": "The 1D heat equation of heat1d_model.py, calibrated in steps: the boundary temperature u_D is set by hand, k is fitted with u_D held there (and its posterior sampled by MCMC), then k and u_D are refined together with k's posterior as the prior. The merged values go back to heat1d_model.py as heat1d_calibrated_parameters.json.",
+ "target": {"external_model_path": "heat1d_model.py"},
+ "settings": {
+  "dt": 0.005,
+  "param_id_method": "CMA-ES",
+  "optimiser_options": {"num_calls_to_function": 300, "max_patience": 60, "seed": 1,
+                        "cost_type": "gaussian_MLE"},
+  "UQ_options": {"num_steps": 300, "num_walkers": 8, "burn_in": 0.5}
+ },
+ "steps": [
+  {
+   "id": "boundary",
+   "kind": "set",
+   "description": "The boundary temperature is measured, so it is set rather than fitted.",
+   "set": [
+    {"parameter": "heat/u_D", "value": 0.1, "reason": "boundary temperature is measured"}
+   ]
+  },
+  {
+   "id": "fit-k",
+   "description": "The conductivity k, with u_D held at the measured boundary temperature.",
+   "model": {"external_model_path": "heat1d_model.py"},
+   "obs_data": "heat1d_obs_data.json",
+   "params_for_id": "heat1d_k_params_for_id.json",
+   "fixed_from": ["boundary"],
+   "store_distribution": true
+  },
+  {
+   "id": "refine",
+   "description": "k and u_D together, with fit-k's posterior of k as its prior.",
+   "model": {"external_model_path": "heat1d_model.py"},
+   "obs_data": "heat1d_obs_data.json",
+   "params_for_id": "heat1d_u_D_params_for_id.json",
+   "priors_from": ["fit-k"],
+   "store_distribution": true
+  }
+ ]
+}

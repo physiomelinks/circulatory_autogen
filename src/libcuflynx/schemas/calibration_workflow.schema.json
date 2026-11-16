@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
   "title": "libcuflynx calibration workflow (calibration_workflow.json)",
-  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set or sweep; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set or sweep; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, a module of a module library, or an external Python model), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -108,6 +108,9 @@
         },
         {
           "$ref": "#/$defs/library_module"
+        },
+        {
+          "$ref": "#/$defs/external_model"
         }
       ]
     },
@@ -164,6 +167,21 @@
           "description": "its parameters file; default <prefix>_parameters.json beside it"
         }
       }
+    },
+    "external_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_model_path"
+      ],
+      "properties": {
+        "external_model_path": {
+          "type": "string",
+          "pattern": "\\.py\\s*$",
+          "description": "a .py file defining SIM_HELPER, run as model_type external_python; its parameters are the class's component/variable names"
+        }
+      },
+      "description": "an external Python model. A step with one needs a target that is the same file; it is run with the step's values in an external_parameters_file and is never generated"
     },
     "library_module": {
       "type": "object",
