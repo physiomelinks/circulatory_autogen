@@ -13,6 +13,7 @@ import copy
 import glob
 import json
 import os
+import re
 import shutil
 import textwrap
 
@@ -335,6 +336,62 @@ def test_a_stored_posterior_is_the_prior_of_the_refinement(example, tmp_path):
     assert merged['heat/k']['value'] == pytest.approx(_TRUE_K, abs=0.02)
     assert merged['heat/u_D']['value'] == pytest.approx(_TRUE_U_D, abs=0.03)
     assert merged['heat/u_D']['from_step'] == 'refine'
+
+
+@pytest.mark.integration
+def test_the_provenance_and_the_manifest_of_the_shipped_workflow_say_what_ran(example,
+                                                                             tmp_path):
+    '''boundary sets u_D, fit-k fits k with u_D fixed, refine fits u_D with fit-k's posterior of
+    k as the prior: the diagram counts and names what each step calibrated and was given, the
+    manifest names only files that exist, and the target view is refine's.'''
+    import xml.etree.ElementTree as ElementTree
+    from libcuflynx.calibration_workflow import workflow_model
+    from libcuflynx.reporting.provenance import SOURCE_NODE
+    from libcuflynx.utilities.cuflynx_study import read_study
+    out = str(tmp_path / 'run')
+    path = _write(example, _raw(example))
+    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        run_calibration_workflow(path, output_dir=out)
+
+    graph = _read_json(os.path.join(out, 'provenance_graph.json'))
+    nodes = {n['id']: n for n in graph['nodes']}
+    # refine calibrates k too: priors_from adds it to its own params_for_id
+    assert '1 parameter, 3 observables' in nodes['fit-k']['lines']
+    assert '2 parameters, 3 observables' in nodes['refine']['lines']
+    # both run the target's model, though each depends on another step
+    generated = {e['to'] for e in graph['edges']
+                 if e['from'] == SOURCE_NODE and e['label'] == 'generates'}
+    assert generated == {'fit-k', 'refine'}
+
+    with open(os.path.join(out, 'provenance.svg')) as f:
+        root = ElementTree.fromstring(f.read())
+    text = ' '.join(t.text or '' for t in root.iter() if t.tag.endswith('text'))
+    assert 'heat/u_D = 0.1: boundary temperature is measured' in text
+    assert 'heat/u_D = 0.1, fixed: set by hand in boundary: boundary temperature is measured' \
+        in text
+    assert re.search(r'heat/k = 0\.2\d*, calibrated here', text)
+    assert 'prior of heat/k: mvnormal fit to the posterior of fit-k' in text
+    assert re.search(r'heat/u_D = 0\.\d+, calibrated here \(posterior median\)', text)
+    assert re.search(r'heat/k = 0\.2\d*, calibrated by refine on heat1d_obs_data\.json', text)
+
+    study = read_study(os.path.join(out, 'heat1d_cuflynx_study.json'))['workflow']
+    steps = {s['id']: s for s in study['steps']}
+    # a set step runs no calibration, so it has no manifest of its own
+    assert steps['boundary']['manifest'] is None
+    assert os.path.isfile(steps['fit-k']['manifest'])
+    # nothing is generated from the .py: the target names the values file it runs with
+    assert 'generated_model' not in study['target']
+    generated_parameters = os.path.join(out, study['target']['generated_parameters'])
+    assert _values(generated_parameters)['heat/k'] == pytest.approx(_TRUE_K, abs=0.02)
+
+    # the target view shows the last calibration on the target, whose values it holds
+    view = workflow_model(path, 'target', output_dir=out, work_dir=str(tmp_path / 'views'))
+    assert view['step_id'] == 'refine'
+    assert view['param_id_output_dir'] == _read_json(
+        os.path.join(out, 'refine', 'step_result.json'))['param_id_output_dir']
+    assert os.path.basename(view['params_for_id_path']) == 'heat1d_u_D_params_for_id.json'
+    assert {r['model_name']: r['from_step'] for r in view['calibrated']} == {
+        'k_heat': 'refine', 'u_D_heat': 'refine'}
 
 
 # --------------------------------------------------------------------------------------------

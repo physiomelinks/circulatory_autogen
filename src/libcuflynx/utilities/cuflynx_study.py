@@ -173,6 +173,7 @@ STUDY_INP_KEYS = (('cuflynx_study_copy_inputs', 'cuflynx_working_dir')
 #: ``outputs`` of each step.
 WORKFLOW_PATH_KEYS = ('file', 'source', 'result', 'manifest', 'run', 'module_array',
                       'parameters', 'obs_data', 'params_for_id', 'generated_model',
+                      'generated_parameters',
                       'calibrated_parameters', 'param_id_output_dir', 'distribution_dir',
                       'sensitivity_dir', 'sobol_indices', 'emulator_dir', 'sweep_dir',
                       'sweep_results')
