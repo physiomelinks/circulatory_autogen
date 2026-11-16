@@ -313,14 +313,20 @@ class SensitivityAnalysis():
         through the ``sobol_SA`` sampling manager -- it goes through a ``CVS0DParamID`` engine
         and its ``get_observable_sensitivities`` accessor, exactly as ``IdentifiabilityAnalysis``
         wraps the engine for the Hessian. ``do_ad`` is forced on so the analytic sensitivity
-        path (CasADi jacobian / Myokit CVODES) is used.
+        path (CasADi jacobian / Myokit CVODES) is used. The ground truth and params for id are
+        those set on this object, else the files the config names (``param_id_obs_path``,
+        ``params_for_id_path``), which the engine reads itself.
         """
         if self._local_engine is not None:
             return self._local_engine
-        if self._inp_data_dict is None or self._obs_data_dict is None or self._params_for_id is None:
+        inp = self._inp_data_dict or {}
+        given = {'obs': self._obs_data_dict is not None or bool(inp.get('param_id_obs_path')),
+                 'params': self._params_for_id is not None or bool(inp.get('params_for_id_path'))}
+        if self._inp_data_dict is None or not all(given.values()):
             raise RuntimeError(
                 "Local SA needs the config, ground-truth data and params for id: build via "
-                "init_from_dict and call set_ground_truth_data / set_params_for_id first.")
+                "init_from_dict and call set_ground_truth_data / set_params_for_id first, or "
+                "name param_id_obs_path and params_for_id_path in the config.")
         self._local_engine = self._new_local_engine(self._obs_data_dict)
         return self._local_engine
 
@@ -329,8 +335,10 @@ class SensitivityAnalysis():
         inp = dict(self._inp_data_dict)
         inp['do_ad'] = True  # local SA is derivative-based
         engine = CVS0DParamID.init_from_dict(inp)
-        engine.set_ground_truth_data(obs_data_dict)
-        engine.set_params_for_id(self._params_for_id)
+        if obs_data_dict is not None:
+            engine.set_ground_truth_data(obs_data_dict)
+        if self._params_for_id is not None:
+            engine.set_params_for_id(self._params_for_id)
         return engine
 
     def run_local_sensitivity(self, sa_options=None):

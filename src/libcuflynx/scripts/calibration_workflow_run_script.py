@@ -70,6 +70,8 @@ def _model_label(model):
         return model['module_array']
     if 'external_model_path' in model:
         return model['external_model_path']
+    if 'cellml_model_path' in model:
+        return model['cellml_model_path']
     return f"{model['module_type']}/{model['version']}/{model['parameterisation']}"
 
 

@@ -969,7 +969,6 @@ def _reduce_options(raw):
     (lambda w: _steps(w)['screen']['settings']['sa_options'].update(method='local'),
      'reads Sobol indices'),
     (lambda w: _steps(w)['screen'].update(settings={}), 'needs "sa_options"'),
-    (lambda w: _steps(w)['ia'].pop('result_from'), 'needs "result_from"'),
     (lambda w: _steps(w)['ia'].update(result_from='screen'),
      '"result_from" names "screen", a sensitivity step'),
     (lambda w: _steps(w)['fit'].update(fixed_from=['screen']),

@@ -1885,9 +1885,11 @@ ANALYSIS_OPTIONS = {
         'options_key': 'UQ_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'mcmc', 'required': False,
-             'choices': ['mcmc'],
-             'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
-                            'is implemented so far.'},
+             'choices': ['mcmc', 'laplace'],
+             'description': "Uncertainty-quantification method. 'mcmc' samples the posterior "
+                            "from the best fit; 'laplace' approximates it there by a Gaussian "
+                            'from the Hessian of the cost (ia_options configure that), without '
+                            'sampling.'},
             {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
              'choices': ['emcee', 'pymc'],
              'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
@@ -1895,6 +1897,10 @@ ANALYSIS_OPTIONS = {
                             'Monte Carlo and needs the optional [uq] extra.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'description': 'Number of MCMC steps per walker.'},
+            {'name': 'num_samples', 'type': 'int', 'default': 2000, 'required': False,
+             'description': "method 'laplace' in a calibration workflow's uq step: the draws of "
+                            'the Gaussian it stores as its distribution (those outside the '
+                            'params_for_id bounds are dropped).'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
             {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,

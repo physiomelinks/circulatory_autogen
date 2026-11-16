@@ -62,7 +62,7 @@ CURRENT, STALE, MISSING = 'current', 'stale', 'missing'
 DRAWN_VALUES = 6
 
 _SOURCE_KEYS = ('fixed_from', 'priors_from', 'emulator_from', 'result_from', 'sensitivity_from',
-                'params_for_id_from')
+                'params_for_id_from', 'start_from')
 _MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', DERIVED: 'derived',
                 INHERITED: 'inherited', SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified',
                 MIXED: 'mixed'}
@@ -138,6 +138,7 @@ def _graph_steps(run):
             **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from') else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
+            'emulator_dir': raw.get('emulator_dir'),
             'model': result.get('model') if _done(result) else None,
             'n_parameters': _n_parameters(result) if _done(result) else 0,
             'n_data_items': observables, 'n_helper_items': helpers,

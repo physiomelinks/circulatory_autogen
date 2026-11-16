@@ -41,10 +41,6 @@ def run_param_id(inp_data_dict=None):
     model_type = inp_data_dict['model_type']
     param_id_method = inp_data_dict['param_id_method']
     file_prefix = inp_data_dict['file_prefix']
-    params_for_id_path = inp_data_dict['params_for_id_path']
-    param_id_obs_path = inp_data_dict['param_id_obs_path']
-    sim_time = inp_data_dict['sim_time']
-    pre_time = inp_data_dict['pre_time']
     solver_info = inp_data_dict['solver_info']
     if solver_info.get('solver') == 'casadi_integrator':
         try:
@@ -56,38 +52,9 @@ def run_param_id(inp_data_dict=None):
                 + CASADI_MISSING_MESSAGE
                 + " Or change the solver in your configuration."
             ) from exc
-    dt = inp_data_dict['dt']
     optimiser_options = inp_data_dict.get('optimiser_options', None)
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
-    do_ad = inp_data_dict['do_ad']
-    # Optional external user-func files (issue #303); None when absent.
-    operation_funcs_external_path = inp_data_dict.get('operation_funcs_external_path', None)
-    cost_funcs_external_path = inp_data_dict.get('cost_funcs_external_path', None)
-    # Was read nowhere, so a params_for_id naming a user modifier failed in this stage only.
-    modifier_funcs_external_path = inp_data_dict.get('modifier_funcs_external_path', None)
-    # The study manifest's name, switch, source yaml and working-dir settings
-    # (utilities/cuflynx_study.py).
-    from libcuflynx.utilities.cuflynx_study import STUDY_INP_KEYS
-    study_kwargs = {key: inp_data_dict[key] for key in
-                    ('study_name', 'write_cuflynx_study', 'user_inputs_path') if key in inp_data_dict}
-    study_kwargs['study_settings'] = {key: inp_data_dict[key] for key in STUDY_INP_KEYS
-                                      if key in inp_data_dict}
-
-
-    # Resolved once, for both engines below. Neither was given these, so
-    # `use_emulator: true` did nothing at all in this stage: the calibration ran
-    # against the solver and so did the chain. Nothing errors -- the run is simply
-    # as slow as if no emulator had been trained, which is the whole reason to
-    # train one.
-    use_emulator = inp_data_dict.get('use_emulator', False)
-    emulator_dir = None
-    if use_emulator:
-        # Imported here, not at module scope: resolve_emulator_dir pulls in the
-        # emulators package, and [emulation] is an optional extra.
-        from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
-        emulator_dir = resolve_emulator_dir(inp_data_dict)
-    emulator_settings = inp_data_dict.get('emulator_settings')
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -97,20 +64,7 @@ def run_param_id(inp_data_dict=None):
             print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
         print(f'Starting parameter identification with {num_procs} MPI rank(s)')
 
-    param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,
-                            params_for_id_path=params_for_id_path,
-                            param_id_obs_path=param_id_obs_path,
-                            sim_time=sim_time, pre_time=pre_time,
-                            solver_info=solver_info, dt=dt,
-                            optimiser_options=optimiser_options,
-                            do_ad=do_ad, DEBUG=DEBUG,
-                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
-                            operation_funcs_external_path=operation_funcs_external_path,
-                            cost_funcs_external_path=cost_funcs_external_path,
-                            modifier_funcs_external_path=modifier_funcs_external_path,
-                            **study_kwargs,
-                            use_emulator=use_emulator, emulator_dir=emulator_dir,
-                            emulator_settings=emulator_settings)
+    param_id = _engine(inp_data_dict, mcmc_instead=False)
 
     if inp_data_dict.get('obs_data_dict') is not None:
         param_id.set_ground_truth_data(inp_data_dict['obs_data_dict'])
@@ -162,29 +116,14 @@ def run_param_id(inp_data_dict=None):
         UQ_options = inp_data_dict['UQ_options']
 
     mcmc = None
-    if do_uq:
+    if do_uq and (UQ_options or {}).get('method', 'mcmc') == 'laplace':
+        _laplace(inp_data_dict, param_id, best_param_vals, param_id_output_dir)
+    elif do_uq:
 
         if rank == 0:
             print('running mcmc')
 
-        mcmc = CVS0DParamID(model_path, model_type, param_id_method, True, file_prefix,
-                                params_for_id_path=params_for_id_path,
-                                param_id_obs_path=param_id_obs_path,
-                                sim_time=sim_time, pre_time=pre_time,
-                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
-                                param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
-                                operation_funcs_external_path=operation_funcs_external_path,
-                                cost_funcs_external_path=cost_funcs_external_path,
-                                modifier_funcs_external_path=modifier_funcs_external_path,
-                                **study_kwargs,
-                                use_emulator=use_emulator, emulator_dir=emulator_dir,
-                                emulator_settings=emulator_settings)
-        mcmc.set_best_param_vals(best_param_vals)
-        if joint_priors:
-            mcmc.set_joint_priors(joint_priors)
-        ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
-        # mcmc.set_mcmc_parameters() TODO
-        mcmc.run_UQ()
+        mcmc = _mcmc_at(inp_data_dict, UQ_options, best_param_vals, joint_priors)
 
         if rank == 0:
             print('mcmc complete')
@@ -215,6 +154,104 @@ def run_param_id(inp_data_dict=None):
 
     return {'output_dir': param_id.output_dir, 'uq_output_dir': param_id.uq_output_dir,
             'best_param_vals': best_param_vals, 'param_id': param_id, 'mcmc': mcmc}
+
+def _engine(inp_data_dict, mcmc_instead, UQ_options=None):
+    '''The CVS0DParamID engine of a parsed user_inputs dict: a calibration's (with its
+    optimiser_options and do_ad), or, with ``mcmc_instead``, an MCMC's (with ``UQ_options``).'''
+    # The study manifest's name, switch, source yaml and working-dir settings
+    # (utilities/cuflynx_study.py).
+    from libcuflynx.utilities.cuflynx_study import STUDY_INP_KEYS
+    study_kwargs = {key: inp_data_dict[key] for key in
+                    ('study_name', 'write_cuflynx_study', 'user_inputs_path') if key in inp_data_dict}
+    study_kwargs['study_settings'] = {key: inp_data_dict[key] for key in STUDY_INP_KEYS
+                                      if key in inp_data_dict}
+    # Both engines, the calibration's and the MCMC's, run on the emulator use_emulator asks for.
+    use_emulator = inp_data_dict.get('use_emulator', False)
+    emulator_dir = None
+    if use_emulator:
+        # Imported here, not at module scope: resolve_emulator_dir pulls in the emulators
+        # package, and [emulation] is an optional extra.
+        from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
+        emulator_dir = resolve_emulator_dir(inp_data_dict)
+    stage = ({'UQ_options': UQ_options} if mcmc_instead else
+             {'optimiser_options': inp_data_dict.get('optimiser_options', None),
+              'do_ad': inp_data_dict['do_ad']})
+    return CVS0DParamID(inp_data_dict['model_path'], inp_data_dict['model_type'],
+                        inp_data_dict['param_id_method'], mcmc_instead,
+                        inp_data_dict['file_prefix'],
+                        params_for_id_path=inp_data_dict['params_for_id_path'],
+                        param_id_obs_path=inp_data_dict['param_id_obs_path'],
+                        sim_time=inp_data_dict['sim_time'], pre_time=inp_data_dict['pre_time'],
+                        solver_info=inp_data_dict['solver_info'], dt=inp_data_dict['dt'],
+                        DEBUG=inp_data_dict['DEBUG'],
+                        param_id_output_dir=inp_data_dict['param_id_output_dir'],
+                        resources_dir=inp_data_dict['resources_dir'],
+                        operation_funcs_external_path=inp_data_dict.get(
+                            'operation_funcs_external_path', None),
+                        cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path',
+                                                                   None),
+                        modifier_funcs_external_path=inp_data_dict.get(
+                            'modifier_funcs_external_path', None),
+                        **study_kwargs, **stage,
+                        use_emulator=use_emulator, emulator_dir=emulator_dir,
+                        emulator_settings=inp_data_dict.get('emulator_settings'))
+
+
+def _mcmc_at(inp_data_dict, UQ_options, best_param_vals, joint_priors=None):
+    '''MCMC started at ``best_param_vals``: the run's engine, after run_UQ.'''
+    mcmc = _engine(inp_data_dict, mcmc_instead=True, UQ_options=UQ_options)
+    mcmc.set_best_param_vals(best_param_vals)
+    if joint_priors:
+        mcmc.set_joint_priors(joint_priors)
+    ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
+    mcmc.run_UQ()
+    return mcmc
+
+
+def _laplace(inp_data_dict, param_id, best_param_vals, output_dir):
+    '''The Laplace approximation at ``best_param_vals`` with the calibration engine
+    ``param_id`` (IdentifiabilityAnalysis, method Laplace, with the run's ia_options): ``(mean,
+    covariance)`` on rank 0, written as ``<prefix>_laplace_{mean,covariance}.npy`` in
+    ``output_dir``; ``(None, None)`` on the others.'''
+    ia = IdentifiabilityAnalysis(inp_data_dict['model_path'], inp_data_dict['model_type'],
+                                 inp_data_dict['file_prefix'], param_id_output_dir=output_dir,
+                                 resources_dir=inp_data_dict['resources_dir'],
+                                 param_id=param_id.param_id)
+    ia.set_best_param_vals(np.asarray(best_param_vals, dtype=float))
+    ensure_mle_cost_type_for_bayesian_inner(param_id.param_id, inp_data_dict)
+    ia.run(dict(inp_data_dict.get('ia_options') or {}, method='Laplace'))
+    return ia.mean_Laplace, ia.covariance_matrix_Laplace
+
+
+def run_uq(inp_data_dict, best_param_vals, method='mcmc'):
+    """Uncertainty quantification at ``best_param_vals`` (one value per params_for_id entry),
+    with no calibration of its own: ``method`` ``mcmc`` samples the posterior from there,
+    ``laplace`` approximates it there by a Gaussian (IdentifiabilityAnalysis, method Laplace).
+
+    ``inp_data_dict`` is a user_inputs dict, as :func:`run_param_id` takes; its UQ_options (or
+    debug_UQ_options under DEBUG) configure the MCMC, its ia_options the Laplace approximation,
+    and ``joint_priors`` are the MCMC's priors. Returns ``{'method', 'uq_output_dir', 'mean',
+    'covariance', 'engine'}``: ``uq_output_dir`` holds the MCMC's chain, ``mean`` and
+    ``covariance`` the Laplace approximation's (on rank 0; None on the others and for mcmc).
+    """
+    inp_data_dict = YamlFileParser().parse_user_inputs_file(
+        inp_data_dict, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    UQ_options = inp_data_dict['debug_UQ_options'] if inp_data_dict['DEBUG'] else \
+        inp_data_dict['UQ_options']
+    best = np.asarray(best_param_vals, dtype=float)
+    if method == 'mcmc':
+        engine = _mcmc_at(inp_data_dict, UQ_options, best, inp_data_dict.get('joint_priors'))
+        return {'method': method, 'uq_output_dir': engine.uq_output_dir, 'mean': None,
+                'covariance': None, 'engine': engine}
+    if method == 'laplace':
+        engine = _engine(inp_data_dict, mcmc_instead=False)
+        mean, covariance = _laplace(inp_data_dict, engine, best,
+                                    inp_data_dict['param_id_output_dir'])
+        return {'method': method, 'uq_output_dir': inp_data_dict['param_id_output_dir'],
+                'mean': mean, 'covariance': covariance, 'engine': engine}
+    raise ValueError(f'unknown uncertainty quantification method {method!r}; one of '
+                     f"['mcmc', 'laplace'].")
+
 
 def main(argv=None):
     """Entry point for the ``cuflynx-param-id`` command."""

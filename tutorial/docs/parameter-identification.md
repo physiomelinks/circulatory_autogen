@@ -1353,9 +1353,10 @@ wf.status()                     # every step done and current
 Each `add_*` takes the step's keys from [The file](#the-file) as keyword arguments, and is
 checked against the schema when it is added; `model` defaults to the target.
 `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
-`add_identifiability`, `add_set` and `add_sweep` make the [step kinds](#step-kinds), and
-`add_step(id, kind=..., **keys)` any step. `library_module(type, version, parameterisation)`,
-`module_array(path, parameters=None)`, `selection(*instances)`, `prior(step, kind=, inflate=,
+`add_identifiability`, `add_uq`, `add_set` and `add_sweep` make the [step kinds](#step-kinds),
+and `add_step(id, kind=..., **keys)` any step. `library_module(type, version, parameterisation)`,
+`module_array(path, parameters=None)`, `external_model(path)`, `cellml_model(path,
+parameters=None)`, `selection(*instances)`, `prior(step, kind=, inflate=,
 parameters=)`, `set_value(parameter, value, reason=)` and `scale_value(parameter, scale, of=,
 reason=)` give a step's model, priors and set entries. Adding a step with an id that exists
 replaces it, so a cell can be run again; a dict is copied when it is added.
@@ -1437,6 +1438,17 @@ Paths are relative to the workflow file. A **model** is one of:
   `component/variable` names. See
   [Calibration workflows](external-python-solvers.md#calibration-workflows) in the external
   solvers guide.
+- **a CellML model**, as `{"cellml_model_path": "model.cellml"}`, or
+  `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` with a parameters file
+  (`{"<component>": {"<variable>": {"value": ..., "units": ...}}}`) whose values replace the
+  CellML's. Its parameters are its constants, named `component/variable` (states and computed
+  variables are not), and every component is a vessel. It is never generated: a step runs a
+  flattened copy, `<step_id>/model/generated_models/<step_id>/<step_id>.cellml`, with the
+  step's values written in, and `<step_id>_parameters.json` beside it lists every constant's
+  value. As for an external model, it is the target and every step's model, and it runs as
+  `model_type: cellml` (default solver `CVODE_myokit`; another `model_type` is refused).
+  `write_calibrated` writes `<stem>_calibrated_parameters.json` and `<stem>_calibrated.cellml`
+  beside it, and a pack copies it with the files it imports, at their paths relative to it.
 
 | Key | Meaning |
 |---|---|
@@ -1450,6 +1462,8 @@ Paths are relative to the workflow file. A **model** is one of:
 | step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself |
 | step `priors_from` | steps whose stored posterior becomes this step's prior (below) |
 | step `store_distribution` | sample the posterior by MCMC after the fit and store it |
+| step `start_from` | (calibration) a calibration or set step whose values of this step's own parameters are where its fit starts (below) |
+| step `emulator_dir` | (calibration, sensitivity, uq) an emulator trained outside the workflow, which the step runs on (below) |
 | step `settings` | merged over the workflow's (one level deep, so `optimiser_options` add up) |
 
 A step runs after every step it takes something from (`fixed_from`, `priors_from` and the keys
@@ -1514,11 +1528,12 @@ of calibrations and `set` steps are merged into the target.
 
 | `kind` | What it does | Needs | Takes from |
 |---|---|---|---|
-| `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `emulator_from`, `params_for_id_from` |
+| `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `start_from`, `emulator_from`, `params_for_id_from` |
 | `sensitivity` | Sobol or local sensitivity analysis | `sa_options` in its settings | `fixed_from`, `emulator_from`, `result_from` |
 | `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `reduction`; no model or files | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
-| `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
+| `identifiability` | Laplace identifiability analysis at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
+| `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
 | `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
 
@@ -1527,11 +1542,54 @@ The keys that pass something on, each naming one step of the kind shown:
 | Key | Names a | What this step gets |
 |---|---|---|
 | `fixed_from` | calibration or set | its values, fixed in this step's model (above) |
-| `priors_from` | calibration with `store_distribution` | its posterior, as a prior (below) |
-| `result_from` | calibration | its values, including those of the parameters this step analyses: a local sensitivity or identifiability analysis is then at that fit |
+| `priors_from` | calibration with `store_distribution`, or uq | its posterior, as a prior (below) |
+| `result_from` | calibration or set | its values, including those of the parameters this step analyses: a local sensitivity, identifiability analysis or uq step is then at that point. Without it, they are at the model's own values |
+| `start_from` | calibration or set | its values of the parameters this calibration fits, as the point the fit starts from |
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
+| `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id |
 | `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
+
+A calibration with **`start_from`** starts its fit at the values that step calibrated or set
+for its own parameters: its model is generated with them, so they are the optimiser's initial
+point (`CMA-ES` and the gradient methods start there; the genetic algorithm draws its first
+population at random). They are not fixed, and only the values the step fits reach the target.
+`step_result.json` records them under `start_from`.
+
+```json
+{"id": "sliders", "kind": "set", "set": [
+  {"parameter": "Lotka_Volterra_module/alpha", "value": 4.2, "reason": "slider position"}]},
+{"id": "fit", "model": {"cellml_model_path": "lotka_volterra.cellml"},
+ "obs_data": "lv_obs_data.json", "params_for_id": "lv_params_for_id.json",
+ "start_from": "sliders"}
+```
+
+A **uq step** quantifies the uncertainty of its parameters at one point, without fitting:
+`result_from` a calibration's fit or a set step's values, else the model's own. Its
+`UQ_options.method` is `mcmc` (the walkers start in a ball about the point, as after a fit) or
+`laplace` (a Gaussian there, its covariance from the Hessian of the cost, with the step's
+`ia_options` choosing the gradient). Either way the distribution is stored in
+`<step_id>/distribution/`, as `store_distribution` stores a calibration's: an MCMC's chain after
+burn-in, or `UQ_options.num_samples` (default 2000) draws of the Gaussian, those outside the
+params_for_id bounds dropped (`step_result.json` counts them). A later calibration takes it with
+`priors_from`. The run itself is in `<step_id>/uq/`. `run_uq(inp_data_dict, best_param_vals,
+method)` in `libcuflynx.scripts.param_id_run_script` runs the same outside a workflow, and
+`do_uq` with `UQ_options.method: laplace` runs the Laplace approximation after a calibration.
+
+```json
+{"id": "posterior", "kind": "uq", "model": {...}, "obs_data": "...", "params_for_id": "...",
+ "result_from": "fit", "settings": {"UQ_options": {"method": "laplace", "num_samples": 2000},
+                                    "ia_options": {"gradient_source": "FSA"}}}
+```
+
+After its fit, a calibration step writes what `cuflynx-plot` writes for a calibration: the
+observables at the best fit, with the error vectors `percent_error_vec.npy` and
+`error_vec_names.npy` (CA#341), in its run directory; and, when its model is a CellML,
+`<step_id>/<step_id>_calibrated.cellml`, the step's model with the best fit written in.
+`step_result.json` names them (`percent_error_vec`, `error_vec_names`, `calibrated_model`); a failure to write them is
+a warning, and the fit stands. A local sensitivity step records the point it linearised about
+under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values),
+and an identifiability or uq step its point under `at` and `at_source`.
 
 A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
 entry names a parameter as the target does, and gives a `reason`:
@@ -1682,6 +1740,8 @@ prior.
     <step_id>/sensitivity/            a sensitivity step's indices and plots
     <step_id>/emulator/               an emulation step's emulator
     <step_id>/<step_id>_laplace_*.npy an identifiability step's Laplace mean and covariance (also in step_result.json)
+    <step_id>/<step_id>_calibrated.cellml  a calibration's model with its best fit (a CellML model)
+    <step_id>/uq/                     a uq step's run: its MCMC run directory, or its Laplace mean and covariance
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
     models/<view>/                    a model generated for viewing (WorkflowBuilder.model); no step is named models

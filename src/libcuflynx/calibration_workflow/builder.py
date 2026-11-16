@@ -68,10 +68,13 @@ _LAUNCHER_ENV_PREFIXES = ('OMPI_', 'PMIX_', 'PMI_', 'HYDRA_', 'OPAL_', 'PRTE_')
 # the order a built step's keys are written in (the schema's)
 _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'params_for_id',
               'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
-              'store_distribution', 'on_target', 'settings', 'emulator_from', 'result_from',
-              'sensitivity_from', 'params_for_id_from', 'set', 'sweep')
+              'store_distribution', 'on_target', 'settings', 'emulator_from', 'emulator_dir',
+              'result_from', 'start_from', 'sensitivity_from', 'params_for_id_from', 'set',
+              'sweep')
 #: the keys of a model that are paths, relative to the workflow file when written
-_MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path')
+_MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path', 'cellml_model_path')
+#: the keys of a step that are paths, relative to the workflow file when written
+_STEP_PATH_KEYS = ('obs_data', 'params_for_id', 'emulator_dir')
 
 
 # --------------------------------------------------------------------------------------------
@@ -95,6 +98,15 @@ def external_model(path):
     '''A model that is an external Python model: a ``.py`` file defining ``SIM_HELPER``. A
     workflow with one has it as its target and as every step's model.'''
     return {'external_model_path': os.fspath(path)}
+
+
+def cellml_model(path, parameters=None):
+    '''A model that is a CellML file; ``parameters`` a parameters file whose values replace the
+    CellML's. A workflow with one has it as its target and as every step's model.'''
+    model = {'cellml_model_path': os.fspath(path)}
+    if parameters is not None:
+        model['parameters'] = os.fspath(parameters)
+    return model
 
 
 def selection(*instances):
@@ -257,17 +269,19 @@ class WorkflowBuilder:
 
     def add_calibration(self, id, *, obs_data, params_for_id=None, params_for_id_from=None,
                         model=None, fixed_from=(), priors_from=(), store_distribution=False,
-                        emulator_from=None, vessel=None, submodule=None, vessel_map=None,
-                        settings=None, description=None, comment=None):
+                        start_from=None, emulator_from=None, emulator_dir=None, vessel=None,
+                        submodule=None, vessel_map=None, settings=None, description=None,
+                        comment=None):
         '''A calibration: fits ``params_for_id`` (or a reduction's choice,
-        ``params_for_id_from``) of ``model`` (default the target) to ``obs_data``. Returns
-        ``id``.'''
+        ``params_for_id_from``) of ``model`` (default the target) to ``obs_data``, starting its
+        own parameters at the values of ``start_from`` (a calibration or set step) when given.
+        Returns ``id``.'''
         return self.add_step(id, **_given(locals(), model_default=True))
 
     def add_sensitivity(self, id, *, obs_data, params_for_id, sa_options, model=None,
-                        fixed_from=(), result_from=None, emulator_from=None, vessel=None,
-                        submodule=None, vessel_map=None, settings=None, description=None,
-                        comment=None):
+                        fixed_from=(), result_from=None, emulator_from=None, emulator_dir=None,
+                        vessel=None, submodule=None, vessel_map=None, settings=None,
+                        description=None, comment=None):
         '''A sensitivity analysis (``sa_options``) of ``params_for_id`` against ``obs_data``.'''
         given = _given(locals(), model_default=True)
         given['settings'] = dict(given.get('settings') or {}, sa_options=given.pop('sa_options'))
@@ -298,13 +312,24 @@ class WorkflowBuilder:
                                  emulator_settings=given.pop('emulator_settings'))
         return self.add_step(id, kind='emulation', **given)
 
-    def add_identifiability(self, id, *, obs_data, params_for_id, ia_options, result_from,
+    def add_identifiability(self, id, *, obs_data, params_for_id, ia_options, result_from=None,
                             model=None, fixed_from=(), vessel=None, submodule=None,
                             vessel_map=None, settings=None, description=None, comment=None):
-        '''An identifiability analysis (``ia_options``) at the result of ``result_from``.'''
+        '''An identifiability analysis (``ia_options``) at the values of ``result_from`` (a
+        calibration or set step), or at the model's own.'''
         given = _given(locals(), model_default=True)
         given['settings'] = dict(given.get('settings') or {}, ia_options=given.pop('ia_options'))
         return self.add_step(id, kind='identifiability', **given)
+
+    def add_uq(self, id, *, obs_data, params_for_id, uq_options, result_from=None, model=None,
+               fixed_from=(), emulator_from=None, emulator_dir=None, vessel=None, submodule=None,
+               vessel_map=None, settings=None, description=None, comment=None):
+        '''Uncertainty quantification (``uq_options``, the step's UQ_options: ``method`` mcmc or
+        laplace) at the values of ``result_from`` (a calibration or set step), or at the
+        model's own, with no fit of its own. Its distribution is stored, for ``priors_from``.'''
+        given = _given(locals(), model_default=True)
+        given['settings'] = dict(given.get('settings') or {}, UQ_options=given.pop('uq_options'))
+        return self.add_step(id, kind='uq', **given)
 
     def add_set(self, id, entries, *, description=None, comment=None):
         '''Values set by hand (:func:`set_value`, :func:`scale_value`), each with a reason.'''
@@ -339,6 +364,8 @@ class WorkflowBuilder:
             step['obs_data'] = self._obs_data(id, step['obs_data'])
         if 'params_for_id' in step:
             step['params_for_id'] = self._params_for_id(id, step['params_for_id'])
+        if 'emulator_dir' in step:
+            step['emulator_dir'] = self._abs(step['emulator_dir'])
         if 'model' in step:
             step['model'] = self._abs_model(step['model'])
         for key in ('fixed_from', 'priors_from'):
@@ -722,7 +749,7 @@ class WorkflowBuilder:
 
     def _abs_step(self, step, base):
         step = copy.deepcopy(step)
-        for key in ('obs_data', 'params_for_id'):
+        for key in _STEP_PATH_KEYS:
             if isinstance(step.get(key), str):
                 step[key] = self._abs(step[key], base)
         if 'model' in step:
@@ -736,7 +763,7 @@ class WorkflowBuilder:
         for key, value in step.items():
             if isinstance(value, _Inline):
                 value = by_text.get(value.text, value)
-            elif key in ('obs_data', 'params_for_id') and isinstance(value, str):
+            elif key in _STEP_PATH_KEYS and isinstance(value, str):
                 value = self._rel(value)
             elif key == 'model':
                 value = self._rel_model(value)
