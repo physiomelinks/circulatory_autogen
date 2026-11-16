@@ -735,9 +735,11 @@ def test_a_second_builder_regenerates_a_functions_file_nobody_edited(tmp_path):
     with open(funcs) as f:
         text = f.read()
     assert 'def extra_mean' in text and is_unedited(text)
-    # the original builder, which last wrote another text, may write again too
-    wf.add_operation(double_mean)
-    wf.write()
+    # the original builder lacks extra_mean, which the file now holds: it is refused
+    # until told to replace the file
+    with pytest.raises(WorkflowError, match=r"\['extra_mean'\].*overwrite=True"):
+        wf.write()
+    wf.write(overwrite=True)
     with open(funcs) as f:
         assert f.read() == first
 
@@ -790,6 +792,34 @@ def test_a_functions_file_edited_by_hand_is_refused_with_an_instruction_that_wor
     fresh.add_operation(double_mean, overwrite=True)
     fresh.write()
     assert fresh.functions() == ['double_mean']
+
+
+@pytest.mark.unit
+def test_a_fresh_builder_does_not_drop_functions_another_writer_added(tmp_path):
+    """A functions file with a valid checksum that holds a function this builder lacks (added
+    through write_funcs_file) is refused; a re-run with the same functions is not."""
+    from libcuflynx.utilities.user_funcs_file import write_funcs_file
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    # the same functions again (a notebook re-run after a restart), and more, need no overwrite
+    for functions in ((double_mean,), (double_mean, extra_mean)):
+        again = _funcs_builder(tmp_path)
+        again.add_operation(*functions)
+        again.write()
+    sources, imports = read_funcs_file(funcs, 'operation')
+    sources['dialog_op'] = '@series_to_constant\ndef dialog_op(x, series_output=False):\n' \
+                           '    return np.max(x)\n'
+    write_funcs_file(funcs, 'operation', sources, imports)
+    fresh = _funcs_builder(tmp_path)
+    with pytest.raises(WorkflowError, match=r"\['dialog_op'\].*overwrite=True"):
+        fresh.add_operation(double_mean, extra_mean)
+        fresh.write()
+    assert 'dialog_op' in read_funcs_file(funcs, 'operation')[0]
+    fresh.add_operation(double_mean, extra_mean, overwrite=True)
+    fresh.write()
+    assert 'dialog_op' not in read_funcs_file(funcs, 'operation')[0]
 
 
 @pytest.mark.unit

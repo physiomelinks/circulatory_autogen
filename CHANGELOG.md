@@ -27,8 +27,9 @@ next release; add to that section as you land a change.
 - `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
   script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
   remove and list them. The file's header records a checksum of what was generated: a builder
-  regenerates a file nobody edited (in a later session too) and refuses one edited by hand or
-  written by something else, until `add_operation(f, overwrite=True)` or
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand,
+  written by something else, or holding functions it does not have (another writer added
+  them), until `add_operation(f, overwrite=True)` or
   `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
   refuses to rewrite a file whose other top-level statements (a constant, a class) it would
   drop.
