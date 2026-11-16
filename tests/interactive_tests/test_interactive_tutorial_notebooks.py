@@ -196,7 +196,7 @@ def _check_quickstart_outputs(user_dir: Path):
     assert (run / "predict" / "sweep" / "sweep_results.npz").exists()
     assert (run / "calibrated_target.png").exists()
     assert (run / "provenance.svg").exists()
-    assert (directory.parent / "3compartment_quickstart_packed" / "calibration_workflow.json").exists()
+    assert any(directory.parent.glob("3compartment_quickstart_packed_*/calibration_workflow.json"))
 
 
 def _run_calibration_notebook(name, check, settings, cell_timeout, budget, tmp_path, monkeypatch):
