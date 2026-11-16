@@ -479,11 +479,12 @@ def test_calibrating_independent_parts_apart_matches_calibrating_them_together(l
     for step_id, param_vessel in (('fit_a', 'mod'), ('fit_b', 'mod')):
         step = _read_json(str(tmp_path / 'split' / step_id / 'step_result.json'))
         assert step['inputs']['params_for_id']['path'].endswith(f'{step_id}_params_for_id.json')
-        snapshots = [f for f in os.listdir(step['param_id_output_dir'])
-                     if f.startswith(f'{step_id}_params_for_id_') and f.endswith('.json')]
-        assert len(snapshots) == 1
-        entries = params_for_id_entries(
-            os.path.join(step['param_id_output_dir'], snapshots[0]))
+        # the copy the run used: the one its manifest names, in the working dir's inputs/
+        from libcuflynx.utilities.cuflynx_study import read_study
+        study = read_study(os.path.join(os.path.dirname(step['param_id_output_dir']),
+                                        f'{step_id}_cuflynx_study.json'))
+        assert os.path.basename(study['params_for_id']) == f'{step_id}_params_for_id.json'
+        entries = params_for_id_entries(study['params_for_id'])
         assert [e['targets'] for e in entries] == [[f'{param_vessel}/p']]
         assert [c['model_name'] for c in step['calibrated']] == ['p_mod']
 
@@ -1319,7 +1320,8 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     study = read_study(os.path.join(out, 'posterior', 'param_id',
                                     'posterior_cuflynx_study.json'))
     assert study['emulator'] == emulate['emulator_dir']
-    assert study['runs'][0]['analyses'] == ['CMA-ES', 'mcmc']
+    # newest first: the MCMC run, then the calibration it followed, a directory each
+    assert [run['analyses'] for run in study['runs'][:2]] == [['mcmc'], ['CMA-ES']]
 
     # dz/dq = 2 q at q = 3, so sd(q) = STD_C / 6; the emulator is good to about 1 %
     distribution = StoredDistribution.load(posterior['distribution_dir'])

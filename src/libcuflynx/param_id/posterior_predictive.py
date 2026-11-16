@@ -684,7 +684,8 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
     # rather than relying on each of them seeding identically.
     payload = None
     if comm.Get_rank() == 0:
-        resolved_dir = output_dir or client.output_dir
+        # the MCMC run's directory: the chain is read from it and the check is saved in it
+        resolved_dir = output_dir or os.path.dirname(client.mcmc_chain_path())
         chain = load_chain(resolved_dir)
         thetas, chain_info = sample_parameters(
             chain, num_samples=num_samples, burn_in=burn_in,

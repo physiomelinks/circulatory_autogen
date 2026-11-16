@@ -28,8 +28,9 @@ def run_param_id(inp_data_dict=None):
     ``set_joint_priors`` of the calibration and of the MCMC (calibration workflows use it for
     priors from an earlier step's stored posterior).
 
-    Returns ``{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}``: ``output_dir`` is the
-    run directory on rank 0 (None on the others) and ``mcmc`` is None without do_uq.
+    Returns ``{'output_dir', 'uq_output_dir', 'best_param_vals', 'param_id', 'mcmc'}``:
+    ``output_dir`` is the calibration's run directory and ``uq_output_dir`` the MCMC run's
+    (``paramID.case_dir_name``) on rank 0 (None on the others); ``mcmc`` is None without do_uq.
     """
 
     yaml_parser = YamlFileParser()
@@ -212,8 +213,8 @@ def run_param_id(inp_data_dict=None):
         if rank == 0:
             print('Identifiability analysis complete')
 
-    return {'output_dir': param_id.output_dir, 'best_param_vals': best_param_vals,
-            'param_id': param_id, 'mcmc': mcmc}
+    return {'output_dir': param_id.output_dir, 'uq_output_dir': param_id.uq_output_dir,
+            'best_param_vals': best_param_vals, 'param_id': param_id, 'mcmc': mcmc}
 
 def main(argv=None):
     """Entry point for the ``cuflynx-param-id`` command."""

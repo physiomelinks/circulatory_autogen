@@ -55,6 +55,7 @@ def test_every_expected_artefact_is_written(full_run):
     """The names are the contract. Anything reading a finished run finds it by
     these, so a rename is a break even when every stage still succeeds."""
     assert full_run["artefacts"]["missing"] == []
+    assert full_run["uq_artefacts"]["missing"] == []
 
 
 @pytest.mark.integration
@@ -65,6 +66,10 @@ def test_the_run_directory_is_not_the_directory_it_was_given(full_run):
     run_dir = full_run["run_dir"]
     assert os.path.basename(run_dir).startswith("genetic_algorithm_")
     assert run_dir != full_run["config"]["param_id_output_dir"]
+    # the chain has a directory of its own beside the calibration's
+    assert os.path.basename(full_run["uq_dir"]).startswith("mcmc_")
+    assert os.path.dirname(full_run["uq_dir"]) == os.path.dirname(run_dir)
+    assert not os.path.exists(os.path.join(run_dir, "mcmc_chain.npy"))
 
 
 @pytest.mark.integration
@@ -85,7 +90,7 @@ def test_the_calibration_wrote_a_point_and_its_names(full_run):
 def test_the_chain_is_three_dimensional(full_run):
     """``(steps, walkers, params)``. Everything downstream reshapes on that, so a
     two-dimensional chain would be silently misread as one long walker."""
-    chain = np.load(os.path.join(full_run["run_dir"], "mcmc_chain.npy"),
+    chain = np.load(os.path.join(full_run["uq_dir"], "mcmc_chain.npy"),
                     allow_pickle=True)
     assert chain.ndim == 3
     assert chain.shape[0] > 0 and chain.shape[1] > 0
@@ -135,7 +140,7 @@ def test_coverage_is_reported_at_both_levels(full_run):
 def test_the_predictions_line_up_with_the_observables(full_run):
     """One column per observable and one row per draw; a transposed or ragged
     array would still save and would plot as nonsense."""
-    path = os.path.join(full_run["run_dir"], "posterior_predictive.npz")
+    path = os.path.join(full_run["uq_dir"], "posterior_predictive.npz")
     with np.load(path, allow_pickle=True) as data:
         predictions = data["predictions"]
         ground_truth = data["ground_truth"]
@@ -150,7 +155,7 @@ def test_the_predictions_line_up_with_the_observables(full_run):
 def test_traces_are_kept_for_the_draws_that_were_asked_for(full_run):
     """Kept for a few draws only, and every trace in a block the same length --
     a block of differing lengths cannot be plotted as a fan."""
-    path = os.path.join(full_run["run_dir"], pipeline.SERIES_ARTEFACT)
+    path = os.path.join(full_run["uq_dir"], pipeline.SERIES_ARTEFACT)
     assert os.path.isfile(path)
 
     with np.load(path, allow_pickle=True) as data:
@@ -175,11 +180,11 @@ def test_the_directory_satisfies_the_contract_cuflynx_reads(full_run):
     stage that stops writing one should fail in the repo that changed, not in the
     app that could no longer open the folder.
     """
-    run_dir = full_run["run_dir"]
-    present = set(full_run["artefacts"]["present"])
+    uq_dir = full_run["uq_dir"]
+    present = set(full_run["uq_artefacts"]["present"])
 
     # The calibration panel.
-    assert "best_param_vals.npy" in present
+    assert "best_param_vals.npy" in set(full_run["artefacts"]["present"])
     # The UQ panel, for a run CUFLynx did not produce: it has no
     # uq_posterior_samples.npy of its own to fall back on.
     assert "mcmc_chain.npy" in present
@@ -188,7 +193,7 @@ def test_the_directory_satisfies_the_contract_cuflynx_reads(full_run):
     assert "posterior_predictive_coverage.json" in present
     assert "posterior_predictive.npz" in present
 
-    with open(os.path.join(run_dir, "posterior_predictive_coverage.json")) as handle:
+    with open(os.path.join(uq_dir, "posterior_predictive_coverage.json")) as handle:
         saved = json.load(handle)
     assert saved["used_emulator"] is False
     assert saved["num_samples"] == pipeline.POSTERIOR_DRAWS
@@ -221,9 +226,12 @@ def test_every_stage_is_recorded_in_the_study_manifest(full_run):
     assert study["solver_info"]["MaximumStep"] == config["solver_info"]["MaximumStep"]
     assert study["solver_info"]["dt"] == config["dt"]
 
-    run = study["runs"][0]
+    # newest first: the MCMC run, then the calibration it followed, each its own entry
+    uq_run, run = study["runs"][:2]
+    assert uq_run["dir"] == os.path.abspath(full_run["uq_dir"])
+    assert uq_run["analyses"] == ["mcmc"]
     assert run["dir"] == os.path.abspath(full_run["run_dir"])
-    assert run["analyses"][:2] == ["genetic_algorithm", "mcmc"]
+    assert run["analyses"] == ["genetic_algorithm"]
 
     sobol = [entry for entry in study["sensitivity"] if entry["method"] == "sobol"]
     assert sobol and os.path.isdir(sobol[0]["dir"])

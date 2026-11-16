@@ -197,6 +197,23 @@ _as_casadi_column = casadi_backend.as_casadi_column
 #: set here keeps the check and the error message reading from one list.
 PARAM_ID_MODEL_TYPES = ('cellml', 'python', 'casadi_python', 'aadc_python', 'external_python')
 
+#: What an MCMC run's directory is named for, in place of a calibration's param_id_method.
+UQ_CASE_METHOD = 'mcmc'
+
+#: The file an MCMC run writes its chain to, in its own run directory.
+MCMC_CHAIN_FILE = 'mcmc_chain.npy'
+
+
+def case_dir_name(method, file_prefix, obs_file_prefix):
+    """A run directory's name under ``param_id_output_dir``: ``<method>_<prefix>_<obs>``.
+
+    ``method`` is the calibration's ``param_id_method`` for a calibration and
+    ``UQ_CASE_METHOD`` (``mcmc``) for an MCMC run, so a calibration and the MCMC that follows
+    it have a directory each. ``obs_file_prefix`` is the obs_data file's name without
+    ``.json``.
+    """
+    return f'{method}_{file_prefix}_{obs_file_prefix}'
+
 
 class CVS0DParamID():
     """Parameter identification (calibration) for a 0D CVS model.
@@ -307,24 +324,28 @@ class CVS0DParamID():
             self.param_id_obs_file_prefix = f"obs_{date_str}"
         else:
             self.param_id_obs_file_prefix = re.sub('.json', '', os.path.split(param_id_obs_path)[1])
-        case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
         if self.rank == 0:
             if param_id_output_dir is None:
                 self.param_id_output_dir = default_param_id_output_dir()
             else:
                 self.param_id_output_dir = param_id_output_dir
-            
+
             if not os.path.exists(self.param_id_output_dir):
                 os.mkdir(self.param_id_output_dir)
-            self.output_dir = os.path.join(self.param_id_output_dir, f'{case_type}')
+            # A calibration and an MCMC run each have their own directory (case_dir_name);
+            # this object writes to the one it was built for.
+            self.calibration_output_dir = os.path.join(
+                self.param_id_output_dir,
+                case_dir_name(param_id_method, file_name_prefix, self.param_id_obs_file_prefix))
+            self.uq_output_dir = os.path.join(
+                self.param_id_output_dir,
+                case_dir_name(UQ_CASE_METHOD, file_name_prefix, self.param_id_obs_file_prefix))
+            self.output_dir = self.uq_output_dir if mcmc_instead else self.calibration_output_dir
             if not os.path.exists(self.output_dir):
                 os.mkdir(self.output_dir)
             self.plot_dir = os.path.join(self.output_dir, 'plots_param_id')
             if not os.path.exists(self.plot_dir):
                 os.mkdir(self.plot_dir)
-            # Archive the input files (timestamped) used for this run so the user can
-            # later check exactly what params_for_id / obs_data produced these outputs.
-            self._archive_input_files(params_for_id_path, param_id_obs_path)
             # Describe the study for CUFLynx: model, inputs, funcs and solver settings now; the
             # run directory itself once it holds results (run / run_UQ), so a study is never
             # opened on an empty run -- emulator training builds one of these and runs nothing.
@@ -340,9 +361,16 @@ class CVS0DParamID():
                 use_emulator=self.use_emulator, emulator_dir=emulator_dir,
                 **{key: value for key, value in (study_settings or {}).items()
                    if key in cuflynx_study.STUDY_INP_KEYS})
+            # The obs_data and params_for_id of the run: a working dir keeps them in its
+            # inputs/ (cuflynx_study), so they are copied into the run directory only when
+            # there is none.
+            if not cuflynx_study.copies_inputs(self._study_inp):
+                self._archive_input_files(params_for_id_path, param_id_obs_path)
             cuflynx_study.update_study(self._study_inp)
         else:
             self.output_dir = None
+            self.calibration_output_dir = None
+            self.uq_output_dir = None
             self._study_inp = None
         
         if resources_dir is None:
@@ -415,6 +443,8 @@ class CVS0DParamID():
                                            use_emulator=self.use_emulator,
                                            emulator_dir=self.emulator_dir,
                                            emulator_settings=self.emulator_settings)
+            # Where the calibration this chain follows wrote its best fit and cost.
+            mcmc_object.calibration_output_dir = self.calibration_output_dir
             self.n_steps = mcmc_object.n_steps
         else:
             if model_type in PARAM_ID_MODEL_TYPES:
@@ -451,7 +481,8 @@ class CVS0DParamID():
         self.sensitivity_calculated = False
 
     def _archive_input_files(self, params_for_id_path, param_id_obs_path):
-        """Copy the params_for_id and obs_data input files into the run output_dir.
+        """Copy the params_for_id and obs_data input files into the run output_dir, for a
+        run with no working dir to keep them (``cuflynx_study.copies_inputs``).
 
         A ``_<yymmdd>_<HHMMSS>`` timestamp is inserted before the extension (a single
         timestamp shared by both files), so a user inspecting ``param_id_output/<case>/``
@@ -557,7 +588,7 @@ class CVS0DParamID():
         """
         self._require_data_items('calibration')
         self._check_info_available()
-        with self._run_recorded(self.param_id_method):
+        with self._run_recorded(self.param_id_method, self.output_dir):
             self.param_id.run()
 
             # Some execution paths (or older optimiser flows) can finish without writing
@@ -592,29 +623,27 @@ class CVS0DParamID():
                     pass
 
     @contextlib.contextmanager
-    def _run_recorded(self, method):
-        """Declare this run directory in the study manifest when the run starts
+    def _run_recorded(self, method, run_dir):
+        """Declare the run directory ``run_dir`` in the study manifest when the run starts
         (``status: running``), so a run that is cut short is there with what it wrote each
         iteration, and mark it ``finished``, ``stopped`` (interrupted) or ``failed`` at the
         end. A killed process leaves it ``running``."""
-        self._record_run_in_study(method, 'running')
+        self._record_run_in_study(method, 'running', run_dir)
         try:
             yield
         except KeyboardInterrupt:
-            self._record_run_in_study(method, 'stopped')
+            self._record_run_in_study(method, 'stopped', run_dir)
             raise
         except BaseException:
-            self._record_run_in_study(method, 'failed')
+            self._record_run_in_study(method, 'failed', run_dir)
             raise
-        self._record_run_in_study(method, 'finished')
+        self._record_run_in_study(method, 'finished', run_dir)
 
-    def _record_run_in_study(self, method, status):
-        """This run directory's entry in the study manifest, with ``status``."""
-        if getattr(self, 'rank', 0) == 0 and getattr(self, '_study_inp', None) \
-                and self.output_dir:
+    def _record_run_in_study(self, method, status, run_dir):
+        """The entry of the run directory ``run_dir`` in the study manifest, with ``status``."""
+        if getattr(self, 'rank', 0) == 0 and getattr(self, '_study_inp', None) and run_dir:
             cuflynx_study.update_study(self._study_inp, 'runs',
-                                       {'dir': self.output_dir, 'method': method,
-                                        'status': status})
+                                       {'dir': run_dir, 'method': method, 'status': status})
 
     def run_UQ(self, UQ_options=None):
         """Run uncertainty quantification (MCMC) on **this** object.
@@ -638,10 +667,32 @@ class CVS0DParamID():
             mcmc_object = MCMC.from_param_id(
                 self.param_id,
                 UQ_options if UQ_options is not None else getattr(self, 'UQ_options', None))
+            # The chain goes in the MCMC run's own directory, not the calibration's.
+            if self.rank == 0:
+                os.makedirs(os.path.join(self.uq_output_dir, 'plots_param_id'), exist_ok=True)
+                mcmc_object.calibration_output_dir = self.output_dir
+                mcmc_object.set_output_dir(self.uq_output_dir)
+                self.obs_and_param_parser.save_param_names(mcmc_object.param_id_info,
+                                                           self.uq_output_dir)
         elif UQ_options is not None:
             mcmc_object._init_mcmc(UQ_options, DEBUG=self.DEBUG)
-        with self._run_recorded('mcmc'):
+        with self._run_recorded(UQ_CASE_METHOD, self.uq_output_dir):
             mcmc_object.run()
+
+    def mcmc_chain_path(self):
+        """The MCMC chain of this study (rank 0; None elsewhere).
+
+        The MCMC run's directory holds it (``case_dir_name`` with ``UQ_CASE_METHOD``). A
+        calibration's directory that holds a chain of its own, with none in the MCMC
+        run's directory, gives that one.
+        """
+        if self.output_dir is None:
+            return None
+        own = os.path.join(self.output_dir, MCMC_CHAIN_FILE)
+        if self.mcmc_instead or not getattr(self, 'uq_output_dir', None):
+            return own
+        path = os.path.join(self.uq_output_dir, MCMC_CHAIN_FILE)
+        return own if not os.path.isfile(path) and os.path.isfile(own) else path
 
     def _require_data_items(self, what):
         """Refuse to calibrate (or sample a posterior) against an obs_data with no data_items.
@@ -901,13 +952,13 @@ class CVS0DParamID():
             tuple: ``(flat_samples, samples, num_params)``, or None if no chain
             has been written.
         """
-        mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
+        mcmc_chain_path = self.mcmc_chain_path()
 
-        if not os.path.exists(mcmc_chain_path):
+        if not mcmc_chain_path or not os.path.exists(mcmc_chain_path):
             print('No mcmc results to get chain')
             return
 
-        samples = np.load(os.path.join(self.output_dir, 'mcmc_chain.npy'))
+        samples = np.load(mcmc_chain_path)
         samples = drop_unsampled_draws(samples)
         num_steps = samples.shape[0]
         num_walkers = samples.shape[1]
@@ -987,8 +1038,12 @@ class CVS0DParamID():
         label_list = [f'${self.param_id_info["param_names_for_plotting"][II]}$' for II in range(len(self.param_id_info["param_names_for_plotting"]))]
         if self.mcmc_instead:
             if mcmc_object.best_param_vals is None:
-                best_param_vals = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
-                mcmc_object.set_best_param_vals(best_param_vals)
+                # the calibration's best fit, else the posterior median a chain with no
+                # calibration behind it wrote into its own directory
+                best_path = os.path.join(self.calibration_output_dir, 'best_param_vals.npy')
+                if not os.path.isfile(best_path):
+                    best_path = os.path.join(self.output_dir, 'best_param_vals.npy')
+                mcmc_object.set_best_param_vals(np.load(best_path))
         else:
             if self.param_id.best_param_vals is None:
                 best_param_vals = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
@@ -1738,6 +1793,42 @@ class CVS0DParamID():
             return mcmc_object.best_param_vals
         else:
             return self.param_id.best_param_vals
+
+    def write_calibrated_model(self, cellml_path=None, output_dir=None):
+        """Write the model with this calibration's best fit, on rank 0.
+
+        Writes ``<output_dir>/<file_prefix>_calibrated.cellml``, ``output_dir`` defaulting to
+        ``param_id_output_dir`` (the study's working dir, where the study manifest finds it as
+        its ``model``), and records it in the manifest. ``cellml_path`` is the model's CellML,
+        defaulting to ``model_path`` when that is one (a ``python`` or ``casadi_python`` run
+        names the CellML it was generated from). The best fit is the one in memory, else the
+        calibration's ``best_param_vals.npy``.
+
+        Returns the path written, or None on another rank or with no CellML or best fit.
+        """
+        from libcuflynx.param_id.calibrated_model import (calibrated_model_name,
+                                                          write_calibrated_model)
+        if self.rank != 0:
+            return None
+        cellml_path = cellml_path or self.model_path
+        if not cellml_path or not str(cellml_path).endswith('.cellml'):
+            print('[param_id] no CellML model given, so no calibrated model is written')
+            return None
+        best = self.get_best_param_vals()
+        saved = os.path.join(self.calibration_output_dir, 'best_param_vals.npy')
+        if best is None and os.path.isfile(saved):
+            best = np.load(saved)
+        if best is None:
+            print('[param_id] no best fit yet, so no calibrated model is written')
+            return None
+        engine = mcmc_object if self.mcmc_instead else self.param_id
+        path = os.path.join(output_dir or self.param_id_output_dir,
+                            calibrated_model_name(self.file_name_prefix))
+        write_calibrated_model(cellml_path, engine.param_id_info, best, path)
+        if self._study_inp:
+            cuflynx_study.update_study(self._study_inp)
+        print(f'calibrated model saved in {path}')
+        return path
 
     def get_param_names(self):
         """Return the list of identified parameter names (order matches the param vector)."""
@@ -4661,12 +4752,15 @@ class MCMC(ParamID):
         every posterior median look like it had beaten the calibration.
         """
         candidates = [self.best_cost]
-        path = os.path.join(self.output_dir, 'best_cost.npy')
-        if os.path.isfile(path):
-            try:
-                candidates.append(np.load(path))
-            except Exception:
-                pass
+        # the calibration's directory first: this run's own holds a best_cost.npy only when
+        # it had no calibration behind it
+        for directory in (getattr(self, 'calibration_output_dir', None), self.output_dir):
+            path = os.path.join(directory or '', 'best_cost.npy')
+            if directory and os.path.isfile(path):
+                try:
+                    candidates.append(np.load(path))
+                except Exception:
+                    pass
         for candidate in candidates:
             if candidate is None:
                 continue
@@ -4923,7 +5017,8 @@ class MCMC_plotter:
                     mcmc.remove_params_by_name(param_names_to_remove)
 
         if self.best_param_vals is not None:
-            self.best_param_vals = np.load(os.path.join(mcmc.output_dir, 'best_param_vals.npy'))
+            self.best_param_vals = np.load(
+                os.path.join(mcmc.calibration_output_dir, 'best_param_vals.npy'))
 
         mcmc.set_best_param_vals(self.best_param_vals)
 

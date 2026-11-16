@@ -5,6 +5,77 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — external Python models in calibration workflows
+
+- A calibration workflow's `target`, and its steps' `model`, may be an external Python model:
+  `{"external_model_path": "model.py"}` (`spec.ExternalModel`, the builder's
+  `external_model()`). It is never generated: each step runs the `.py` with its values -- the
+  `SIM_HELPER.parameters` defaults with the step's fixed values over them -- in
+  `<step>/model/generated_models/<step>/<step>_parameters.json`. Every step kind runs on it.
+  It must be the target and every step's model; parameters keep their `component/variable`
+  names, and a name the class does not declare is refused when the workflow is resolved.
+  `write_calibrated` writes `<prefix>_calibrated_parameters.json` beside the `.py`
+  (`heat1d_model.py` -> `heat1d_calibrated_parameters.json`), and a pack copies the `.py` with
+  the files beside it.
+- New user input **`external_parameters_file`** (`model_type: external_python`): a parameters
+  file whose values replace the class defaults, set on the user class after `init_solver` and
+  kept by `reset_and_clear`. The parser passes it to the helper as the `external` solver's new
+  `solver_info` field `external_parameters_file`.
+- Example: `funcs_user/example_model_external/heat1d_calibration_workflow.json` (a `set` step,
+  a calibration with MCMC, and a refinement with its posterior as the prior).
+
+### Changed — one working dir layout for CA runs, pipeline bundles and CUFLynx
+
+- **An MCMC run has its own run directory**, `mcmc_<prefix>_<obs>` beside the calibration's
+  `<param_id_method>_<prefix>_<obs>` (`paramID.case_dir_name`, `UQ_CASE_METHOD`), and its own
+  entry in the study manifest's `runs`. The chain, `mcmc_statistics.json`, the posterior point
+  estimates and the posterior predictive check go there; the calibration's directory keeps the
+  best fit. `CVS0DParamID.uq_output_dir` and `calibration_output_dir` name the two, and
+  `CVS0DParamID.mcmc_chain_path()` finds the chain (in a calibration's directory too, for a
+  run whose chain is there). `run_param_id` returns `uq_output_dir`. Readers that took the chain
+  from the calibration's directory now take it from the MCMC run's.
+- **A run in a working dir no longer copies its obs_data and params_for_id into its run
+  directory**: `inputs/` holds them, with `inputs/index.json`. A run with no working dir
+  (`write_cuflynx_study: false` or `cuflynx_study_copy_inputs: false`) still copies them.
+- **`CVS0DParamID.write_calibrated_model(cellml_path=None, output_dir=None)`** writes
+  `<param_id_output_dir>/<file_prefix>_calibrated.cellml`, the model with the best fit written
+  in (grouped and modifier rows expanded), and records it as the manifest's `model`.
+  `libcuflynx.param_id.calibrated_model.write_calibrated_model` does the same from a CellML, a
+  `param_id_info` and the values.
+- **A pipeline bundle is its study's working dir.** `run_pipeline.py` writes its results, the
+  manifest and `inputs/` into the bundle folder rather than `output/`; its sensitivity analysis
+  writes to `sensitivity/` there (an absolute `sa_options` `output_dir` is dropped from the
+  bundled yaml, a relative one goes under `sensitivity/`); the MLE obs_data its UQ stage scores
+  with is stored as `inputs/obs_data/<stamp>/uq_obs_data.json`; and a calibration leaves
+  `<prefix>_calibrated.cellml`. `plot_utilities.py` reads the chain and the posterior predictive
+  check from the MCMC run's directory, and still reads a bundle's `output/` folder when there is
+  one.
+
+### Added — building a calibration workflow in Python (`WorkflowBuilder`)
+
+- `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
+  API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+  `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
+  schema's step keys, with the helpers `library_module`, `module_array`, `select`, `prior`,
+  `set_value` and `scale_value`; then `write`, `check`, `plan`, `run(only=, from_step=,
+  ranks=)`, `status`, `model`, `step_dir` and `plot_step`. Each step is checked against the
+  schema when it is added. obs_data and params_for_id may be dicts (or the in-code
+  `{vessel_name, param_name, min, max}` entries), written as files under `data/` beside the
+  workflow; `add_operation` (and `add_cost_func`, `add_modifier_func`) writes a function
+  defined in a notebook cell to the workflow's functions file. The result is an ordinary
+  workflow file that the command line and CUFLynx run and `pack_workflow` packs.
+  See "Building a workflow in Python" in the parameter-identification docs.
+- `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
+  to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, extra imports,
+  the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one `def` per
+  function): `funcs_file_source`, `write_funcs_file` and `read_funcs_file`, for
+  `add_operation` and for CUFLynx's "Custom funcs" dialog.
+- A workflow step's recorded inputs include the user function files it runs with
+  (`operation_funcs_external_path`, `cost_funcs_external_path`,
+  `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
+  before this are not made stale by it.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
