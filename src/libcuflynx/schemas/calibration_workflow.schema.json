@@ -659,6 +659,11 @@
           },
           "description": "a set step: the values it declares"
         },
+        "point": {
+          "type": "boolean",
+          "default": false,
+          "description": "(set) the step's values are a point only, for start_from, result_from or fixed_from: they are not merged into the target and are not counted as calibrating it. An explicit key, so a workflow's meaning never depends on how its steps are used"
+        },
         "sweep": {
           "type": "object",
           "additionalProperties": false,
@@ -763,6 +768,20 @@
             "required": [
               "set"
             ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "point"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "set"
+              }
+            }
           }
         },
         {

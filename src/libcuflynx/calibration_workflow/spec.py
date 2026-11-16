@@ -20,7 +20,9 @@ one of :data:`STEP_KINDS` (default ``calibration``):
   step's values (``result_from``), or the model's own values. It stores the distribution it
   finds, so a later calibration may take it with ``priors_from``;
 * ``set`` -- declares values or scales by hand, each with a ``reason``. It runs nothing: later
-  steps take its values with ``fixed_from``, and they reach the target as calibrated values do;
+  steps take its values with ``fixed_from``, and they reach the target as calibrated values do,
+  unless it has ``"point": true``: then they are only a point for ``start_from``,
+  ``result_from`` or ``fixed_from``, and never reach the target;
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
   values go no further: no step takes from it and it does not reach the target. With
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
@@ -263,6 +265,7 @@ class Step:
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
     set_values: list = field(default_factory=list)   # (set) the entries it declares
+    point: bool = False            # (set) its values are a point only, not merged into the target
     sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
     on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
@@ -438,8 +441,9 @@ TARGET_SOURCE_KINDS = ('calibration', 'set')
 
 
 def _place_target_sweeps(workflow):
-    '''An on_target sweep runs on the target, taking every calibration's and set step's values.'''
-    sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS]
+    '''An on_target sweep runs on the target, taking every calibration's and set step's values
+    (not a point step's, which the target does not merge).'''
+    sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS and not s.point]
     for step in workflow.steps:
         if step.on_target:
             step.model = workflow.target
@@ -557,6 +561,10 @@ def _step(value, where, base_dir):
             reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
                      else 'declares values for the target')
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
+    if 'point' in value and kind != 'set':
+        raise WorkflowError(f'{label}: "point" is for a set step, not a {kind} step.')
+    if 'point' in value and not isinstance(value['point'], bool):
+        raise WorkflowError(f'{label}: "point" is true or false, not {value["point"]!r}.')
     if kind == 'set':
         if 'settings' in value:
             raise WorkflowError(f'{label}: a set step declares values for the target and has '
@@ -564,7 +572,7 @@ def _step(value, where, base_dir):
         entries = [_set_entry(entry) for entry in value['set']]
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=scale_sources(entries), set_values=entries,
-                    description=value.get('description', '') or '')
+                    point=value.get('point', False), description=value.get('description', '') or '')
     if kind == 'reduction':
         settings = dict(value.get('settings') or {})
         other = sorted(set(settings) - {'param_reduction_options'})

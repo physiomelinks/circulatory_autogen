@@ -32,8 +32,19 @@ next release; add to that section as you land a change.
   (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
   calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
   identifiability or uq step its point (`at_source`).
+- **`"point": true` on a set step:** its values are only a point for `start_from`,
+  `result_from` or `fixed_from`. They are not merged into the target (nor given to an
+  `on_target` sweep), do not count towards "calibrated by more than one step", and the
+  provenance diagram labels the step "point only, not in the target". The builder's
+  `add_set(..., point=True)`. An explicit key, so a hand-written workflow's meaning never
+  depends on how its steps are used.
 
 ### Fixed
+
+- The provenance diagram marked every step on a CellML model stale: it compared the file's
+  sha256 with the step's `cellml_model` input, which the runner records as the digest of the
+  file and its imports. Both now use `runner.input_digest`, which also checks an
+  `emulator_dir` input (a directory) rather than reporting it missing.
 
 - Local sensitivity analysis run from a configuration that names its obs_data and params_for_id
   files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,

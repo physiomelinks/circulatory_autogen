@@ -471,7 +471,9 @@ def _resolve_set_step(step, target, claimed):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not '
                                 f'{_declared_by(target)}.')
         resolved.parameters.append(parameter)
-        claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
+        if not step.point:
+            # a point step's values never reach the target, so they replace nothing there
+            claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
     return resolved
 
 

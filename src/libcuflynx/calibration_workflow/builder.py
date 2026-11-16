@@ -70,7 +70,7 @@ _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'para
               'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
               'store_distribution', 'on_target', 'settings', 'emulator_from', 'emulator_dir',
               'result_from', 'start_from', 'sensitivity_from', 'params_for_id_from', 'set',
-              'sweep')
+              'point', 'sweep')
 #: the keys of a model that are paths, relative to the workflow file when written
 _MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path', 'cellml_model_path')
 #: the keys of a step that are paths, relative to the workflow file when written
@@ -331,10 +331,13 @@ class WorkflowBuilder:
         given['settings'] = dict(given.get('settings') or {}, UQ_options=given.pop('uq_options'))
         return self.add_step(id, kind='uq', **given)
 
-    def add_set(self, id, entries, *, description=None, comment=None):
-        '''Values set by hand (:func:`set_value`, :func:`scale_value`), each with a reason.'''
+    def add_set(self, id, entries, *, point=False, description=None, comment=None):
+        '''Values set by hand (:func:`set_value`, :func:`scale_value`), each with a reason.
+        With ``point``, they are only a point for ``start_from``, ``result_from`` or
+        ``fixed_from``: they are not merged into the target.'''
         return self.add_step(id, kind='set', set=list(entries),
-                             **_given({'description': description, 'comment': comment}))
+                             **_given({'point': point, 'description': description,
+                                       'comment': comment}))
 
     def add_sweep(self, id, *, parameters, model=None, on_target=False, obs_data=None,
                   design=None, outputs=None, zip=None, fixed_from=(), result_from=None,

@@ -131,7 +131,8 @@ def _graph_steps(run):
         if raw.get('on_target'):
             # given every calibration's and set step's values, as the target is
             sources['fixed_from'] = [s['id'] for s in workflow.get('steps', [])
-                                     if s.get('kind', 'calibration') in flowchart.MERGED_KINDS]
+                                     if s.get('kind', 'calibration') in flowchart.MERGED_KINDS
+                                     and not s.get('point')]
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
@@ -148,7 +149,7 @@ def _graph_steps(run):
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
             'set': raw.get('set'), 'sweep': raw.get('sweep'),
-            'on_target': bool(raw.get('on_target'))})
+            'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point'))})
     return steps
 
 
@@ -250,19 +251,16 @@ def _settings_status(step_id, path, recorded, workflows):
 
 def _input_entries(step_id, result, workflows):
     from libcuflynx.calibration_workflow.runner import (LIBRARY_INPUT, SETTINGS_INPUT,
-                                                        module_library_digest, sha256)
+                                                        input_digest)
     entries = []
     for key, info in (result or {}).get('inputs', {}).items():
         path, recorded = info.get('path'), info.get('sha256')
         if key == SETTINGS_INPUT:
             status = _settings_status(step_id, path, recorded, workflows)
-        elif key == LIBRARY_INPUT:
-            status = CURRENT if module_library_digest(path.split(os.pathsep)) == recorded \
-                else STALE
-        elif not path or not os.path.isfile(path):
+        elif key != LIBRARY_INPUT and (not path or not os.path.exists(path)):
             status = MISSING
         else:
-            status = CURRENT if sha256(path) == recorded else STALE
+            status = CURRENT if input_digest(key, path) == recorded else STALE
         entries.append({'key': key, 'path': path, 'sha256': recorded, 'status': status})
     return entries
 
@@ -493,6 +491,8 @@ def provenance_graph(output_dir):
                     inputs=inputs[step_id])
         if done and node['kind'] == 'values':
             node['lines'] = [_described(v) for v in node['parameters']]
+            if by_id[step_id].get('point'):
+                node['lines'].append(flowchart.POINT_ONLY)
         if done and 'n_points' in step_result:
             points = step_result['n_points']
             node['lines'].append(f'{points} point{"" if points == 1 else "s"}, '
