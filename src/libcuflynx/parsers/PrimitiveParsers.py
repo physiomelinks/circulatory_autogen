@@ -2702,17 +2702,19 @@ class YamlFileParser(object):
         if 'solver' not in solver_info:
             solver_info['solver'] = solver_name
 
-        dt_solver = solver_info.get('dt_solver')
-        if dt_solver is None:
-            dt_solver = solver_info.get('MaximumStep')
-        if dt_solver is None:
-            dt_solver = solver_info.get('max_step_size')
-        if dt_solver is None:
-            dt_solver = solver_info.get('max_step')
-        if dt_solver is not None:
-            solver_info['dt_solver'] = dt_solver
-        if solver_info.get('solver') in valid_cellml_solvers and dt_solver is not None:
-            solver_info['MaximumStep'] = dt_solver
+        if solver_info.get('solver') in valid_cellml_solvers:
+            # Variable-step: MaximumStep bounds the step and dt_solver is not read.
+            check_dt_solver_and_max_step(solver_info)
+        else:
+            dt_solver = solver_info.get('dt_solver')
+            if dt_solver is None:
+                dt_solver = solver_info.get('MaximumStep')
+            if dt_solver is None:
+                dt_solver = solver_info.get('max_step_size')
+            if dt_solver is None:
+                dt_solver = solver_info.get('max_step')
+            if dt_solver is not None:
+                solver_info['dt_solver'] = dt_solver
 
         inp_data_dict['solver_info'] = solver_info
 
@@ -3052,6 +3054,34 @@ def step_from_dt_solver(solver_name, solver_info):
     return solver_info
 
 
+def check_dt_solver_and_max_step(solver_info, model_type='cellml'):
+    """Raise when a cellml (variable-step) solver is given both ``dt_solver`` and a different
+    ``MaximumStep``.
+
+    For these solvers ``MaximumStep`` bounds the integrator step and ``dt_solver`` is not read
+    (it is the step of the fixed-step and C++ solvers), so two different values mean the config
+    asks for a step it would not get. Every entry point applies this one rule: the yaml/dict
+    parser, ``CVS0DParamID`` and ``SensitivityAnalysis``.
+    """
+    if not solver_info:
+        return
+    solver = solver_info.get('solver') or \
+        SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type or 'cellml')
+    solver = canonical_solver_name(solver) if solver else solver
+    solver = SOLVER_SCHEMA['solver_aliases_by_model_type'].get(model_type or 'cellml', {}).get(
+        solver, solver)
+    if solver not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']:
+        return
+    dt_solver, max_step = solver_info.get('dt_solver'), solver_info.get('MaximumStep')
+    if dt_solver is None or max_step is None or float(dt_solver) == float(max_step):
+        return
+    raise ValueError(
+        f"solver_info sets dt_solver={dt_solver} and MaximumStep={max_step} for the "
+        f"variable-step solver {solver!r}. MaximumStep sets its maximum step; dt_solver is only "
+        f"read by the fixed-step and C++ solvers. Remove dt_solver, or set it equal to "
+        f"MaximumStep.")
+
+
 # What to write instead of a CVODE-style key on a solver that does not take it.
 _SOLVER_INFO_KEY_HINTS = {
     ('casadi_integrator', 'MaximumStep'): 'use max_step_size instead of MaximumStep',
@@ -3130,12 +3160,11 @@ def _solver_info_default_for(model_type, solver_name):
 
 def get_solver_info_default(model_type):
     if model_type == 'cellml':
+        # CVODE_myokit's declared defaults (SOLVER_INFO_FIELDS), the values its helper applies.
         return {
             'solver': 'CVODE_myokit',
-            'MaximumStep': 0.001,
             'MaximumNumberOfSteps': 5000,
-            'rtol': 1e-8,
-            'atol': 1e-8
+            **solver_field_defaults('CVODE_myokit'),
         }
     if model_type == 'python':
         return {

@@ -28,7 +28,7 @@ def run_param_id(inp_data_dict=None):
     ``set_joint_priors`` of the calibration and of the MCMC (calibration workflows use it for
     priors from an earlier step's stored posterior).
 
-    Returns ``{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}``: ``output_dir`` is the
+    Returns ``{'output_dir', 'best_param_vals', 'param_id', 'mcmc', 'solver_info'}``: ``output_dir`` is the
     run directory on rank 0 (None on the others) and ``mcmc`` is None without do_uq.
     """
 
@@ -156,7 +156,8 @@ def run_param_id(inp_data_dict=None):
     do_uq = inp_data_dict['do_uq']
 
     if DEBUG:
-        UQ_options = inp_data_dict['debug_UQ_options']
+        # the parser's rule: debug_UQ_options when given, else UQ_options
+        UQ_options = inp_data_dict.get('debug_UQ_options', inp_data_dict['UQ_options'])
     else:
         UQ_options = inp_data_dict['UQ_options']
 
@@ -213,7 +214,7 @@ def run_param_id(inp_data_dict=None):
             print('Identifiability analysis complete')
 
     return {'output_dir': param_id.output_dir, 'best_param_vals': best_param_vals,
-            'param_id': param_id, 'mcmc': mcmc}
+            'param_id': param_id, 'mcmc': mcmc, 'solver_info': solver_info}
 
 def main(argv=None):
     """Entry point for the ``cuflynx-param-id`` command."""

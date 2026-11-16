@@ -13,6 +13,10 @@ from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 MPI = _get_MPI()
 
 def run_SA(inp_data_dict=None):
+    """Run the configured sensitivity analysis (and parameter reduction when asked).
+
+    Returns ``{'solver_info'}``: the solver settings the analysis ran with.
+    """
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -38,6 +42,7 @@ def run_SA(inp_data_dict=None):
         selected = run_on_root(comm, lambda: _reduce(inp_data_dict))
         if rank == 0:
             print(f"Parameter reduction kept {[row['parameter'] for row in selected]}")
+    return {'solver_info': inp_data_dict.get('solver_info')}
 
 
 def _reduce(inp_data_dict):

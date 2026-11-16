@@ -575,6 +575,8 @@ class _Run:
                            for prior, dist in priors],
                 'params_for_id_used': params_for_id,
                 'settings': settings,
+                # what the run used: the settings' solver_info with the parser's defaults
+                'solver_info': outcome['solver_info'],
                 'generated': generated,
                 'model_path': generated['model_path'],
                 'param_id_output_dir': case_dir,
@@ -592,7 +594,7 @@ class _Run:
         sa_options = dict(settings['sa_options'], output_dir=out_dir)
         inp = self._inp(step, settings, generated, params_for_id)
         inp['sa_options'] = sa_options
-        self._run_stage(step, 'sensitivity analysis', run_SA, inp)
+        outcome = self._run_stage(step, 'sensitivity analysis', run_SA, inp)
 
         def finish():
             method = sa_options.get('method', 'sobol')
@@ -604,6 +606,7 @@ class _Run:
                     'sobol_indices': found[0] if found else None,
                     'fixed': [dict(row) for _, row in sorted(fixed.items())],
                     'params_for_id_used': params_for_id, 'settings': settings,
+                    'solver_info': outcome['solver_info'],
                     'generated': generated, 'model_path': generated['model_path']}
 
         return self.on_root(finish)

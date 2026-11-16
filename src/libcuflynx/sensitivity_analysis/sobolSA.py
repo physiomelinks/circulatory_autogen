@@ -229,6 +229,9 @@ class sobol_SA():
             protocol_info=self.protocol_info,
             dt=self.dt
         )
+        if self._sim_helper is not None:
+            self._sim_helper.set_protocol_info(self.protocol_info)
+            self._apply_offline_pre_time(self._sim_helper)
         if self.rank == 0:
             print(f'Ground truth data set: {self.obs_info}')
     
@@ -241,6 +244,8 @@ class sobol_SA():
         self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
         self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
         self._create_SA_info(self.sample_type, self.SA_info["num_samples"])
+        if self._sim_helper is not None:
+            self._apply_offline_pre_time(self._sim_helper, warm_up=False)
         if self.rank == 0:
             print(f'Params for id set: {self.param_id_info["param_names"]}')
 
@@ -349,11 +354,17 @@ class sobol_SA():
             # ProtocolRunner have always set it; sensitivity analysis was the one path that
             # did not.
             self._sim_helper.set_protocol_info(self.protocol_info)
+            self._apply_offline_pre_time(self._sim_helper)
             if self.sim_time is not None and self.pre_time is not None:
                 self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             if getattr(self._sim_helper, 'emulates_features', False):
                 self._configure_emulator(self._sim_helper)
         return self._sim_helper
+
+    def _apply_offline_pre_time(self, helper, warm_up=True):
+        """The protocol's offline_pre_time and its guard, applied as param_id applies them."""
+        from libcuflynx.param_id.paramID import apply_offline_pre_time
+        apply_offline_pre_time(helper, self.protocol_info, self.param_id_info, warm_up=warm_up)
 
     def _configure_emulator(self, helper):
         """Validate the emulator against this analysis, and map its outputs to the data_items.

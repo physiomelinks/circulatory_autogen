@@ -67,7 +67,8 @@ import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
 from libcuflynx.parsers.PrimitiveParsers import (CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS,
-                                      PARAM_PRIOR_TYPES, prior_param_default)
+                                      PARAM_PRIOR_TYPES, prior_param_default,
+                                      check_dt_solver_and_max_step)
 from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from libcuflynx.param_id.differentiable import (
@@ -298,6 +299,7 @@ class CVS0DParamID():
             self.solver_info = {"solver": "CVODE_myokit"}
         else:
             self.solver_info = solver_info
+        check_dt_solver_and_max_step(self.solver_info, model_type)
         self.dt = dt
         self.sim_time = sim_time
         self.pre_time = pre_time
@@ -1953,6 +1955,67 @@ OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
 )
 
 
+def params_that_set_initial_states(param_id_info, sim_helper):
+    """Calibration parameters that set a state's initial value.
+
+    These are incompatible with an offline warm-up: the offline pass freezes one state and
+    every evaluation restarts from it, so a parameter whose only role is to initialise a state
+    never enters the simulation at all. Its gradient is then exactly zero and it is silently
+    unrecoverable -- measured on 3compartment, q_lv_init's response to a 25% perturbation
+    drops from 8.49% to 0.0000% once an offline warm-up is used.
+
+    Detected two ways: a name that resolves to a state directly, and the ``<state>_init``
+    naming convention that ties a constant to a state's initial value (the convention the
+    python/CasADi/AADC backends already key on).
+    """
+    offenders = []
+    param_names = (param_id_info or {}).get('param_names') or []
+    resolve = getattr(sim_helper, '_resolve_name', None)
+    for name_or_list in param_names:
+        names = name_or_list if isinstance(name_or_list, (list, tuple)) else [name_or_list]
+        for name in names:
+            var_part = str(name).split('/')[-1]
+            if var_part.endswith('_init'):
+                offenders.append(str(name))
+                continue
+            if resolve is not None:
+                try:
+                    if resolve(name)[0] == 'state':
+                        offenders.append(str(name))
+                except Exception:
+                    pass
+    return offenders
+
+
+def apply_offline_pre_time(sim_helper, protocol_info, param_id_info, warm_up=True):
+    """Apply the protocol's ``offline_pre_time``: refuse calibration parameters that set a
+    state's initial value (OFFLINE_PRE_TIME_INIT_STATE_ERROR), then run the warm-up once.
+
+    The one place this happens, so every route applies it the same way: the constructors, the
+    setters that change the protocol or the parameters afterwards (``warm_up=False`` when only
+    the parameters changed: the guard is rechecked, the warm-up is not rerun), and Sobol SA.
+    Call it after ``sim_helper.set_protocol_info``: that binds the traced inputs the warm-up
+    holds at their first value, and the rebuild it does would discard the warm-up's state.
+
+    The warm-up runs ONCE and its end state is the initial condition of every evaluation's
+    pre_time + sim_time -- the speed-up offline_pre_time exists for. It is only sound because
+    of the guard: for every remaining parameter the frozen state is a constant with respect to
+    the parameters being fitted, so its sensitivity is zero and FSA/AD accumulate d/dp correctly
+    across the per-evaluation pre_time (issue #269). pre_time still runs per evaluation and must
+    be long enough for the trial parameters to re-settle from the warm start (issue #328).
+    """
+    offline_pre_time = (protocol_info or {}).get('offline_pre_time')
+    if offline_pre_time is None or float(offline_pre_time) <= 0:
+        return
+    offenders = params_that_set_initial_states(param_id_info, sim_helper)
+    if offenders:
+        raise ValueError(
+            OFFLINE_PRE_TIME_INIT_STATE_ERROR
+            + f" Offending calibration parameter(s): {', '.join(offenders)}.")
+    if warm_up:
+        sim_helper.run_offline_pre_and_set_default_state(float(offline_pre_time))
+
+
 class ParamID():
     """
     Class for doing parameter identification on simulated models
@@ -2083,32 +2146,7 @@ class ParamID():
         if self.protocol_info is not None:
             self.sim_helper.set_protocol_info(self.protocol_info)
 
-        offline_pre_time = None
-        if self.protocol_info is not None:
-            offline_pre_time = self.protocol_info.get('offline_pre_time')
-        if offline_pre_time is not None and float(offline_pre_time) > 0:
-            offenders = self._params_that_set_initial_states()
-            if offenders:
-                raise ValueError(
-                    OFFLINE_PRE_TIME_INIT_STATE_ERROR
-                    + f" Offending calibration parameter(s): {', '.join(offenders)}.")
-            # Run the offline warm-up ONCE and reuse its end state as the initial condition for
-            # every evaluation's pre_time + sim_time. This is the speed-up offline_pre_time exists
-            # for: the settled state is reached once instead of on all ~N cost evaluations.
-            #
-            # It is only sound because the guard above rejects calibration parameters that set a
-            # state's initial value. For every remaining parameter the frozen state is genuinely a
-            # constant with respect to the parameters being fitted, so its sensitivity is zero and
-            # FSA/AD accumulate d/dp correctly across the per-evaluation pre_time. That was the
-            # flaw in the original version (issue #269): with a state-init parameter in the set,
-            # the frozen state silently absorbed d(steady state)/d(p) and both AD and FD agreed on
-            # the wrong gradient, because both perturbed the same frozen state.
-            #
-            # pre_time still runs per evaluation and must be long enough for the trial parameters
-            # to re-settle from the warm start -- how long varies with the parameters, which is
-            # what issue #328 is about.
-            offline_pre_time = float(offline_pre_time)
-            self.sim_helper.run_offline_pre_and_set_default_state(offline_pre_time)
+        apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info)
 
         # initialise
         self.param_init = None
@@ -2193,35 +2231,9 @@ class ParamID():
         self._lnlikelihood_denorm_factor = float(total) if total > 0 else 1.0
 
     def _params_that_set_initial_states(self):
-        """Calibration parameters that set a state's initial value.
-
-        These are incompatible with an offline warm-up: the offline pass freezes one state and
-        every evaluation restarts from it, so a parameter whose only role is to initialise a state
-        never enters the simulation at all. Its gradient is then exactly zero and it is silently
-        unrecoverable -- measured on 3compartment, q_lv_init's response to a 25% perturbation
-        drops from 8.49% to 0.0000% once an offline warm-up is used.
-
-        Detected two ways: a name that resolves to a state directly, and the ``<state>_init``
-        naming convention that ties a constant to a state's initial value (the convention the
-        python/CasADi/AADC backends already key on).
-        """
-        offenders = []
-        param_names = (self.param_id_info or {}).get('param_names') or []
-        resolve = getattr(self.sim_helper, '_resolve_name', None)
-        for name_or_list in param_names:
-            names = name_or_list if isinstance(name_or_list, (list, tuple)) else [name_or_list]
-            for name in names:
-                var_part = str(name).split('/')[-1]
-                if var_part.endswith('_init'):
-                    offenders.append(str(name))
-                    continue
-                if resolve is not None:
-                    try:
-                        if resolve(name)[0] == 'state':
-                            offenders.append(str(name))
-                    except Exception:
-                        pass
-        return offenders
+        """Calibration parameters that set a state's initial value; see
+        `params_that_set_initial_states`."""
+        return params_that_set_initial_states(self.param_id_info, self.sim_helper)
 
     def initialise_sim_helper(self):
         # Get method from solver_info (check both 'solver' and 'method' for backward compatibility)
@@ -2332,6 +2344,8 @@ class ParamID():
         # parameter has been written, which is the property that stops theta compounding.
         if getattr(self, 'sim_helper', None) is not None:
             resolve_modifier_baselines(self.param_id_info, self.sim_helper)
+            apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info,
+                                   warm_up=False)
         # Re-check the emulator against the parameters it is now being asked about: the
         # programmatic API sets these after construction, and an emulator trained for a
         # different set (or a different box) would answer anyway.
@@ -2343,6 +2357,7 @@ class ParamID():
         self.protocol_info = protocol_info
         # set the protocol_info in the sim_helper so that the protocol traces can be accessed.
         self.sim_helper.set_protocol_info(self.protocol_info)
+        apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info)
         self._refresh_num_weighted_obs_tables()
 
     def set_prediction_info(self, prediction_info):
