@@ -57,12 +57,16 @@ def run_identifiability_analysis(inp_data_dict=None, best_param_vals=None):
             print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
         print(f'Starting identifiability analysis with {num_procs} MPI rank(s)')
 
+    # Optional external user-func files; None when absent, as in param_id_run_script.
     param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,
                             params_for_id_path=params_for_id_path,
                             param_id_obs_path=param_id_obs_path,
                             sim_time=sim_time, pre_time=pre_time,
                             solver_info=solver_info, dt=dt, optimiser_options=optimiser_options, DEBUG=DEBUG,
-                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                            operation_funcs_external_path=inp_data_dict.get('operation_funcs_external_path'),
+                            cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path'),
+                            modifier_funcs_external_path=inp_data_dict.get('modifier_funcs_external_path'))
 
 
     # id_analysis = IdentifiabilityAnalysis(model_path, model_type, param_id_method, False, file_prefix,
