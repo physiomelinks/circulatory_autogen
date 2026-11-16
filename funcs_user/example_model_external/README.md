@@ -24,6 +24,8 @@ with [`../example_model_scipy/`](../example_model_scipy/) instead — same contr
 | `heat1d_params_for_id.json` | Parameters to calibrate / sweep (`k`, `u_D`) with bounds. |
 | `heat1d_parameters.json` | Default parameter values (the calibration start point). |
 | `heat1d_obs_data.json` | The `protocol_info` (the run window) plus target observables — the three probe means at the "true" `k=0.25, u_D=0.1`. |
+| `heat1d_calibration_workflow.json` | A calibration workflow of this model: `u_D` set by hand, `k` fitted (with MCMC), then `u_D` refined with `k`'s posterior as its prior. Run it with `cuflynx-calibration-workflow heat1d_calibration_workflow.json --write-calibrated`; see [Calibration workflows](../../tutorial/docs/external-python-solvers.md#calibration-workflows). |
+| `heat1d_k_params_for_id.json`, `heat1d_u_D_params_for_id.json` | One parameter each, for the workflow's steps. |
 
 ## The contract
 

@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["heat/u_D"], "min": -0.5, "max": 0.5, "param_type": "const", "name_for_plotting": "u_D"}
+ ]
+}

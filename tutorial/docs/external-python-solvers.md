@@ -197,6 +197,77 @@ Everything else — `params_for_id`, `obs_data.json`, `param_id_method`, `resour
 exactly as it does for a CellML model. See
 [Parameter Identification](parameter-identification.md).
 
+### Starting from other values: `external_parameters_file`
+
+`external_parameters_file` names a parameters file, in the nested form of a model's
+`<prefix>_parameters.json`, whose values replace the class defaults:
+
+```yaml
+# Absolute, or relative as external_model_path is
+external_parameters_file: /path/to/heat1d_calibrated_parameters.json
+```
+
+```json
+{"schema_version": 1,
+ "heat": {"k": {"value": 0.25, "units": "", "data_reference": "..."},
+          "u_D": {"value": 0.1, "units": "", "data_reference": "..."}}}
+```
+
+The values are set on your class right after `init_solver`, and they are the defaults that a
+reset returns to. A name your class does not declare in `parameters` is refused. Calibration
+workflows use this file to run each step with its values, and write their result in this form.
+
+## Calibration workflows
+
+A [calibration workflow](parameter-identification.md#calibration-workflows) can run an
+external model. Name it with `{"external_model_path": ...}`, relative to the workflow file, as the
+workflow's `target` and as the `model` of every step that runs one:
+
+```json
+{"workflow_name": "heat1d",
+ "target": {"external_model_path": "heat1d_model.py"},
+ "settings": {"dt": 0.005, "param_id_method": "CMA-ES"},
+ "steps": [
+   {"id": "boundary", "kind": "set",
+    "set": [{"parameter": "heat/u_D", "value": 0.1, "reason": "boundary temperature is measured"}]},
+   {"id": "fit-k", "model": {"external_model_path": "heat1d_model.py"},
+    "obs_data": "heat1d_obs_data.json", "params_for_id": "heat1d_k_params_for_id.json",
+    "fixed_from": ["boundary"]}]}
+```
+
+- **The model is never generated.** Each step runs your `.py` with its values in
+  `<step>/model/generated_models/<step>/<step>_parameters.json`: your class defaults, with the
+  values the step is given (`fixed_from`, `result_from`) over them. CA passes that file as the
+  step's `external_parameters_file`.
+- **The model is also the target.** Every step that names a model names the same file. A
+  `vessel_map`, `submodule`, `vessel` or `select` is refused.
+- **Parameters keep your names.** In a params_for_id, a `set` step or a sweep, a parameter is
+  `component/variable`, as your `parameters` declares it. A name your class does not declare is
+  refused before anything runs.
+- `model_type` and `solver` are always `external_python` and `external`. `solver_info`'s
+  `user_config` still reaches `init_solver`.
+- Every step kind works: calibrations (with `store_distribution` and `priors_from`), sensitivity,
+  reduction, emulation, identifiability, `set` and sweeps (also `on_target`).
+- `--write-calibrated` writes the merged values as `<prefix>_calibrated_parameters.json` beside
+  the `.py`. The prefix is the file name without `_model.py`, so `heat1d_model.py` gives
+  `heat1d_calibrated_parameters.json`. Run the model from it with `external_parameters_file`.
+- `--pack` copies the `.py` with every file beside it, since a model may read data there.
+
+The shipped example `funcs_user/example_model_external/heat1d_calibration_workflow.json`:
+
+1. sets `u_D` by hand;
+2. fits `k` with `u_D` held, and samples `k`'s posterior by MCMC;
+3. refines `u_D`, with `k`'s posterior as its prior.
+
+```
+cuflynx-calibration-workflow funcs_user/example_model_external/heat1d_calibration_workflow.json \
+    --output-dir heat1d_run --write-calibrated
+```
+
+It recovers `k ≈ 0.25` and `u_D ≈ 0.1` in under a minute. It warns that `u_D` is calibrated by
+more than one step: `refine` replaces the value `boundary` set. `tests/test_workflow_external_python.py`
+runs every step kind on this model.
+
 ## The simple case first: an ODE with scipy
 
 `funcs_user/example_model_scipy/` is the smallest thing this contract can be. A damped

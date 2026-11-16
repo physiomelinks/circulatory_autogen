@@ -11,7 +11,8 @@ Layout of the packed directory::
                                   <name>_derivations.json with the CellML and Python files it
                                   reads, at their paths relative to it
     inputs/_target/               the target's module array and parameters file, with its
-                                  variable_mapping.csv if it has one
+                                  variable_mapping.csv if it has one; or, for an external
+                                  model, the .py and every file beside it
     modules/                      each module version the workflow uses, laid out as in its
                                   library, and every units file of that library
                                   (modules/<n>/ for the n-th of several libraries)
@@ -77,6 +78,25 @@ class _Packer:
             self._copy(source, relative)
         self.packed[real] = relative
         return relative
+
+    def external(self, source):
+        '''Copy an external model -- the ``.py`` and every file beside it (not its
+        subdirectories, where runs may write), as a model may read data there -- into
+        ``inputs/_target/<directory>/``; the ``.py``'s path in the pack. Each file copied is the
+        pack's copy of it, so obs_data or a params_for_id beside the model is packed once.'''
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        directory = os.path.dirname(real)
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER, os.path.basename(directory))
+        for name in sorted(os.listdir(directory)):
+            path = os.path.join(directory, name)
+            if name.startswith('.') or not os.path.isfile(path):
+                continue
+            relative = os.path.join(home, name)
+            self._copy(path, relative)
+            self.packed.setdefault(os.path.realpath(path), relative)
+        return self.packed[real]
 
     def derivations(self, parameters_source, packed_parameters):
         '''Copy the derivations file beside ``parameters_source``, if there is one, beside its
@@ -185,6 +205,8 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     def model(spec_model, owner):
         if spec_model.kind in ('library', 'selection'):
             return spec_model.as_dict()    # a selection's files are the target's
+        if spec_model.kind == 'external':
+            return {'external_model_path': packer.external(spec_model.path)}
         array = packer.file(spec_model.module_array, owner)
         packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}

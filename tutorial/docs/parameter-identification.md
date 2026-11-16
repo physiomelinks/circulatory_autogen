@@ -1429,6 +1429,11 @@ Paths are relative to the workflow file. A **model** is one of:
 - (a step's, with a module-array target) **a selection** of the target's instances, as
   `{"select": ["C"]}` or `{"select": ["heart/lv"]}` (see
   [Calibrating a selection](#calibrating-a-selection)).
+- **an external Python model**, as `{"external_model_path": "heat1d_model.py"}`. It is never
+  generated, so it is the target and every step's model, and its parameters keep their
+  `component/variable` names. See
+  [Calibration workflows](external-python-solvers.md#calibration-workflows) in the external
+  solvers guide.
 
 | Key | Meaning |
 |---|---|

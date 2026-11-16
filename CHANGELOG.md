@@ -46,6 +46,25 @@ number of vessels at a node (node sums #609, node rule D #617).
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
 
+### Added — external Python models in calibration workflows
+
+- A calibration workflow's `target`, and its steps' `model`, may be an external Python model:
+  `{"external_model_path": "model.py"}` (`spec.ExternalModel`, the builder's
+  `external_model()`). It is never generated: each step runs the `.py` with its values -- the
+  `SIM_HELPER.parameters` defaults with the step's fixed values over them -- in
+  `<step>/model/generated_models/<step>/<step>_parameters.json`. Every step kind runs on it.
+  It must be the target and every step's model; parameters keep their `component/variable`
+  names, and a name the class does not declare is refused when the workflow is resolved.
+  `write_calibrated` writes `<prefix>_calibrated_parameters.json` beside the `.py`
+  (`heat1d_model.py` -> `heat1d_calibrated_parameters.json`), and a pack copies the `.py` with
+  the files beside it.
+- New user input **`external_parameters_file`** (`model_type: external_python`): a parameters
+  file whose values replace the class defaults, set on the user class after `init_solver` and
+  kept by `reset_and_clear`. The parser passes it to the helper as the `external` solver's new
+  `solver_info` field `external_parameters_file`.
+- Example: `funcs_user/example_model_external/heat1d_calibration_workflow.json` (a `set` step,
+  a calibration with MCMC, and a refinement with its posterior as the prior).
+
 ### Changed — one working dir layout for CA runs, pipeline bundles and CUFLynx
 
 - **An MCMC run has its own run directory**, `mcmc_<prefix>_<obs>` beside the calibration's

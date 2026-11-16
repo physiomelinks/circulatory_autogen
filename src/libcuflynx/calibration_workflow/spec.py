@@ -29,7 +29,11 @@ Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an
 * a module array of CA (``"resources/aorta_module_array.csv"``, or
   ``{"module_array": ..., "parameters": ...}`` when its parameters file is not
   ``<prefix>_parameters.json`` beside it), or
-* a module of a module library, ``{"module_type", "version", "parameterisation"}``.
+* a module of a module library, ``{"module_type", "version", "parameterisation"}``, or
+* an external Python model, ``{"external_model_path": "model.py"}`` (a ``.py`` defining
+  ``SIM_HELPER``, run as ``model_type: external_python``). It is never generated: a step runs
+  the file with its values in an ``external_parameters_file``. A step with one needs the same
+  file as the target.
 
 Paths are relative to the workflow file. A step may take the calibrated values of earlier steps
 as fixed parameter values (``fixed_from``) or, from steps that stored their posterior
@@ -144,6 +148,28 @@ class Selection:
 
     def as_dict(self):
         return {'select': list(self.names)}
+
+
+@dataclass(frozen=True)
+class ExternalModel:
+    '''An external Python model: a ``.py`` file defining ``SIM_HELPER``. Its parameters are
+    named ``component/variable``; the component is the vessel.'''
+    path: str
+
+    kind = 'external'
+
+    @property
+    def prefix(self):
+        '''The file prefix: ``heat1d`` for ``heat1d_model.py`` (the default name of an external
+        model is ``<file_prefix>_model.py``), else the file's stem.'''
+        stem = self.label()
+        return stem[:-len('_model')] if stem.endswith('_model') and stem != '_model' else stem
+
+    def label(self):
+        return os.path.splitext(os.path.basename(self.path))[0]
+
+    def as_dict(self):
+        return {'external_model_path': self.path}
 
 
 def array_prefix(path):
@@ -382,9 +408,12 @@ def _path(value, base_dir):
 def _model(value, base_dir):
     '''A ``model`` (or the workflow ``target``): a module array path, ``{"module_array",
     "parameters"}``, a library module ``{"module_type", "version", "parameterisation"}``, or
-    (a step's) a selection of the target's instances ``{"select": [...]}``.'''
+    (a step's) a selection of the target's instances ``{"select": [...]}``, or an external
+    Python model ``{"external_model_path"}``.'''
     if isinstance(value, str):
         value = {'module_array': value}
+    if 'external_model_path' in value:
+        return ExternalModel(_path(value['external_model_path'], base_dir))
     if 'select' in value:
         return Selection(tuple(name.strip() for name in value['select']))
     if 'module_array' in value:
@@ -588,6 +617,7 @@ def check_workflow(workflow):
         raise WorkflowError(f'steps {selections} select instances of the target, which only a '
                             f'module-array target has; this target is the library module '
                             f'{workflow.target.label()}.')
+    _check_external_models(workflow)
 
     for step in workflow.steps:
         for key, sources in step.sources().items():
@@ -658,6 +688,24 @@ def check_workflow(workflow):
                 f'(optimiser_options.objective_function: "likelihood"). Its calibration would '
                 f'ignore the priors.')
     return workflow
+
+
+def _check_external_models(workflow):
+    '''An external model is run as it is, so its steps calibrate the target itself: the target is
+    the same file, and every step that runs a model runs that file.'''
+    target = workflow.target
+    steps = [s for s in workflow.steps if s.model is not None and not s.on_target]
+    external = [s.id for s in steps if s.model.kind == 'external']
+    if target.kind != 'external':
+        if external:
+            raise WorkflowError(f'steps {external} run an external Python model, so the target '
+                                f'must be that file ({{"external_model_path": ...}}); this '
+                                f'target is {target.label()}.')
+        return
+    other = [s.id for s in steps if s.model != target]
+    if other:
+        raise WorkflowError(f'the target is the external Python model {target.path}, so every '
+                            f'step\'s model is that file; steps {other} name another model.')
 
 
 def _check_set_step(workflow, step):

@@ -440,6 +440,10 @@ SOLVER_INFO_FIELDS = {
         {'name': 'user_config', 'type': 'dict', 'default': None, 'required': False,
          'description': "free-form options dict passed to the user class's init_solver via "
                         "config['solver_info']"},
+        {'name': 'external_parameters_file', 'type': 'str', 'default': None, 'required': False,
+         'description': "a parameters file ({component: {variable: {value, ...}}}) whose values "
+                        "replace the defaults of SIM_HELPER.parameters; set from the user input "
+                        "external_parameters_file"},
     ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
@@ -2491,7 +2495,7 @@ class YamlFileParser(object):
         # FileNotFoundError.
         for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
                      'modifier_funcs_external_path', 'external_model_path',
-                     'generated_model_path'):
+                     'external_parameters_file', 'generated_model_path'):
             if inp_data_dict.get(_key):
                 inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
 
@@ -2830,6 +2834,13 @@ class YamlFileParser(object):
                 print('Use CVODE_myokit or CVODE_libopencor for CellML models')
                 print(f'Use {valid_cpp_solvers} for Cpp models')
                 exit()
+
+        # The external helper is built from solver_info at every construction site, so the
+        # values file of an external model travels there.
+        if inp_data_dict.get('model_type') == 'external_python' and \
+                inp_data_dict.get('external_parameters_file'):
+            inp_data_dict['solver_info']['external_parameters_file'] = \
+                inp_data_dict['external_parameters_file']
 
         try:
             validate_solver_info(solver_name, inp_data_dict['solver_info'])
