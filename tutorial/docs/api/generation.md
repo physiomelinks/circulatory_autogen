@@ -1,7 +1,7 @@
 # Model generation
 
-Generate a flat CellML (or Python / C++ / CasADi) model from the vessel and
-parameter CSV arrays referenced by the configuration dict.
+Generate a flat CellML (or Python / C++ / CasADi) model from the module array and
+parameters file referenced by the configuration dict.
 
 ::: libcuflynx.scripts.script_generate_with_new_architecture.generate_with_new_architecture
 

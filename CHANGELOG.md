@@ -5,6 +5,50 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — what a new user meets in the first hour
+
+Found by installing libcuflynx as a new user and following the tutorial from an empty directory.
+
+- **A missing `user_inputs.yaml`** is one line naming the user directory, how it was chosen
+  (`$CUFLYNX_USER_DIR`, the checkout, or the current directory) and what to do, in place of a
+  `FileNotFoundError` traceback (`paths.missing_user_inputs_message`).
+- **The shipped `user_run_files/user_inputs.yaml` names no path of one machine.**
+  `param_id_obs_path` is `resources/3compartment_obs_data.json` and the cpp paths are commented
+  out. A relative `param_id_obs_path` that is not there from the current directory is now taken
+  from the user directory (or the directory of the file `user_inputs_path_override` names), so
+  `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
+- **A key of a `user_inputs.yaml` that libcuflynx does not read gives a `UserWarning`** with the
+  closest key it does read (`param_id_methd`: "Did you mean 'param_id_method'?"). It was ignored
+  in silence and the default used. Only files are checked, not dicts built in code.
+  `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys; add a new key there.
+- **Three refusals raise instead of calling `exit()`**: an invalid `solver`, a `solver_info` key
+  the solver does not take (both `UserInputsError`, a `ValueError`), and a genetic algorithm
+  budget below its population (`ValueError`). `cuflynx-generate` exited 0 on the first two, and a
+  script calling `pid.run()` stopped with exit 0 on the third. Code that caught `SystemExit`
+  around `parse_user_inputs_file` for these should catch `ValueError`.
+- `model_type: cpp` with no `solver_info.dt_solver` says which key to add, in place of
+  `KeyError: 'dt_solver'`.
+- A module array naming a module that no module library holds says how to give the library
+  (`module_library_dirs`, or `--module-library-dir`).
+- A calibration workflow run no longer writes `param_id_output/inputs/user_inputs/` in the
+  current directory: the generation steps' dated user_inputs copy goes with their staged
+  resources under `--output-dir`.
+- `CVS0DParamID.set_params_for_id` (and `get_param_id_info_from_entries`) also take the content
+  of a params_for_id file: the `{"version", "params"}` document or its list of entries with
+  `targets` or `modifies`. The `{vessel_name, param_name, ...}` entries are read as before.
+- "parameter X not found" and "variable X not found" from the Myokit helper name the model,
+  the closest names in it and the file such a name is written in.
+- When Myokit cannot compile a model because `Python.h` or SUNDIALS' `cvode/cvode.h` is missing,
+  generation prints what to install in place of the compiler traceback. The generated
+  `CMakeLists.txt` stops with how to install SUNDIALS or pass `-DSUNDIALS_DIR`.
+- Messages: "running on 1 rank; use mpiexec -n N to parallelise", the DEBUG warning says what
+  DEBUG does, "the parameters file" where a message said "CSV", and `cuflynx-plot` no longer
+  prints `doing ia for rank 0`.
+- Docs: Python 3.10 or newer, `python3-dev` in the prerequisites, one venv name (`venv`), the
+  clone URL, where the API example's resources come from, what generation writes, that
+  workflows need a newer libcuflynx than PyPI's 0.7.3, and the removed
+  `run_param_id_without_autogen.sh`.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had

@@ -33,7 +33,7 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 | `libcuflynx[libopencor]` | **+37 MB**, Python 3.12 or later | `solver: CVODE_libopencor` (libOpenCOR) |
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
 | `libcuflynx[emulation]` | **+750 MB or more** | training and using surrogate models (`do_emulation` / `use_emulator`) |
-| `libcuflynx[cpp]` | +0 MB | `model_type: cpp` — needs a C++ toolchain, which pip cannot install |
+| `libcuflynx[cpp]` | +0 MB | `model_type: cpp` — needs a C++ toolchain, and SUNDIALS for `solver: CVODE`, which pip cannot install |
 | `libcuflynx[all]` | **≈ 1.6 GB** | all of the above |
 
 `[emulation]` is the one to think about before typing: `autoemulate` pulls in **torch**, which
@@ -91,7 +91,7 @@ from libcuflynx.solver_wrappers import get_simulation_helper_from_inp_data_dict
 from libcuflynx.param_id.paramID import CVS0DParamID
 
 inp = get_default_inp_data_dict(file_prefix, input_param_file, resources_dir)
-generate_with_new_architecture(inp_data_dict=inp)     # CSV arrays -> CellML
+generate_with_new_architecture(inp_data_dict=inp)     # module array + parameters -> CellML
 sim = get_simulation_helper_from_inp_data_dict(inp)   # simulate it
 sim.run()
 pid = CVS0DParamID.init_from_dict(inp)                # calibrate it
@@ -102,7 +102,7 @@ Each pipeline stage also has a console command, all configured from
 
 | Command | Stage |
 |---|---|
-| `cuflynx-generate` | generate a model from the CSV arrays |
+| `cuflynx-generate` | generate a model from its module array and parameters file |
 | `cuflynx-param-id` | generate + calibrate (`mpiexec -n N` for parallel) |
 | `cuflynx-sensitivity` | Sobol sensitivity analysis |
 | `cuflynx-identifiability` | Laplace / profile-likelihood identifiability |
@@ -177,9 +177,9 @@ can never be re-uploaded) are in [CONTRIBUTING.md](CONTRIBUTING.md#making-a-rele
 Cite the project as **circulatory_autogen** — that is the name used by the publications, the
 repository and any archived DOI. The PyPI distribution `libcuflynx` is the *same* software under
 its packaging name, so a paper citing circulatory_autogen and an environment listing
-`libcuflynx==0.4.0` refer to one artifact, not two. When it helps reproducibility, record both:
+`libcuflynx==0.7.3` refer to one artifact, not two. When it helps reproducibility, record both:
 the citation for the project and the exact package version installed, e.g.
-"circulatory_autogen (PyPI package `libcuflynx`, version 0.4.0)".
+"circulatory_autogen (PyPI package `libcuflynx`, version 0.7.3)".
 
 # License
 circulatory_autogen is fully open source and distributed under the very permissive Apache License 2.0. See LICENSE for more information.
