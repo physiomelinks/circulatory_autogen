@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+
+- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
+  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
+  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
+  `plot_prediction_plots` and the PCA-Sobol report now call
+  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
+  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
+  render figures with Agg, with or without a display.
+- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
+  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
+  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
+  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
+  tutorial notebook reads the hybrid run's 0D results from there.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
