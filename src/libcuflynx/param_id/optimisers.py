@@ -309,8 +309,10 @@ class GeneticAlgorithmOptimiser(Optimiser):
                 f'num_calls_to_function to at least {num_pop}, or use another param_id_method '
                 f'(CMA-ES runs on any budget).')
         if num_procs > num_pop:
-            print(f'Number of processors must be less than number of population, exiting')
-            exit()
+            raise ValueError(
+                f'{num_procs} MPI ranks is more than the genetic algorithm population '
+                f'(num_pop={num_pop}): run on at most {num_pop} ranks, or raise the population '
+                f'sizes in optimiser_options.')
         
         self.max_generations = math.floor(self.optimiser_options['num_calls_to_function']/num_pop)
         

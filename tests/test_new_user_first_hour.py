@@ -113,6 +113,32 @@ def test_a_relative_obs_path_from_the_current_directory_is_kept(tmp_path, monkey
     assert parsed['param_id_obs_path'] == 'resources/3compartment_obs_data.json'
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize('absolute_override', [True, False])
+def test_a_relative_obs_path_not_beside_the_override_is_found_in_the_user_directory(
+        tmp_path, monkeypatch, absolute_override):
+    """With user_inputs_path_override, a relative obs path is first taken from the override's
+    directory, then from the user directory."""
+    study = tmp_path / 'study'
+    study.mkdir()
+    config = _study(study, '_module_array.csv', '_parameters.json', '_obs_data.json',
+                    '_params_for_id.json')
+    config['param_id_obs_path'] = 'resources/3compartment_obs_data.json'
+    (tmp_path / 'configs').mkdir()
+    (tmp_path / 'configs' / 'other.yaml').write_text(yaml.safe_dump(config))
+    default_dir = tmp_path / 'default'
+    default_dir.mkdir()
+    override = (str(tmp_path / 'configs' / 'other.yaml') if absolute_override
+                else os.path.join('configs', 'other.yaml'))
+    (default_dir / 'user_inputs.yaml').write_text(
+        yaml.safe_dump({'user_inputs_path_override': override}))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(default_dir))
+    monkeypatch.setenv(paths.CUFLYNX_USER_DIR_ENV_VAR, str(study))
+    monkeypatch.chdir(tmp_path)
+    parsed = YamlFileParser().parse_user_inputs_file(None, obs_path_needed=True)
+    assert parsed['param_id_obs_path'] == str(study / 'resources' / '3compartment_obs_data.json')
+
+
 # ---- a mistyped user_inputs key -----------------------------------------------------------
 
 @pytest.mark.unit
@@ -121,6 +147,28 @@ def test_an_unknown_user_inputs_key_is_named_with_the_closest_key():
                                         'sim_tme': 2, 'zzz_nothing_like_it': 1})
     assert unknown == {'param_id_methd': 'param_id_method', 'sim_tme': 'sim_time',
                        'zzz_nothing_like_it': None}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('key', ['module_array_path', 'parameters_path', 'model_pth',
+                                 'param_id_output_dir_abs', 'vessels_csv_path'])
+def test_a_key_the_parser_derives_is_never_suggested(key):
+    assert unknown_user_inputs_keys({key: 1})[key] not in PrimitiveParsers.DERIVED_USER_INPUTS_KEYS
+
+
+@pytest.mark.unit
+def test_a_key_the_parser_derives_does_not_warn():
+    assert not unknown_user_inputs_keys(dict.fromkeys(PrimitiveParsers.DERIVED_USER_INPUTS_KEYS))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('key', ['num_calls_to_function', 'cost_convergence', 'num_elite',
+                                 'sigma0', 'num_starts'])
+def test_an_optimiser_option_at_the_top_level_is_pointed_to_optimiser_options(key):
+    assert unknown_user_inputs_keys({key: 100}) == {key: 'optimiser_options'}
+    with pytest.warns(UserWarning, match=f"'{key}'.*an optimiser option: put it under "
+                                         f"optimiser_options"):
+        warn_unknown_user_inputs_keys({key: 100}, 'user_inputs.yaml')
 
 
 @pytest.mark.unit
@@ -210,6 +258,71 @@ def test_a_budget_below_the_genetic_algorithm_population_raises():
     optimiser.optimiser_options = {'num_calls_to_function': 40}
     with pytest.raises(ValueError, match=r'num_calls_to_function=40 .*num_pop=\d+.*at least \d+'):
         optimiser.run()
+
+
+@pytest.mark.unit
+def test_more_ranks_than_the_genetic_algorithm_population_raises():
+    from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser
+    optimiser = GeneticAlgorithmOptimiser.__new__(GeneticAlgorithmOptimiser)
+    optimiser.comm, optimiser.rank, optimiser.num_procs, optimiser.DEBUG = None, 0, 10000, False
+    optimiser.optimiser_options = {'num_calls_to_function': 100000}
+    with pytest.raises(ValueError, match=r'10000 MPI ranks .*num_pop=\d+.*at most \d+ ranks'):
+        optimiser.run()
+
+
+def _default_user_inputs(tmp_path, monkeypatch, settings):
+    user_run_files = tmp_path / 'user_run_files'
+    user_run_files.mkdir()
+    (user_run_files / 'user_inputs.yaml').write_text(yaml.safe_dump(settings))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(user_run_files))
+    return user_run_files / 'user_inputs.yaml'
+
+
+@pytest.mark.unit
+def test_a_missing_user_inputs_path_override_raises_in_one_line(tmp_path, monkeypatch):
+    missing = str(tmp_path / 'nowhere' / 'user_inputs.yaml')
+    _default_user_inputs(tmp_path, monkeypatch, {'user_inputs_path_override': missing})
+    with pytest.raises(FileNotFoundError) as exc:
+        YamlFileParser().parse_user_inputs_file(None)
+    message = str(exc.value)
+    assert '\n' not in message and missing in message and 'user_inputs_path_override' in message
+
+
+@pytest.mark.parametrize('settings, error', [
+    ({'model_type': 'cellml'}, "UserInputsError: .*has no file_prefix"),
+    ({'file_prefix': 'x', 'model_type': 'cellmll'}, "UserInputsError: Invalid model_type: cellmll"),
+    ({'file_prefix': 'x', 'dt': 1}, "UserInputsError: dt must be a float"),
+    ({'file_prefix': 'x', 'module_library_dirs': 'no_such_dir'},
+     "FileNotFoundError: module_library_dirs entry .*no_such_dir does not exist"),
+])
+@pytest.mark.unit
+def test_a_refused_user_inputs_file_raises_not_exits(tmp_path, monkeypatch, settings, error):
+    """exit() would raise SystemExit(None), which the commands turn into exit status 0."""
+    config = dict(_study(tmp_path), **settings)
+    if 'file_prefix' not in settings:
+        del config['file_prefix']
+    _default_user_inputs(tmp_path, monkeypatch, config)
+    with pytest.raises((UserInputsError, FileNotFoundError)) as exc:
+        YamlFileParser().parse_user_inputs_file(None)
+    assert re.match(error, f'{type(exc.value).__name__}: {exc.value}')
+    assert '\n' not in str(exc.value)
+
+
+@pytest.mark.unit
+def test_cuflynx_generate_with_a_missing_override_exits_1(tmp_path):
+    import subprocess
+    import sys
+    missing = str(tmp_path / 'nowhere' / 'user_inputs.yaml')
+    (tmp_path / 'user_run_files').mkdir()
+    (tmp_path / 'user_run_files' / 'user_inputs.yaml').write_text(
+        yaml.safe_dump({'user_inputs_path_override': missing}))
+    env = dict(os.environ, **{paths.CUFLYNX_USER_DIR_ENV_VAR: str(tmp_path)})
+    result = subprocess.run(
+        [sys.executable, '-m', 'libcuflynx.scripts.script_generate_with_new_architecture'],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 1, result.stdout + result.stderr
+    last_line = result.stderr.strip().splitlines()[-1]
+    assert last_line.startswith('FileNotFoundError: ') and missing in last_line
 
 
 @pytest.mark.unit
