@@ -281,6 +281,8 @@ class SimulationHelper(ExperimentTimeMixin):
         offline_pre_time = float(offline_pre_time)
         if offline_pre_time <= 0:
             return
+        self.clear_offline_default_state()
+        self.reset_states()
         outcome = self._run_course((0.0, 0.0, offline_pre_time, 1), self._start_state())
         if outcome is None:
             raise RuntimeError('Offline pre-time simulation failed')
@@ -290,6 +292,13 @@ class SimulationHelper(ExperimentTimeMixin):
         self._carried_state = {}
         self._initial_values = None
         self._has_run = False
+
+    def clear_offline_default_state(self):
+        """Forget an offline warm-up: reset_states() returns to the model's initial values."""
+        if not self._offline_state:
+            return
+        self._offline_state = {}
+        self.reset_states()
 
     def reset_states(self):
         """Start the next run from the initial (or offline warm-up) state."""

@@ -862,6 +862,9 @@ class SimulationHelper(ExperimentTimeMixin):
         for qname, value in self._first_input_values().items():
             self._set_trace_protocol(qname, myokit.TimeSeriesProtocol(
                 [0.0, offline_pre_time], [value, value]))
+        # From the model's initial values, not an earlier warm-up's end state, so a second
+        # call (a protocol set again) gives the state the first one did.
+        self.clear_offline_default_state()
         self.simulation.reset()
         self.simulation.pre(offline_pre_time)
         new_state = list(self.simulation.state())
@@ -871,6 +874,13 @@ class SimulationHelper(ExperimentTimeMixin):
         self.simulation.set_state(new_state)
         self.simulation.set_time(0.0)
         self.last_log = None
+
+    def clear_offline_default_state(self):
+        """Forget an offline warm-up: reset_states() returns to the model's initial values."""
+        if self._offline_default_state is None:
+            return
+        self._offline_default_state = None
+        self.reset_states()
 
     def reset_and_clear(self, only_one_exp=-1):
         # Fully reset to baseline default state (before any pre-simulation).

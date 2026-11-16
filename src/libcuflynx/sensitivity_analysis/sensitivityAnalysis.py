@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import copy
 import numpy as np
 import os
 import sys
@@ -34,7 +35,7 @@ from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 import pandas as pd
 import json
 import math
-from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser, check_dt_solver_and_max_step
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 
 
@@ -104,6 +105,7 @@ class SensitivityAnalysis():
         self.resources_dir = resources_dir
         self.model_out_names = model_out_names
         self.solver_info = solver_info
+        check_dt_solver_and_max_step(solver_info, model_type)
         self.dt = dt
         self.optimiser_options = optimiser_options
         self.param_id_obs_path = param_id_obs_path
@@ -158,9 +160,9 @@ class SensitivityAnalysis():
         Returns:
             SensitivityAnalysis: A configured instance.
         """
-        # parse the user inputs dictionary
+        # parse the user inputs dictionary; the parser edits the dict it is given, so a copy
         yaml_parser = YamlFileParser()
-        inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict)
+        inp_data_dict = yaml_parser.parse_user_inputs_file(copy.deepcopy(inp_data_dict))
         # Only pass kwargs that exist in inp_data_dict
         arg_options = [
             'model_path', 'model_type', 'file_name_prefix', 'sa_options', 'DEBUG', 'param_id_output_dir',

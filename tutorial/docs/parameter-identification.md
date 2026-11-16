@@ -733,8 +733,10 @@ Before doing calibration, a solver for the model needs to be chosen
     - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit` (on by default) compiles the model to C (see below).
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
-    - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
-      `casadi_integrator` when those are not given
+    - **dt_solver**: the step of the fixed-step and C++ solvers; sets `max_step_size` for
+      `casadi_integrator` and `max_step` for `solve_ivp` when those are not given. The CellML
+      (variable-step) solvers do not read it: giving it with a different `MaximumStep` is an
+      error, and giving it without `MaximumStep` warns that the step is unbounded
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_libopencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
@@ -906,8 +908,9 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 - **pre_time**: the unlogged time a plain simulation (no obs_data) runs to reach steady state. A calibration is timed by the `pre_times` and `sim_times` in the obs_data's `protocol_info`, which every obs_data must have (see the next section).
 - **sim_time**: the logged duration of a plain simulation (no obs_data). A calibration takes its durations from the obs_data's `sim_times`. 
 - **dt**: The output (sample) time step for model outputs
-- **solver_info.dt_solver**: The solver time step for CVODE (sets MaximumStep when provided)
-- **solver_info.MaximumStep**: The CVODE maximum step size if dt_solver is not provided
+- **solver_info.MaximumStep**: The CVODE maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
+- **solver_info.dt_solver**: The step of the fixed-step and C++ solvers. A CellML solver does not
+  read it, and refuses a `dt_solver` that differs from `MaximumStep`
 - **param_id_obs_path**: the path to the `obs_data.json` file described above (absolute or relative to your `user_inputs.yaml`).
 - **optimiser_options**: Dictionary for optimizer-specific options. Common options shared across optimisers:
     - **num_calls_to_function**: Maximum number of function evaluations (default: 10000)

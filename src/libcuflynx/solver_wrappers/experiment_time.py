@@ -22,6 +22,28 @@ class ExperimentTimeMixin:
         if start_time == 0:
             self.experiment_pre_time = float(pre_time or 0.0)
 
+    # ---- offline warm-up (run_offline_pre_and_set_default_state) ----
+    # For the helpers that keep the state reset_states() returns to in ``default_state_inits``;
+    # the others define clear_offline_default_state themselves.
+
+    _pre_offline_state_inits = None
+
+    def clear_offline_default_state(self):
+        """Forget an offline warm-up: reset_states() returns to the model's initial values."""
+        saved = self._pre_offline_state_inits
+        if saved is None:
+            return
+        self._pre_offline_state_inits = None
+        self.default_state_inits = list(saved)
+        self.reset_states()
+
+    def _start_offline_warm_up(self):
+        """Call first in run_offline_pre_and_set_default_state: the warm-up starts from the
+        model's initial values, not from an earlier warm-up's end state."""
+        self.clear_offline_default_state()
+        self._pre_offline_state_inits = list(self.default_state_inits)
+        self.reset_states()
+
     def get_time(self, include_pre_time=False):
         """The output time points of the current sub-experiment.
 
