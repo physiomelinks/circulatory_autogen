@@ -11,7 +11,8 @@ next release; add to that section as you land a change.
   workflow with `WorkflowBuilder`: the obs_data from `ObsDataCreator`, the notebook's own
   feature through `add_operation`, then the steps `screen` (sensitivity), `top2` (reduction,
   in place of `choose_most_impactful_params_sobol`) and `fit` (calibration of what `top2`
-  kept), each added and run in its own cell and plotted with `plot_step`. The ProtocolRunner
+  kept), each added and run (`wf.run()`) in its own cell, read with `wf.result` and plotted with
+  `plot_step`. The ProtocolRunner
   demo runs `wf.model("fit")`. The notebook ends by writing `calibration_workflow.json`, which
   `cuflynx-calibration-workflow` (also under `mpiexec`) and CUFLynx's Workflow tab run with the
   same results. Sections A and C are unchanged.
@@ -27,8 +28,9 @@ next release; add to that section as you land a change.
 - `generation_and_calibration_test.ipynb` is replaced by `workflow_quickstart.ipynb`: every
   `WorkflowBuilder` call on the 3-compartment model in a few minutes (sensitivity, reduction,
   calibration, identifiability, an emulator when `[emulation]` is installed, a set step, an
-  on-target sweep; `run(only=, from_step=, ranks=2)`, `status`, `plan`, `plot_step`, `model`,
-  `WorkflowBuilder.load`, `pack_workflow`). Its quick test is the CI coverage of the builder in
+  on-target sweep; `run()`, `run(only=, ranks=2)`, `status`, `result`, `plan`, `plot_step`,
+  `model`, `WorkflowBuilder.load`, `pack_workflow`). Both notebooks run again from the top in
+  the same folder: steps that are done and current are not run again. Its quick test is the CI coverage of the builder in
   a kernel.
 
 ### Added — building a calibration workflow in Python (`WorkflowBuilder`)
