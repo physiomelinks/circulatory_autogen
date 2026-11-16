@@ -102,23 +102,44 @@ next release; add to that section as you land a change.
   API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
   `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
   schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
-  `set_value` and `scale_value`; then `write`, `check`, `plan`, `run(only=, from_step=,
-  ranks=)`, `status`, `model`, `step_dir` and `plot_step`. Each step is checked against the
-  schema when it is added. obs_data and params_for_id may be dicts (or the in-code
-  `{vessel_name, param_name, min, max}` entries), written as files under `data/` beside the
-  workflow; `add_operation` (and `add_cost_func`, `add_modifier_func`) writes a function
-  defined in a notebook cell to the workflow's functions file. The result is an ordinary
-  workflow file that the command line and CUFLynx run and `pack_workflow` packs. The builder
-  does not write over a functions file that changed since it last wrote or read it.
-  `WorkflowBuilder.model` generates under the run's `models/` folder, so a step can no longer
-  be named `models` (the schema refuses it).
-  See "Building a workflow in Python" in the parameter-identification docs.
+  `set_value` and `scale_value`; then `check`, `write`, `plan`, `run(only=, from_step=, force=,
+  ranks=)`, `status`, `result`, `model`, `step_dir` and `plot_step`. Each step, and the
+  workflow's settings, are checked against the schema when they are given. obs_data and
+  params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
+  written as files under `data/` beside the workflow. The result is an ordinary workflow file
+  that the command line and CUFLynx run and `pack_workflow` packs.
+  See "Building a workflow in Python" in the parameter-identification docs, and the
+  "Calibration workflows" page of the API reference.
+- `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
+  the rest, printing a line for each step kept, so a script or notebook can be run again;
+  `force=True` runs every step. `check()` (and `plan()`, `run()`) names what a run still
+  needs: a module library when a model names library modules, and the `optimiser_options` the
+  calibration method requires. `result(id)` returns what a step recorded.
+- `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
+  script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
+  remove and list them. The file's header records a checksum of what was generated: a builder
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand or
+  written by something else, until `add_operation(f, overwrite=True)` or
+  `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
+  refuses to rewrite a file whose other top-level statements (a constant, a class) it would
+  drop.
+- `cuflynx-calibration-workflow --stale-only` and `run_calibration_workflow(stale_only=True)`
+  run only the steps that have not run or are stale. Their defaults are unchanged: every step
+  runs.
+- A step can no longer be named `models`, `target`, `_target` or `inputs`, names the run's
+  output directory uses itself (the schema refuses them). `WorkflowBuilder.model` generates
+  under the run's `models/` folder.
+- The genetic algorithm without `optimiser_options.num_calls_to_function` says so, instead of
+  a `KeyError`. The messages for a result a step needs name the Python call
+  (`wf.run(from_step=...)`) beside the command-line option, and a step left out of an `--only`
+  run that never ran is reported as "not run", not as reusing its earlier result.
 - `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
   to the JSON document.
-- `utilities.user_funcs_file` holds the layout of a user functions file (header, extra imports,
-  the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one `def` per
-  function): `funcs_file_source`, `write_funcs_file` and `read_funcs_file`, for
-  `add_operation` and for CUFLynx's "Custom funcs" dialog.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, checksum line,
+  extra imports, the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one
+  `def` per function): `funcs_file_source`, `write_funcs_file`, `read_funcs_file`,
+  `is_unedited` and `unkept_statements`, for `add_operation` and for CUFLynx's "Custom funcs"
+  dialog. The checksum line is a comment (`# libcuflynx-generated sha256: ...`).
 - A workflow step's recorded inputs include the user function files it runs with
   (`operation_funcs_external_path`, `cost_funcs_external_path`,
   `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
