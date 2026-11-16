@@ -23,6 +23,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from _mpi_probes import _pymc_available
+
 from libcuflynx.param_id.paramID import CVS0DParamID, UQ_CASE_METHOD, case_dir_name
 from libcuflynx.scripts.param_id_run_script import run_param_id
 # mpi_comm is a fixture defined in test_param_id, so it has to be imported here to be visible to
@@ -36,11 +38,8 @@ from libcuflynx.scripts.param_id_run_script import run_param_id
 # which has no such package -- so the dotted form passes locally and breaks in CI).
 from test_param_id import _ensure_cellml_model_generated, mpi_comm  # noqa: F401
 
-pymc_installed = True
-try:
-    import pymc  # noqa: F401
-except ImportError:
-    pymc_installed = False
+# Probed on rank 0 only (see _mpi_probes): `import pymc` on every rank races in arviz.
+pymc_installed = _pymc_available()
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
