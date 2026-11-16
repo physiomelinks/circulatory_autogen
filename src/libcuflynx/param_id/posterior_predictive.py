@@ -66,6 +66,17 @@ class PosteriorPredictiveError(ValueError):
     """The posterior predictive check cannot be run as asked."""
 
 
+def engine_of(client):
+    """The ParamID that evaluates a ``CVS0DParamID``'s model: its ``param_id``, or for one
+    built to run MCMC (``mcmc_instead``), which has none, the MCMC engine it built
+    (``paramID.mcmc_object``)."""
+    engine = getattr(client, 'param_id', None)
+    if engine is None and getattr(client, 'mcmc_instead', False):
+        from libcuflynx.param_id import paramID
+        engine = paramID.mcmc_object
+    return engine
+
+
 # ── the chain ──────────────────────────────────────────────────────────────
 def load_chain(output_dir):
     """The saved chain, shaped ``(steps, walkers, params)``."""
@@ -243,7 +254,7 @@ def simulate_samples(client, thetas, progress_every=10, comm=None,
         comm = get_MPI().COMM_WORLD
     rank, num_procs = comm.Get_rank(), comm.Get_size()
 
-    engine = client.param_id
+    engine = engine_of(client)
     obs_info = client.obs_info
     protocol_info = client.protocol_info
     num_const = len(obs_info['ground_truth_const'])
@@ -425,10 +436,13 @@ class PosteriorPredictiveResult:
             'Posterior predictive: %d samples, %d observables%s'
             % (self.predictions.shape[0], self.coverage['num_observables'],
                ' (against the EMULATOR, not the solver)' if self.used_emulator else ''),
-            '  chain: %d steps, %d dropped as burn-in, pool %d'
-            % (self.chain_info['n_steps'], self.chain_info['burn_in_steps'],
-               self.chain_info['pool']),
         ]
+        if self.chain_info.get('source') == 'samples':
+            lines.append('  drawn from %d given samples' % self.chain_info['pool'])
+        else:
+            lines.append('  chain: %d steps, %d dropped as burn-in, pool %d'
+                         % (self.chain_info['n_steps'], self.chain_info['burn_in_steps'],
+                            self.chain_info['pool']))
         if self.failures:
             lines.append('  %d sample(s) did not simulate' % self.failures)
         if self.coverage['num_observables_skipped']:
@@ -641,8 +655,13 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
                          random_seed=0, levels=DEFAULT_LEVELS,
                          use_emulator=False, output_dir=None, save=True,
                          client=None, series_draws=DEFAULT_SERIES_DRAWS,
-                         series_points=DEFAULT_SERIES_POINTS):
+                         series_points=DEFAULT_SERIES_POINTS, samples=None):
     """Sample the posterior, run the model at each draw, and report coverage.
+
+    The draws come from the MCMC chain in ``output_dir`` (default: the client's), after
+    ``burn_in``; or, with ``samples`` (``(n, params)`` draws of a posterior that has no chain,
+    such as a Laplace approximation's), from those, read on rank 0 only. With ``samples`` the
+    check is saved in ``output_dir``, which ``save`` then needs.
 
     ``use_emulator`` is False by default and that is the point: an emulator
     scoring its own predictions against the data cannot tell you the emulator is
@@ -672,7 +691,7 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
         client = CVS0DParamID.init_from_dict(config)
     else:
         use_emulator = bool(
-            getattr(getattr(client, 'param_id', None), 'emulates_features', False))
+            getattr(engine_of(client), 'emulates_features', False))
 
     from libcuflynx.utilities.mpi_utils import get_MPI
 
@@ -684,12 +703,23 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
     # rather than relying on each of them seeding identically.
     payload = None
     if comm.Get_rank() == 0:
-        # the MCMC run's directory: the chain is read from it and the check is saved in it
-        resolved_dir = output_dir or os.path.dirname(client.mcmc_chain_path())
-        chain = load_chain(resolved_dir)
-        thetas, chain_info = sample_parameters(
-            chain, num_samples=num_samples, burn_in=burn_in,
-            random_seed=random_seed)
+        if samples is not None:
+            pool = np.atleast_2d(np.asarray(samples, dtype=float))
+            if save and not output_dir:
+                raise PosteriorPredictiveError('give output_dir to save a check of samples')
+            resolved_dir = output_dir
+            # each sample a step of a one-walker chain, none of them burn-in
+            thetas, chain_info = sample_parameters(
+                pool[:, None, :], num_samples=num_samples, burn_in=0,
+                random_seed=random_seed)
+            chain_info['source'] = 'samples'
+        else:
+            # the MCMC run's directory: the chain is read from it and the check is saved in it
+            resolved_dir = output_dir or os.path.dirname(client.mcmc_chain_path())
+            chain = load_chain(resolved_dir)
+            thetas, chain_info = sample_parameters(
+                chain, num_samples=num_samples, burn_in=burn_in,
+                random_seed=random_seed)
         payload = (resolved_dir, thetas, chain_info)
     if comm.Get_size() > 1:
         payload = comm.bcast(payload, root=0)

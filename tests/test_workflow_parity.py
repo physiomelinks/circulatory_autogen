@@ -35,7 +35,8 @@ _FAST = {'dt': 0.01, 'param_id_method': 'CMA-ES',
          'solver_info': {'MaximumStep': 0.01},
          'optimiser_options': {'num_calls_to_function': 300, 'max_patience': 60, 'seed': 1,
                                'cost_type': 'gaussian_MLE'},
-         'UQ_options': {'num_steps': 60, 'num_walkers': 6, 'burn_in': 0.5}}
+         'UQ_options': {'num_steps': 60, 'num_walkers': 6, 'burn_in': 0.5,
+                        'posterior_predictive_samples': 12}}
 
 
 def _read_json(path):
@@ -264,6 +265,18 @@ def test_a_uq_step_needs_its_options(lv):
 
 
 @pytest.mark.unit
+def test_add_uq_with_no_options_is_mcmc_with_the_defaults(lv, tmp_path):
+    from libcuflynx.calibration_workflow.spec import uq_method
+    settings = {k: v for k, v in _FAST.items() if k != 'UQ_options'}
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'wf'), settings=settings)
+    wf.add_uq('uq', obs_data=os.path.join(lv, _OBS), params_for_id=os.path.join(lv, _PARAMS))
+    workflow = load_workflow(wf.write())
+    merged = workflow.step_settings(workflow.step('uq'))
+    assert merged['UQ_options'] == {} and uq_method(merged) == 'mcmc'
+
+
+@pytest.mark.unit
 def test_the_builder_writes_the_new_keys(lv, tmp_path):
     os.makedirs(os.path.join(lv, 'trained'))
     wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
@@ -286,6 +299,12 @@ def test_the_builder_writes_the_new_keys(lv, tmp_path):
     assert steps['uq']['kind'] == 'uq' and steps['uq']['result_from'] == 'fit'
     assert steps['uq']['emulator_dir'] == os.path.join(rel, 'trained')
     assert steps['uq']['settings'] == {'UQ_options': {'method': 'laplace'}}
+    # with no uq_options: an empty UQ_options, MCMC with the defaults
+    wf.add_uq('uq-default', obs_data=os.path.join(lv, _OBS),
+              params_for_id=os.path.join(lv, _PARAMS), result_from='fit')
+    written = _read_json(wf.write())
+    default = next(s for s in written['steps'] if s['id'] == 'uq-default')
+    assert default['settings'] == {'UQ_options': {}}
     assert 'result_from' not in steps['ia']
     assert WorkflowBuilder.load(wf.write()).to_dict() == written
 
@@ -327,6 +346,15 @@ def test_a_cellml_calibration_recovers_the_values_and_writes_the_calibrated_cell
     written = _constants(result['calibrated_model_file'])
     assert written[_ALPHA] == pytest.approx(merged[_ALPHA], rel=1e-9)
     assert written['Lotka_Volterra_module/beta'] == 0.2
+    # one writer (param_id.calibrated_model): each CellML written keeps the source's form,
+    # only the calibrated values changed
+    with open(os.path.join(lv, _MODEL)) as f:
+        source = f.read().splitlines()
+    for path in (calibrated, result['calibrated_model_file'], target):
+        with open(path) as f:
+            lines = f.read().splitlines()
+        assert len(lines) == len(source)
+        assert sum(a != b for a, b in zip(source, lines)) == 2, path
 
     # the provenance diagram and the run command's label name the CellML
     assert os.path.isfile(os.path.join(out, 'provenance.svg'))
@@ -383,7 +411,10 @@ def test_mcmc_at_a_result_runs_no_optimiser_and_stores_a_chain(lv, tmp_path):
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.0, 'reason': 'the truth'},
         {'parameter': _GAMMA, 'value': 2.5, 'reason': 'the truth'}]}
-    run_calibration_workflow(_write(lv, _raw([hand, _uq(result_from='hand')])), output_dir=out)
+    off = _uq('uq-off', result_from='hand')
+    off['settings']['UQ_options']['posterior_predictive'] = False
+    run_calibration_workflow(_write(lv, _raw([hand, _uq(result_from='hand'), off])),
+                             output_dir=out)
     uq = _step(out, 'uq')
     assert uq['method'] == 'mcmc' and uq['at'] == [4.0, 2.5] and uq['at_source'] == 'hand'
     # no calibration ran: no best fit, no optimiser's run directory
@@ -395,6 +426,17 @@ def test_mcmc_at_a_result_runs_no_optimiser_and_stores_a_chain(lv, tmp_path):
     assert posterior.names == ['alpha_Lotka_Volterra_module', 'gamma_Lotka_Volterra_module']
     assert np.median(posterior.samples, axis=0) == pytest.approx([4.0, 2.5], rel=0.05)
     assert posterior.chain is not None
+    # the posterior predictive check, from the chain, in the step directory
+    predictive = uq['posterior_predictive_summary']
+    assert predictive['drawn_from'] == 'chain' and predictive['num_samples'] == 12
+    assert uq['posterior_predictive_dir'] == os.path.join(out, 'uq', 'posterior_predictive')
+    draws = np.load(uq['posterior_predictive_draws'], allow_pickle=True)
+    assert draws['thetas'].shape == (12, 2) and draws['predictions'].shape[0] == 12
+    assert os.path.isfile(uq['posterior_predictive_coverage'])
+    assert set(predictive['levels']) == {'0.8', '0.95'}
+    off = _step(out, 'uq-off')
+    assert 'posterior_predictive_dir' not in off
+    assert not os.path.exists(os.path.join(out, 'uq-off', 'posterior_predictive'))
 
 
 @pytest.mark.integration
@@ -417,6 +459,11 @@ def test_laplace_samples_are_the_prior_of_a_later_calibration(lv, tmp_path):
     assert all(0 < s < 0.5 for s in laplace['laplace']['std'])
     samples = np.load(os.path.join(out, 'laplace', 'distribution', 'samples.npy'))
     assert samples.shape == (500 - laplace['laplace']['samples_outside_bounds'], 2)
+    # the posterior predictive check, from those samples
+    assert laplace['posterior_predictive_summary']['drawn_from'] == 'samples'
+    draws = np.load(laplace['posterior_predictive_draws'], allow_pickle=True)
+    assert draws['thetas'].shape == (12, 2)
+    assert all(any(np.array_equal(t, s) for s in samples) for t in draws['thetas'])
     assert np.mean(samples, axis=0) == pytest.approx(fit['best_fit'], rel=0.02)
     refit = _step(out, 'refit')
     assert refit['priors'][0]['step'] == 'laplace'
@@ -470,6 +517,13 @@ def test_local_sensitivity_and_identifiability_record_their_point(lv, tmp_path):
     assert local['values'] == pytest.approx(best)
     own = _step(out, 'local-own')['nominal']
     assert own == {'source': 'model', 'parameters': [_ALPHA, _GAMMA], 'values': [5.0, 3.0]}
+    # the signed coefficients, rows labelled as the Sobol outputs are
+    import pandas as pd
+    signed = _step(out, 'local')['local_sensitivity_signed']
+    assert signed == os.path.join(out, 'local', 'sensitivity', 'local_sensitivity_signed.csv')
+    table = pd.read_csv(signed, index_col='output')
+    assert list(table.columns) == [_ALPHA, _GAMMA]
+    assert all(' (Exp' in label for label in table.index)
     ia = _step(out, 'ia-own')
     assert ia['at'] == [5.0, 3.0] and ia['at_source'] == 'model'
 

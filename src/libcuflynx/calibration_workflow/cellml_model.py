@@ -1,7 +1,7 @@
 '''
 A CellML file as a workflow model (``{"cellml_model_path": ..., "parameters": ...}``): its
 parameters are its constants, named ``component/variable`` in the flattened model, and a step
-runs a flattened copy with its values written in.
+runs a copy with its values written in (flattened when the file has imports).
 '''
 
 import os
@@ -56,17 +56,18 @@ def read_cellml_constants(path, where=''):
 
 
 def write_cellml_with_values(source, values, output_path, where=''):
-    '''Write ``source`` flattened, with each ``{'component/variable': value}`` of ``values`` as
-    its initial value, to ``output_path`` (``utility_funcs.change_parameter_values_and_save``),
-    and check each value is in the file written. Returns ``output_path``.'''
-    from libcuflynx.utilities.utility_funcs import change_parameter_values_and_save
+    '''Write ``source`` with each ``{'component/variable': value}`` of ``values`` as its initial
+    value to ``output_path``, by the calibrated-model writer
+    (``param_id.calibrated_model.write_cellml_values``): flattened when ``source`` has imports,
+    else the file itself with only those values changed. Checks each value is in the file
+    written. Returns ``output_path``.'''
+    from libcuflynx.param_id.calibrated_model import write_cellml_values
     names = list(values)
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    change_parameter_values_and_save(source, names, [float(values[n]) for n in names],
-                                     output_path)
+    report = write_cellml_values(source, {n: float(values[n]) for n in names}, output_path)
     written = read_cellml_constants(output_path, where)
-    wrong = [n for n in names if n not in written or
-             abs(written[n]['value'] - float(values[n])) > 1e-12 * max(1.0, abs(float(values[n])))]
+    wrong = report['unresolved'] + [
+        n for n in report['updated'] if n not in written or
+        abs(written[n]['value'] - float(values[n])) > 1e-12 * max(1.0, abs(float(values[n])))]
     if wrong:
         raise WorkflowError(f'{where}: writing the values of {wrong} into a copy of {source} '
                             f'failed; they are not constants of the model it writes.')

@@ -1254,6 +1254,41 @@ generate_with_new_architecture(False, dict(inp, model_type='cellml',
 | `write_cuflynx_study` | `true` | `false` writes no manifest and copies nothing; sensitivity output and the dated user_inputs go where `cuflynx_study_copy_inputs: false` puts them |
 | `cuflynx_study_copy_inputs` | `true` | `false` copies nothing: the manifest names each input outside the working dir by its absolute path and records the working dir as `study_dir`; sensitivity output defaults to `sensitivity_outputs/<file_prefix>_SA_results` and the dated `user_inputs_<yymmdd>.yaml` goes in `resources_dir` |
 
+### The calibrated model
+
+`libcuflynx.param_id.calibrated_model` writes values into a CellML file. It is the one writer of
+a calibrated CellML: `CVS0DParamID.write_calibrated_model`, a calibration workflow's CellML
+steps and CUFLynx all use it, so one best fit gives one file.
+
+```python
+from libcuflynx.param_id.calibrated_model import (substitute_parameter_values,
+                                                  write_calibrated_model, write_cellml_values)
+
+report = write_cellml_values('model.cellml', {'aortic_root/C': 2e-8, 'global/E_lv_A': 4e8},
+                             'model_calibrated.cellml', flatten=None)
+# {'updated': ['aortic_root/C', 'global/E_lv_A'], 'unresolved': [],
+#  'resolved': {'aortic_root/C': 'parameters/C_aortic_root',
+#               'global/E_lv_A': 'parameters_global/E_lv_A'},
+#  'path': 'model_calibrated.cellml', 'flattened': True}
+new_text, report = substitute_parameter_values(cellml_text, values)   # the same, on text
+write_calibrated_model(cellml_path, param_id_info, best_param_vals, output_path,
+                       flatten=None, return_report=True)               # from a best fit
+```
+
+A value is named `vessel/param` (resolved by `model_qname_candidates`, so `aortic_root/C` is
+`parameters/C_aortic_root` and `global/E_lv_A` is `parameters_global/E_lv_A` in a generated
+model) or `component/variable`. Only a variable with a numeric initial value in a component
+the file defines is written. The report lists the names written (`updated`), those with no such
+variable (`unresolved`, which `write_calibrated_model` also names in a warning) and where each
+went (`resolved`, `component/variable`; PhLynx reads back only the values in `parameters` and
+`parameters_global`).
+
+`flatten=None` (the default) flattens a file that has imports: a generated model imports its
+parameters from `<prefix>_parameters.cellml`, so the calibrated model is one flattened file
+that runs by itself. A file with no imports is written as it is, with only the
+initial values changed. `flatten=False` writes the file itself whatever it imports (its
+imported constants are then `unresolved`); `flatten=True` always flattens.
+
 ## Calibration workflows
 
 Some parameters can only be calibrated in a larger model, after its parts have been calibrated
@@ -1678,6 +1713,22 @@ params_for_id bounds dropped (`step_result.json` counts them). A later calibrati
 `priors_from`. The run itself is in `<step_id>/uq/`. `run_uq(inp_data_dict, best_param_vals,
 method)` in `libcuflynx.scripts.param_id_run_script` runs the same outside a workflow, and
 `do_uq` with `UQ_options.method: laplace` runs the Laplace approximation after a calibration.
+An empty `UQ_options` (`{}`, what the builder's `add_uq()` writes when given no `uq_options`)
+is MCMC with the engine's defaults, or the workflow's `UQ_options` when it has some.
+
+A uq step then runs the posterior predictive check (`libcuflynx.param_id.posterior_predictive`):
+the model at `UQ_options.posterior_predictive_samples` (default 100) posterior draws, from the
+MCMC chain after `burn_in` or from the Laplace approximation's stored samples, and how often
+the data lies inside the model's intervals. It is written to `<step_id>/posterior_predictive/`
+(`posterior_predictive.npz` with the draws and predictions, `posterior_predictive_coverage.json`,
+and `posterior_predictive_series.npz` with the traces of the first draws), and
+`step_result.json` names them (`posterior_predictive_dir`, `posterior_predictive_draws`,
+`posterior_predictive_coverage`, `posterior_predictive_series`) with a summary under
+`posterior_predictive_summary` (`num_samples`, `samples_that_failed_to_simulate`,
+`drawn_from`: `chain` or `samples`, and each level's `predictive_coverage` and
+`sample_interval_coverage`). `UQ_options.posterior_predictive: false` skips it. A check that
+fails is a warning, with its message in `posterior_predictive_summary.error`: the step's
+distribution stands.
 
 ```json
 {"id": "posterior", "kind": "uq", "model": {...}, "obs_data": "...", "params_for_id": "...",
@@ -1691,8 +1742,16 @@ observables at the best fit, with the error vectors `percent_error_vec.npy` and
 `<step_id>/<step_id>_calibrated.cellml`, the step's model with the best fit written in.
 `step_result.json` names them (`percent_error_vec`, `error_vec_names`, `calibrated_model`); a failure to write them is
 a warning, and the fit stands. A local sensitivity step records the point it linearised about
-under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values),
-and an identifiability or uq step its point under `at` and `at_source`.
+under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values)
+and its signed coefficients under `local_sensitivity_signed` (see
+[Local sensitivity files](sensitivity-analysis.md#local-sensitivity-files-method-local)), and an
+identifiability or uq step its point under `at` and `at_source`.
+
+Every calibrated CellML (a step's, the target's `<stem>_calibrated.cellml`, a CellML step's
+generated model, and a calibration's `<prefix>_calibrated.cellml`) is written by one writer,
+`libcuflynx.param_id.calibrated_model`: a model with imports, as a generated one has, is
+flattened into one file; a single-file model keeps its form, with only the values changed. See
+[The calibrated model](#the-calibrated-model).
 
 A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
 entry names a parameter as the target does, and gives a `reason`:
@@ -1858,6 +1917,7 @@ prior.
     <step_id>/<step_id>_laplace_*.npy an identifiability step's Laplace mean and covariance (also in step_result.json)
     <step_id>/<step_id>_calibrated.cellml  a calibration's model with its best fit (a CellML model)
     <step_id>/uq/                     a uq step's run: its MCMC run directory, or its Laplace mean and covariance
+    <step_id>/posterior_predictive/   a uq step's posterior predictive check
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
     models/<view>/                    a model generated for viewing (WorkflowBuilder.model); no step is named models

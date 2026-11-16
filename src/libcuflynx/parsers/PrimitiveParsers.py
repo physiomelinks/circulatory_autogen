@@ -1901,6 +1901,15 @@ ANALYSIS_OPTIONS = {
              'description': "method 'laplace' in a calibration workflow's uq step: the draws of "
                             'the Gaussian it stores as its distribution (those outside the '
                             'params_for_id bounds are dropped).'},
+            {'name': 'posterior_predictive', 'type': 'bool', 'default': True, 'required': False,
+             'description': "A calibration workflow's uq step: after the MCMC or Laplace "
+                            'approximation, run the posterior predictive check '
+                            '(param_id.posterior_predictive): the model at posterior draws, '
+                            'and how often the data lies inside their intervals. Written in '
+                            "the step's posterior_predictive directory."},
+            {'name': 'posterior_predictive_samples', 'type': 'int', 'default': 100,
+             'required': False,
+             'description': 'The posterior draws the posterior predictive check simulates.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
             {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,

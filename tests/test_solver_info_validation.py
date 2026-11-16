@@ -511,7 +511,8 @@ def test_analysis_options_schema_well_formed():
         'include_prediction_items'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
-                           'num_tune', 'pymc_method', 'chain_save_every', 'num_samples'}
+                           'num_tune', 'pymc_method', 'chain_save_every', 'num_samples',
+                           'posterior_predictive', 'posterior_predictive_samples'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     # num_points / range_factor / optimiser_options are the profile_likelihood settings.
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method',

@@ -1794,7 +1794,7 @@ class CVS0DParamID():
         else:
             return self.param_id.best_param_vals
 
-    def write_calibrated_model(self, cellml_path=None, output_dir=None):
+    def write_calibrated_model(self, cellml_path=None, output_dir=None, flatten=None):
         """Write the model with this calibration's best fit, on rank 0.
 
         Writes ``<output_dir>/<file_prefix>_calibrated.cellml``, ``output_dir`` defaulting to
@@ -1802,7 +1802,10 @@ class CVS0DParamID():
         its ``model``), and records it in the manifest. ``cellml_path`` is the model's CellML,
         defaulting to ``model_path`` when that is one (a ``python`` or ``casadi_python`` run
         names the CellML it was generated from). The best fit is the one in memory, else the
-        calibration's ``best_param_vals.npy``.
+        calibration's ``best_param_vals.npy``. ``flatten`` is as for
+        ``calibrated_model.write_cellml_values`` (default: flatten a model with imports). What
+        was written where is kept in ``calibrated_model_report``
+        (``calibrated_model.substitute_parameter_values``).
 
         Returns the path written, or None on another rank or with no CellML or best fit.
         """
@@ -1824,7 +1827,8 @@ class CVS0DParamID():
         engine = mcmc_object if self.mcmc_instead else self.param_id
         path = os.path.join(output_dir or self.param_id_output_dir,
                             calibrated_model_name(self.file_name_prefix))
-        write_calibrated_model(cellml_path, engine.param_id_info, best, path)
+        self.calibrated_model_report = write_calibrated_model(
+            cellml_path, engine.param_id_info, best, path, flatten=flatten, return_report=True)
         if self._study_inp:
             cuflynx_study.update_study(self._study_inp)
         print(f'calibrated model saved in {path}')
