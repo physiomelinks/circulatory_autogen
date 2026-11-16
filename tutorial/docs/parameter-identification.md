@@ -1288,6 +1288,95 @@ a layout to copy. The same chain written with library modules is
 `.../screened/calibration_workflow.json` adds a Sobol screen, a reduction and an
 identifiability analysis to it (see [Step kinds](#step-kinds)).
 
+### Building a workflow in Python
+
+`WorkflowBuilder` makes the same file with API calls, so a notebook needs no hand-written JSON.
+The obs_data and params_for_id can be dicts (or an `ObsDataCreator`), as `CVS0DParamID` takes
+them, and an operation can be a function defined in a notebook cell. The chain of
+[Try it](#try-it), built in Python:
+
+```python
+import numpy as np
+from libcuflynx.calibration_workflow import WorkflowBuilder, module_array
+from libcuflynx.param_id.operation_funcs import series_to_constant
+
+arrays = 'wf_example/arrays'
+wf = WorkflowBuilder('chain_from_python', target=module_array(f'{arrays}/chain_module_array.json'),
+                     directory='wf_python', module_library_dirs=['wf_example/modules'],
+                     settings={'param_id_method': 'CMA-ES', 'dt': 0.1,
+                               'optimiser_options': {'num_calls_to_function': 400,
+                                                     'cost_convergence': 1e-14,
+                                                     'max_patience': 60, 'seed': 1,
+                                                     'cost_type': 'gaussian_MLE'}})
+
+@series_to_constant
+def double_mean(x, series_output=False):      # a feature defined in a cell
+    if series_output:
+        return 2 * x
+    return 2 * np.mean(x)
+
+wf.add_operation(double_mean)
+
+def obs(item, operand, value, std, operation='mean'):
+    return {'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]], 'params_to_change': {}},
+            'data_items': [{'data_item_name': item, 'data_type': 'constant',
+                            'unit': 'dimensionless', 'operands': [operand],
+                            'operation': operation, 'value': value, 'std': std}]}
+
+wf.add_calibration('a-alone', model=module_array(f'{arrays}/a_only_module_array.json'),
+                   obs_data=obs('y_a', 'A/y', 16.0, 0.16, operation='double_mean'),
+                   params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.add_calibration('chain', obs_data=obs('z_c', 'C/z', 17.0, 0.17),
+                   params_for_id=[{'vessel_name': 'C', 'param_name': 'q', 'min': 0.1, 'max': 10}],
+                   fixed_from=['a-alone'])
+wf.plan()                       # the order, and where each parameter lands
+wf.run(only='a-alone')          # A/p = 2 (2 * mean(2 p^2) = 16)
+wf.run(from_step='chain')       # C/q = 3, reusing a-alone's result
+wf.status()                     # every step done and current
+```
+
+Each `add_*` takes the step's keys from [The file](#the-file) as keyword arguments, and is
+checked against the schema when it is added; `model` defaults to the target.
+`add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+`add_identifiability`, `add_set` and `add_sweep` make the [step kinds](#step-kinds), and
+`add_step(id, kind=..., **keys)` any step. `library_module(type, version, parameterisation)`,
+`module_array(path, parameters=None)`, `select(*instances)`, `prior(step, kind=, inflate=,
+parameters=)`, `set_value(parameter, value, reason=)` and `scale_value(parameter, scale, of=,
+reason=)` give a step's model, priors and set entries. Adding a step with an id that exists
+replaces it, so a cell can be run again; a dict is copied when it is added.
+
+`write()` (and every call that runs or reads the workflow) writes `wf.directory`:
+
+```
+calibration_workflow.json          the workflow; its paths are relative to this directory
+data/<step>_obs_data.json          an obs_data given as a dict
+data/<step>_params_for_id.json     a params_for_id given as entries
+<name>_operation_funcs.py          the functions given to add_operation, with their imports
+```
+
+It is an ordinary workflow: `cuflynx-calibration-workflow wf_python/calibration_workflow.json`
+runs it, CUFLynx opens it, and `pack_workflow` carries the data and the functions file. A file
+is rewritten only when its content changes, so editing a dict (or a function, and adding it
+again) and running again redoes that step and the steps after it, and `wf.status()` shows them
+stale until then. `wf.run(ranks=4)` runs `mpiexec -n 4` on the file. `WorkflowBuilder.load(path)`
+edits an existing workflow file.
+
+- **Functions.** `add_operation` (and `add_cost_func`, `add_modifier_func`) copies each
+  function's source into the file, with an import for each module it uses and the
+  `series_to_constant` / `differentiable` markers set on it; the file is named in the
+  workflow's `operation_funcs_external_path`, so every rank and CUFLynx load it. A lambda, a
+  function using a variable of the function it is defined in, and one using a value or
+  function defined only in the notebook are refused: pass the helper functions to
+  `add_operation` too (a name starting with `_` is not registered as an operation), and put
+  values into the function. A workflow that already names another operation funcs file
+  takes no `add_operation`: add the functions to that file.
+- **Hand-set values** go in a `set` step (`add_set`), not in a parameters dict: each carries
+  its reason into the provenance.
+- **Results.** `wf.step_dir(id)` is a step's output directory, `wf.plot_step(id)` plots a
+  calibration's fit, and `wf.model(id)` (or `wf.model('target')`) generates the model with the
+  values found so far. Runs go to `<directory>/workflow_output/<name>` unless `output_dir` is
+  given.
+
 ### The file
 
 ```json
