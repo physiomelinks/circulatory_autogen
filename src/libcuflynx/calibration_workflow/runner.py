@@ -23,6 +23,8 @@ Output layout (``output_dir``)::
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
         sweep/                     a sweep step's runs (sweep.py)
     _target/model/                 the target generated with every merged value
+    models/<view>/                 models generated for viewing (workflow_model with this
+                                   work_dir; no step may be named models)
 
 A step's model is generated from a library module or from a copy of its module array; the
 files the workflow names are only read.
@@ -82,6 +84,9 @@ POINT_BEST_FIT = 'best_fit'
 POINT_POSTERIOR_MEDIAN = 'posterior_median'
 WORKFLOW_RESULT = 'workflow_result.json'
 TARGET_DIR = '_target'
+#: the folder of a run's output directory that workflow_model may generate into; the schema
+#: refuses it as a step id
+MODELS_DIR = 'models'
 # the file prefix the target's model is generated with
 TARGET_PREFIX = 'target'
 SENSITIVITY_DIR = 'sensitivity'
@@ -1415,8 +1420,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     ``view`` is a step id, or ``'target'`` for the workflow's target. A step's model gets
     the values its ``fixed_from`` steps calibrated (those that have run into ``output_dir``)
     and, with ``with_own_results``, its own calibrated values once it has run. The target
-    gets every calibrated value there is, mapped into its naming. Nothing is calibrated and
-    nothing in ``output_dir`` is written: the model goes under ``work_dir``.
+    gets every calibrated value there is, mapped into its naming. Nothing is calibrated, and
+    nothing in ``output_dir`` is written but the model, under ``work_dir`` (which may be
+    ``<output_dir>/models``, :data:`MODELS_DIR`, a folder no step's output can have).
 
     Returns ``{view, kind ('step' or 'target'), target, submodule_path, model_path,
     flat_model_path (one self-contained CellML file), parameters_path, obs_data_path, params_for_id_path, fixed, calibrated, waiting_for,
