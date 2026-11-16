@@ -1967,8 +1967,20 @@ ANALYSIS_OPTIONS = {
                              'value ignores the noise, so it can drop a small mode the data '
                              'resolve.')},
             {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
-             'description': ('For "pca": a mode whose largest index among the parameters not yet '
-                             'kept is below this is skipped; no free parameter drives it.')},
+             'description': ('For "pca": with redundancy_check, a parameter whose largest index '
+                             'over the informative modes is below this is not a candidate. '
+                             'Without it, a mode whose largest index among the parameters not '
+                             'yet kept is below this is skipped; no free parameter drives it.')},
+            {'name': 'redundancy_check', 'type': 'bool', 'default': True, 'required': False,
+             'description': ('For "pca": keep a parameter only if its effect on the informative '
+                             'modes over its prior range, after removing what the parameters '
+                             'already kept explain, is at least min_mode_std noise stds. The '
+                             'effects come from a local Jacobian the Sobol run saves (central '
+                             'differences at the centre of the box). Parameters that move the '
+                             'data the same way (a product, a ratio, a scaling symmetry) are '
+                             'then kept once. Off: one parameter per informative mode, which '
+                             'does not reduce when the outputs are a time course with more modes '
+                             'than parameters.')},
             {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('The Sobol run to read (its output_dir). Default: '
                              'sa_options.output_dir. In a calibration workflow, the '

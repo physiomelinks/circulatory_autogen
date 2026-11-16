@@ -63,6 +63,8 @@ SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
 #: weight), written beside the samples and outputs so a later analysis (a PCA parameter
 #: reduction) can recompute Sobol indices of any function of the outputs.
 SOBOL_PROBLEM_FILE = 'sobol_problem.json'
+#: The step, in ln(parameter), of the central differences of run_local_jacobian.
+LOCAL_JACOBIAN_LOG_STEP = 1e-2
 
 class sobol_SA():
 
@@ -587,23 +589,20 @@ class sobol_SA():
                         )
                         feature = func(*operands_outputs[j], **kwargs)
                         self.temp_results[key_idxt] = feature
-                        if feature is None or (isinstance(feature, (float, int)) and np.isnan(feature)):
-                            feature = np.nanmean(features) if not np.all(np.isnan(features)) else 0.0
-
+                        if feature is None or (isinstance(feature, (float, int))
+                                               and not np.isfinite(feature)):
+                            feature = np.nan   # filled per output in sobol_index
                         features.append(feature)
                     else:
-                        # WARNING: using mean biases variance estimates (shrinks variance), underestimates sensitivity
-                        # TODO: come up with a better way to impute missing features
-                        # Append the mean of the current features (ignoring None) -> reduces variance and bias induces toward zero
-                        features.append(np.mean(local_outputs))
+                        features.append(np.nan)
 
                 if pred_indices:
                     predicted = prediction_features.features_from_segments(
                         self.prediction_info, pred_indices, self.operation_funcs_dict,
                         self.protocol_info, operands_outputs_dict,
                         offset=len(self.obs_info["operands"]))
-                    # a failed segment is imputed as the data_items' are, above
-                    features.extend(value if np.isfinite(value) else np.mean(local_outputs)
+                    # a failed segment is filled as the data_items' are, in sobol_index
+                    features.extend(value if np.isfinite(value) else np.nan
                                     for value in predicted)
 
                 local_outputs.append(features)
@@ -621,6 +620,26 @@ class sobol_SA():
             return outputs
         else:
             return None
+
+    def fill_failed_outputs(self, outputs):
+        """``outputs`` with each non-finite value (a failed simulation or feature) replaced by
+        the mean of that output over the samples where it is finite (0 when it is finite in
+        none). SALib needs every Saltelli row, so a failed sample cannot be dropped; filling it
+        with a typical value shrinks the indices toward zero by about the failed fraction.
+        Records the count in ``self.failed_samples`` and warns when there are any."""
+        outputs = np.array(outputs, dtype=float)
+        bad = ~np.isfinite(outputs)
+        self.failed_samples = int(bad.any(axis=1).sum())
+        if not self.failed_samples:
+            return outputs
+        with np.errstate(invalid='ignore'):
+            means = np.nanmean(np.where(bad, np.nan, outputs), axis=0)
+        outputs[bad] = np.take(np.nan_to_num(means), np.nonzero(bad)[1])
+        import warnings
+        warnings.warn(f'{self.failed_samples} of {len(outputs)} Sobol samples have outputs that '
+                      f'failed; each is filled with that output\'s mean over the samples that '
+                      f'ran, which biases the indices toward zero.', stacklevel=2)
+        return outputs
 
     def sobol_index(self, outputs):
 
@@ -653,6 +672,7 @@ class sobol_SA():
     
         if outputs.ndim == 1:
             outputs = outputs[:, np.newaxis]  # convert to (n_samples, 1)
+        outputs = self.fill_failed_outputs(outputs)
         # kept for save_sobol_samples_and_outputs
         self.outputs = outputs
 
@@ -1047,11 +1067,15 @@ class sobol_SA():
         * ``all_outputs_n<N>_Sobol_samples.csv`` -- one column per parameter label;
         * ``all_outputs_n<N>_Sobol_outputs.csv`` -- one column per output, named as in the
           indices CSV;
+        * ``all_outputs_n<N>_Sobol_local_jacobian.csv`` -- after :meth:`run_local_jacobian`, one
+          row per parameter: d(output)/d ln(parameter) at the centre of the box;
         * ``sobol_problem.json`` -- the SALib problem (``names``, ``bounds``), ``num_samples``,
-          ``sample_type``, ``calc_second_order``, and per output its ``kind`` and, for a
-          constant data_item, its obs_data ``std`` and ``weight`` (None otherwise).
+          ``sample_type``, ``calc_second_order``, ``failed_samples`` (see
+          :meth:`fill_failed_outputs`), the local Jacobian's ``centre`` and ``log_step``, and
+          per output its ``kind`` and, for a constant data_item, its obs_data ``std`` and
+          ``weight`` (None otherwise).
 
-        Returns the three paths (None on ranks other than 0)."""
+        Returns the paths written (None on ranks other than 0)."""
         if self.rank != 0:
             return None
         outputs = np.asarray(self.outputs, dtype=float)
@@ -1060,6 +1084,12 @@ class sobol_SA():
         stem = os.path.join(self.output_dir, f"all_outputs_n{self.num_samples}_Sobol")
         paths = {'sobol_samples': f'{stem}_samples.csv', 'sobol_outputs': f'{stem}_outputs.csv',
                  'sobol_problem': os.path.join(self.output_dir, SOBOL_PROBLEM_FILE)}
+        jacobian = getattr(self, 'local_jacobian', None)
+        if jacobian is not None:
+            paths['sobol_local_jacobian'] = f'{stem}_local_jacobian.csv'
+            table = pd.DataFrame(jacobian, columns=output_names)
+            table.insert(0, 'Parameter', list(self._param_labels()))
+            table.to_csv(paths['sobol_local_jacobian'], index=False)
         pd.DataFrame(samples, columns=self._param_labels()).to_csv(paths['sobol_samples'],
                                                                    index=False)
         pd.DataFrame(outputs, columns=output_names).to_csv(paths['sobol_outputs'], index=False)
@@ -1084,7 +1114,15 @@ class sobol_SA():
                    'bounds': [[float(lo), float(hi)] for lo, hi in
                               zip(self.SA_info['param_mins'], self.SA_info['param_maxs'])],
                    'num_samples': int(self.num_samples), 'sample_type': self.SA_info['sample_type'],
-                   'calc_second_order': True, 'outputs': records}
+                   'calc_second_order': True,
+                   'failed_samples': int(getattr(self, 'failed_samples', 0)), 'outputs': records}
+        if jacobian is not None:
+            problem['local_jacobian'] = {
+                'centre': [float(v) for v in self.local_jacobian_centre],
+                'log_step': LOCAL_JACOBIAN_LOG_STEP,
+                'failed_parameters': [label for label, row in
+                                      zip(self._param_labels(), jacobian)
+                                      if not np.all(np.isfinite(row))]}
         with open(paths['sobol_problem'], 'w') as f:
             json.dump(problem, f, indent=1)
         return paths
@@ -1098,11 +1136,45 @@ class sobol_SA():
         file_name = f"all_outputs_n{self.num_samples}_Sobol_indices.csv"
         return read_sobol_indices(os.path.join(self.output_dir, file_name))
  
+    def local_jacobian_points(self):
+        """``(centre, points)``: the centre of the sampled box (the geometric mean of each
+        parameter's bounds when they share a sign, else their midpoint) and the central-difference
+        points around it, ``centre`` then each parameter times ``exp(+h)`` and ``exp(-h)``,
+        ``h = LOCAL_JACOBIAN_LOG_STEP``."""
+        lows = np.asarray(self.SA_info['param_mins'], float)
+        highs = np.asarray(self.SA_info['param_maxs'], float)
+        same_sign = lows * highs > 0
+        centre = np.where(same_sign, np.sign(highs) * np.sqrt(np.abs(lows * highs)),
+                          0.5 * (lows + highs))
+        points = [centre]
+        for i in range(len(centre)):
+            for sign in (1, -1):
+                point = centre.copy()
+                point[i] *= np.exp(sign * LOCAL_JACOBIAN_LOG_STEP)
+                points.append(point)
+        return centre, np.array(points)
+
+    def run_local_jacobian(self):
+        """d(output)/d ln(parameter) at the centre of the box, by central differences (2M + 1
+        runs, spread over the ranks as the Sobol samples are). Kept on rank 0 as
+        ``self.local_jacobian`` (parameters x outputs, NaN where a run failed) for
+        :meth:`save_sobol_samples_and_outputs`; a PCA parameter reduction reads it to tell
+        parameters that move the data the same way apart."""
+        centre, points = self.local_jacobian_points()
+        outputs = self.generate_outputs_mpi(points)
+        if self.rank != 0:
+            return None
+        outputs = np.array(outputs, dtype=float)
+        self.local_jacobian_centre = centre
+        self.local_jacobian = (outputs[1::2] - outputs[2::2]) / (2 * LOCAL_JACOBIAN_LOG_STEP)
+        return self.local_jacobian
+
     def run(self):
         samples = self.generate_samples()
         self.samples = samples
         if self.use_mpi:
             outputs = self.generate_outputs_mpi(samples)
+            self.run_local_jacobian()
             if self.rank == 0:
                 S1_all, ST_all, S2_all = self.sobol_index(outputs)
                 # print(f">>>>>>>>>>  {S1_all}, {ST_all}, {S2_all}")
