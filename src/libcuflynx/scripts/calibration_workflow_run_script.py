@@ -50,6 +50,10 @@ def build_parser():
                        help='run this step and the ones after it, reusing earlier results')
     which.add_argument('--only', default=None, metavar='ID',
                        help='run only this step, reusing the results it depends on')
+    parser.add_argument('--stale-only', action='store_true',
+                        help='without --from-step/--only: run only the steps that have not '
+                             'run or whose inputs changed, keeping the results that are '
+                             'current (the default of WorkflowBuilder.run)')
     parser.add_argument('--dry-run', action='store_true',
                         help='check the workflow against the library and print the plan; '
                              'run nothing')
@@ -89,7 +93,13 @@ def _print_progress(event):
     elif kind == 'step_failed':
         print(f"[workflow] step {event['step']} FAILED: {event['error']}", flush=True)
     elif kind == 'step_skipped':
-        print(f"[workflow] step {event['step']}: reusing its earlier result", flush=True)
+        if not event.get('has_result', True):
+            print(f"[workflow] step {event['step']}: not run", flush=True)
+        elif event.get('current'):
+            print(f"[workflow] step {event['step']}: done and current, not run again",
+                  flush=True)
+        else:
+            print(f"[workflow] step {event['step']}: reusing its earlier result", flush=True)
 
 
 def run(args):
@@ -104,7 +114,8 @@ def run(args):
         return packed
     result = run_calibration_workflow(
         args.workflow, output_dir=args.output_dir, module_library_dirs=args.module_library_dirs,
-        from_step=args.from_step, only=args.only, dry_run=args.dry_run,
+        from_step=args.from_step, only=args.only, stale_only=args.stale_only,
+        dry_run=args.dry_run,
         write_calibrated=args.write_calibrated, progress=_print_progress)
     if MPI.COMM_WORLD.Get_rank() != 0:
         return result

@@ -345,8 +345,9 @@ def resolve_workflow(workflow):
     if any(m.kind == 'library' for m in library) and not workflow.module_library_dirs:
         raise WorkflowError(
             f'workflow "{workflow.name}" uses a library module but names no module library. '
-            f'Pass module_library_dirs (the --module-library-dir option of '
-            f'cuflynx-calibration-workflow) or list them in the file\'s "module_library_dirs".')
+            f'Pass module_library_dirs (WorkflowBuilder(..., module_library_dirs=[...]) in '
+            f'Python, the --module-library-dir option of cuflynx-calibration-workflow) or list '
+            f'them in the file\'s "module_library_dirs".')
     inputs = library_inputs(workflow)
     try:
         sources = ModuleSources(inputs)

@@ -27,7 +27,10 @@ Output layout (``output_dir``)::
         sweep/                     a sweep step's runs (sweep.py)
     _target/model/                 the target generated with every merged value
     models/<view>/                 models generated for viewing (workflow_model with this
-                                   work_dir; no step may be named models)
+                                   work_dir)
+    inputs/                        the study's copies of its inputs (cuflynx_study)
+
+No step may be named ``models``, ``target`` (the target's view), ``_target`` or ``inputs``.
 
 A step's model is generated from a library module or from a copy of its module array; the
 files the workflow names are only read.
@@ -250,6 +253,11 @@ def given_values(result):
     return result['calibrated'] + result.get('set', [])
 
 
+def _from_step_hint(step_id):
+    '''How to run from a step, for a Python caller and for the command line.'''
+    return f'wf.run(from_step={step_id!r}) in Python, --from-step {step_id} on the command line'
+
+
 def _how_set(record):
     '''The ``origin`` and ``reason`` of a value set by hand; empty for a calibrated one.'''
     return {key: record[key] for key in ('origin', 'reason') if record.get(key)}
@@ -369,8 +377,8 @@ class _Run:
         if result is None or result.get('status') != 'done':
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", which has not been run '
-                f'into {self.output_dir}. Run the workflow from "{step_id}" (or without '
-                f'--from-step/--only).')
+                f'into {self.output_dir}. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}, or run every step.')
         for key in self.changed_inputs(step_id, result):
             if key == LIBRARY_INPUT:
                 warnings.warn(f'the module library has changed since "{step_id}" ran; its result '
@@ -379,14 +387,15 @@ class _Run:
             changed = 'its settings' if key == SETTINGS_INPUT else result['inputs'][key]['path']
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", but {changed} has changed '
-                f'since "{step_id}" ran. Run the workflow from "{step_id}".')
+                f'since "{step_id}" ran. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}.')
         for source in self.workflow.step(step_id).depends_on:
             upstream = self.require_current(source, needed_by)
             if (upstream.get('finished') or '') > (result.get('started') or ''):
                 raise WorkflowError(
                     f'step "{needed_by}" needs the result of "{step_id}", but "{source}", which '
                     f'it took something from, ran again after it. Run the workflow from '
-                    f'"{step_id}".')
+                    f'"{step_id}": {_from_step_hint(step_id)}.')
         return result
 
     # -- what a step gets from earlier steps ---------------------------------------------
@@ -1531,8 +1540,8 @@ def plan_workflow(source, module_library_dirs=None):
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,
-                             from_step=None, only=None, dry_run=False, write_calibrated=False,
-                             progress=None, comm=None):
+                             from_step=None, only=None, stale_only=False, dry_run=False,
+                             write_calibrated=False, progress=None, comm=None):
     '''Run the calibration workflow ``source`` (a calibration_workflow.json path or its dict).
 
     Args:
@@ -1542,12 +1551,15 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             are reused from ``output_dir`` (an error if missing, or if their obs_data,
             params_for_id or parameters changed since).
         only: run just this step, reusing the results it depends on.
+        stale_only: without ``from_step`` and ``only``, run just the steps that have not run
+            or are stale (:func:`workflow_status`), keeping the results that are current.
         dry_run: resolve and check everything, run nothing; returns :func:`plan_workflow`.
         write_calibrated: write the merged set as the target parameterisation's
             ``<parameterisation>_calibrated_parameters.json`` (complete runs only).
         progress: ``callable(event_dict)``, called on rank 0 with ``event`` in
             ``workflow_started``, ``step_started``, ``step_finished``, ``step_failed``,
-            ``step_skipped``, ``workflow_finished``.
+            ``step_skipped`` (with ``has_result``, and ``current`` True for a step
+            ``stale_only`` left alone), ``workflow_finished``.
         comm: an MPI communicator (default COMM_WORLD, or a one-rank stand-in).
 
     Returns the workflow_result dict (also written as ``workflow_result.json``).
@@ -1571,6 +1583,10 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
     elif from_step:
         ids = [s.id for s in order]
         to_run = order[ids.index(from_step):]
+    elif stale_only:
+        status = run.on_root(lambda: _steps_status(run))
+        to_run = [s for s in order
+                  if status[s.id]['status'] != 'done' or status[s.id]['stale']]
     else:
         to_run = order
 
@@ -1587,7 +1603,10 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
              output_dir=output_dir)
     for step in order:
         if step not in to_run:
-            run.emit('step_skipped', step=step.id)
+            has_result = run.on_root(
+                lambda: (run.step_result(step.id) or {}).get('status') == 'done')
+            run.emit('step_skipped', step=step.id, has_result=has_result,
+                     current=bool(stale_only and not from_step and not only))
     for index, step in enumerate(to_run):
         try:
             run.run_step(step, index, len(to_run))
@@ -1616,7 +1635,15 @@ def workflow_status(source, output_dir, module_library_dirs=None):
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
-    run = _Run(resolved, output_dir, _get_comm(None), None)
+    steps = _steps_status(_Run(resolved, output_dir, _get_comm(None), None))
+    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
+            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
+            'steps': steps}
+
+
+def _steps_status(run):
+    '''The ``steps`` of :func:`workflow_status` for the run ``run``.'''
+    workflow = run.workflow
     steps = {}
     for step in workflow.topological_order():
         result = run.step_result(step.id)
@@ -1636,9 +1663,7 @@ def workflow_status(source, output_dir, module_library_dirs=None):
                           'best_cost': (result or {}).get('best_cost') if done else None,
                           'finished': (result or {}).get('finished') if done else None,
                           'point_estimate': (result or {}).get('point_estimate') if done else None}
-    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
-            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
-            'steps': steps}
+    return steps
 
 
 TARGET_VIEW = 'target'
