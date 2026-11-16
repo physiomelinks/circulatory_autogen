@@ -651,15 +651,17 @@ class WorkflowBuilder:
         given['settings'] = dict(settings or {}, ia_options=dict(ia_options))
         return self.add_step(id, kind='identifiability', **given)
 
-    def add_uq(self, id, *, obs_data, params_for_id, uq_options, result_from=None, model=None,
-               fixed_from=(), emulator_from=None, emulator_dir=None, vessel=None, submodule=None,
-               vessel_map=None, settings=None, description=None, comment=None):
+    def add_uq(self, id, *, obs_data, params_for_id, uq_options={}, result_from=None,
+               model=None, fixed_from=(), emulator_from=None, emulator_dir=None, vessel=None,
+               submodule=None, vessel_map=None, settings=None, description=None, comment=None):
         """Add an uncertainty quantification of ``params_for_id`` at a step's values, with
-        no fit of its own. Its distribution is stored, for a later step's ``priors_from``.
+        no fit of its own. Its distribution is stored, for a later step's ``priors_from``, and
+        checked by a posterior predictive check unless ``posterior_predictive`` is false.
 
         Args:
             uq_options: the options (the ``UQ_options`` setting; ``method`` is ``'mcmc'`` or
-                ``'laplace'``), written into the step's settings.
+                ``'laplace'``), written into the step's settings (copied, never changed).
+                Default ``{}``: the workflow's, else MCMC with the engine's defaults.
             result_from: the calibration or set step whose values it is at. Default: the
                 model's own values.
 

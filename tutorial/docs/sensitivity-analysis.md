@@ -88,7 +88,8 @@ sa_options:
   `kind` (`data_item`, `prediction_item` or `cost`), `data_item_name`, `experiment_idx` and
   `subexperiment_idx`.
 - With `method: local` they are extra rows of `local_sensitivity_absolute.csv` and
-  `local_sensitivity_relative.csv`, named by `data_item_name`. `get_local_sensitivities()`
+  `local_sensitivity_relative.csv`, named by `data_item_name`, and of
+  `local_sensitivity_signed.csv`, named as their Sobol columns. `get_local_sensitivities()`
   lists them under `prediction_feature_names`. They are computed the same way as the
   data_item rows: by the analytic arm (CasADi, or Myokit CVODES sensitivities), or by central
   finite differences with `fd_rel_step` (2M more simulations) when `gradient_method: FD` or over
@@ -102,6 +103,27 @@ sa_options:
   retrain.
 
 Without the option, nothing changes: the outputs and files are exactly the data_item ones.
+
+### Local sensitivity files (`method: local`)
+
+`method: local` differentiates each scalar feature Y with respect to each parameter p at one
+point (the model's values, or a workflow step's `result_from`), and writes three CSVs to
+`output_dir`. Each has an `output` column and one column per parameter, named by its entry label
+(a grouped row joins its members with `+`; a modifier uses its own name):
+
+| File | Value | Rows labelled |
+|---|---|---|
+| `local_sensitivity_absolute.csv` | dY/dp | as the engine labels an observable (`<item_name_for_plotting>`, with `[exp e, sub s]` only when that repeats) |
+| `local_sensitivity_relative.csv` | \|p\| dY/dp / \|Y\|; 0.0 where Y = 0 | as the absolute file |
+| `local_sensitivity_signed.csv` | d ln Y / d ln p = (p / Y) dY/dp; NaN where Y = 0, where it is undefined | as the Sobol outputs: `<item_name_for_plotting> (Exp<e>, Sub<s>)`, made unique the same way |
+
+The signed file says which way a feature moves: -1 means a 1% rise in p lowers Y by about 1%.
+The relative file keeps the sign of dY/dp only, so the two disagree where p or Y is negative.
+Its row labels are the column names of `all_outputs_n<N>_Sobol_indices.csv` (after `S1_` and
+`ST_`), so one heatmap can show a Sobol index and a local coefficient of one observable side by
+side. `get_local_sensitivities()` returns the matrices (`absolute`, `relative`, `signed`) with
+`signed_output_names`, `nominal_param_vals` and `nominal_feature_vals`. A workflow's local
+sensitivity step names the signed file in its `step_result.json`, as `local_sensitivity_signed`.
 
 ## How to run SA script
 

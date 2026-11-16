@@ -175,8 +175,8 @@ number of vessels at a node (node sums #609, node rule D #617).
 - **A CellML model as a workflow's target and steps' model:**
   `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` (`parameters` optional;
   `spec.CellMLModel`, the builder's `cellml_model()`). Its parameters are its constants, named
-  `component/variable`. A step runs a flattened copy with its values written in
-  (`utility_funcs.change_parameter_values_and_save`, checked after writing), as
+  `component/variable`. A step runs a copy with its values written in by the calibrated-model
+  writer (below; flattened when the file has imports, checked after writing), as
   `model_type: cellml`. `write_calibrated` writes `<stem>_calibrated_parameters.json` and
   `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
@@ -188,7 +188,32 @@ number of vessels at a node (node sums #609, node rule D #617).
   `add_uq()`. Outside a workflow, `param_id_run_script.run_uq(inp_data_dict, best_param_vals,
   method)`, and `do_uq` with `method: laplace`. `ANALYSIS_OPTIONS['uq']` offers `laplace` and
   its `num_samples`. A calibration with `store_distribution` and `method: laplace` is refused
-  (use a uq step).
+  (use a uq step). An empty `UQ_options` is MCMC with the defaults, and `add_uq()`'s
+  `uq_options` defaults to `{}`.
+- **A uq step runs the posterior predictive check** after its MCMC (draws from the chain after
+  `burn_in`) or Laplace approximation (draws from its stored samples), into
+  `<step>/posterior_predictive/`; `step_result.json` names `posterior_predictive_dir`,
+  `posterior_predictive_draws`, `posterior_predictive_coverage`, `posterior_predictive_series`
+  and a `posterior_predictive_summary`. New `UQ_options`: `posterior_predictive` (default true)
+  and `posterior_predictive_samples` (default 100). `posterior_predictive(samples=...)` checks
+  given draws in place of a chain, and a `CVS0DParamID` built to run MCMC can be the `client`
+  (`posterior_predictive.engine_of`).
+- **One calibrated-model writer** (`param_id.calibrated_model`): `write_cellml_values(path,
+  values, output_path, flatten=None)` and `substitute_parameter_values(text, values)` write
+  values named `vessel/param` or `component/variable` and return a report, `{'updated',
+  'unresolved', 'resolved': {name: 'component/variable'}}` (with `path` and `flattened` from
+  the file writer). `flatten=None` flattens a file with imports (a generated model) and writes
+  a single-file model in its own form, with only the values changed.
+  `write_calibrated_model(..., flatten=None, return_report=False)` and
+  `CVS0DParamID.write_calibrated_model(..., flatten=None)` (report in
+  `calibrated_model_report`) use it, as do a workflow's CellML steps, so a best fit gives the
+  same file from CA, a workflow and CUFLynx. An unresolved name is a warning.
+- **Signed local sensitivities:** `method: local` also writes `local_sensitivity_signed.csv`,
+  d ln Y / d ln p = (p / Y) dY/dp, NaN where Y = 0, its rows labelled as the Sobol outputs
+  (`<item_name_for_plotting> (Exp<e>, Sub<s>)`, `sobolSA.output_labels`). The nominal features
+  are evaluated before the sensitivities. `get_local_sensitivities()` adds `signed`,
+  `signed_output_names` and `nominal_feature_vals`; a workflow's local sensitivity step records
+  the file as `local_sensitivity_signed`.
 - **`emulator_dir`** on a calibration, sensitivity or uq step: an emulator trained outside the
   workflow, in place of `emulator_from`; hashed into the step's inputs and packed.
 - An identifiability step's `result_from` is optional (the analysis is then at the model's

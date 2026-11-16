@@ -70,6 +70,7 @@ from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
                                                   WorkflowError, load_workflow, uq_method,
+                                                  uq_options as _uq_options,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.mpi_utils import run_on_root
@@ -104,19 +105,25 @@ EMULATOR_INPUT = 'emulator'
 CELLML_INPUT = 'cellml_model'
 #: the samples a uq step's Laplace approximation stores, unless UQ_options.num_samples says
 LAPLACE_SAMPLES = 2000
+#: where a uq step's posterior predictive check is written, in its step directory
+POSTERIOR_PREDICTIVE_DIR = 'posterior_predictive'
+#: the draws it simulates, unless UQ_options.posterior_predictive_samples says
+POSTERIOR_PREDICTIVE_SAMPLES = 100
 #: the error vectors a calibration step writes (param_id/plot_outputs.py), in its run directory
 ERROR_VECTOR_FILES = ('percent_error_vec.npy', 'error_vec_names.npy')
 SOBOL_INDICES_GLOB = 'all_outputs_n*_Sobol_indices.csv'
 #: the result keys the study manifest lists as each kind's outputs
 STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'calibrated_model',
                                 'percent_error_vec', 'error_vec_names'),
-                'sensitivity': ('sensitivity_dir', 'sobol_indices'),
+                'sensitivity': ('sensitivity_dir', 'sobol_indices', 'local_sensitivity_signed'),
                 'reduction': ('params_for_id',),
                 'emulation': ('emulator_dir',),
                 'identifiability': ('laplace',),
                 'set': (),
                 'sweep': ('sweep_dir', 'sweep_results'),
-                'uq': ('uq_output_dir', 'distribution_dir')}
+                'uq': ('uq_output_dir', 'distribution_dir', 'posterior_predictive_dir',
+                       'posterior_predictive_draws', 'posterior_predictive_coverage',
+                       'posterior_predictive_series')}
 #: what a value set by a set step is marked with
 SET_BY_HAND = 'set_by_hand'
 assert SET_BY_HAND in ORIGINS
@@ -765,14 +772,19 @@ class _Run:
             if method == 'sobol' and not found:
                 raise WorkflowStepError(step.id, f'the Sobol analysis wrote no indices into '
                                                  f'{out_dir}.')
-            nominal = {}
+            nominal, signed = {}, None
             if method == 'local':
+                from libcuflynx.sensitivity_analysis.sensitivityAnalysis import LOCAL_SIGNED_FILE
                 # the analysis is about the model's values: result_from's, or its own
                 names, values = self._model_point(generated, params_for_id)
                 nominal = {'nominal': {'source': step.result_from or step.emulator_from or
                                        'model', 'parameters': names, 'values': values}}
+                signed = os.path.join(out_dir, LOCAL_SIGNED_FILE)
+                if not os.path.isfile(signed):
+                    raise WorkflowStepError(step.id, f'the local analysis wrote no {signed}.')
             return {'method': method, 'sensitivity_dir': out_dir, **nominal,
                     'sobol_indices': found[0] if found else None,
+                    'local_sensitivity_signed': signed,
                     'fixed': [dict(row) for _, row in sorted(fixed.items())],
                     'params_for_id_used': params_for_id, 'settings': settings,
                     'solver_info': outcome['solver_info'],
@@ -890,6 +902,7 @@ class _Run:
         inp['param_id_output_dir'] = out_dir
         outcome = self._run_stage(step, f'{method} uncertainty quantification', run_uq, inp,
                                   at, method)
+        drawn = {}  # rank 0: the Laplace approximation's stored samples
 
         def finish():
             parameters = parameters_from_info(info['param_names'], info['param_mins'],
@@ -921,9 +934,57 @@ class _Run:
                 source, laplace_samples_outside_bounds=dropped))
             record['distribution_dir'] = distribution.save(
                 os.path.join(self.step_dir(step.id), DISTRIBUTION_DIR))
+            drawn['samples'] = samples
             return record
 
-        return self.on_root(finish)
+        record = self.on_root(finish)
+        options = _uq_options(settings)
+        if not options.get('posterior_predictive', True):
+            return record
+        checked = self._posterior_predictive(step, options, outcome, drawn.get('samples'))
+        return self.on_root(lambda: dict(record, **checked))
+
+    def _posterior_predictive(self, step, options, outcome, samples):
+        '''The posterior predictive check of a uq step (``param_id.posterior_predictive``), on
+        every rank: draws from the MCMC chain (after ``burn_in``) or from the Laplace
+        approximation's ``samples`` (rank 0), simulated by the step's engine. Rank 0 saves it in
+        ``<step dir>/posterior_predictive`` and returns the result keys. A check that fails is
+        a warning and a ``posterior_predictive_summary.error``: the posterior is the step's
+        result.'''
+        from libcuflynx.param_id import posterior_predictive as pp
+        directory = os.path.join(self.step_dir(step.id), POSTERIOR_PREDICTIVE_DIR)
+        try:
+            result = pp.posterior_predictive(
+                client=outcome['engine'],
+                num_samples=int(options.get('posterior_predictive_samples',
+                                            POSTERIOR_PREDICTIVE_SAMPLES)),
+                burn_in=float(options.get('burn_in', 0.5)),
+                output_dir=outcome['uq_output_dir'] if samples is None else None,
+                samples=samples, save=False)
+        except Exception as exc:
+            def failed():
+                warnings.warn(f'step "{step.id}": the posterior predictive check failed: {exc}',
+                              UserWarning, stacklevel=2)
+                return {'posterior_predictive_summary': {'error': str(exc)}}
+            return self.on_root(failed)
+
+        def save():
+            samples_path, coverage_path = result.save(directory)
+            series = os.path.join(directory, pp.SERIES_FILE)
+            levels = {level: {key: row[key] for key in ('predictive_coverage',
+                                                         'sample_interval_coverage')}
+                      for level, row in result.coverage['levels'].items()}
+            return {'posterior_predictive_dir': directory,
+                    'posterior_predictive_draws': samples_path,
+                    'posterior_predictive_coverage': coverage_path,
+                    'posterior_predictive_series': series if os.path.isfile(series) else None,
+                    'posterior_predictive_summary': {
+                        'num_samples': int(result.predictions.shape[0]),
+                        'samples_that_failed_to_simulate': int(result.failures),
+                        'drawn_from': result.chain_info.get('source', 'chain'),
+                        'levels': levels}}
+
+        return self.on_root(save)
 
     def _run_set(self, step, settings):
         return self.on_root(lambda: {'set': self._declared_values(step)})
@@ -1029,9 +1090,7 @@ class _Run:
             raise WorkflowStepError(step.id, f'store_distribution is set but MCMC wrote no '
                                              f'chain ({chain_path}).')
         chain = np.load(chain_path)
-        uq = settings.get('debug_UQ_options') if settings.get('DEBUG') else None
-        uq = uq or settings.get('UQ_options') or {}
-        burn_in = float(uq.get('burn_in', 0.5))
+        burn_in = float(_uq_options(settings).get('burn_in', 0.5))
         start = int(chain.shape[0] * burn_in) if burn_in < 1 else int(burn_in)
         parameters = parameters_from_info(info['param_names'], info['param_mins'],
                                           info['param_maxs'])
@@ -1272,8 +1331,8 @@ def external_inputs(settings, generated):
 
 def write_calibrated_cellml(target, calibrated_parameters, path=None):
     '''``path`` (default ``<stem>_calibrated.cellml`` beside the CellML target): the target's
-    CellML, flattened, with every value of ``calibrated_parameters`` (a calibrated parameters
-    file of it) that differs from its own written in. Returns ``path``.'''
+    CellML (flattened when it has imports) with every value of ``calibrated_parameters`` (a
+    calibrated parameters file of it) that differs from its own written in. Returns ``path``.'''
     from libcuflynx.calibration_workflow.cellml_model import (read_cellml_constants,
                                                               write_cellml_with_values)
     from libcuflynx.param_id.calibrated_model import calibrated_model_name
@@ -1302,9 +1361,7 @@ def laplace_samples(mean, covariance, parameters, n, seed=0):
 
 
 def _num_samples(settings):
-    options = (settings.get('debug_UQ_options') if settings.get('DEBUG') else None) or \
-        settings.get('UQ_options') or {}
-    return int(options.get('num_samples', LAPLACE_SAMPLES))
+    return int(_uq_options(settings).get('num_samples', LAPLACE_SAMPLES))
 
 
 def under(base_rows, overrides):

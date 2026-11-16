@@ -798,19 +798,26 @@ def _check_external_models(workflow):
                                     f'which runs as model_type cellml, not {model_type!r}.')
 
 
-def uq_method(settings):
-    '''The method of a uq step with these (merged) settings: ``UQ_options.method`` (the debug
-    options' when DEBUG is set), default mcmc.'''
-    options = (settings.get('debug_UQ_options') if settings.get('DEBUG') else None) or \
+def uq_options(settings):
+    '''The UQ_options of a step with these (merged) settings: debug_UQ_options when DEBUG is
+    set and they are given.'''
+    return (settings.get('debug_UQ_options') if settings.get('DEBUG') else None) or \
         settings.get('UQ_options') or {}
-    return options.get('method', UQ_METHODS[0])
+
+
+def uq_method(settings):
+    '''The method of a uq step with these (merged) settings: ``UQ_options.method``
+    (:func:`uq_options`), default mcmc.'''
+    return uq_options(settings).get('method', UQ_METHODS[0])
 
 
 def _check_uq_step(workflow, step):
     settings = workflow.step_settings(step)
-    if not settings.get('UQ_options') and not settings.get('debug_UQ_options'):
+    # an empty UQ_options is MCMC with the engine's defaults
+    if 'UQ_options' not in settings and 'debug_UQ_options' not in settings:
         raise WorkflowError(f'uq step "{step.id}" needs "UQ_options" in its settings (or the '
-                            f'workflow\'s): its method, and for mcmc num_steps and num_walkers.')
+                            f'workflow\'s): its method, and for mcmc num_steps and num_walkers; '
+                            f'{{}} for MCMC with the defaults.')
     method = uq_method(settings)
     if method not in UQ_METHODS:
         raise WorkflowError(f'uq step "{step.id}": UQ_options.method is {method!r}; one of '

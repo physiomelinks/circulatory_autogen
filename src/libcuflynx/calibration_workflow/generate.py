@@ -162,9 +162,9 @@ def generate_cellml(model, work_dir, file_prefix, overrides=()):
     '''A CellML model (a spec.CellMLModel) is not generated: this writes the values it runs with,
     ``generated_models/<prefix>/<prefix>_parameters.json`` under ``work_dir`` -- its constants,
     its parameters file's values over them, and ``overrides`` (rows named
-    ``component/variable``) over those -- and ``<prefix>.cellml`` beside it, the model flattened
-    with every value that differs from its own written in. Returns as
-    :func:`generate_parameterisation`.'''
+    ``component/variable``) over those -- and ``<prefix>.cellml`` beside it, the model
+    (flattened when it has imports) with every value that differs from its own written in.
+    Returns as :func:`generate_parameterisation`.'''
     from libcuflynx.calibration_workflow.cellml_model import (read_cellml_constants,
                                                               write_cellml_with_values)
     from libcuflynx.calibration_workflow.resolve import read_cellml_parameters
