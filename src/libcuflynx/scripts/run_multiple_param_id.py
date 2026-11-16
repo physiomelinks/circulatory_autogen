@@ -143,7 +143,10 @@ if __name__ == '__main__':
                                     param_id_obs_path=param_id_obs_path,
                                     sim_time=sim_time, pre_time=pre_time,
                                     solver_info=solver_info, dt=dt, optimiser_options=optimiser_options, DEBUG=DEBUG,
-                                    param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                                    param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                                    operation_funcs_external_path=inp_data_dict.get('operation_funcs_external_path'),
+                                    cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path'),
+                                    modifier_funcs_external_path=inp_data_dict.get('modifier_funcs_external_path'))
 
             if rank == 0:
                 if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):

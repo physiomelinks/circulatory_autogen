@@ -1177,6 +1177,36 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
 
 
 @pytest.mark.unit
+def test_an_identifiability_step_gets_the_user_operation_its_obs_data_names(library, tmp_path):
+    """The identifiability stage was built without the user-funcs paths, so an obs_data naming
+    a user operation failed there only."""
+    raw = _raw(library, 'chain_analysed')
+    ops = tmp_path / 'my_ops.py'
+    ops.write_text('import numpy as np\n'
+                   'from libcuflynx.param_id.operation_funcs import series_to_constant\n\n\n'
+                   '@series_to_constant\n'
+                   'def my_mean(x, series_output=False):\n'
+                   '    if series_output:\n'
+                   '        return x\n'
+                   '    return float(np.mean(x))\n')
+    obs = _read_json(os.path.join(os.path.dirname(library['chain_analysed']),
+                                  'screened_obs_data.json'))
+    obs['data_items'][0]['operation'] = 'my_mean'
+    obs_path = os.path.join(os.path.dirname(library['chain_analysed']), 'ia_user_op_obs.json')
+    _write_json(obs_path, obs)
+    ia = next(s for s in raw['steps'] if s['id'] == 'ia')
+    ia['obs_data'] = 'ia_user_op_obs.json'
+    ia['settings']['operation_funcs_external_path'] = str(ops)
+    path = os.path.join(os.path.dirname(library['chain_analysed']), 'ia_user_op_workflow.json')
+    _write_json(path, raw)
+    result = run_calibration_workflow(path, output_dir=str(tmp_path / 'run'))
+    assert result['complete']
+    ia_result = _read_json(os.path.join(str(tmp_path / 'run'), 'ia', 'step_result.json'))
+    q = np.sqrt(Z_C - Y_A)
+    assert ia_result['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
+
+
+@pytest.mark.unit
 def test_steps_on_an_emulator_run_the_emulation_steps_model(library, tmp_path):
     pytest.importorskip('autoemulate')
     raw = _emulated(library)

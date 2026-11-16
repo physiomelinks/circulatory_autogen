@@ -4842,13 +4842,17 @@ class MCMC_plotter:
                  solver_info=None, 
                  dt=0.01, UQ_options=None,
                  param_id_output_dir=None, resources_dir=None,
-                 DEBUG=False):
+                 DEBUG=False, operation_funcs_external_path=None,
+                 cost_funcs_external_path=None, modifier_funcs_external_path=None):
 
         self.model_path = model_path
         self.model_type = model_type
         self.param_id_method = param_id_method
         self.file_name_prefix = file_name_prefix
         self.params_for_id_path = params_for_id_path
+        self.operation_funcs_external_path = operation_funcs_external_path
+        self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         self.num_calls_to_function = num_calls_to_function
         self.param_id_obs_path = param_id_obs_path
         self.sim_time = sim_time
@@ -4912,7 +4916,10 @@ class MCMC_plotter:
                                     sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
                                     param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
                                     solver_info=self.solver_info, UQ_options=self.UQ_options,
-                                    DEBUG=self.DEBUG, one_rank=True)
+                                    DEBUG=self.DEBUG, one_rank=True,
+                                    operation_funcs_external_path=self.operation_funcs_external_path,
+                                    cost_funcs_external_path=self.cost_funcs_external_path,
+                                    modifier_funcs_external_path=self.modifier_funcs_external_path)
                 if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
                     with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:
                         param_names_to_remove = []
