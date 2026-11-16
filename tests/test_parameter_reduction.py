@@ -30,8 +30,10 @@ def _toy_outputs(x):
 
 
 def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, std_scale=1.0,
-                     with_samples=True):
-    """A Sobol run of ``outputs_of`` in ``directory``, in sobolSA's file layout."""
+                     with_samples=True, with_jacobian=True):
+    """A Sobol run of ``outputs_of`` in ``directory``, in sobolSA's file layout, with the local
+    Jacobian sobolSA.run_local_jacobian saves (central differences in ln(parameter) at the
+    geometric centre of the box)."""
     os.makedirs(directory, exist_ok=True)
     problem = {'num_vars': len(params), 'names': params, 'bounds': [[1.0, 2.0]] * len(params)}
     samples = saltelli.sample(problem, n, calc_second_order=True)
@@ -47,9 +49,22 @@ def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, s
         pd.DataFrame(samples, columns=params).to_csv(f'{stem}_samples.csv', index=False)
         pd.DataFrame({k: v for k, (v, _) in outputs.items()}).to_csv(f'{stem}_outputs.csv',
                                                                      index=False)
+        centre = np.sqrt(np.prod(problem['bounds'], axis=1))
+        if with_jacobian:
+            step, rows = 1e-2, []
+            for i in range(len(params)):
+                up, down = centre.copy(), centre.copy()
+                up[i] *= np.exp(step)
+                down[i] *= np.exp(-step)
+                hi, lo = outputs_of(up[None, :]), outputs_of(down[None, :])
+                rows.append([float((hi[k][0][0] - lo[k][0][0]) / (2 * step)) for k in outputs])
+            table = pd.DataFrame(rows, columns=list(outputs))
+            table.insert(0, 'Parameter', params)
+            table.to_csv(f'{stem}_local_jacobian.csv', index=False)
         with open(os.path.join(directory, 'sobol_problem.json'), 'w') as f:
             json.dump({'names': params, 'bounds': problem['bounds'], 'num_samples': n,
                        'sample_type': 'saltelli', 'calc_second_order': True,
+                       'local_jacobian': {'centre': centre.tolist(), 'log_step': 1e-2},
                        'outputs': [{'output': k, 'kind': 'data_item',
                                     'std': None if std is None else std * std_scale,
                                     'weight': 1.0} for k, (_, std) in outputs.items()]}, f)
@@ -138,7 +153,7 @@ def test_options_are_the_param_reduction_options_descriptors():
         assert sobol_defaults[name] == descriptors[name]['default']
     # round trip, and the paths are ignored
     options = {'method': 'pca', 'n_params': 3, 'index_type': 'S1', 'min_mode_std': 2.0,
-               'variance_fraction': 0.9, 'min_index': 0.1}
+               'variance_fraction': 0.9, 'min_index': 0.1, 'redundancy_check': False}
     assert ParamReduction.from_options(dict(options, sensitivity_dir='x')).as_dict() == options
     # an option of the other method at its default is fine (a filled-in form); changed, not
     assert ParamReduction.from_options({'method': 'pca', 'criterion': 'max'})
@@ -249,3 +264,43 @@ def test_top_n_keeps_both_parameters_of_a_product_and_pca_keeps_one(tmp_path):
     pca = [r['parameter'] for r in PCASobolReduction().reduce(
         run, source, str(tmp_path / 'pca' / 'kept.json'))]
     assert len(pca) == 3 and {'m/C', 'm/E'} <= set(pca) and len({'m/A', 'm/B'} & set(pca)) == 1
+
+
+TIMES = np.linspace(0.0, 6.0, 30)
+
+
+def _time_course(x):
+    """A time course in which only a / c and b matter: (a / c) sin(b t), std 0.05."""
+    a, b, c = x.T
+    return {f'y(t={t:.2f})': ((a / c) * np.sin(b * t), 0.05) for t in TIMES}
+
+
+@pytest.mark.unit
+def test_a_time_course_keeps_one_parameter_of_a_ratio_with_the_redundancy_check(tmp_path):
+    params = ['m/a', 'm/b', 'm/c']
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=_time_course, params=params)
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params)
+
+    kept = PCASobolReduction().reduce(run, source, str(tmp_path / 'pca' / 'kept.json'))
+    names = [row['parameter'] for row in kept]
+    # b, and one of a and c: a / c is one direction however many modes it drives
+    assert 'm/b' in names and len(names) == 2
+    report = json.loads((tmp_path / 'pca' / 'param_reduction.json').read_text())
+    left = [n for n in ('m/a', 'm/c') if n not in names][0]
+    assert report['unexplained_effects'][left] < 1e-6 * report['effects'][left]
+    assert report['n_informative_modes'] > len(params)
+
+    # one parameter per informative mode keeps all three: there are more modes than parameters
+    every = PCASobolReduction(redundancy_check=False).reduce(
+        run, source, str(tmp_path / 'per_mode' / 'kept.json'))
+    assert {row['parameter'] for row in every} == set(params)
+
+
+@pytest.mark.unit
+def test_the_redundancy_check_needs_the_local_jacobian(tmp_path):
+    run = _write_sobol_run(str(tmp_path / 'sa'), with_jacobian=False)
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'))
+    with pytest.raises(SensitivityFilesError, match='local_jacobian'):
+        PCASobolReduction().reduce(run, source, str(tmp_path / 'out' / 'kept.json'))
+    assert PCASobolReduction(redundancy_check=False).reduce(
+        run, source, str(tmp_path / 'out' / 'kept.json'))

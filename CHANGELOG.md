@@ -233,6 +233,21 @@ the module, the port's variables, the 1D vessel and the 0D modules.
   tolerances, maximum step and output grid, and writes setup, first-run and median run times,
   CVODE step counts where exposed and the error against a reference backend, as JSON and
   Markdown.
+### Changed — the PCA parameter reduction checks for redundant parameters
+
+- `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
+  effect on the informative PCA modes over its prior range, beyond what the parameters already
+  kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences in
+  ln(parameter) at the centre of the box, 2M + 1 extra runs). One parameter per informative mode
+  (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
+  parameters, and every parameter of a ratio or scaling symmetry.
+
+### Fixed — a failed Sobol sample is filled from its own outputs
+
+- A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
+  of every kind, mixing units. Each is now filled with that output's mean over the samples that
+  ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
 
 ### Added — parameter reduction by PCA modes of the Sobol outputs
 

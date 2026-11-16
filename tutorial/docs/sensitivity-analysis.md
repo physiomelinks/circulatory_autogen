@@ -140,14 +140,15 @@ param_reduction_options:
   # min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)
   # variance_fraction: 1.0  # pca; 1 = no relative cut
   # min_index: 0.05      # pca
+  # redundancy_check: true  # pca
   # criterion: max       # sobol
   # threshold: 0.01      # sobol
   # sensitivity_dir: ... # default sa_options.output_dir
   # output_dir: ...      # default <sensitivity_dir>/param_reduction
 ```
 
-**`method: pca`** (the default) asks how many independent ways the parameters move the data,
-and keeps one parameter for each:
+**`method: pca`** (the default) asks in how many independent ways the parameters move the data
+by more than its noise, and keeps one parameter for each:
 
 1. Each output over the Sobol samples is centred and divided by its obs_data `std` over the
    square root of its `weight`, the scale the `gaussian_MLE` cost measures it on. A change of 1
@@ -159,15 +160,26 @@ and keeps one parameter for each:
    `variance_fraction` of the variance are considered. The default, 1, is no relative cut. A
    smaller value ignores the noise: a mode that moves the data by several noise stds but has a
    small share of the variance can be dropped.
-3. Sobol indices are computed for each mode's score, from the same samples.
-4. Going through the informative modes, largest first, the reduction keeps the parameter, not
-   kept already, with the largest index for that mode. A mode that no free parameter reaches
-   `min_index` for is skipped. It stops after `n_params`, by default one per informative mode.
+3. Sobol indices are computed for each mode's score, from the same samples. A parameter whose
+   largest index over the informative modes is below `min_index` is not a candidate.
+4. With `redundancy_check: true` (the default), each candidate's effect on the informative modes
+   over its prior range is taken from a local Jacobian the Sobol run saves: central differences
+   in ln(parameter) at the centre of the box (2M + 1 extra runs). The reduction keeps the
+   candidate with the largest effect, removes that direction from the others' effects, and
+   repeats, stopping when the largest effect left is below `min_mode_std` noise stds: what that
+   parameter would add to the fit is inside the noise. Parameters that move the data the same
+   way (only their product or ratio matters, or a scaling symmetry) have the same effect, so
+   only one of them is kept, however many modes they drive.
+5. With `redundancy_check: false` it goes through the informative modes, largest first, and
+   keeps the parameter, not kept already, with the largest index for that mode, skipping a mode
+   that no free parameter reaches `min_index` for. This keeps at most one parameter per mode, so
+   it reduces only when there are fewer informative modes than parameters. Outputs that are a
+   time course (series binned into features, an oscillation) have many more modes than
+   parameters, and it keeps them all.
 
-The number of informative modes is an upper bound on how many parameters the data can tell
-apart. Two parameters that move the data the same way (only their product matters, say) share
-a mode, so only one is kept. A parameter that drives an output strongly, but by less than that
-output's noise, is not kept.
+Both stop after `n_params`. A parameter that drives an output strongly, but by less than that
+output's noise, is not kept. The local Jacobian is at one point, the centre of the box; the
+modes and indices cover the whole box.
 
 **`method: sobol`** keeps the `n_params` parameters with the highest Sobol index over the
 outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the
@@ -177,8 +189,15 @@ Both write `param_reduction.json`: the options and the kept parameters with thei
 `pca` each kept parameter also has its mode, and the report lists every mode's std and variance
 share. `pca_modes.csv` holds each mode's loadings on the outputs, `pca_mode_sobol_indices.csv`
 the indices per mode (in the layout of the Sobol indices CSV), and `pca_mode_sobol_ST.png` a
-heatmap of them. A `pca` reduction reads `all_outputs_n<N>_Sobol_samples.csv`,
-`..._outputs.csv` and `sobol_problem.json`, which every Sobol run writes. In a calibration
+heatmap of them; with the redundancy check the report also has each parameter's `effects` and
+the `unexplained_effects` of those not kept. A `pca` reduction reads
+`all_outputs_n<N>_Sobol_samples.csv`, `..._outputs.csv`, `..._local_jacobian.csv` and
+`sobol_problem.json`, which every Sobol run writes.
+
+A sample whose simulation fails cannot be left out (Saltelli's estimators need every row), so
+each output it lacks is filled with that output's mean over the samples that ran. The count is
+`failed_samples` in `sobol_problem.json`, with a warning: it shrinks the indices toward zero by
+about the failed fraction, so narrow the bounds if it is large. In a calibration
 workflow, a `reduction` step does the same (see
 [calibration workflows](parameter-identification.md)).
 

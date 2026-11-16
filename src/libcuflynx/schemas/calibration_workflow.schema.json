@@ -307,7 +307,12 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.05,
-          "description": "pca: skip a mode whose largest index among the free parameters is below this"
+          "description": "pca: with redundancy_check, a parameter whose largest index over the informative modes is below this is not a candidate; without it, skip a mode whose largest index among the free parameters is below this"
+        },
+        "redundancy_check": {
+          "type": "boolean",
+          "default": true,
+          "description": "pca: keep a parameter only if its effect on the informative modes, beyond what the kept parameters explain, is at least min_mode_std noise stds (from the Sobol run's local Jacobian). Off: one parameter per informative mode."
         }
       }
     },

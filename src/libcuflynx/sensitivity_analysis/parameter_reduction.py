@@ -66,7 +66,7 @@ def option_descriptors():
 
 def sobol_run_files(sensitivity_dir):
     """The files of the Sobol run in ``sensitivity_dir``: ``indices``, and when the run saved
-    them ``samples``, ``outputs`` and ``problem`` (else None). A SensitivityFilesError when there
+    them ``samples``, ``outputs``, ``local_jacobian`` and ``problem`` (else None). A SensitivityFilesError when there
     are no indices, or the indices of more than one run."""
     from libcuflynx.sensitivity_analysis.sobolSA import SOBOL_PROBLEM_FILE
     found = sorted(glob.glob(os.path.join(sensitivity_dir, SOBOL_INDICES_GLOB)))
@@ -83,6 +83,7 @@ def sobol_run_files(sensitivity_dir):
         return path if os.path.isfile(path) else None
     return {'indices': found[0], 'samples': existing(f'{stem}_samples.csv'),
             'outputs': existing(f'{stem}_outputs.csv'),
+            'local_jacobian': existing(f'{stem}_local_jacobian.csv'),
             'problem': existing(os.path.join(sensitivity_dir, SOBOL_PROBLEM_FILE))}
 
 
@@ -243,21 +244,31 @@ class PCASobolReduction(ParamReduction):
        relative cut ignores the noise, so it can drop a small mode that the data resolve. The std is over the Sobol samples, which fill the whole prior box, so it
        is a global, prior-wide measure of what the parameters can do, not local to the fit.
     3. Sobol indices of each informative mode's score, from the same Saltelli samples.
-    4. Over the informative modes, largest first: keep the parameter not yet kept with the
-       largest index for that mode, unless that index is below ``min_index`` (no free parameter
-       drives the mode). Stop after ``n_params`` (default: one per informative mode).
+    4. With ``redundancy_check`` (the default), the candidates are the parameters whose
+       largest index over the informative modes is at least ``min_index``. Their effect on the
+       informative mode scores over their prior range comes from the Sobol run's local
+       Jacobian (central differences in ln(parameter) at the centre of the box), in noise
+       stds. Greedily keep the candidate whose effect not already explained by the kept
+       parameters is largest (pivoted Gram-Schmidt), and stop when that unexplained effect is
+       below ``min_mode_std``: what it would add to the fit is inside the noise. Two parameters
+       that move the data the same way (a product, a ratio, a scaling symmetry) have the same
+       effect, so only one is kept, however many modes they drive.
+    5. Without it: over the informative modes, largest first, keep the parameter not yet kept
+       with the largest index for that mode, unless that index is below ``min_index`` (no free
+       parameter drives the mode). This keeps one parameter per mode, so it reduces only when
+       there are fewer informative modes than parameters; outputs that are a time course have
+       many more modes than parameters.
 
-    The number of informative modes bounds how many parameters the data can tell apart, and
-    keeping one parameter per mode stops two parameters that move the data the same way from
-    both being kept. ``min_mode_std`` is the noise floor; ``variance_fraction`` (default 1, off)
-    is an optional relative cut on top of it.
+    Both stop after ``n_params``. ``min_mode_std`` is the noise floor; ``variance_fraction``
+    (default 1, off) is an optional relative cut on top of it.
     """
 
     method = 'pca'
-    OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index')
+    OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index',
+               'redundancy_check')
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
-                 variance_fraction=1.0, min_index=0.05):
+                 variance_fraction=1.0, min_index=0.05, redundancy_check=True):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
         self.index_type = _check_index_type(index_type)
@@ -265,6 +276,9 @@ class PCASobolReduction(ParamReduction):
         self.variance_fraction = float(_check_number('variance_fraction', variance_fraction,
                                                      low=0.0, high=1.0))
         self.min_index = float(_check_number('min_index', min_index, high=1.0))
+        if not isinstance(redundancy_check, bool):
+            raise ValueError(f'redundancy_check is true or false, not {redundancy_check!r}.')
+        self.redundancy_check = redundancy_check
         self._extra = {}
 
     # ------------------------------------------------------------------ analysis
@@ -368,8 +382,47 @@ class PCASobolReduction(ParamReduction):
                              'mode_std': float(np.sqrt(variances[k]))})
         return selected, skipped
 
+    @staticmethod
+    def log_ranges(bounds, centre):
+        """Each parameter's prior range in ln(parameter): ``ln(max / min)`` when the bounds
+        share a sign, else ``(max - min) / |centre|``."""
+        ranges = []
+        for (low, high), mid in zip(bounds, centre):
+            if low * high > 0:
+                ranges.append(abs(np.log(high / low)))
+            else:
+                ranges.append((high - low) / (abs(mid) or 1.0))
+        return np.array(ranges)
+
+    def choose_independent(self, effects, candidates, names, weighted, informative_idx):
+        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt on ``effects`` (parameters
+        x informative modes, each row a parameter's effect over its prior range in noise
+        stds), over the ``candidates``, stopping when the largest unexplained effect is below
+        ``min_mode_std`` or after ``n_params``. ``unexplained`` is each parameter's effect left
+        once the kept ones are accounted for."""
+        residual = np.array(effects, dtype=float)
+        selected, free = [], list(candidates)
+        while free and (self.n_params is None or len(selected) < self.n_params):
+            norms = {i: float(np.linalg.norm(residual[i])) for i in free}
+            best = max(free, key=norms.get)
+            if norms[best] < self.min_mode_std:
+                break
+            direction = residual[best] / norms[best]
+            residual -= np.outer(residual @ direction, direction)
+            free.remove(best)
+            column = int(np.argmax(np.abs(effects[best])))
+            selected.append({'parameter': names[best], 'score': float(weighted[best]),
+                             'mode': int(informative_idx[column]) + 1,
+                             'new_effect': norms[best],
+                             'effect': float(np.linalg.norm(effects[best]))})
+        unexplained = {names[i]: float(np.linalg.norm(residual[i])) for i in range(len(names))
+                       if names[i] not in {row['parameter'] for row in selected}}
+        return selected, unexplained
+
     def select(self, files, report_dir):
         missing = [key for key in ('samples', 'outputs', 'problem') if not files[key]]
+        if self.redundancy_check and not files.get('local_jacobian'):
+            missing.append('local_jacobian')
         if missing:
             raise SensitivityFilesError(
                 f'a "pca" reduction reads the Sobol samples and outputs, and the run that wrote '
@@ -388,7 +441,12 @@ class PCASobolReduction(ParamReduction):
                                          problem.get('calc_second_order', True))
         indices = ST if self.index_type == 'ST' else S1
         params = list(problem['names'])
-        selected, skipped = self.choose(variances, informative, indices, params)
+        if self.redundancy_check:
+            selected, skipped, redundancy = self._choose_with_redundancy_check(
+                files, problem, names, scales, loadings, variances, informative, indices, params)
+        else:
+            selected, skipped = self.choose(variances, informative, indices, params)
+            redundancy = {}
         self._write_report_files(report_dir, variances, informative, loadings, names, S1, ST,
                                  params)
         self._extra = {
@@ -398,6 +456,8 @@ class PCASobolReduction(ParamReduction):
                       for k, v in enumerate(variances)],
             'n_informative_modes': int(np.sum(informative)),
             'skipped_modes': skipped,
+            **redundancy,
+            'failed_samples': int(problem.get('failed_samples', 0)),
             'output_scales': dict(zip(names, map(float, scales))),
             'files': {'modes': PCA_MODES_FILE, 'mode_indices': PCA_MODE_INDICES_FILE,
                       'heatmap': PCA_MODE_HEATMAP_FILE}}
@@ -405,6 +465,35 @@ class PCASobolReduction(ParamReduction):
 
     def report_extra(self):
         return dict(self._extra)
+
+    def _choose_with_redundancy_check(self, files, problem, names, scales, loadings,
+                                      variances, informative, indices, params):
+        jacobian = pd.read_csv(files['local_jacobian']).set_index('Parameter')
+        jacobian = jacobian.loc[params, names].to_numpy(dtype=float)
+        failed = [params[i] for i in range(len(params)) if not np.all(np.isfinite(jacobian[i]))]
+        if failed:
+            warnings.warn(f'the local Jacobian failed for {failed}: their effect is taken as '
+                          f'zero, so they are not kept.', stacklevel=3)
+        jacobian = np.nan_to_num(jacobian)
+        informative_idx = [k for k in np.argsort(-variances) if informative[k]]
+        centre = problem.get('local_jacobian', {}).get('centre') or \
+            [float(np.sqrt(abs(lo * hi))) for lo, hi in problem['bounds']]
+        ranges = self.log_ranges(problem['bounds'], centre)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            per_output = np.where(np.isfinite(scales) & (scales > 0), jacobian / scales, 0.0)
+        effects = (per_output @ loadings[informative_idx].T) * ranges[:, None]
+        total = float(np.sum(variances[informative_idx])) or 1.0
+        weighted = (variances[informative_idx, None] * indices[informative_idx]).sum(axis=0)
+        weighted = weighted / total
+        largest = indices[informative_idx].max(axis=0) if informative_idx else \
+            np.zeros(len(params))
+        candidates = [i for i in range(len(params)) if largest[i] >= self.min_index]
+        selected, unexplained = self.choose_independent(effects, candidates, params, weighted,
+                                                        informative_idx)
+        return selected, [], {
+            'candidates': [params[i] for i in candidates],
+            'effects': {params[i]: float(np.linalg.norm(effects[i])) for i in range(len(params))},
+            'unexplained_effects': unexplained, 'log_ranges': dict(zip(params, ranges.tolist()))}
 
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):
