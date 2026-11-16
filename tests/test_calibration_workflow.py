@@ -1124,7 +1124,12 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # only calibrations land in the target
     assert plan['screen']['calibrates'] == [] and plan['ia']['calibrates'] == []
 
-    result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    # screen's p_A is only a candidate of fit: reduce keeps q alone, so p_A is fit_a's alone
+    assert not [w for w in caught if 'more than one step' in str(w.message)]
     assert result['complete'] and result['order'] == ['fit_a', 'screen', 'reduce', 'fit', 'ia']
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
 
@@ -1148,6 +1153,17 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     ia = step('ia')
     q = np.sqrt(Z_C - Y_A)
     assert ia['at'] == pytest.approx([q], rel=1e-5)
+    # q is the point analysed, in `at`; only what ia does not analyse is fixed, in the result
+    # and in the tab's view, whose model has both
+    from libcuflynx.calibration_workflow import workflow_model
+    assert [(f['model_name'], f['from_step']) for f in ia['fixed']] == [('p_mod__A', 'fit_a')]
+    view = workflow_model(library['chain_analysed'], 'ia', output_dir=out,
+                          work_dir=str(tmp_path / 'views'))
+    assert [(f['model_name'], f['from_step']) for f in view['fixed']] == [('p_mod__A', 'fit_a')]
+    in_view = {r['variable_name']: float(r['value'])
+               for r in model_parameter_rows(view['parameters_path'])}
+    assert in_view['q_mod__C'] == pytest.approx(q, rel=1e-5)
+    assert in_view['p_mod__A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
     assert ia['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
 
     # the manifest lists every step's kind, what it took from where, and its outputs
@@ -1174,6 +1190,30 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     status = workflow_status(library['chain_analysed'], out)['steps']
     assert {i: s['stale'] for i, s in status.items()} == {
         'fit_a': False, 'screen': True, 'reduce': True, 'fit': True, 'ia': True}
+
+
+@pytest.mark.unit
+def test_a_value_a_reduction_kept_and_a_set_step_replaced_is_warned_after_the_run(library,
+                                                                                 tmp_path):
+    """Whether a step fitting a reduction's choice calibrates a parameter is known only once the
+    reduction ran, so the merge warns; a set step replacing it gets no priors_from advice."""
+    import warnings
+    from libcuflynx.calibration_workflow.resolve import resolve_workflow
+    raw = _raw(library, 'chain_analysed')
+    raw['steps'].append({'id': 'by_hand', 'kind': 'set', 'set': [
+        {'parameter': 'mod__C/q', 'value': 2.5, 'reason': 'the slider position'}]})
+    path = os.path.join(library['chain/screened'], 'by_hand.json')
+    _write_json(path, raw)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(parse_workflow(raw, path=path))   # q is only a candidate of fit here
+    with pytest.warns(UserWarning, match='calibrated by more than one step') as caught:
+        result = run_calibration_workflow(path, output_dir=str(tmp_path / 'run'))
+    message = next(str(w.message) for w in caught if 'more than one step' in str(w.message))
+    # q alone: p_A was a candidate of fit, which the reduction left out
+    assert "by 'fit', then 'by_hand'" in message and ': 1 parameter(s)' in message
+    assert 'priors_from' not in message and 'remove the parameter from the set step' in message
+    assert _merged(result)['C/q'] == 2.5
 
 
 @pytest.mark.unit

@@ -2932,11 +2932,16 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['sa_options'].keys():
                 print('No method specified for sensitivity analysis, setting to sobol by default')
                 inp_data_dict['sa_options']['method'] = 'sobol'
+            # the Sobol sampling manager is built for every method, but only sobol samples:
+            # the defaults are announced only to a sobol run
+            sobol = inp_data_dict['sa_options']['method'] == 'sobol'
             if 'num_samples' not in inp_data_dict['sa_options'].keys():
-                print('No num_samples specified for sensitivity analysis, setting to 32 by default')
+                if sobol:
+                    print('No num_samples specified for sensitivity analysis, setting to 32 by default')
                 inp_data_dict['sa_options']['num_samples'] = 32
             if 'sample_type' not in inp_data_dict['sa_options'].keys():
-                print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
+                if sobol:
+                    print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
                 inp_data_dict['sa_options']['sample_type'] = 'saltelli'
             
         # Parameter reduction after a Sobol analysis (ANALYSIS_OPTIONS['param_reduction']):

@@ -427,7 +427,9 @@ def resolve_workflow(workflow):
                     f'"{landing}" of the target {workflow.target.label()}, which has no such '
                     f'vessel (its vessels: {sorted(target.vessels)}). Map it with '
                     f'"vessel_map" (a module array) or "vessel"/"submodule" (a library module).')
-            claimed.setdefault(name, []).append(step.id)
+            if not step.params_for_id_from:
+                # a reduction's candidates are not what it calibrates: the run checks those
+                claimed.setdefault(name, []).append(step.id)
         resolved[step.id] = resolved_step
     _warn_recalibrated(workflow, {n: ids for n, ids in claimed.items() if len(ids) > 1})
 
@@ -576,25 +578,44 @@ def _library_vessel(path, target, step):
                         f'{sorted("/".join(p) for p in target.paths)}).')
 
 
-def _warn_recalibrated(workflow, claimed):
+def _warn_recalibrated(workflow, claimed, stacklevel=3):
     '''One UserWarning for the target parameters ``{name: [step ids]}`` that several steps
     calibrate or set. The merge takes them in run order, so the last step's value is used.'''
     if not claimed:
         return
     order = [s.id for s in workflow.topological_order()]
     lines = []
+    last_kinds = set()
     for name, ids in sorted(claimed.items()):
         ids = sorted(ids, key=order.index)
+        last_kinds.add(workflow.step(ids[-1]).kind)
         lines.append(f'"{name}" by {", then ".join(repr(i) for i in ids)} '
                      f'(the value of {ids[-1]!r} is used)')
+    advice = []
+    if last_kinds - {'set'}:
+        advice.append(
+            'To update an earlier calibration with new data rather than replace it, calibrate '
+            'Bayesianly: remove the parameter from the later step\'s params_for_id and list the '
+            'earlier step in its "priors_from" (with "store_distribution": true on the earlier '
+            'step), so the earlier posterior becomes the later step\'s prior.')
+    if 'set' in last_kinds:
+        advice.append('A set step\'s value replaces the calibrated one; to keep the calibrated '
+                      'value, remove the parameter from the set step.')
     warnings.warn(
         f'calibration workflow "{workflow.name}": {len(lines)} parameter(s) of '
         f'{workflow.target.label()} are calibrated by more than one step, and the later '
-        f'calibration replaces the earlier: ' + '; '.join(lines) + '. To update an earlier '
-        f'calibration with new data rather than replace it, calibrate Bayesianly: remove the '
-        f'parameter from the later step\'s params_for_id and list the earlier step in its '
-        f'"priors_from" (with "store_distribution": true on the earlier step), so the earlier '
-        f'posterior becomes the later step\'s prior.', UserWarning, stacklevel=3)
+        f'step replaces the earlier: ' + '; '.join(lines) + '. ' + ' '.join(advice),
+        UserWarning, stacklevel=stacklevel)
+
+
+def warn_reduced_recalibrated(workflow, claimed):
+    '''The check `resolve_workflow` leaves to the run for a step fitting a reduction's
+    choice: ``claimed`` (``{name: [step ids]}``, every value the merge took) narrowed to the
+    names such a step calibrated and another step also gave.'''
+    _warn_recalibrated(workflow, {
+        name: ids for name, ids in claimed.items()
+        if len(ids) > 1 and any(workflow.step(i).params_for_id_from for i in ids)},
+        stacklevel=4)
 
 
 def read_calibrated_parameters(params_for_id_path, where=''):

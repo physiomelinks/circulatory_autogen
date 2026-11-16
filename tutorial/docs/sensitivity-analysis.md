@@ -37,7 +37,7 @@ sa_options:
     sample_type: saltelli
     output_dir: <SA_outputs_path>
 ```
-Currently, the available options for `method` are **`'naive'`** and **`'sobol'`**. Available sample types are [**'saltelli'**]. What we call `num_samples` here is actually the `num_samples` in
+The available options for `method` are **`'sobol'`** and **`'local'`** (derivatives at one point; see [Local sensitivity files](#local-sensitivity-files-method-local)). `num_samples` and `sample_type` are for `sobol` only. Available sample types are [**'saltelli'**]. What we call `num_samples` here is actually the `num_samples` in
 
 `actual_num_samples = num_samples (2M+2)`
 

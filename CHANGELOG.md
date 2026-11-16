@@ -75,6 +75,23 @@ next release; add to that section as you land a change.
   files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,
   ground-truth data and params for id": its engine now reads those files itself.
 
+- "Calibrated by more than one step" warned about every candidate a step fitting a reduction's
+  choice (`params_for_id_from`) might calibrate. Such a step is checked once the reduction has
+  run, against what it kept; a set step replacing a calibrated value gets no `priors_from`
+  advice.
+- A sensitivity, identifiability or uq step's `fixed` (in `step_result.json` and the
+  `workflow_model` view) listed its own parameters' values from `result_from`. They are the
+  point it analyses (`at`, or a local analysis's `nominal`), not fixed values; the view's model
+  now has them too.
+- An MCMC or Laplace uq step announced optimiser defaults, and a local sensitivity analysis
+  Sobol's `num_samples` and `sample_type` defaults, that they do not use.
+- `write_calibrated` rounded the calibrated parameters file, and so the target's calibrated
+  CellML, to 10 significant figures; both keep full precision, as a step's calibrated CellML
+  does. The command reports the calibrated CellML it writes, and `--help` names it and every
+  step kind.
+- A pack put a CellML target at `inputs/_target/<its folder>/`; it is now in
+  `inputs/_target/`, with its imports at their relative paths.
+
 ### Added — external Python models in calibration workflows
 
 - A calibration workflow's `target`, and its steps' `model`, may be an external Python model:

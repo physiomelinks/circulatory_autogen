@@ -1588,6 +1588,24 @@ Paths are relative to the workflow file. A **model** is one of:
   `write_calibrated` writes `<stem>_calibrated_parameters.json` and `<stem>_calibrated.cellml`
   beside it, and a pack copies it with the files it imports, at their paths relative to it.
 
+Your own CellML as the target, fitted and then its uncertainty quantified at the fit, from
+Python (the files are `tests/data/workflow_parity/`'s; the paths are relative to the working
+directory):
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder, cellml_model
+
+wf = WorkflowBuilder('lv', target=cellml_model('lotka_volterra.cellml'), directory='lv_workflow',
+                     settings={'solver': 'CVODE_myokit', 'dt': 0.01,
+                               'param_id_method': 'CMA-ES',
+                               'optimiser_options': {'num_calls_to_function': 300}})
+wf.add_calibration('fit', obs_data='lv_obs_data.json', params_for_id='lv_params_for_id.json')
+wf.add_uq('posterior', obs_data='lv_obs_data.json', params_for_id='lv_params_for_id.json',
+          uq_options={'num_steps': 200}, result_from='fit')
+wf.run(write_calibrated=True)       # also lotka_volterra_calibrated.cellml beside the source
+print(wf.result('fit')['best_fit'], wf.result('posterior')['distribution_dir'])
+```
+
 | Key | Meaning |
 |---|---|
 | `target` | the model the results are merged into |
@@ -1714,7 +1732,18 @@ params_for_id bounds dropped (`step_result.json` counts them). A later calibrati
 method)` in `libcuflynx.scripts.param_id_run_script` runs the same outside a workflow, and
 `do_uq` with `UQ_options.method: laplace` runs the Laplace approximation after a calibration.
 An empty `UQ_options` (`{}`, what the builder's `add_uq()` writes when given no `uq_options`)
-is MCMC with the engine's defaults, or the workflow's `UQ_options` when it has some.
+is MCMC with the defaults below, or the workflow's `UQ_options` when it has some.
+
+| `UQ_options` key | Default | Used by |
+|---|---|---|
+| `method` | `mcmc` (or `laplace`) | every uq step |
+| `library` | `emcee` (also `zeus`, `pymc`) | mcmc |
+| `num_steps` | 5000 | mcmc |
+| `num_walkers` | 2 × the number of parameters | mcmc |
+| `burn_in` | 0.5 (below 1 a fraction of `num_steps`, else a number of steps) | mcmc, and the posterior predictive check's draws from its chain |
+| `num_samples` | 2000 draws of the Gaussian, before those outside the bounds are dropped | laplace |
+| `posterior_predictive` | `true` | every uq step |
+| `posterior_predictive_samples` | 100 | the posterior predictive check |
 
 A uq step then runs the posterior predictive check (`libcuflynx.param_id.posterior_predictive`):
 the model at `UQ_options.posterior_predictive_samples` (default 100) posterior draws, from the
@@ -1898,7 +1927,8 @@ value is the one merged into the target, and a step calibrates a parameter itsel
 calibration replaces the earlier one rather than building on it. To update an earlier
 calibration with new data instead, take the parameter out of the later step's params_for_id
 and list the earlier step in its `priors_from` (below), so the earlier posterior becomes the
-prior.
+prior. A step fitting a reduction's choice (`params_for_id_from`) is checked once the
+reduction has run, against what it kept, not against every candidate.
 
 ### Outputs
 
@@ -1908,7 +1938,7 @@ prior.
     workflow_result.json              order, provenance (input hashes, times, commits, libCellML version), merged parameters
     provenance_graph.json             how every value was set, for reports and CUFLynx (below)
     provenance.svg                    that graph as a diagram to place in a report
-    <step_id>/step_result.json        its kind; calibrated values, the fixed values and priors it was given, input hashes; an analysis's outputs
+    <step_id>/step_result.json        its kind; calibrated values, the fixed values and priors it was given, input hashes; an analysis's outputs and the point it analysed (at or nominal; not in fixed)
     <step_id>/model/                  the generated step model
     <step_id>/param_id/               the usual param_id outputs
     <step_id>/distribution/           with store_distribution

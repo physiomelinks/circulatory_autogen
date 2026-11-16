@@ -33,10 +33,12 @@ def build_parser():
     # not _cli.build_parser: its --user-inputs option means nothing here
     parser = argparse.ArgumentParser(
         description='Run the steps of a calibration_workflow.json in order -- each '
-                    'a calibration, sensitivity analysis, reduction, emulator training or '
-                    'identifiability analysis of a model, an obs_data and a params_for_id, '
-                    'later steps taking earlier steps\' values, emulators or chosen '
-                    'parameters -- and merge the calibrations into the target model.',
+                    'a calibration, sensitivity analysis, reduction, emulator training, '
+                    'identifiability analysis or uncertainty quantification (uq) of a model, '
+                    'an obs_data and a params_for_id, a set step giving values by hand, or a '
+                    'sweep of parameter values; later steps taking earlier steps\' values, '
+                    'emulators or chosen parameters -- and merge the calibrated and set values '
+                    'into the target model.',
         epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('workflow', help='the calibration_workflow.json to run')
     parser.add_argument('--module-library-dir', dest='module_library_dirs', action='append',
@@ -59,7 +61,9 @@ def build_parser():
                              'run nothing')
     parser.add_argument('--write-calibrated', action='store_true',
                         help='also write the merged set beside the target\'s parameters '
-                             'file, as <name>_calibrated_parameters.json')
+                             'file, as <name>_calibrated_parameters.json, and for a CellML '
+                             'target the CellML with those values beside the source, as '
+                             '<model>_calibrated.cellml')
     parser.add_argument('--pack', default=None, metavar='DIR',
                         help='copy every file the workflow needs to run (its inputs, module '
                              'versions and settings files, none of its results) into the new '
@@ -127,8 +131,9 @@ def run(args):
     for row in result['merged_parameters']:
         print(f"    {row['parameterisation_name']:<32} {row['value']:<.10g}   "
               f"(step {row['from_step']})")
-    if result.get('calibrated_parameters_file'):
-        print(f"[workflow] wrote {result['calibrated_parameters_file']}")
+    for key in ('calibrated_parameters_file', 'calibrated_model_file'):
+        if result.get(key):
+            print(f"[workflow] wrote {result[key]}")
     return result
 
 
