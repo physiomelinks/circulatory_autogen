@@ -1,7 +1,10 @@
 """Run one model of the parameter-reduction study, after ``make_inputs.py``, under MPI::
 
-    mpiexec -n 4 python run_study.py <model> <out> [--num-samples 256] [--calls 3000]
-        [--seeds 0 1 2] [--methods full pca simple] [--stage all|sa]
+    mpiexec -n 8 python run_study.py <model> <out> [--num-samples 256] [--calls 3000]
+        [--patience 150] [--seeds 0 1 2] [--methods full pca simple] [--stage all|sa]
+
+CA's CMA-ES evaluates one generation of as many candidates as there are ranks, so run it on
+about as many ranks as CMA-ES's default population for the parameter count (8 for 5-7).
 
 1. Sobol analysis of all the parameters against the binned obs_data, followed by the PCA
    reduction (``do_param_reduction``, ``param_reduction_options: {method: pca}``), through
@@ -36,6 +39,9 @@ def main(argv=None):
     parser.add_argument('out')
     parser.add_argument('--num-samples', type=int, default=256)
     parser.add_argument('--calls', type=int, default=3000)
+    parser.add_argument('--patience', type=int, default=150,
+                        help='CMA-ES generations without improvement before it stops (its '
+                             'population is the number of MPI ranks)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2])
     parser.add_argument('--methods', nargs='+', choices=METHODS, default=list(METHODS))
     parser.add_argument('--stage', choices=('all', 'sa'), default='all')
@@ -84,7 +90,9 @@ def main(argv=None):
         for seed in args.seeds:
             fit_dir = os.path.join(p['fits'], f'{method}_s{seed}')
             result = os.path.join(fit_dir, 'result.json')
-            if os.path.isfile(result):
+            # decided on rank 0 for every rank: one that saw rank 0's freshly written result
+            # would skip the barrier the others wait at
+            if comm.bcast(os.path.isfile(result) if rank == 0 else None, root=0):
                 continue
             if same is not None:
                 if rank == 0:
@@ -101,7 +109,7 @@ def main(argv=None):
             run = run_param_id(raw_inputs(
                 spec, out, p['obs'], params_for_id, fit_dir, param_id_method='CMA-ES',
                 optimiser_options={'num_calls_to_function': args.calls, 'seed': seed,
-                                   'max_patience': 60, 'cost_convergence': 1e-10,
+                                   'max_patience': args.patience, 'cost_convergence': 1e-10,
                                    'cost_type': 'gaussian_MLE'}))
             if rank == 0:
                 with open(result, 'w') as f:
