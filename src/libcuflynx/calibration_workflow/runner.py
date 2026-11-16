@@ -545,7 +545,8 @@ class _Run:
             best_cost = float(np.load(os.path.join(case_dir, 'best_cost.npy')))
             distribution_dir = None
             if step.store_distribution:
-                distribution_dir = self._store_distribution(step, case_dir, info, settings)
+                distribution_dir = self._store_distribution(
+                    step, outcome['uq_output_dir'], info, settings)
             values, point_estimate = best, POINT_BEST_FIT
             if priors and not uses_log_posterior(settings):
                 # The optimiser minimised the cost, which knows nothing of the priors; only the
@@ -781,8 +782,8 @@ class _Run:
 
         return self.on_root(finish)
 
-    def _store_distribution(self, step, case_dir, info, settings):
-        chain_path = os.path.join(case_dir, 'mcmc_chain.npy')
+    def _store_distribution(self, step, uq_dir, info, settings):
+        chain_path = os.path.join(uq_dir, 'mcmc_chain.npy')
         if not os.path.isfile(chain_path):
             raise WorkflowStepError(step.id, f'store_distribution is set but MCMC wrote no '
                                              f'chain ({chain_path}).')
