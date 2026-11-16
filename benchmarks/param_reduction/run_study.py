@@ -39,6 +39,11 @@ def main(argv=None):
     parser.add_argument('out')
     parser.add_argument('--num-samples', type=int, default=256)
     parser.add_argument('--calls', type=int, default=3000)
+    parser.add_argument('--optimiser', choices=('CMA-ES', 'multi_start'), default='CMA-ES',
+                        help='multi_start: multi_start_sp_minimize (L-BFGS-B, finite-difference '
+                             'gradients) from --starts Sobol-spread starts, as CA\'s benchmarks '
+                             'fit the oscillators; CMA-ES starts from the model\'s defaults')
+    parser.add_argument('--starts', type=int, default=16)
     parser.add_argument('--patience', type=int, default=150,
                         help='CMA-ES generations without improvement before it stops (its '
                              'population is the number of MPI ranks)')
@@ -106,16 +111,24 @@ def main(argv=None):
                 comm.Barrier()
                 continue
             say(f'calibrating {method}, seed {seed}: {targets}')
-            run = run_param_id(raw_inputs(
-                spec, out, p['obs'], params_for_id, fit_dir, param_id_method='CMA-ES',
-                optimiser_options={'num_calls_to_function': args.calls, 'seed': seed,
-                                   'max_patience': args.patience, 'cost_convergence': 1e-10,
-                                   'cost_type': 'gaussian_MLE'}))
+            if args.optimiser == 'multi_start':
+                method_name, options = 'multi_start_sp_minimize', {
+                    'num_starts': args.starts, 'start_sampling': 'sobol', 'seed': seed,
+                    'no_new_starts_on_convergence': False, 'cost_type': 'gaussian_MLE'}
+            else:
+                method_name, options = 'CMA-ES', {
+                    'num_calls_to_function': args.calls, 'seed': seed,
+                    'max_patience': args.patience, 'cost_convergence': 1e-10,
+                    'cost_type': 'gaussian_MLE'}
+            run = run_param_id(raw_inputs(spec, out, p['obs'], params_for_id, fit_dir,
+                                          param_id_method=method_name, do_ad=False,
+                                          optimiser_options=options))
             if rank == 0:
                 with open(result, 'w') as f:
                     json.dump({'method': method, 'seed': seed, 'calibrated': targets,
                                'best': [float(v) for v in run['best_param_vals']],
-                               'params_for_id': params_for_id,
+                               'params_for_id': params_for_id, 'optimiser': method_name,
+                               'optimiser_options': options,
                                'param_id_output_dir': run['output_dir']}, f, indent=1)
             comm.Barrier()
     say('done')
