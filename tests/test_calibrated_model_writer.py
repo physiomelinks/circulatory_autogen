@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from libcuflynx.calibration_workflow.cellml_model import read_cellml_constants
+from libcuflynx.calibration_workflow.cellml_files import read_cellml_constants
 from libcuflynx.param_id.calibrated_model import (flattened_cellml_text,
                                                   substitute_parameter_values,
                                                   write_calibrated_model, write_cellml_values)
@@ -139,7 +139,7 @@ def test_write_calibrated_model_reports_and_warns(tmp_path):
 def test_the_workflow_writes_a_single_file_model_in_its_own_form(tmp_path):
     """A workflow's CellML steps (generate_cellml, write_calibrated_cellml) write through the
     same writer: a model with no imports keeps its form."""
-    from libcuflynx.calibration_workflow.cellml_model import write_cellml_with_values
+    from libcuflynx.calibration_workflow.cellml_files import write_cellml_with_values
     out = tmp_path / 'step.cellml'
     write_cellml_with_values(LV, {'Lotka_Volterra_module/alpha': 4.5,
                                   'Lotka_Volterra_module/gamma': 2.25}, str(out))

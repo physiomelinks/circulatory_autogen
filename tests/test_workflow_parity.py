@@ -95,7 +95,7 @@ def _values_file(lv, **values):
 
 
 def _constants(path):
-    from libcuflynx.calibration_workflow.cellml_model import read_cellml_constants
+    from libcuflynx.calibration_workflow.cellml_files import read_cellml_constants
     return {name: c['value'] for name, c in read_cellml_constants(path).items()}
 
 

@@ -189,7 +189,7 @@ def directory_digest(directory):
 
 def cellml_digest(path):
     '''The sha256 of a CellML file and of every file it imports.'''
-    from libcuflynx.calibration_workflow.cellml_model import cellml_imports
+    from libcuflynx.calibration_workflow.cellml_files import cellml_imports
     digest = hashlib.sha256(sha256(path).encode('ascii'))
     for imported in cellml_imports(path):
         digest.update(sha256(imported).encode('ascii'))
@@ -1333,7 +1333,7 @@ def write_calibrated_cellml(target, calibrated_parameters, path=None):
     '''``path`` (default ``<stem>_calibrated.cellml`` beside the CellML target): the target's
     CellML (flattened when it has imports) with every value of ``calibrated_parameters`` (a
     calibrated parameters file of it) that differs from its own written in. Returns ``path``.'''
-    from libcuflynx.calibration_workflow.cellml_model import (read_cellml_constants,
+    from libcuflynx.calibration_workflow.cellml_files import (read_cellml_constants,
                                                               write_cellml_with_values)
     from libcuflynx.param_id.calibrated_model import calibrated_model_name
     from libcuflynx.utilities import parameters_file as pf
