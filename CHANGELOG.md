@@ -5,6 +5,12 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — `DEBUG: true` without `debug_UQ_options`
+
+- A calibration (user_inputs.yaml or a calibration workflow step) with `DEBUG: true` and no
+  `debug_UQ_options` stopped with `KeyError: 'debug_UQ_options'`. It now uses `UQ_options`, as the
+  parser already does.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
