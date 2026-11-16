@@ -92,13 +92,16 @@ number of vessels at a node (node sums #609, node rule D #617).
   check from the MCMC run's directory, and still reads a bundle's `output/` folder when there is
   one.
 
-### Fixed — identifiability analysis uses the user operation, cost and modifier files
+### Fixed — identifiability, plotting and multi-run engines use the user operation, cost and modifier files
 
 - `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
   engine without `operation_funcs_external_path`, `cost_funcs_external_path` and
   `modifier_funcs_external_path`, so an obs_data naming a user operation stopped with an unknown
   operation there, although the calibration and sensitivity stages of the same run worked. The
   script now passes the three paths to the engine, as `param_id_run_script` does.
+- The same paths were also missing from the engines built by `plot_param_id_script.py`,
+  `run_multiple_param_id.py` and `MCMC_plotter.plot_mcmc_and_predictions`; `MCMC_plotter` now
+  takes and keeps the three paths, and the plot script passes them.
 
 ### Added — building a calibration workflow in Python (`WorkflowBuilder`)
 
