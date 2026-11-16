@@ -5,6 +5,32 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the tutorial notebooks calibrate through a calibration workflow
+
+- Section B of `tutorial/interactive/generation_and_calibration.ipynb` builds a calibration
+  workflow with `WorkflowBuilder`: the obs_data from `ObsDataCreator`, the notebook's own
+  feature through `add_operation`, then the steps `screen` (sensitivity), `top2` (reduction,
+  in place of `choose_most_impactful_params_sobol`) and `fit` (calibration of what `top2`
+  kept), each added and run in its own cell and plotted with `plot_step`. The ProtocolRunner
+  demo runs `wf.model("fit")`. The notebook ends by writing `calibration_workflow.json`, which
+  `cuflynx-calibration-workflow` (also under `mpiexec`) and CUFLynx's Workflow tab run with the
+  same results. Sections A and C are unchanged.
+- The inputs changed so that every route runs the same study: the solver settings are given
+  once, at workflow level (`solver: CVODE_myokit`, `MaximumStep` 0.001, `rtol` 1e-6, `atol` 1e-8,
+  no `dt_solver`), where the notebook replaced `solver_info` with `{"dt_solver": 0.01}`, which
+  dropped the solver's step and tolerances; the Sobol samples and the genetic algorithm are
+  seeded; the genetic algorithm's population is given in full (`DEBUG`'s small sizes) instead
+  of through `DEBUG`; `cost_type`, which the genetic algorithm does not read, is gone; and the
+  protocol has no `offline_pre_time`, which would have overwritten the calibrated initial blood
+  volume `q_lv_init` with a steady state saved at its default value (the warm-up is all
+  `pre_times`).
+- `generation_and_calibration_test.ipynb` is replaced by `workflow_quickstart.ipynb`: every
+  `WorkflowBuilder` call on the 3-compartment model in a few minutes (sensitivity, reduction,
+  calibration, identifiability, an emulator when `[emulation]` is installed, a set step, an
+  on-target sweep; `run(only=, from_step=, ranks=2)`, `status`, `plan`, `plot_step`, `model`,
+  `WorkflowBuilder.load`, `pack_workflow`). Its quick test is the CI coverage of the builder in
+  a kernel.
+
 ### Added — building a calibration workflow in Python (`WorkflowBuilder`)
 
 - `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with

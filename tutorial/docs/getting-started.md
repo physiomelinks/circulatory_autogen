@@ -193,7 +193,9 @@ or use the shell helper for the same stage, e.g. `cd user_run_files && ./run_aut
 (each helper invokes the matching console command, so the editable install above is a
 prerequisite for them).
 
-For a notebook-oriented walkthrough, see `tutorial/interactive/generation_and_calibration.ipynb`.
+For a notebook-oriented walkthrough, see `tutorial/interactive/generation_and_calibration.ipynb`
+(generation, simulation, and calibration as a workflow) or, for the calibration workflow alone in a
+few minutes, `tutorial/interactive/workflow_quickstart.ipynb`.
 
 **6. Run the tests (optional, but do this after any change)**
 

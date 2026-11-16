@@ -1,9 +1,14 @@
 # API Reference
 
 This section documents the Python API for driving Circulatory Autogen
-programmatically — the same calls used by the
-[interactive tutorial](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/generation_and_calibration.ipynb)
-and by external tools such as the CUFLynx GUI.
+programmatically, and by external tools such as the CUFLynx GUI. The
+[interactive tutorials](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/)
+use it: `generation_and_calibration.ipynb` generates and simulates a model with these calls,
+then calibrates it as a calibration workflow built with `WorkflowBuilder`
+(`libcuflynx.calibration_workflow`), and `workflow_quickstart.ipynb` shows every
+`WorkflowBuilder` call on a small model. A workflow is a file, so the notebooks, the
+`cuflynx-calibration-workflow` command and CUFLynx's Workflow tab run the same study; see
+[Building a workflow in Python](../parameter-identification.md#building-a-workflow-in-python).
 
 The reference pages are generated automatically from the docstrings in
 `src/libcuflynx/`, so they stay in sync with the code.

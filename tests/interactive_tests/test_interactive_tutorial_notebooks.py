@@ -42,10 +42,14 @@ SKIPPED_CELLS = {}
 QUICK_SETTINGS = {
     # The hybrid 0D-1D run takes about 4 minutes per simulated second: two "periods" of 10 ms
     # (the coupler saves from the second-last period on) still exercise generation, both builds,
-    # the coupling and the plots of its output.
-    "generation_and_calibration.ipynb": dict(num_warmup_periods=6, sa_num_samples=4, ga_num_calls=30,
+    # the coupling and the plots of its output. Each workflow step generates its own copy of the
+    # arm model (screen, fit, and the fit's model for ProtocolRunner), so Section B keeps the
+    # warm-up and the Sobol samples small: 2 samples are 16 runs of the three parameters, and
+    # 28 calls are one generation of the genetic algorithm's population.
+    "generation_and_calibration.ipynb": dict(num_warmup_periods=4, sa_num_samples=2, ga_num_calls=28,
                                              hybrid_num_periods=2, hybrid_period_s=0.01),
-    "generation_and_calibration_test.ipynb": dict(warmup_time_s=8.0, sa_num_samples=4, ga_num_calls=30),
+    "workflow_quickstart.ipynb": dict(warmup_time_s=6.0, sa_num_samples=4, ga_num_calls=30,
+                                      emulator_train_samples=16),
     # own_image_path is added by the test: a tiny synthetic segmentation.
     "image_to_hemodynamics_model.ipynb": dict(
         install_requirements=True, download_resources=False, open_fiji=False,
@@ -56,7 +60,7 @@ QUICK_SETTINGS = {
 #: The full run only turns off what this machine cannot do: the Fiji GUI, and Ilastik.
 FULL_SETTINGS = {
     "generation_and_calibration.ipynb": {},
-    "generation_and_calibration_test.ipynb": {},
+    "workflow_quickstart.ipynb": {},
     "image_to_hemodynamics_model.ipynb": dict(
         install_requirements=False, open_fiji=False, run_ilastik_batch_processing=False,
     ),
@@ -150,25 +154,49 @@ def _check_main_outputs(user_dir: Path):
     out = user_dir / "param_id_output"
     assert (models / "cvs_model_with_arm_0d.cellml").exists()
     assert (out / "quicklooks" / "uncalibrated_outputs.png").exists()
-    assert any(out.rglob("best_param_vals.npy"))
-    assert any(out.rglob("protocol_runner_calibrated.png"))
-    assert any((out / "sensitivity").rglob("*.png"))
+    directory = out / "workflows" / "cvs_model_with_arm"
+    run = directory / "workflow_output" / "cvs_model_with_arm"
+    assert (directory / "calibration_workflow.json").exists()
+    assert _workflow_result(directory, "cvs_model_with_arm")["order"] == ["screen", "top2", "fit"]
+    assert any((run / "screen" / "sensitivity").glob("*.png"))
+    assert (run / "top2" / "top2_params_for_id.json").exists()
+    assert any((run / "fit").rglob("best_param_vals.npy"))
+    assert (run / "fit" / "protocol_runner_calibrated.png").exists()
     assert (models / "simulation_outputs_cpp").exists()  # the C++ 0D model was built and run
     # the hybrid run: the 1D solver's output for the vessel the notebook plots
     sol1d = list((user_dir / "generated_models" / "files_1d").rglob("sol1D_A_aorta_ascending_3.txt"))
     assert len(sol1d) == 1 and sol1d[0].stat().st_size > 0
 
 
-def _check_test_notebook_outputs(user_dir: Path):
-    out = user_dir / "param_id_output"
-    assert (user_dir / "generated_models" / "3compartment" / "3compartment.cellml").exists()
-    assert (out / "quicklooks" / "uncalibrated_outputs.png").exists()
-    assert any(out.rglob("best_param_vals.npy"))
-    assert any(out.rglob("protocol_runner_calibrated.png"))
-    sensitivity = out / "sensitivity"
-    assert any(sensitivity.rglob("*First_Order*Sobol_Heatmap.png"))
-    assert any(sensitivity.rglob("*Total_Order*Sobol_Heatmap.png"))
-    assert any(sensitivity.rglob("*.csv"))
+def _workflow_result(directory: Path, name: str) -> dict:
+    """The workflow_result.json of a notebook's workflow, which every step of it has run into."""
+    import json
+    result = json.loads((directory / "workflow_output" / name / "workflow_result.json").read_text())
+    assert result["complete"], result
+    return result
+
+
+def _check_quickstart_outputs(user_dir: Path):
+    directory = user_dir / "param_id_output" / "workflows" / "3compartment_quickstart"
+    run = directory / "workflow_output" / "3compartment_quickstart"
+    assert (directory / "calibration_workflow.json").exists()
+    assert (directory / "3compartment_quickstart_operation_funcs.py").exists()
+    assert (directory / "data" / "screen_obs_data.json").exists()
+    steps = ["screen", "top", "fit", "ia", "by_hand", "predict"]
+    try:
+        import autoemulate  # noqa: F401
+        steps.insert(4, "emulate")
+    except ImportError:
+        pass
+    assert _workflow_result(directory, "3compartment_quickstart")["order"] == steps
+    assert any((run / "screen" / "sensitivity").glob("*Total_Order*Sobol_Heatmap.png"))
+    assert (run / "top" / "top_params_for_id.json").exists()
+    assert any((run / "fit").rglob("best_param_vals.npy"))
+    assert any((run / "fit").rglob("*.png"))  # plot_step
+    assert (run / "predict" / "sweep" / "sweep_results.npz").exists()
+    assert (run / "calibrated_target.png").exists()
+    assert (run / "provenance.svg").exists()
+    assert (directory.parent / "3compartment_quickstart_packed" / "calibration_workflow.json").exists()
 
 
 def _run_calibration_notebook(name, check, settings, cell_timeout, budget, tmp_path, monkeypatch):
@@ -241,9 +269,9 @@ def test_generation_and_calibration_notebook_quick(tmp_path, monkeypatch):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_generation_and_calibration_test_notebook_quick(tmp_path, monkeypatch):
-    name = "generation_and_calibration_test.ipynb"
-    _run_calibration_notebook(name, _check_test_notebook_outputs, QUICK_SETTINGS[name],
+def test_workflow_quickstart_notebook_quick(tmp_path, monkeypatch):
+    name = "workflow_quickstart.ipynb"
+    _run_calibration_notebook(name, _check_quickstart_outputs, QUICK_SETTINGS[name],
                               QUICK_NOTEBOOK_BUDGET_S, QUICK_NOTEBOOK_BUDGET_S, tmp_path, monkeypatch)
 
 
@@ -269,9 +297,9 @@ def test_generation_and_calibration_notebook_full(tmp_path, monkeypatch):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.manual
-def test_generation_and_calibration_test_notebook_full(tmp_path, monkeypatch):
-    name = "generation_and_calibration_test.ipynb"
-    _run_calibration_notebook(name, _check_test_notebook_outputs, FULL_SETTINGS[name],
+def test_workflow_quickstart_notebook_full(tmp_path, monkeypatch):
+    name = "workflow_quickstart.ipynb"
+    _run_calibration_notebook(name, _check_quickstart_outputs, FULL_SETTINGS[name],
                               FULL_CELL_TIMEOUT_S, None, tmp_path, monkeypatch)
 
 
