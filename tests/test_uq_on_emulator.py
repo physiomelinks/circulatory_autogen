@@ -167,8 +167,12 @@ def _uq_options(library):
         # Metropolis steps one parameter at a time -- so the default 1000 would triple an
         # already heavier chain. Cheap here because each evaluation is an emulator prediction
         # rather than a solve, but there is no reason to pay for warm-up this test does not need.
-        options['num_tune'] = 200
-        options['num_steps'] = 1500
+        # Each draw is four emulator evaluations (~1 ms each), so the draws are the test's cost:
+        # 1700 per chain took 124 s in CI. At 500 (45 s locally), eight runs recovered the
+        # posterior mean within 0.021 (run-to-run SD 0.011) and the sd within 0.012, against
+        # the 0.05 and 0.08 asserted below.
+        options['num_tune'] = 100
+        options['num_steps'] = 400
     return options
 
 
@@ -288,8 +292,9 @@ def test_uq_on_an_emulator_recovers_the_analytic_posterior(
     # Both moments are checked, not just the centre. A sampler that finds the right mode but
     # mis-sizes its spread has not recovered the posterior -- it has recovered a point estimate
     # with a plausible-looking error bar, which is exactly what UQ is supposed to replace.
-    # Tolerances are far wider than the sweep's measured error (0.007 / 0.003), so this fails on
-    # a real regression rather than on sampling noise.
+    # Tolerances are wider than the measured error, so this fails on a real regression rather
+    # than on sampling noise: pymc at 100 tuning + 400 draws per chain, over eight runs, had a
+    # worst mean error of 0.0214 (run-to-run SD 0.0114) and a worst sd error of 0.0119.
     assert posterior_mean == pytest.approx(ANALYTICAL_SOLUTION, abs=0.05), (
         f'{library} posterior mean {posterior_mean} != {ANALYTICAL_SOLUTION}')
     assert posterior_sd == pytest.approx(ANALYTICAL_STD, abs=0.08), (

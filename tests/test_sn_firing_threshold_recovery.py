@@ -172,6 +172,22 @@ def _features(pid, theta):
     return values
 
 
+def _checked_on_rank_0(comm, check):
+    """Run ``check`` on rank 0 and fail on every rank if it fails.
+
+    Every rank takes part in the training and sampling collectives, so a check that failed on
+    rank 0 alone would leave the other ranks waiting in the next collective.
+    """
+    problem = None
+    if comm.Get_rank() == 0:
+        try:
+            check()
+        except AssertionError as error:
+            problem = str(error) or "a rank-0 check failed"
+    problem = comm.bcast(problem, root=0)
+    assert problem is None, problem
+
+
 def _posterior(output_dir, burn_in=0.5):
     """The chain, burnt in and flattened. ``mcmc_chain.npy`` is (steps, walkers, params)."""
     chain = np.load(os.path.join(output_dir, "mcmc_chain.npy"))
@@ -291,45 +307,46 @@ def test_mcmc_over_an_emulator_recovers_the_conductance_that_made_the_data(
     train_config = _config(base_user_inputs, work, resources, probe_path,
                            do_emulation=True, emulator_settings=emulator_settings)
     trainer = EmulatorTrainer.init_from_dict(train_config, comm=mpi_comm)
-    bundle = trainer.train()
+    trainer.train()
     mpi_comm.Barrier()
-    if rank != 0:
-        return
-
     emulator_dir = resolve_emulator_dir(train_config)
-    saved = EmulatorBundle.load(emulator_dir)
-    labels = list(saved.feature_labels)
-    v_idx, n_idx = labels.index("V_max"), labels.index("n_spikes")
 
-    # Classified rather than regressed across, the jump column is nearly exact; regressed
-    # across it (what happens when the design is too small to see the branches) it scored
-    # R2 -30.9 on this same fixture.
-    r2 = dict(zip(labels, np.asarray(saved.meta["feature_r2"], dtype=float)))
-    assert r2["V_max"] > 0.9, f"held-out R2 for the jump column is {r2['V_max']:.4f}"
-    assert r2["n_spikes"] > 0.9, f"held-out R2 for the count column is {r2['n_spikes']:.4f}"
+    def check_emulator():
+        saved = EmulatorBundle.load(emulator_dir)
+        labels = list(saved.feature_labels)
+        v_idx, n_idx = labels.index("V_max"), labels.index("n_spikes")
 
-    y_train = np.asarray(saved.y_train, dtype=float)
-    kinds = classify_features(y_train)
-    assert kinds[n_idx] == "count", (
-        f"an integer spike count must be recognised as one, got {kinds[n_idx]}")
-    assert kinds[v_idx] == "jump", (
-        f"V_max must be recognised as a jump so it is classified rather than regressed "
-        f"across, got {kinds[v_idx]}")
-    assert (y_train[:, n_idx] == 0).any() and (y_train[:, n_idx] > 0).any(), (
-        "the design must contain both silent and firing points")
+        # Classified rather than regressed across, the jump column is nearly exact; regressed
+        # across it (what happens when the design is too small to see the branches) it scored
+        # R2 -30.9 on this same fixture.
+        r2 = dict(zip(labels, np.asarray(saved.meta["feature_r2"], dtype=float)))
+        assert r2["V_max"] > 0.9, f"held-out R2 for the jump column is {r2['V_max']:.4f}"
+        assert r2["n_spikes"] > 0.9, f"held-out R2 for the count column is {r2['n_spikes']:.4f}"
 
-    # The emulator must land on a branch, never between them -- a value the simulator cannot
-    # produce is not a small error, it is a different answer.
-    grid = np.linspace(PARAM_MIN, PARAM_MAX, 61).reshape(-1, 1)
-    predicted = np.asarray(saved.predict(grid, out_of_bounds="clip"), dtype=float)
-    low = y_train[y_train[:, v_idx] < 0.0, v_idx].max()
-    high = y_train[y_train[:, v_idx] > 0.0, v_idx].min()
-    in_the_gap = ((predicted[:, v_idx] > low + 0.1 * (high - low))
-                  & (predicted[:, v_idx] < high - 0.1 * (high - low)))
-    assert in_the_gap.mean() < 0.15, (
-        f"{in_the_gap.sum()} of {len(grid)} sweep points predict a V_max the model never "
-        f"produces (between {low:.1f} and {high:.1f} mV)")
-    assert (predicted[:, n_idx] >= 0.0).all(), "a spike count cannot be negative"
+        y_train = np.asarray(saved.y_train, dtype=float)
+        kinds = classify_features(y_train)
+        assert kinds[n_idx] == "count", (
+            f"an integer spike count must be recognised as one, got {kinds[n_idx]}")
+        assert kinds[v_idx] == "jump", (
+            f"V_max must be recognised as a jump so it is classified rather than regressed "
+            f"across, got {kinds[v_idx]}")
+        assert (y_train[:, n_idx] == 0).any() and (y_train[:, n_idx] > 0).any(), (
+            "the design must contain both silent and firing points")
+
+        # The emulator must land on a branch, never between them -- a value the simulator cannot
+        # produce is not a small error, it is a different answer.
+        grid = np.linspace(PARAM_MIN, PARAM_MAX, 61).reshape(-1, 1)
+        predicted = np.asarray(saved.predict(grid, out_of_bounds="clip"), dtype=float)
+        low = y_train[y_train[:, v_idx] < 0.0, v_idx].max()
+        high = y_train[y_train[:, v_idx] > 0.0, v_idx].min()
+        in_the_gap = ((predicted[:, v_idx] > low + 0.1 * (high - low))
+                      & (predicted[:, v_idx] < high - 0.1 * (high - low)))
+        assert in_the_gap.mean() < 0.15, (
+            f"{in_the_gap.sum()} of {len(grid)} sweep points predict a V_max the model never "
+            f"produces (between {low:.1f} and {high:.1f} mV)")
+        assert (predicted[:, n_idx] >= 0.0).all(), "a spike count cannot be negative"
+
+    _checked_on_rank_0(mpi_comm, check_emulator)
 
     solver_config = _config(base_user_inputs, work, resources, probe_path)
     solver = CVS0DParamID.init_from_dict(solver_config).param_id
@@ -338,8 +355,10 @@ def test_mcmc_over_an_emulator_recovers_the_conductance_that_made_the_data(
                                                     ("silent", G_SILENT, False)):
         v_max, spikes = _features(solver, truth)
         obs_path = os.path.join(work, f"obs_{name}.json")
-        with open(obs_path, "w") as handle:
-            json.dump(_obs_document(v_max, spikes), handle)
+        if rank == 0:
+            with open(obs_path, "w") as handle:
+                json.dump(_obs_document(v_max, spikes), handle)
+        mpi_comm.Barrier()
 
         out_dir = os.path.join(work, f"mcmc_{name}")
         config = _config(base_user_inputs, work, resources, obs_path,
@@ -357,41 +376,45 @@ def test_mcmc_over_an_emulator_recovers_the_conductance_that_made_the_data(
         runner = CVS0DParamID.init_from_dict(config)
         runner.set_best_param_vals(np.array([truth]))
         runner.run_UQ()
+        _checked_on_rank_0(mpi_comm, lambda: _check_recovery(
+            name, truth, identified_from_both_sides, _posterior(runner.output_dir)))
 
-        samples = _posterior(runner.output_dir)
-        assert samples.size > 1000, f"{name}: chain is too short to say anything"
-        lower, upper = np.percentile(samples, [5.0, 95.0])
-        median = float(np.median(samples))
-        # printed because the interesting output of a recovery test is the interval, not the
-        # pass: a tolerance chosen to be safe hides how well it actually did.
-        print(f"[recovery] {name}: true g_Na1_6 {truth:.3f} -> posterior median "
-              f"{median:.4f}, 5-95% [{lower:.4f}, {upper:.4f}], "
-              f"P(silent) {np.mean(samples < 0.06):.2f}")
 
-        if identified_from_both_sides:
-            assert lower <= truth <= upper, (
-                f"{name}: true g_Na1_6 {truth} outside the 5-95% interval "
-                f"[{lower:.4f}, {upper:.4f}] (median {median:.4f})")
-            # The substantive claim is the branch, and it should be certain: a firing cell
-            # rules out the silent region outright. Within the firing branch the parameter is
-            # only weakly identified -- V_max moves 6 mV against a 6 mV sigma over the whole
-            # range and the count carries the rest -- so the interval is wide on purpose and
-            # the median tolerance is loose on purpose.
-            assert np.mean(samples < 0.06) < 0.05, (
-                f"{name}: {100 * np.mean(samples < 0.06):.0f}% of the posterior says the cell "
-                f"was silent, but it fired")
-            assert abs(median - truth) < 0.2, (
-                f"{name}: posterior median {median:.4f} is nowhere near {truth}")
-        else:
-            # Every conductance below threshold gives exactly the same silence, so the data
-            # bounds the parameter from above and says nothing at all below. Asserting
-            # concentration here would be asserting a claim the data cannot support -- what
-            # can be asserted is that the bound lands on the threshold.
-            assert np.mean(samples < 0.06) > 0.9, (
-                f"{name}: only {100 * np.mean(samples < 0.06):.0f}% of the posterior is in the "
-                f"silent region")
-            assert upper < 0.12, (
-                f"{name}: the posterior should be cut off near the ~0.055 threshold, but its "
-                f"95th percentile is {upper:.4f}")
-            assert lower < truth < upper, (
-                f"{name}: true g_Na1_6 {truth} outside [{lower:.4f}, {upper:.4f}]")
+def _check_recovery(name, truth, identified_from_both_sides, samples):
+    """The posterior recovers ``truth`` (firing) or bounds it at the threshold (silent)."""
+    assert samples.size > 1000, f"{name}: chain is too short to say anything"
+    lower, upper = np.percentile(samples, [5.0, 95.0])
+    median = float(np.median(samples))
+    # printed because the interesting output of a recovery test is the interval, not the
+    # pass: a tolerance chosen to be safe hides how well it actually did.
+    print(f"[recovery] {name}: true g_Na1_6 {truth:.3f} -> posterior median "
+          f"{median:.4f}, 5-95% [{lower:.4f}, {upper:.4f}], "
+          f"P(silent) {np.mean(samples < 0.06):.2f}")
+
+    if identified_from_both_sides:
+        assert lower <= truth <= upper, (
+            f"{name}: true g_Na1_6 {truth} outside the 5-95% interval "
+            f"[{lower:.4f}, {upper:.4f}] (median {median:.4f})")
+        # The substantive claim is the branch, and it should be certain: a firing cell
+        # rules out the silent region outright. Within the firing branch the parameter is
+        # only weakly identified -- V_max moves 6 mV against a 6 mV sigma over the whole
+        # range and the count carries the rest -- so the interval is wide on purpose and
+        # the median tolerance is loose on purpose.
+        assert np.mean(samples < 0.06) < 0.05, (
+            f"{name}: {100 * np.mean(samples < 0.06):.0f}% of the posterior says the cell "
+            f"was silent, but it fired")
+        assert abs(median - truth) < 0.2, (
+            f"{name}: posterior median {median:.4f} is nowhere near {truth}")
+    else:
+        # Every conductance below threshold gives exactly the same silence, so the data
+        # bounds the parameter from above and says nothing at all below. Asserting
+        # concentration here would be asserting a claim the data cannot support -- what
+        # can be asserted is that the bound lands on the threshold.
+        assert np.mean(samples < 0.06) > 0.9, (
+            f"{name}: only {100 * np.mean(samples < 0.06):.0f}% of the posterior is in the "
+            f"silent region")
+        assert upper < 0.12, (
+            f"{name}: the posterior should be cut off near the ~0.055 threshold, but its "
+            f"95th percentile is {upper:.4f}")
+        assert lower < truth < upper, (
+            f"{name}: true g_Na1_6 {truth} outside [{lower:.4f}, {upper:.4f}]")

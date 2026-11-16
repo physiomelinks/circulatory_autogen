@@ -85,9 +85,10 @@ def test_plot_outputs_draws_a_constant_operand_as_a_flat_line(
     if comm.Get_rank() == 0:
         assert generate_with_new_architecture(False, config), "benchmark generation failed"
     comm.Barrier()
-    if comm.Get_rank() != 0:
-        return
 
+    # Every rank builds the param-id object: its constructor makes COMM_WORLD collectives,
+    # which a rank that returned early would leave unmatched. Plotting is rank 0's, as in the
+    # plot script (plot_dir exists on rank 0 only).
     pages = {}
     save = ParamIDPlotOutputs._save_reconstruction_figure_bundle
 
@@ -102,6 +103,9 @@ def test_plot_outputs_draws_a_constant_operand_as_a_flat_line(
         ParamIDPlotOutputs, "_save_reconstruction_figure_bundle", staticmethod(_capture))
 
     pid = CVS0DParamID.init_from_dict(config)
+    if comm.Get_rank() != 0:
+        pid.close_simulation()
+        return
     pid.set_best_param_vals(np.array([P_FIT, 1.0]))
     try:
         pid.plot_outputs()

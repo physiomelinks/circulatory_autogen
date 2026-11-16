@@ -130,6 +130,30 @@ def test_c_code_of_a_model_with_no_algebraic_variables_lists_every_variable_once
     assert block.count("{") == 5
 
 
+@pytest.mark.unit
+def test_c_code_of_a_model_with_no_variables_has_no_empty_initialiser():
+    """An empty "VARIABLE_INFO[] = {};" is not standard C and crashes MSVC (internal compiler error): the array
+    holds one placeholder that VARIABLE_COUNT = 0 keeps unread."""
+    model = lc.Parser().parseModel("""<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="m">
+  <component name="c">
+    <variable name="t" units="dimensionless" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><apply><minus/><ci>x</ci></apply></apply>
+    </math>
+  </component>
+</model>""")
+    analyser = lc.Analyser()
+    analyser.analyseModel(model)
+    am = analyser.analyserModel()
+    assert am.constantCount() + am.computedConstantCount() + am.algebraicVariableCount() == 0
+    code = c_code_with_one_variables_array(
+        lc.Generator().implementationCode(am, lc.GeneratorProfile(lc.GeneratorProfile.Profile.C)), header=False)
+    assert "const size_t VARIABLE_COUNT = 0;" in code
+    block = code[code.index("VARIABLE_INFO[] = {"):]
+    assert block[:block.index("};")].count("{") == 2   # the opening brace and one placeholder
+
 # x starts at x0 = 2 k, a computed constant: libCellML 0.7 sets that state in computeComputedConstants
 COMPUTED_INITIAL_VALUE = MODEL.replace(
     '<variable name="x" units="dimensionless" initial_value="3" interface="public"/>',
