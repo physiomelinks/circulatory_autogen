@@ -5,6 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
 ### Fixed — the dict route, the file route, workflows and CUFLynx give the same results
 
 - `offline_pre_time` is applied on every route. The dict route (`init_from_dict`, then

@@ -1036,6 +1036,61 @@ def test_casadi_jit_without_a_compiler_says_so(monkeypatch):
         helper_module.jit_options({"jit": True, "jit_options": {"compiler": "clang"}})
 
 
+def _only_on_path(*programs):
+    """A shutil.which that finds only these programs."""
+    return lambda name: f"/fake/bin/{name}" if name in programs else None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("platform, casadi_version, expected", [
+    ("win32", "3.7.2", ("cl.exe", "link.exe")),
+    ("linux", "3.8.2", ("gcc", "gcc")),
+    ("darwin", "3.7.2", ("gcc", "gcc")),
+    ("darwin", "3.8.2", ("clang", "clang")),
+])
+def test_casadi_shell_executables_match_casadis_defaults(
+        monkeypatch, platform, casadi_version, expected):
+    """The probe looks for what CasADi's shell plugin runs (shell_compiler.cpp's defaults)."""
+    pytest.importorskip("casadi")
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    monkeypatch.setattr(helper_module.sys, "platform", platform)
+    monkeypatch.setattr(helper_module.ca, "__version__", casadi_version)
+    assert helper_module.shell_executables({}) == expected
+    assert helper_module.shell_executables({"compiler": "cc", "linker": "ld"}) == ("cc", "ld")
+
+
+@pytest.mark.unit
+def test_casadi_jit_default_falls_back_on_windows_with_gcc_but_no_msvc(monkeypatch, tmp_path):
+    """On Windows CasADi's shell plugin runs cl.exe, not gcc. With only gcc on PATH an explicit
+    jit raises naming cl.exe, and an unset jit warns and runs without jit."""
+    from types import SimpleNamespace
+    from libcuflynx.parsers.PrimitiveParsers import CASADI_JIT_DEFAULT
+    from libcuflynx.solver_wrappers import casadi_python_solver_helper as helper_module
+    assert CASADI_JIT_DEFAULT
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(helper_module.sys, "platform", "win32")
+    monkeypatch.setattr(helper_module.shutil, "which", _only_on_path("gcc"))
+
+    with pytest.raises(RuntimeError, match="'cl.exe' is not on PATH"):
+        helper_module.jit_options({"jit": True})
+    unset = SimpleNamespace(solver_info={"method": "cvodes"})
+    with pytest.warns(UserWarning, match="Running without jit"):
+        assert helper_module.SimulationHelper._jit_options(unset) == {}
+    with pytest.raises(RuntimeError, match="cl.exe"):
+        helper_module.SimulationHelper._jit_options(
+            SimpleNamespace(solver_info={"method": "cvodes", "jit": True}))
+    # naming gcc as both compiler and linker uses it
+    opts = helper_module.jit_options(
+        {"jit": True, "jit_options": {"compiler": "gcc", "linker": "gcc"}})
+    assert opts["jit"] and opts["jit_options"]["compiler"] == "gcc"
+    # a compiler without a linker still needs CasADi's default linker
+    with pytest.raises(RuntimeError, match="'link.exe' is not on PATH"):
+        helper_module.jit_options({"jit": True, "jit_options": {"compiler": "gcc"}})
+
+    monkeypatch.setattr(helper_module.shutil, "which", _only_on_path("cl.exe", "link.exe"))
+    assert helper_module.jit_options({"jit": True})["jit"]
+
+
 _TIME_FORCED_CELLML = """<?xml version='1.0' encoding='UTF-8'?>
 <model name="forced" xmlns="http://www.cellml.org/cellml/2.0#">
   <component name="main">
