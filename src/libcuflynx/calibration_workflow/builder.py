@@ -850,17 +850,20 @@ class WorkflowBuilder:
         with open(path, encoding='utf-8') as f:
             return f.read()
 
-    def _refuse_edited_funcs_file(self, kind, text):
+    def _refuse_edited_funcs_file(self, kind, text, at_write=False):
         '''A WorkflowError when writing ``text`` as the ``kind`` functions file would lose
         something: the file on disk is neither ``text``, nor as a writer generated it (its
         checksum), nor the file :meth:`load` read with everything in it kept. Not after
-        ``overwrite=True``.'''
+        ``overwrite=True``. A file with a valid checksum that holds functions this builder
+        lacks is refused only when ``at_write`` (from :meth:`write`): while functions are
+        still being added, a later add may supply them. A hand-edited file, or one holding
+        statements the builder does not keep, is refused at add time and at write.'''
         disk = self._funcs_on_disk(kind)
         if disk is None or disk == text or self._overwrite[kind]:
             return
         path, adder = self._funcs_path(kind), _adder(kind)
         if is_unedited(disk):
-            if disk == self._funcs_seen[kind]:
+            if disk == self._funcs_seen[kind] or not at_write:
                 return
             read = read_funcs_file(path, kind)
             held = {n.name for n in ast.parse(text).body if isinstance(n, ast.FunctionDef)}
@@ -1058,7 +1061,7 @@ class WorkflowBuilder:
         texts = {kind: self.funcs_source(kind) for kind in FUNCS_SETTINGS}
         for kind, text in texts.items():
             if text is not None:
-                self._refuse_edited_funcs_file(kind, text)
+                self._refuse_edited_funcs_file(kind, text, at_write=True)
         for relative, text in self._data_files()[0].items():
             _write_if_changed(os.path.join(self.directory, relative), text)
         for kind, text in texts.items():

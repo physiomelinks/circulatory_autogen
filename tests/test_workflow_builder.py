@@ -813,13 +813,28 @@ def test_a_fresh_builder_does_not_drop_functions_another_writer_added(tmp_path):
                            '    return np.max(x)\n'
     write_funcs_file(funcs, 'operation', sources, imports)
     fresh = _funcs_builder(tmp_path)
+    fresh.add_operation(double_mean, extra_mean)       # adding never refuses: a later add may supply it
     with pytest.raises(WorkflowError, match=r"\['dialog_op'\].*overwrite=True"):
-        fresh.add_operation(double_mean, extra_mean)
         fresh.write()
     assert 'dialog_op' in read_funcs_file(funcs, 'operation')[0]
     fresh.add_operation(double_mean, extra_mean, overwrite=True)
     fresh.write()
     assert 'dialog_op' not in read_funcs_file(funcs, 'operation')[0]
+
+
+@pytest.mark.unit
+def test_a_function_added_by_a_later_cell_is_not_refused_when_an_earlier_cell_adds(tmp_path):
+    """Restart & Run All: an early cell adds A, a later one adds my_max; the file already holds
+    both from the last run. Nothing is refused until write(), by when both are added."""
+    first = _funcs_builder(tmp_path)
+    first.add_operation(double_mean, extra_mean)
+    first.write()
+    funcs = first.settings['operation_funcs_external_path']
+    fresh = _funcs_builder(tmp_path)
+    fresh.add_operation(double_mean)                   # does not raise
+    fresh.add_operation(extra_mean)
+    fresh.write()                                      # no overwrite needed
+    assert set(read_funcs_file(funcs, 'operation')[0]) == {'double_mean', 'extra_mean'}
 
 
 @pytest.mark.unit
