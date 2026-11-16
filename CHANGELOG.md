@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — the calibration workflow's provenance diagram and study manifest
+
+- A step's parameter count includes the parameters `priors_from` adds (`params_for_id_used`).
+- Every step generated from a model gets an arrow from its model source, not only steps with no
+  `depends_on`; a step whose model is not the target's has a source box of its own.
+- `provenance.svg` names the values: a step's calibrated values, its priors and the values
+  earlier steps fixed (calibrated by which step on which obs_data, or set by hand and why), the
+  merged values in the target and the model source's values, a few per box.
+- The study manifest names a step's `manifest` only when that file exists (a `set` step has
+  none), and an external target's merged values file as `target.generated_parameters` instead of
+  calling its `.py` a `generated_model`.
+- `workflow_model(..., 'target')` takes the obs_data, params_for_id and results of the last
+  calibration on the target that has run, not the first, and marks merged values set by hand
+  with their `origin` and `reason`.
+
 ### Added — external Python models in calibration workflows
 
 - A calibration workflow's `target`, and its steps' `model`, may be an external Python model:

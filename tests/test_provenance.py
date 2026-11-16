@@ -116,7 +116,11 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     # both calibrations reach the target
     assert {('fit_a', TARGET_NODE), ('rest', TARGET_NODE)} <= set(_edges(graph))
     assert _edges(graph)[('fit_a', 'rest')]['style'] == 'fixed'
-    assert (SOURCE_NODE, 'fit_a') in _edges(graph)
+    # rest runs the target's model; fit_a runs lin_a, which has a source box of its own
+    assert _edges(graph)[(SOURCE_NODE, 'rest')]['label'] == 'generates'
+    [lin_a] = [e['from'] for e in graph['edges'] if e['to'] == 'fit_a'
+               and e['label'] == 'generates']
+    assert lin_a != SOURCE_NODE and nodes[lin_a]['lines'] == ['`lin_a`, parameterisation `fit_a`']
     assert not graph['workflow']['stale']
     assert {e['status'] for n in graph['nodes'] for e in n['inputs']} == {'current'}
 
@@ -497,3 +501,61 @@ def test_the_fixed_constants_box_lists_six_and_counts_the_rest():
     lines = _box_lines(node)
     assert any('c5' in line for line in lines) and not any('c6' in line for line in lines)
     assert lines[-1] == 'and 2 more in the graph file'
+
+
+def _svg_text(svg):
+    """The text of an SVG, its wrapped lines joined again."""
+    root = ElementTree.fromstring(svg)
+    return ' '.join(t.text or '' for t in root.iter() if t.tag.endswith('text'))
+
+
+@pytest.mark.integration
+def test_a_module_array_workflow_draws_each_model_s_source_and_names_its_values(library,
+                                                                                 tmp_path):
+    """chain_array: a-alone runs a_only, chain runs the target's chain array with A/p fixed from
+    a-alone. Each step has an arrow from the source of its own model, and the boxes name the
+    values and what set them."""
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(library['chain_array'], output_dir=out)
+    graph = _read_json(os.path.join(out, GRAPH_FILE))
+    nodes, edges = _nodes(graph), _edges(graph)
+    assert nodes[SOURCE_NODE]['lines'][0] == 'model `chain`'
+    assert edges[(SOURCE_NODE, 'chain')]['label'] == 'generates'
+    [a_only] = [e['from'] for e in graph['edges'] if e['to'] == 'a-alone'
+                and e['label'] == 'generates']
+    assert a_only != SOURCE_NODE and nodes[a_only]['lines'] == ['model `a_only`']
+    assert '1 parameter, 1 observable' in nodes['chain']['lines']
+
+    text = _svg_text(open(os.path.join(out, SVG_FILE)).read())
+    assert 'A/p = 2 dimensionless, calibrated here' in text
+    assert 'C/q = 3 dimensionless, calibrated here' in text
+    # the model source names the value it alone sets
+    assert 'k_C = 1.0 dimensionless, unclassified' in text
+    # the value chain was given names its step and that step's data
+    assert 'A/p = 2 dimensionless, fixed: calibrated by a-alone on a_obs.json' in text
+    # the target's box names each merged value and the step that set it
+    assert 'C/q = 3 dimensionless, calibrated by chain on chain_obs.json' in text
+
+
+@pytest.mark.unit
+def test_a_step_box_names_four_values_of_each_list_and_counts_the_rest():
+    from libcuflynx.reporting.provenance import _step_value_lines
+    calibrated = [{'vessel': 'V', 'param': f'p{i}', 'model_name': f'p{i}_V', 'value': i + 0.5,
+                   'units': ''} for i in range(6)]
+    fixed = [{'vessel': 'V', 'param': 'u', 'model_name': 'u_V', 'value': 0.1, 'units': 'K',
+              'from_step': 'hand', 'origin': 'set_by_hand', 'reason': 'measured'},
+             {'vessel': 'V', 'param': 'w', 'model_name': 'w_V', 'value': 2.0, 'units': '',
+              'from_step': 'fit'}]
+    result = {'calibrated': calibrated, 'fixed': fixed, 'point_estimate': 'posterior_median',
+              'priors': [{'step': 'fit', 'kind': 'mvnormal', 'inflate': 2.0,
+                          'parameters': ['p0_V']}]}
+    lines = _step_value_lines(result, {'fit': 'fit_obs.json'}.get)
+    assert lines == [
+        'prior of `V/p0`: mvnormal fit to the posterior of fit, widened 2 times',
+        '`V/p0` = 0.5, calibrated here (posterior median)',
+        '`V/p1` = 1.5, calibrated here (posterior median)',
+        '`V/p2` = 2.5, calibrated here (posterior median)',
+        '`V/p3` = 3.5, calibrated here (posterior median)',
+        'and 2 more calibrated values in provenance_graph.json',
+        '`V/u` = 0.1 K, fixed: set by hand in hand: measured',
+        '`V/w` = 2, fixed: calibrated by fit on `fit_obs.json`']

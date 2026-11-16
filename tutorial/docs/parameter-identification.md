@@ -1744,6 +1744,15 @@ the target uses is marked with what set it:
 | set by hand | us, with a reason | `"origin": "set_by_hand"` and a required `"reason"` |
 | unclassified | nothing says | no `origin` |
 
+A "Model source" box stands for the target's model, with an arrow to every step generated from
+it; a step whose model is another module array or library module has a source box of its own. A
+step's box names, by `vessel/param` and value, its priors (which step's posterior, and the fitted
+kind), the values it calibrated (its parameter count includes those `priors_from` adds) and the
+values earlier steps fixed, each with what set it: calibrated by which step on which obs_data, or
+set by hand in which step and why. The target's box names its merged values the same way. A box
+shows the first four of each list (six for the target and the model source) and says how many
+more the graph file has.
+
 When a derived value's derivation has `fixed_constants`, a "Fixed constants of derivations" box
 with an arrow to the derived values lists each as `<derivation>/<constant>` with its value, units
 and origin (measured with its source, set by hand with its reason, inherited, or unclassified when

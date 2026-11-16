@@ -912,7 +912,9 @@ class _Run:
                 'run': (result or {}).get('param_id_output_dir') if done else None,
                 'outputs': {k: (result or {}).get(k) for k in STEP_OUTPUTS[step.kind]}
                 if done else None,
-                'manifest': self.step_manifest(step.id) if done else None}
+                # only a calibration writes one; a set step, say, has none to name
+                'manifest': self.step_manifest(step.id)
+                if done and os.path.isfile(self.step_manifest(step.id)) else None}
             entry.update({key: ids for key, ids in step.sources().items() if ids or
                           key in ('fixed_from', 'priors_from')})
             if step.kind == 'reduction':
@@ -925,10 +927,15 @@ class _Run:
                  'result': result_path if os.path.isfile(result_path) else None,
                  'complete': all(s['status'] == 'done' for s in steps),
                  'target': {'model': self._as_packed(_model_files(self.workflow.target)),
-                            'generated_model': target.get('model_path'),
                             'calibrated_parameters':
                                 (workflow_result or {}).get('calibrated_parameters_file')},
                  'steps': steps}
+        if self.resolved.target.kind == 'external':
+            # an external model is not generated: the target is its .py run with the merged
+            # values in this parameters file
+            block['target']['generated_parameters'] = target.get('parameters_path')
+        else:
+            block['target']['generated_model'] = target.get('model_path')
         inp = self._study_inp(self.output_dir, self.workflow.name)
         if target.get('model_path'):
             inp['model_path'] = target['model_path']
@@ -1418,10 +1425,14 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     Returns ``{view, kind ('step' or 'target'), target, submodule_path, model_path,
     flat_model_path (one self-contained CellML file), parameters_path, obs_data_path, params_for_id_path, fixed, calibrated, waiting_for,
     stale, result, param_id_output_dir}``. ``fixed`` lists the values given by earlier
-    steps; ``calibrated`` the view's own (for the target, the merged set); ``waiting_for``
+    steps; ``calibrated`` the view's own (for the target, the merged set: each value from the
+    last step that set it, with ``origin`` and ``reason`` when it was set by hand);
+    ``waiting_for``
     the steps whose results it should have but that have not run; ``stale`` those whose
     inputs changed since they ran. obs_data / params_for_id are None when the parameterisation has
-    none (a target with no step of its own).
+    none (a target with no step of its own). For the target, ``step_id``, its obs_data,
+    params_for_id, ``result`` and ``param_id_output_dir`` are those of the last calibration on the
+    target that has run, or of the last one when none has.
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
@@ -1448,9 +1459,15 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                 latest[record['target_model_name']] = (record, step.id)
         overrides = {rec['target_host_name']: (rec, sid) for rec, sid in latest.values()}
         calibrated = [{'model_name': name, 'value': rec['value'], 'units': rec.get('units', ''),
-                       'from_step': sid} for name, (rec, sid) in sorted(latest.items())]
-        own_step = next((s for s in workflow.steps if s.model == workflow.target
-                         and s.kind == 'calibration'), None)
+                       'from_step': sid, **_how_set(rec)}
+                      for name, (rec, sid) in sorted(latest.items())]
+        # the inputs and results shown beside the merged values are those of the last
+        # calibration on the target that has run (else the last one), as a later step wins
+        # every value the steps share
+        on_target = [s for s in workflow.topological_order()
+                     if s.model == workflow.target and s.kind == 'calibration']
+        ran = [s for s in on_target if (run.step_result(s.id) or {}).get('status') == 'done']
+        own_step = (ran or on_target or [None])[-1]
         place = ''
         own_result = run.step_result(own_step.id) if own_step else None
     else:
