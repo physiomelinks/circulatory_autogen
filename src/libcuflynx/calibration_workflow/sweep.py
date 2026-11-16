@@ -164,6 +164,10 @@ class PointRunner:
             model_path, inp_data_dict={'dt': settings['dt'], 'solver_info': solver_info},
             solver=solver,
             model_type=settings.get('model_type'))
+        #: the solver settings the points run with (the workflow's, with the runner's defaults)
+        self.solver_info = {'solver': solver,
+                            **(getattr(self.runner.sim_helper, 'solver_info', None)
+                               or solver_info)}
         self.prediction_info = None
         if obs_data_path:
             parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=obs_data_path)
@@ -298,15 +302,16 @@ def plot_features(sweep, names, points, nominal, arrays, out_dir):
 
 def run_points(sweep, generated, settings, obs_data_path, nominal, comm, where):
     '''Run every point of ``sweep`` on the model ``generated``, spread across ranks. Returns
-    ``(names, points, by_point)`` with ``by_point`` as :func:`run_on_ranks` gives it. Every rank
-    must call it, and only :func:`write_results` writes.'''
+    ``(names, points, by_point, solver_info)`` with ``by_point`` as :func:`run_on_ranks` gives
+    it and ``solver_info`` the solver settings the points ran with. Every rank must call it, and
+    only :func:`write_results` writes.'''
     names, points = sweep_points(sweep, nominal, where)
     runner = PointRunner(generated['model_path'], settings, obs_data_path, sweep['outputs'])
     if not sweep['outputs'] and runner.prediction_info is None:
         raise WorkflowError(f'{where}: records nothing: give "outputs", or prediction items in '
                             f'its obs_data.')
     return names, points, run_on_ranks(lambda index: runner(names, points[index]), len(points),
-                                       comm)
+                                       comm), runner.solver_info
 
 
 def write_results(sweep, names, points, by_point, nominal, units, out_dir, where):

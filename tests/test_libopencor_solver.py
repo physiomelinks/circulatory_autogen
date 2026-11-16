@@ -156,6 +156,25 @@ def test_protocol_traces_are_refused():
         lo.set_param_vals(['Lotka_Volterra_module/u_alpha'], ['trace'])
 
 
+def test_a_second_offline_warm_up_starts_from_the_initial_values_and_clearing_returns_to_them():
+    names = ['Lotka_Volterra_module/x', 'Lotka_Volterra_module/y']
+
+    def run(helper):
+        helper.reset_states()
+        assert helper.run()
+        return np.array(helper.get_results(names, flatten=True), dtype=float)
+
+    helper = _helper('CVODE_libopencor', _LOTKA, 2.0)
+    cold = run(helper)
+    helper.run_offline_pre_and_set_default_state(1.5)
+    once = run(helper)
+    assert np.max(np.abs(once - cold)) > 1e-6
+    helper.run_offline_pre_and_set_default_state(1.5)
+    np.testing.assert_array_equal(run(helper), once)
+    helper.clear_offline_default_state()
+    np.testing.assert_array_equal(run(helper), cold)
+
+
 def test_offline_warm_up_is_the_start_of_every_run():
     """run_offline_pre_and_set_default_state(T) then a run of S equals one run of T + S."""
     names = ['Lotka_Volterra_module/x', 'Lotka_Volterra_module/y']

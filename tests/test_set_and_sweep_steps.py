@@ -400,6 +400,7 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
 
     step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
     assert (step['n_points'], step['n_failed'], step['calibrated']) == (3, 0, [])
+    assert step['solver_info']['solver'] == 'CVODE_myokit'  # what the points ran with
     assert [f['from_step'] for f in step['fixed']] == ['fit_a']
     with np.load(step['sweep_results']) as results:
         assert results['points'].ravel().tolist() == [1.0, 2.0, 3.0]

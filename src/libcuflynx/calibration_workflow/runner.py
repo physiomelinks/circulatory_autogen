@@ -788,6 +788,8 @@ class _Run:
             return {'emulator_dir': directory,
                     'fixed': [dict(row) for _, row in sorted(fixed.items())],
                     'params_for_id_used': params_for_id, 'settings': settings,
+                    # the user_inputs parser fills in the dict it is given
+                    'solver_info': inp['solver_info'],
                     'generated': generated, 'model_path': generated['model_path']}
 
         return self.on_root(finish)
@@ -813,6 +815,8 @@ class _Run:
                       'at': [float(v) for v in best], 'at_source': step.result_from or 'model',
                       'fixed': [dict(row) for _, row in sorted(fixed.items())],
                       'params_for_id_used': params_for_id, 'settings': settings,
+                      # the user_inputs parser fills in the dict it is given
+                      'solver_info': inp['solver_info'],
                       'generated': generated, 'model_path': generated['model_path']}
             prefix = os.path.join(self.step_dir(step.id), step.emulator_from or step.id)
             mean, covariance = prefix + '_laplace_mean.npy', prefix + '_laplace_covariance.npy'
@@ -976,7 +980,7 @@ class _Run:
             return nominal, swept_units
 
         nominal, swept_units = self.on_root(at_the_model)
-        names, points, by_point = self._run_stage(
+        names, points, by_point, solver_info = self._run_stage(
             step, 'sweep', sweep_runs.run_points, step.sweep, generated, settings,
             resolved.obs_data_path, nominal, self.comm, where)
 
@@ -985,7 +989,7 @@ class _Run:
                 step.sweep, names, points, by_point, nominal, swept_units,
                 os.path.join(self.step_dir(step.id), sweep_runs.SWEEP_DIR), where)
             return dict(record, fixed=[dict(row) for _, row in sorted(fixed.items())],
-                        settings=settings, generated=generated,
+                        settings=settings, solver_info=solver_info, generated=generated,
                         model_path=generated['model_path'])
 
         return self.on_root(finish)

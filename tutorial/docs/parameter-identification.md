@@ -736,7 +736,7 @@ Before doing calibration, a solver for the model needs to be chosen
     - **dt_solver**: the step of the fixed-step and C++ solvers; sets `max_step_size` for
       `casadi_integrator` and `max_step` for `solve_ivp` when those are not given. The CellML
       (variable-step) solvers do not read it: giving it with a different `MaximumStep` is an
-      error
+      error, and giving it without `MaximumStep` warns that the step is unbounded
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_libopencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.

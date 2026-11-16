@@ -50,20 +50,25 @@ next release; add to that section as you land a change.
   parameter that sets a state's initial value (e.g. `q_lv_init`) with `offline_pre_time` now
   raises on the dict route and in Sobol SA as it already did on the file route**: the warm-up
   froze that state, so the parameter had no effect. Drop `offline_pre_time` and put the whole
-  warm-up in `pre_times`, or calibrate a constant instead. The Myokit warm-up starts from the
-  model's initial values each time, so setting the obs_data twice gives the state once does.
+  warm-up in `pre_times`, or calibrate a constant instead. On every backend the warm-up starts
+  from the model's initial values each time, so setting the obs_data twice gives the state once
+  does, and a protocol without `offline_pre_time` set after one with it clears the warm-up
+  (`clear_offline_default_state` on the helpers).
 - For the CellML (variable-step) solvers, `MaximumStep` sets the maximum step and `dt_solver`
   is not read. The user_inputs parser no longer overwrites `MaximumStep` with `dt_solver` (so
   workflow steps and `SensitivityAnalysis.init_from_dict` ran with a different maximum step than
   `CVS0DParamID.init_from_dict` and CUFLynx). **Giving both with different values now raises**,
   in the parser, `CVS0DParamID` and `SensitivityAnalysis`. A `dt_solver` alone no longer sets
-  `MaximumStep` for these solvers.
+  `MaximumStep` for these solvers: it warns, once per run, that `dt_solver` has no effect and
+  the step is unbounded unless `MaximumStep` is set.
 - `CVODE_myokit`'s default `rtol` is 1e-6 everywhere: `get_solver_info_default('cellml')` now
   reads the declared defaults (`SOLVER_INFO_FIELDS`) instead of its own 1e-8. A config with no
   `solver_info` that went through the user_inputs parser ran at 1e-8 before.
 - `run_param_id` with `DEBUG` and no `debug_UQ_options` uses `UQ_options` (it raised `KeyError`).
 - `SensitivityAnalysis.init_from_dict` no longer edits the caller's dict.
-- A workflow's `step_result.json` records `solver_info`: the settings the step ran with.
+- A workflow's `step_result.json` records `solver_info`, the solver settings the step ran
+  with, for every step that runs a solver (calibration, sensitivity, emulation,
+  identifiability, sweep).
 
 ### Changed — the built-in hearts compute their chamber phases from the beat phase
 
