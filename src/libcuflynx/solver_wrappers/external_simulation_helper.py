@@ -168,6 +168,26 @@ def _resolve_user_class(module, model_path):
     return user_class, parameters, output_names
 
 
+def read_external_parameters_file(path, declared, model_path):
+    """``{'component/variable': value}`` from the parameters file at ``path`` (nested JSON,
+    ``utilities/parameters_file.py``: ``{component: {variable: {value, ...}}}``), every name
+    checked against ``declared`` (``SIM_HELPER.parameters``)."""
+    from libcuflynx.utilities.parameters_file import SEPARATOR, leaves, read_parameters_file
+    values = {}
+    for place, leaf in leaves(read_parameters_file(path)):
+        name = SEPARATOR.join(place)
+        if name not in declared:
+            raise ValueError(
+                f"{path}: parameter {name!r} is not declared by {SIM_HELPER_ATTR}.parameters of "
+                f"{model_path}. Declared parameters are {sorted(declared)}.")
+        try:
+            values[name] = float(leaf['value'])
+        except (TypeError, ValueError):
+            raise ValueError(f"{path}: parameter {name!r} has value {leaf['value']!r}, which is "
+                             f"not a number.") from None
+    return values
+
+
 class SimulationHelper(ExperimentTimeMixin):
     """``SimulationHelper`` over a user-supplied external solver class.
 
@@ -180,7 +200,10 @@ class SimulationHelper(ExperimentTimeMixin):
         dt: Output sampling step (s).
         sim_time: Logged simulation duration (s).
         solver_info: The CA solver_info dict. Its ``user_config`` entry is free-form and is
-            handed to the user class untouched.
+            handed to the user class untouched. Its ``external_parameters_file`` (set from the
+            user input of that name) is a parameters file whose values replace the declared
+            defaults: they are set on the user class after ``init_solver``, and
+            ``reset_and_clear`` and ``get_default_param_vals`` keep them.
         pre_time: Unlogged spin-up duration (s). Samples over it are produced by the user class
             and discarded here, so the logged trace starts from a settled state.
     """
@@ -210,6 +233,15 @@ class SimulationHelper(ExperimentTimeMixin):
                 f"instantiated. CA constructs it with no arguments; put configuration in "
                 f"init_solver(config) instead of __init__. Original error: {exc!r}") from exc
 
+        # The values file (solver_info 'external_parameters_file') replaces the class defaults
+        # for every later reset, as a generated model's parameters file does.
+        self.parameters_file = (solver_info or {}).get('external_parameters_file')
+        file_values = (read_external_parameters_file(self.parameters_file, self.parameters,
+                                                     model_path)
+                       if self.parameters_file else {})
+        self.default_param_vals.update(file_values)
+        self._current_param_vals.update(file_values)
+
         self._set_times(dt, 0.0, sim_time, pre_time)
         self._results = None
         self._last_results_dict = None
@@ -227,6 +259,8 @@ class SimulationHelper(ExperimentTimeMixin):
         }
         self.user.init_solver(config)
         self.user.update_times(self.dt, self.start_time, self.sim_time, self.pre_time)
+        if file_values:
+            self.user.set_param_vals(dict(file_values))
 
     # ---- timing ----
     def _set_times(self, dt, start_time, sim_time, pre_time):

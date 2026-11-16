@@ -8,6 +8,7 @@ import os
 import shutil
 
 from libcuflynx.calibration_workflow.naming import STEP_VESSEL, host_model_name
+from libcuflynx.calibration_workflow.spec import WorkflowError
 from libcuflynx.utilities import parameters_file
 
 # the value generation writes for a parameter nothing gave one
@@ -129,11 +130,88 @@ def generate_module_array(model, work_dir, file_prefix, overrides=(), library_in
                      model.label(), protocol)
 
 
+def generate_external(model, work_dir, file_prefix, overrides=()):
+    '''An external Python model (a spec.ExternalModel) is not generated: this writes the values
+    it runs with, ``generated_models/<prefix>/<prefix>_parameters.json`` under ``work_dir`` --
+    its ``SIM_HELPER.parameters`` defaults with ``overrides`` (rows named ``component/variable``)
+    over them -- which the run reads as its ``external_parameters_file``. Returns as
+    :func:`generate_parameterisation`, ``model_path`` being the model's own file.'''
+    from libcuflynx.calibration_workflow.resolve import read_external_parameters
+    work_dir = os.path.abspath(work_dir)
+    resources_dir = os.path.join(work_dir, 'resources')
+    generated_models_dir = os.path.join(work_dir, 'generated_models')
+    model_dir = os.path.join(generated_models_dir, file_prefix)
+    os.makedirs(resources_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
+    path = os.path.join(model_dir, parameters_file.parameters_file_name(file_prefix))
+    doc = parameters_file.new_document()
+    reference = f'SIM_HELPER.parameters of {os.path.basename(model.path)}'
+    for name, value in read_external_parameters(model.path, model.label()).items():
+        parameters_file.set_leaf(doc, parameters_file.name_path(name),
+                                 {'value': repr(float(value)), 'units': '',
+                                  'data_reference': reference})
+    parameters_file.write_parameters_file(path, with_overrides(doc, overrides, f'{path}: '))
+    return {'model_path': model.path, 'flat_model_path': None, 'parameters_path': path,
+            'resources_dir': resources_dir, 'generated_models_dir': generated_models_dir,
+            'inp_data_dict': {'file_prefix': file_prefix, 'model_type': 'external_python',
+                              'external_model_path': model.path,
+                              'external_parameters_file': path}}
+
+
+def generate_cellml(model, work_dir, file_prefix, overrides=()):
+    '''A CellML model (a spec.CellMLModel) is not generated: this writes the values it runs with,
+    ``generated_models/<prefix>/<prefix>_parameters.json`` under ``work_dir`` -- its constants,
+    its parameters file's values over them, and ``overrides`` (rows named
+    ``component/variable``) over those -- and ``<prefix>.cellml`` beside it, the model
+    (flattened when it has imports) with every value that differs from its own written in.
+    Returns as :func:`generate_parameterisation`.'''
+    from libcuflynx.calibration_workflow.cellml_files import (read_cellml_constants,
+                                                              write_cellml_with_values)
+    from libcuflynx.calibration_workflow.resolve import read_cellml_parameters
+    work_dir = os.path.abspath(work_dir)
+    resources_dir = os.path.join(work_dir, 'resources')
+    generated_models_dir = os.path.join(work_dir, 'generated_models')
+    model_dir = os.path.join(generated_models_dir, file_prefix)
+    os.makedirs(resources_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
+    path = os.path.join(model_dir, parameters_file.parameters_file_name(file_prefix))
+    own = read_cellml_constants(model.path, model.label())
+    doc = parameters_file.new_document()
+    for qname, constant in read_cellml_parameters(model, model.label()).items():
+        reference = (f'initial value in {os.path.basename(model.path)}'
+                     if constant['value'] == own[qname]['value']
+                     else os.path.basename(model.parameters))
+        parameters_file.set_leaf(doc, parameters_file.name_path(qname),
+                                 {'value': repr(float(constant['value'])),
+                                  'units': constant['units'], 'data_reference': reference})
+    doc = with_overrides(doc, overrides, f'{path}: ')
+    parameters_file.write_parameters_file(path, doc)
+    values = {}
+    for place, leaf in parameters_file.leaves(doc):
+        qname = '/'.join(place)
+        if qname not in own:
+            raise WorkflowError(f'{model.label()}: a value is given for "{qname}", which is not '
+                                f'a constant of the CellML model {model.path}.')
+        if float(leaf['value']) != own[qname]['value']:
+            values[qname] = float(leaf['value'])
+    model_path = os.path.join(model_dir, f'{file_prefix}.cellml')
+    write_cellml_with_values(model.path, values, model_path, model.label())
+    return {'model_path': model_path, 'flat_model_path': model_path, 'parameters_path': path,
+            'resources_dir': resources_dir, 'generated_models_dir': generated_models_dir,
+            'inp_data_dict': {'file_prefix': file_prefix, 'model_type': 'cellml'}}
+
+
 def generate_model(model, work_dir, file_prefix, overrides=(), library_inputs=None,
                    model_type='cellml', solver=None, protocol=None, instance_values=None):
-    '''Generate a workflow model of either kind: :func:`generate_module_array` for a
+    '''Generate a workflow model of any kind: :func:`generate_module_array` for a
     spec.ModuleArray, :func:`generate_parameterisation` for a library module (a supermodule's
-    with ``instance_values``, if given, as its instance's values).'''
+    with ``instance_values``, if given, as its instance's values), :func:`generate_external`
+    for an external Python model (whatever ``model_type`` says), :func:`generate_cellml` for a
+    CellML model.'''
+    if model.kind == 'external':
+        return generate_external(model, work_dir, file_prefix, overrides)
+    if model.kind == 'cellml':
+        return generate_cellml(model, work_dir, file_prefix, overrides)
     if model.kind == 'array':
         return generate_module_array(model, work_dir, file_prefix, overrides, library_inputs,
                                      model_type, solver, protocol=protocol)

@@ -288,6 +288,9 @@ class FakeClient:
         }
         self.protocol_info = {"num_sub_per_exp": [1]}
 
+    def mcmc_chain_path(self):
+        return os.path.join(self.output_dir, pp.CHAIN_FILE)
+
 
 @pytest.mark.unit
 def test_an_existing_client_is_used_instead_of_building_one(tmp_path):
@@ -564,3 +567,40 @@ def test_the_operation_name_travels_with_it():
     meta = _series_meta(client)
     constant = next(o for o in meta["observables"] if o.get("kind") == "constant")
     assert constant["operation"] == "max_in_range"
+
+
+# ── draws given as samples (a Laplace approximation has no chain) ─────────
+@pytest.mark.unit
+def test_draws_come_from_given_samples_when_there_is_no_chain(tmp_path):
+    samples = np.random.default_rng(1).normal(size=(40, 2))
+    result = pp.posterior_predictive(client=FakeClient(str(tmp_path)), num_samples=10,
+                                     samples=samples, output_dir=str(tmp_path))
+    assert result.thetas.shape == (10, 2)
+    # every draw is one of the samples
+    assert all(any(np.array_equal(t, s) for s in samples) for t in result.thetas)
+    assert result.chain_info['source'] == 'samples' and result.chain_info['pool'] == 40
+    assert 'drawn from 40 given samples' in result.summary()
+    assert os.path.isfile(tmp_path / pp.SAMPLES_FILE)
+    assert os.path.isfile(tmp_path / pp.COVERAGE_FILE)
+
+
+@pytest.mark.unit
+def test_saving_a_check_of_samples_needs_a_directory(tmp_path):
+    with pytest.raises(pp.PosteriorPredictiveError, match='output_dir'):
+        pp.posterior_predictive(client=FakeClient(str(tmp_path)), num_samples=4,
+                                samples=np.zeros((5, 2)))
+
+
+@pytest.mark.unit
+def test_an_mcmc_client_is_checked_with_the_mcmc_engine(tmp_path, monkeypatch):
+    """A CVS0DParamID built to run MCMC has no param_id: its engine is the MCMC object it
+    built, which the check simulates with."""
+    from libcuflynx.param_id import paramID
+    client = FakeClient(str(tmp_path))
+    engine = client.param_id
+    del client.param_id
+    client.mcmc_instead = True
+    monkeypatch.setattr(paramID, 'mcmc_object', engine)
+    write_chain(tmp_path, n_params=2)
+    result = pp.posterior_predictive(client=client, num_samples=5, save=False)
+    assert result.predictions.shape == (5, 2)
