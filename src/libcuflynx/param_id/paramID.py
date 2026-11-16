@@ -204,6 +204,10 @@ UQ_CASE_METHOD = 'mcmc'
 #: The file an MCMC run writes its chain to, in its own run directory.
 MCMC_CHAIN_FILE = 'mcmc_chain.npy'
 
+#: The optimiser options of a calibration engine given none.
+DEFAULT_OPTIMISER_OPTIONS = {'cost_convergence': 0.0001, 'max_patience': 10,
+                             'num_calls_to_function': 10000}
+
 
 def case_dir_name(method, file_prefix, obs_file_prefix):
     """A run directory's name under ``param_id_output_dir``: ``<method>_<prefix>_<obs>``.
@@ -424,13 +428,10 @@ class CVS0DParamID():
             self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
 
         if self.optimiser_options is None:
-            print("No optimiser options provided, using default options")
-            self.optimiser_options = {
-                'cost_convergence': 0.0001,
-                'max_patience': 10,
-                'num_calls_to_function': 10000
-            }
-            print(f'Default optimiser options: {self.optimiser_options}')
+            self.optimiser_options = dict(DEFAULT_OPTIMISER_OPTIONS)
+            if not self.mcmc_instead:   # an MCMC does not optimise: no defaults to announce
+                print("No optimiser options provided, using default options")
+                print(f'Default optimiser options: {self.optimiser_options}')
 
         if self.mcmc_instead:
             # This mcmc_object will be an instance of the ParamID class

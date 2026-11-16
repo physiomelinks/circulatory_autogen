@@ -63,7 +63,8 @@ from libcuflynx.calibration_workflow.generate import (UnsetModelParameters, gene
                                                       read_parameter_rows)
 from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      read_calibrated_parameters,
-                                                     resolve_workflow)
+                                                     resolve_workflow,
+                                                     warn_reduced_recalibrated)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
@@ -515,21 +516,27 @@ class _Run:
             return reduced_params_for_id_path(self.output_dir, step.params_for_id_from)
         return step.params_for_id
 
+    def own_parameters(self, step, params_for_id):
+        '''The model names, in the step's model, of what ``params_for_id`` (the step's)
+        calibrates or analyses.'''
+        resolved = self.resolved.steps[step.id]
+        own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
+        if resolved.renames_inputs:
+            own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
+                                       p.param) for p in own]
+        return {p.model_name for p in own}
+
     def _prepare(self, step, settings):
         '''Rank 0: a clean step directory and the step's model, generated with the values it is
         given (``fixed_from``, and ``result_from`` including the parameters it analyses), or
         copied from its ``emulator_from`` step. Returns ``(generated, params_for_id, units,
-        fixed, priors)``.'''
+        fixed, priors)``; ``fixed`` leaves out the parameters the step analyses.'''
         resolved = self.resolved.steps[step.id]
         step_dir = self.step_dir(step.id)
         params_for_id = self.params_for_id_of(step)
         if step.params_for_id_from:
             self.require_current(step.params_for_id_from, step.id)
-        own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
-        if resolved.renames_inputs:
-            own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
-                                       p.param) for p in own]
-        own = {p.model_name for p in own}
+        own = self.own_parameters(step, params_for_id)
         if step.on_target:
             # the values merge() gives the target: each source's own values, in run order, a
             # later step winning
@@ -541,8 +548,12 @@ class _Run:
             # a parameter the step calibrates itself is not fixed: the later calibration wins
             fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
                      if n not in own}
+        point = {}
         if step.result_from:
-            fixed.update(self.fixed_values(step, [step.result_from]))
+            # result_from's values of the step's own parameters are the point it analyses (its
+            # result records them as ``at`` or ``nominal``); the rest are fixed
+            for name, row in self.fixed_values(step, [step.result_from]).items():
+                (point if name in own else fixed)[name] = row
         start = {}
         if step.start_from:
             # its own parameters start at the values of start_from; they are not fixed
@@ -580,6 +591,12 @@ class _Run:
                          for name, row in sorted(fixed.items())]
             overrides += [{'variable_name': row['host_name'], 'units': row['units'],
                            'value': repr(float(row['value'])),
+                           'data_reference': f'the point analysed: calibration workflow '
+                                             f'{self.workflow.name}, step {row["from_step"]}',
+                           **_how_set(row)}
+                          for name, row in sorted(point.items())]
+            overrides += [{'variable_name': row['host_name'], 'units': row['units'],
+                           'value': repr(float(row['value'])),
                            'data_reference': f'start of the fit: calibration workflow '
                                              f'{self.workflow.name}, step {row["from_step"]}'}
                           for name, row in sorted(start.items())]
@@ -589,7 +606,7 @@ class _Run:
                 settings)
         model_rows = {r['variable_name']: r
                       for r in read_parameter_rows(generated['parameters_path'])}
-        for name, row in fixed.items():
+        for name, row in {**fixed, **point}.items():
             if name not in model_rows:
                 raise WorkflowError(
                     f'step "{step.id}": the value fixed from "{row["from_step"]}" for '
@@ -1239,17 +1256,20 @@ class _Run:
     def merge(self, order, generate_target=True, write_calibrated=False):
         results = {s.id: self.step_result(s.id) for s in self.workflow.steps}
         merged = {}
+        claimed = {}
         for step in order:
             result = results.get(step.id)
             if not result or result.get('status') != 'done':
                 continue
             for record in target_values(step, result):
+                claimed.setdefault(record['target_model_name'], []).append(step.id)
                 merged[record['target_model_name']] = {
                     'model_name': record['target_model_name'],
                     'host_name': record['target_host_name'],
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id, **_how_set(record)}
+        warn_reduced_recalibrated(self.workflow, claimed)
         complete = all(r and r.get('status') == 'done' for r in results.values())
         target = self.resolved.target
         workflow_result = {
@@ -1530,7 +1550,7 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
         place = pf.name_path(name, kind)
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
         leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
-                                  '%.10g' % record['value'],
+                                  repr(float(record['value'])),
                                   f'{how} workflow {workflow_name}, step '
                                   f'{record["from_step"]} ({today})')
         # a set step's value: origin set_by_hand, with its reason
@@ -1752,8 +1772,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     """Generate the model one tab of a workflow shows, from whatever results exist so far.
 
     ``view`` is a step id, or ``'target'`` for the workflow's target. A step's model gets
-    the values its ``fixed_from`` steps calibrated (those that have run into ``output_dir``)
-    and, with ``with_own_results``, its own calibrated values once it has run. The target
+    the values its ``fixed_from`` and ``result_from`` steps calibrated (those that have run
+    into ``output_dir``) and, with ``with_own_results``, its own calibrated values once it has
+    run. The target
     gets every calibrated value there is, mapped into its naming. Nothing is calibrated, and
     nothing in ``output_dir`` is written but the model, under ``work_dir`` (which may be
     ``<output_dir>/models``, :data:`MODELS_DIR`, a folder no step's output can have).
@@ -1761,9 +1782,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     Returns ``{view, kind ('step' or 'target'), target, submodule_path, model_path,
     flat_model_path (one self-contained CellML file), parameters_path, obs_data_path, params_for_id_path, fixed, calibrated, waiting_for,
     stale, result, param_id_output_dir}``. ``fixed`` lists the values given by earlier
-    steps; ``calibrated`` the view's own (for the target, the merged set: each value from the
-    last step that set it, with ``origin`` and ``reason`` when it was set by hand);
-    ``waiting_for``
+    steps, but not ``result_from``'s values of the parameters the step analyses; ``calibrated``
+    the view's own (for the target, the merged set: each value from the last step that set it,
+    with ``origin`` and ``reason`` when it was set by hand); ``waiting_for``
     the steps whose results it should have but that have not run; ``stale`` those whose
     inputs changed since they ran. obs_data / params_for_id are None when the parameterisation has
     none (a target with no step of its own). For the target, ``step_id``, its obs_data,
@@ -1814,7 +1835,12 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         rs = resolved.steps[step.id]
         place = rs.place
         base_rows = rs.base_rows
-        for source_id in step.fixed_from:
+        # as the run gives them (_Run._prepare): result_from's values of the step's own
+        # parameters are the point it analyses, in its model but not listed as fixed
+        own = set()
+        if step.result_from and step.params_for_id:
+            own = run.own_parameters(step, step.params_for_id)
+        for source_id in step.fixed_from + ([step.result_from] if step.result_from else []):
             result = available(source_id)
             if result is None:
                 continue
@@ -1827,6 +1853,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                 origin = record.get('from_step', source_id)
                 overrides[naming.host_row_name(vessel, record['param'])] = (
                     {'value': record['value'], 'units': record.get('units', '')}, origin)
+                if source_id == step.result_from and name in own:
+                    continue
+                fixed = [f for f in fixed if f['model_name'] != name]
                 fixed.append({'model_name': name, 'value': record['value'],
                               'units': record.get('units', ''), 'from_step': origin})
         own_step = step

@@ -344,7 +344,10 @@ def test_a_cellml_calibration_recovers_the_values_and_writes_the_calibrated_cell
         lv, 'lotka_volterra_calibrated_parameters.json')
     assert result['calibrated_model_file'] == os.path.join(lv, 'lotka_volterra_calibrated.cellml')
     written = _constants(result['calibrated_model_file'])
-    assert written[_ALPHA] == pytest.approx(merged[_ALPHA], rel=1e-9)
+    # every value at full precision, as the step's own calibrated CellML has it
+    assert written[_ALPHA] == merged[_ALPHA] == _constants(calibrated)[_ALPHA]
+    values = _read_json(result['calibrated_parameters_file'])['Lotka_Volterra_module']
+    assert values['gamma']['value'] == merged[_GAMMA]
     assert written['Lotka_Volterra_module/beta'] == 0.2
     # one writer (param_id.calibrated_model): each CellML written keeps the source's form,
     # only the calibrated values changed
@@ -406,7 +409,7 @@ def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
 
 
 @pytest.mark.integration
-def test_mcmc_at_a_result_runs_no_optimiser_and_stores_a_chain(lv, tmp_path):
+def test_mcmc_at_a_result_runs_no_optimiser_and_stores_a_chain(lv, tmp_path, capfd):
     out = str(tmp_path / 'run')
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.0, 'reason': 'the truth'},
@@ -415,8 +418,12 @@ def test_mcmc_at_a_result_runs_no_optimiser_and_stores_a_chain(lv, tmp_path):
     off['settings']['UQ_options']['posterior_predictive'] = False
     run_calibration_workflow(_write(lv, _raw([hand, _uq(result_from='hand'), off])),
                              output_dir=out)
+    # an MCMC optimises nothing, so it announces no optimiser defaults
+    assert 'No optimiser options provided' not in capfd.readouterr().out
     uq = _step(out, 'uq')
     assert uq['method'] == 'mcmc' and uq['at'] == [4.0, 2.5] and uq['at_source'] == 'hand'
+    # the values it analyses are its point, not fixed values
+    assert uq['parameters'] == [_ALPHA, _GAMMA] and uq['fixed'] == []
     # no calibration ran: no best fit, no optimiser's run directory
     assert 'best_fit' not in uq and uq['calibrated'] == []
     runs = [name for name in os.listdir(uq['uq_output_dir'])
@@ -499,7 +506,7 @@ def test_do_uq_with_the_laplace_method_runs_it_after_the_fit(lv, tmp_path):
 
 
 @pytest.mark.integration
-def test_local_sensitivity_and_identifiability_record_their_point(lv, tmp_path):
+def test_local_sensitivity_and_identifiability_record_their_point(lv, tmp_path, capfd):
     out = str(tmp_path / 'run')
     settings = dict(_FAST, ia_options={'method': 'Laplace'})
     raw = _raw([_fit(), {'id': 'local', 'kind': 'sensitivity', 'model': _model(),
@@ -511,8 +518,13 @@ def test_local_sensitivity_and_identifiability_record_their_point(lv, tmp_path):
                 {'id': 'ia-own', 'kind': 'identifiability', 'model': _model(),
                  'obs_data': _OBS, 'params_for_id': _PARAMS}], settings)
     run_calibration_workflow(_write(lv, raw), output_dir=out)
+    # num_samples and sample_type are Sobol's: a local analysis announces no defaults of them
+    printed = capfd.readouterr().out
+    assert 'No num_samples specified' not in printed and 'No sample_type' not in printed
     best = _step(out, 'fit')['best_fit']
     local = _step(out, 'local')['nominal']
+    # fit's values of what local analyses are its nominal point, not fixed values
+    assert _step(out, 'local')['fixed'] == []
     assert local['source'] == 'fit' and local['parameters'] == [_ALPHA, _GAMMA]
     assert local['values'] == pytest.approx(best)
     own = _step(out, 'local-own')['nominal']
@@ -594,7 +606,8 @@ def test_a_cellml_model_is_packed_with_its_imports_and_parameters(lv, tmp_path):
     dest = str(tmp_path / 'pack')
     packed = pack_workflow(path, dest)
     raw = _read_json(packed['workflow'])
-    home = os.path.join('inputs', '_target', 'lv')
+    # in inputs/_target itself: the name of the folder it came from means nothing in the pack
+    home = os.path.join('inputs', '_target')
     assert raw['target'] == {'cellml_model_path': os.path.join(home, _MODEL),
                              'parameters': os.path.join('inputs', '_target', 'values.json')}
     assert raw['steps'][0]['model'] == raw['target']
@@ -602,6 +615,25 @@ def test_a_cellml_model_is_packed_with_its_imports_and_parameters(lv, tmp_path):
     # the pack resolves alone: the imports are where the CellML names them
     reloaded = resolve_workflow(load_workflow(packed['workflow']))
     assert reloaded.target.parameters['Lotka_Volterra_module/beta'] == 0.25
+
+
+@pytest.mark.unit
+def test_the_command_names_every_step_kind_and_every_file_it_writes(monkeypatch, capsys):
+    import libcuflynx.calibration_workflow as cw
+    from libcuflynx.scripts.calibration_workflow_run_script import build_parser, run
+    parser = build_parser()
+    assert all(word in parser.description for word in (
+        'calibration', 'sensitivity', 'reduction', 'emulator', 'identifiability', '(uq)',
+        'set step', 'sweep'))
+    assert '<model>_calibrated.cellml' in ' '.join(parser.format_help().split())
+    result = {'workflow_name': 'lv', 'complete': True, 'merged_parameters': [],
+              'calibrated_parameters_file': '/x/lv_calibrated_parameters.json',
+              'calibrated_model_file': '/x/lotka_volterra_calibrated.cellml'}
+    monkeypatch.setattr(cw, 'run_calibration_workflow', lambda *a, **k: result)
+    run(parser.parse_args(['workflow.json', '--write-calibrated']))
+    printed = capsys.readouterr().out
+    assert '[workflow] wrote /x/lv_calibrated_parameters.json' in printed
+    assert '[workflow] wrote /x/lotka_volterra_calibrated.cellml' in printed
 
 
 @pytest.mark.unit

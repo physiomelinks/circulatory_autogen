@@ -103,13 +103,14 @@ class _Packer:
 
     def cellml(self, source):
         '''Copy a CellML model, and the files it imports at their paths relative to it, into
-        ``inputs/_target/<its directory>/``; the CellML's path in the pack.'''
+        ``inputs/_target/`` (a CellML target is every step's model, so it is the pack's one
+        CellML model); the CellML's path in the pack.'''
         from libcuflynx.calibration_workflow.cellml_files import cellml_imports
         real = os.path.realpath(source)
         if real in self.packed:
             return self.packed[real]
         directory = os.path.dirname(real)
-        home = os.path.join(INPUTS_DIR, TARGET_OWNER, os.path.basename(directory))
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER)
         for path in [real] + cellml_imports(real):
             relative = os.path.relpath(path, directory)
             if relative.startswith(os.pardir):

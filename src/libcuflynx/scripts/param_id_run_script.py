@@ -13,7 +13,8 @@ import os
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
-from libcuflynx.param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner, mcmc_object
+from libcuflynx.param_id.paramID import (CVS0DParamID, DEFAULT_OPTIMISER_OPTIONS,
+                                         ensure_mle_cost_type_for_bayesian_inner, mcmc_object)
 from libcuflynx.scripts import _cli
 import yaml
 import numpy as np
@@ -248,7 +249,10 @@ def run_uq(inp_data_dict, best_param_vals, method='mcmc'):
         return {'method': method, 'uq_output_dir': engine.uq_output_dir, 'mean': None,
                 'covariance': None, 'engine': engine}
     if method == 'laplace':
-        engine = _engine(inp_data_dict, mcmc_instead=False)
+        # the engine only evaluates the cost here: its optimiser defaults go unannounced
+        engine = _engine(dict(inp_data_dict, optimiser_options=(
+            inp_data_dict.get('optimiser_options') or dict(DEFAULT_OPTIMISER_OPTIONS))),
+            mcmc_instead=False)
         mean, covariance = _laplace(inp_data_dict, engine, best,
                                     inp_data_dict['param_id_output_dir'])
         return {'method': method, 'uq_output_dir': inp_data_dict['param_id_output_dir'],
