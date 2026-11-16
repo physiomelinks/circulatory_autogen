@@ -97,6 +97,10 @@ number of vessels at a node (node sums #609, node rule D #617).
   See "Building a workflow in Python" in the parameter-identification docs.
 - `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
   to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, extra imports,
+  the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one `def` per
+  function): `funcs_file_source`, `write_funcs_file` and `read_funcs_file`, for
+  `add_operation` and for CUFLynx's "Custom funcs" dialog.
 - A workflow step's recorded inputs include the user function files it runs with
   (`operation_funcs_external_path`, `cost_funcs_external_path`,
   `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run

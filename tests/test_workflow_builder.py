@@ -17,7 +17,7 @@ import pytest
 from libcuflynx.calibration_workflow import (WorkflowBuilder, WorkflowError, library_module,
                                              load_workflow, module_array, pack_workflow, prior,
                                              scale_value, select, set_value)
-from libcuflynx.calibration_workflow.builder import function_block
+from libcuflynx.calibration_workflow.builder import function_source
 from libcuflynx.calibration_workflow.runner import STEP_RESULT, workflow_status
 from libcuflynx.external_testing.workflow_library import (EMULATOR_SETTINGS, IA_OPTIONS,
                                                           OPTIMISER_SETTINGS, SA_OPTIONS,
@@ -25,6 +25,7 @@ from libcuflynx.external_testing.workflow_library import (EMULATOR_SETTINGS, IA_
                                                           build_workflow_library)
 from libcuflynx.param_id.operation_funcs import series_to_constant
 from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA, load_schema
+from libcuflynx.utilities.user_funcs_file import HEADERS, read_funcs_file
 
 LIBRARY_WORKFLOWS = ('twin_split', 'chain_rest', 'chain_analysed', 'chain_pipeline',
                      'chain_array')
@@ -351,9 +352,10 @@ def test_a_function_is_written_with_what_it_needs_and_registers_as_an_operation(
         wf.add_operation(cell['half_mean'])
     wf.add_operation(cell['half_mean'], cell['_peak_count'])
     source = wf.funcs_source()
-    assert 'import scipy.signal as signal' in source
-    assert 'half_mean.series_to_constant = True' in source        # set after the def
-    assert source.count('series_to_constant = True') == 1          # double_mean's decorator
+    # the marker set after half_mean's def is written as its decorator
+    assert '@series_to_constant\ndef half_mean' in source
+    assert '@series_to_constant\ndef double_mean' in source
+    assert source.startswith(HEADERS['operation'])
     path = os.path.join(wf.directory, 'funcs_operation_funcs.py')
     assert wf.settings['operation_funcs_external_path'] == path
     os.makedirs(wf.directory)
@@ -365,6 +367,11 @@ def test_a_function_is_written_with_what_it_needs_and_registers_as_an_operation(
     assert funcs['half_mean'](x) == pytest.approx(cell['half_mean'](x)) == 1.0
     assert funcs['half_mean'].series_to_constant and funcs['double_mean'].series_to_constant
     assert '_peak_count' not in funcs
+    # the layout CUFLynx's funcs dialog reads: the listed functions, and the extra imports
+    sources, imports = read_funcs_file(path, 'operation')
+    assert list(sources) == ['double_mean', 'half_mean', '_peak_count']
+    assert imports == ['import scipy.signal as signal']
+    assert 'CUFLYNX_OPERATIONS = ["double_mean", "half_mean", "_peak_count"]' in source
 
     # a builder loaded from the file keeps the functions and can add more
     wf.add_calibration('fit_a', obs_data='x.json', params_for_id='y.json')
@@ -396,7 +403,7 @@ def test_functions_that_cannot_live_in_a_file_are_refused(tmp_path):
     wf.update_settings(operation_funcs_external_path=str(tmp_path / 'mine.py'))
     with pytest.raises(WorkflowError, match='already names operation_funcs_external_path'):
         wf.add_operation(double_mean)
-    assert 'def double_mean' in function_block(double_mean)
+    assert 'def double_mean' in function_source(double_mean)[0]
 
 
 # --------------------------------------------------------------------------------------------
@@ -504,3 +511,58 @@ def test_two_ranks_run_the_written_workflow_with_its_operation(library, tmp_path
     result = wf.run(ranks=2)
     assert result['complete']
     assert _calibrated(wf, 'double') == pytest.approx(np.sqrt(Y_A / 4), rel=1e-4)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('kind', ['operation', 'cost', 'modifier'])
+def test_each_kind_of_functions_file_defines_its_header_names_and_registers(kind, tmp_path):
+    """utilities.user_funcs_file is the one layout of a functions file (CUFLynx's dialog
+    writes it too): its header defines the names HEADER_NAMES says, and libcuflynx registers
+    the functions below it, not the header's decorators."""
+    from libcuflynx.calibration_workflow.builder import _is
+    from libcuflynx.utilities.user_funcs_file import HEADER_NAMES, write_funcs_file
+    namespace = {}
+    exec(HEADERS[kind], namespace)
+    for name, spec in HEADER_NAMES[kind].items():
+        assert _is(namespace[name], spec), name
+    sources = {
+        'operation': {'span': '@series_to_constant\ndef span(x, series_output=False):\n'
+                              '    return x if series_output else np.max(x) - np.min(x)\n'},
+        'cost': {'abs_cost': '@differentiable\ndef abs_cost(output, desired_mean):\n'
+                             '    return mb.sum(mb.abs(output - desired_mean))\n'},
+        'modifier': {'shift': '@modifier_func(inputs={})\ndef shift(theta, baseline):\n'
+                              '    return baseline + theta\n'}}[kind]
+    path = write_funcs_file(str(tmp_path / f'{kind}_funcs.py'), kind, sources)
+    if kind == 'operation':
+        from libcuflynx.param_id.operation_funcs import get_operation_funcs_dict_for_mode
+        funcs = get_operation_funcs_dict_for_mode('numpy', external_path=path)
+        assert funcs['span'](np.array([1.0, 4.0])) == 3.0
+        assert 'series_to_constant' not in funcs and 'differentiable' not in funcs
+    elif kind == 'cost':
+        from libcuflynx.funcs.cost_funcs_user import cost_func_metadata
+        metadata = cost_func_metadata(external_path=path)
+        assert metadata['abs_cost']['differentiable'] and 'is_MLE' not in metadata
+    else:
+        from libcuflynx.param_id.modifier_funcs import get_modifier_funcs
+        funcs = get_modifier_funcs(path)
+        assert 'shift' in funcs and 'modifier_func' not in funcs
+    assert read_funcs_file(path, kind) == (sources, [])
+
+
+def _rule(operands, tangents):
+    return tangents[0].mean()
+
+
+def mean_with_rule(x):
+    return np.mean(x)
+
+
+mean_with_rule.exact_tangent = _rule
+
+
+@pytest.mark.unit
+def test_an_exact_tangent_given_after_the_def_is_written_as_its_decorator():
+    source, imports = function_source(mean_with_rule, 'operation',
+                                      known={'mean_with_rule', '_rule'})
+    assert source.startswith('@exact_tangent(_rule)\ndef mean_with_rule(x):')
+    assert imports == ['from libcuflynx.param_id.operation_funcs import exact_tangent']

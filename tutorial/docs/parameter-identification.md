@@ -1377,9 +1377,11 @@ stale until then. `wf.run(ranks=4)` runs `mpiexec -n 4` on the file. `WorkflowBu
 edits an existing workflow file.
 
 - **Functions.** `add_operation` (and `add_cost_func`, `add_modifier_func`) copies each
-  function's source into the file, with an import for each module it uses and the
-  `series_to_constant` / `differentiable` markers set on it; the file is named in the
-  workflow's `operation_funcs_external_path`, so every rank and CUFLynx load it. A lambda, a
+  function's source into the file, with an import for each module it uses, and a marker set
+  on it after its `def` (`f.series_to_constant = True`) as its decorator. The file is named in
+  the workflow's `operation_funcs_external_path`, so every rank and CUFLynx load it, and it
+  has the layout CUFLynx's "Custom funcs" dialog writes (`libcuflynx.utilities.user_funcs_file`),
+  so either can edit it. A lambda, a
   function using a variable of the function it is defined in, and one using a value or
   function defined only in the notebook are refused: pass the helper functions to
   `add_operation` too (a name starting with `_` is not registered as an operation), and put
