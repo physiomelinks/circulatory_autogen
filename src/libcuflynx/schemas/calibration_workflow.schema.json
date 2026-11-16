@@ -492,12 +492,15 @@
         "id": {
           "type": "string",
           "pattern": "^[^/\\\\]+$",
-          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\", \"..\" or \"models\" (the run's folder of models generated for viewing)",
+          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\", nor a name the run's output directory uses itself: \"models\" (models generated for viewing), \"target\" (the target's view), \"_target\" (the generated target) or \"inputs\" (the study's copies of its inputs)",
           "not": {
             "enum": [
               ".",
               "..",
-              "models"
+              "models",
+              "target",
+              "_target",
+              "inputs"
             ]
           }
         },

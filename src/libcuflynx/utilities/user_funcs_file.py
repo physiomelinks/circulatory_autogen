@@ -11,6 +11,7 @@ the other wrote::
     import numpy as np
     from libcuflynx... import <the kind's decorators>
     mb = make_math_backend("numpy")         (operations and cost functions)
+    # libcuflynx-generated sha256: <hex>     (the checksum of the rest of the file)
 
     import scipy.signal as signal           (the imports the functions use, if any)
 
@@ -25,9 +26,16 @@ The decorators are imported, never defined, so libcuflynx registers only the fun
 them (``param_id.external_funcs.register_funcs_from_file`` keeps the callables whose module is
 the file). :func:`read_funcs_file` reads such a file back: its functions (each with its
 decorators) in order, and the imports beyond the header's.
+
+The checksum line is a comment, so Python and any reader of the functions ignore it. It is the
+sha256 of the file without that line: while it matches (:func:`is_unedited`), the file is
+exactly what a writer generated and can be generated again without losing anything. A file
+holds only the header, imports and functions: :func:`unkept_statements` lists what a rewrite
+would drop (constants, classes), so a writer can refuse instead.
 '''
 
 import ast
+import hashlib
 import os
 
 #: the kinds of user function file and the setting each is named by
@@ -145,21 +153,48 @@ HEADER_NAMES = {
 }
 
 
+#: the start of the comment line that holds a generated file's checksum
+CHECKSUM_PREFIX = '# libcuflynx-generated sha256: '
+
+
+def _split_checksum(text):
+    '''``(recorded checksum or None, text without its checksum line)``, line ends as \\n.'''
+    lines = text.replace('\r\n', '\n').split('\n')
+    recorded = [line[len(CHECKSUM_PREFIX):].strip() for line in lines
+                if line.startswith(CHECKSUM_PREFIX)]
+    rest = '\n'.join(line for line in lines if not line.startswith(CHECKSUM_PREFIX))
+    return (recorded[0] if len(recorded) == 1 else None), rest
+
+
+def _checksum(rest):
+    return hashlib.sha256(rest.encode('utf-8')).hexdigest()
+
+
+def is_unedited(text):
+    '''True when ``text`` (a functions file's content) is as a writer generated it: it
+    records a checksum and the rest of it still has that checksum.'''
+    recorded, rest = _split_checksum(text)
+    return recorded is not None and recorded == _checksum(rest)
+
+
 def funcs_file_source(kind, sources, imports=()):
-    '''The text of a ``kind`` (operation, cost, modifier) functions file.
+    '''The text of a ``kind`` (operation, cost, modifier) functions file, with its checksum
+    line after the header.
 
     Args:
         sources: ``{name: source}``, each one top-level ``def`` with its decorators, in order.
         imports: import statements the functions use, beyond the header's.
     '''
     names = ', '.join(f'"{name}"' for name in sources)
-    parts = [HEADERS[kind].rstrip('\n')]
+    header = HEADERS[kind].rstrip('\n')
+    parts = []
     if imports:
         parts += ['', '# what the functions below use'] + list(dict.fromkeys(imports))
     parts += ['', '', f'{LIST_MARKERS[kind]} = [{names}]']
     for source in sources.values():
         parts += ['', '', source.strip('\n')]
-    return '\n'.join(parts) + '\n'
+    body = '\n'.join(parts) + '\n'
+    return f'{header}\n{CHECKSUM_PREFIX}{_checksum(header + chr(10) + body)}\n{body}'
 
 
 def write_funcs_file(path, kind, sources, imports=()):
@@ -171,7 +206,7 @@ def write_funcs_file(path, kind, sources, imports=()):
             if f.read() == text:
                 return path
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = f'{path}.tmp'
+    tmp = f'{path}.{os.getpid()}.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         f.write(text)
     os.replace(tmp, path)
@@ -207,3 +242,29 @@ def read_funcs_file(path, kind):
     ordered = {name: sources[name] for name in order if name in sources}
     ordered.update({name: s for name, s in sources.items() if name not in ordered})
     return ordered, imports
+
+
+def unkept_statements(path, kind):
+    '''The top-level statements of the functions file ``path`` that :func:`read_funcs_file`
+    does not return, so a rewrite from what it returns would drop them: everything but the
+    header (its docstring, imports and ``mb``), the list marker, imports and ``def``
+    functions. Each as ``"<first line> (line N)"``.'''
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    tree = ast.parse(text)
+    lines = text.splitlines()
+    header = {ast.dump(node) for node in ast.parse(HEADERS[kind]).body}
+    marker = LIST_MARKERS[kind]
+    unkept = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef)) \
+                or ast.dump(node) in header:
+            continue
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == marker
+                                                for t in node.targets):
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) \
+                and node is tree.body[0]:
+            continue                      # another writer's header docstring
+        unkept.append(f'{lines[node.lineno - 1].strip()} (line {node.lineno})')
+    return unkept
