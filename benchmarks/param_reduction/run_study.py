@@ -9,7 +9,8 @@
 2. The simple reduction: top-n by max ST, n the number the PCA reduction kept.
 3. CMA-ES calibrations against the series of all the parameters (``full``) and of each
    reduction, one per seed, through ``run_param_id``. The parameters a reduction drops keep
-   the model's defaults.
+   the model's defaults. A reduction that keeps the same parameters as a method run before it
+   reuses that method's fits.
 
 Each stage writes its result into ``<out>`` and is skipped when that result is there, so a
 stopped study resumes.
@@ -72,14 +73,29 @@ def main(argv=None):
     comm.Barrier()
 
     from libcuflynx.scripts.param_id_run_script import run_param_id
+    sets = {}
     for method in args.methods:
         params_for_id = p['params_for_id'] if method == 'full' else reduced[method]
         with open(params_for_id) as f:
             targets = [entry['targets'][0] for entry in json.load(f)['params']]
+        # a set another method already calibrates is the same calibration: reuse its fits
+        same = next((m for m, t in sets.items() if set(t) == set(targets)), None)
+        sets[method] = targets
         for seed in args.seeds:
             fit_dir = os.path.join(p['fits'], f'{method}_s{seed}')
             result = os.path.join(fit_dir, 'result.json')
             if os.path.isfile(result):
+                continue
+            if same is not None:
+                if rank == 0:
+                    with open(os.path.join(p['fits'], f'{same}_s{seed}', 'result.json')) as f:
+                        reused = json.load(f)
+                    os.makedirs(fit_dir, exist_ok=True)
+                    with open(result, 'w') as f:
+                        json.dump(dict(reused, method=method, same_as=f'{same}_s{seed}'), f,
+                                  indent=1)
+                    say(f'{method}, seed {seed}: the same parameters as {same}, reused')
+                comm.Barrier()
                 continue
             say(f'calibrating {method}, seed {seed}: {targets}')
             run = run_param_id(raw_inputs(
