@@ -1355,7 +1355,7 @@ checked against the schema when it is added; `model` defaults to the target.
 `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
 `add_identifiability`, `add_set` and `add_sweep` make the [step kinds](#step-kinds), and
 `add_step(id, kind=..., **keys)` any step. `library_module(type, version, parameterisation)`,
-`module_array(path, parameters=None)`, `select(*instances)`, `prior(step, kind=, inflate=,
+`module_array(path, parameters=None)`, `selection(*instances)`, `prior(step, kind=, inflate=,
 parameters=)`, `set_value(parameter, value, reason=)` and `scale_value(parameter, scale, of=,
 reason=)` give a step's model, priors and set entries. Adding a step with an id that exists
 replaces it, so a cell can be run again; a dict is copied when it is added.
@@ -1380,8 +1380,11 @@ edits an existing workflow file.
   function's source into the file, with an import for each module it uses, and a marker set
   on it after its `def` (`f.series_to_constant = True`) as its decorator. The file is named in
   the workflow's `operation_funcs_external_path`, so every rank and CUFLynx load it, and it
-  has the layout CUFLynx's "Custom funcs" dialog writes (`libcuflynx.utilities.user_funcs_file`),
-  so either can edit it. A lambda, a
+  has the layout of CUFLynx's "Custom funcs" dialog (`libcuflynx.utilities.user_funcs_file`).
+  The builder rewrites it from the functions it was given, so it refuses to write over a
+  functions file that changed since it last wrote or read it, or one it never wrote or read:
+  edit the function where it is defined and add it again, or start from the file with
+  `WorkflowBuilder.load(path)`. A lambda, a
   function using a variable of the function it is defined in, and one using a value or
   function defined only in the notebook are refused: pass the helper functions to
   `add_operation` too (a name starting with `_` is not registered as an operation), and put
@@ -1391,7 +1394,7 @@ edits an existing workflow file.
   its reason into the provenance.
 - **Results.** `wf.step_dir(id)` is a step's output directory, `wf.plot_step(id)` plots a
   calibration's fit, and `wf.model(id)` (or `wf.model('target')`) generates the model with the
-  values found so far. Runs go to `<directory>/workflow_output/<name>` unless `output_dir` is
+  values found so far, under the run's `models/<id>/`. Runs go to `<directory>/workflow_output/<name>` unless `output_dir` is
   given.
 
 ### The file
@@ -1681,6 +1684,7 @@ prior.
     <step_id>/<step_id>_laplace_*.npy an identifiability step's Laplace mean and covariance (also in step_result.json)
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
+    models/<view>/                    a model generated for viewing (WorkflowBuilder.model); no step is named models
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
     inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```

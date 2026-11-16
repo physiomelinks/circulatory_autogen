@@ -97,7 +97,7 @@ def external_model(path):
     return {'external_model_path': os.fspath(path)}
 
 
-def select(*instances):
+def selection(*instances):
     '''A step model that is a selection of the target's instances (record names, or paths into
     a super instance such as ``heart/lv``).'''
     if len(instances) == 1 and isinstance(instances[0], (list, tuple)):
@@ -190,6 +190,8 @@ class WorkflowBuilder:
         self._order = None
         self._funcs = {kind: {} for kind in FUNCS_SETTINGS}
         self._imports = {kind: [] for kind in FUNCS_SETTINGS}
+        # the text of each functions file as this builder last wrote or read it
+        self._funcs_seen = {kind: None for kind in FUNCS_SETTINGS}
 
     @classmethod
     def load(cls, path):
@@ -217,10 +219,13 @@ class WorkflowBuilder:
                 self._head[key] = value
         self._head.setdefault('module_library_dirs', [])
         self._imports = {kind: [] for kind in FUNCS_SETTINGS}
+        self._funcs_seen = {kind: None for kind in FUNCS_SETTINGS}
         for kind in FUNCS_SETTINGS:
-            if os.path.isfile(self._funcs_path(kind)):
-                self._funcs[kind], self._imports[kind] = \
-                    read_funcs_file(self._funcs_path(kind), kind) or ({}, [])
+            read = (read_funcs_file(self._funcs_path(kind), kind)
+                    if os.path.isfile(self._funcs_path(kind)) else None)
+            if read is not None:
+                self._funcs[kind], self._imports[kind] = read
+                self._funcs_seen[kind] = self._funcs_on_disk(kind)
         return self
 
     @property
@@ -270,14 +275,15 @@ class WorkflowBuilder:
 
     def add_reduction(self, id, *, sensitivity_from, method='pca', n_params=None,
                       index_type=None, criterion=None, threshold=None, min_mode_std=None,
-                      variance_fraction=None, min_index=None, description=None, comment=None):
+                      variance_fraction=None, min_index=None, redundancy_check=None,
+                      description=None, comment=None):
         '''A reduction: the parameters a later step fits (``params_for_id_from``), chosen by
         the Sobol indices of ``sensitivity_from``. Options left as None take the schema's
         defaults.'''
         options = {k: v for k, v in dict(
             method=method, n_params=n_params, index_type=index_type, criterion=criterion,
             threshold=threshold, min_mode_std=min_mode_std, variance_fraction=variance_fraction,
-            min_index=min_index).items() if v is not None}
+            min_index=min_index, redundancy_check=redundancy_check).items() if v is not None}
         return self.add_step(id, kind='reduction', sensitivity_from=sensitivity_from,
                              settings={'param_reduction_options': options},
                              **_given({'description': description, 'comment': comment}))
@@ -383,19 +389,46 @@ class WorkflowBuilder:
         if any(p != path for p in named):
             raise WorkflowError(
                 f'workflow "{self.name}" already names {key} {sorted(set(named) - {path})}, so '
-                f'add_{"operation" if kind == "operation" else kind + "_func"} cannot add its '
+                f'{_adder(kind)} cannot add its '
                 f'own file: a workflow takes one {kind} functions file. Add these functions to '
                 f'that file, or remove the setting.')
         if os.path.isfile(path) and not self._funcs[kind] and \
                 read_funcs_file(path, kind) is None:
             raise WorkflowError(f'{path} exists and is not a {kind} functions file; move it, '
                                 f'or name it in {key} instead.')
+        self._refuse_changed_funcs_file(kind)
         known = set(self._funcs[kind]) | {f.__name__ for f in funcs}
         for func in funcs:
             source, imports = function_source(func, kind, known)
             self._funcs[kind][func.__name__] = source
             self._imports[kind] = list(dict.fromkeys(self._imports[kind] + imports))
         self.settings[key] = path
+
+    def _funcs_on_disk(self, kind):
+        path = self._funcs_path(kind)
+        if not os.path.isfile(path):
+            return None
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+
+    def _refuse_changed_funcs_file(self, kind, text=None):
+        '''A WorkflowError when the ``kind`` functions file on disk is not the one this builder
+        last wrote or read (so writing would lose its changes), unless it is already ``text``.'''
+        disk = self._funcs_on_disk(kind)
+        if disk is None or disk == text or disk == self._funcs_seen[kind]:
+            return
+        path, adder = self._funcs_path(kind), _adder(kind)
+        if self._funcs_seen[kind] is None:
+            raise WorkflowError(
+                f'{path} exists, and this builder did neither write nor read it, so {adder} '
+                f'would replace what is in it. Start from it with '
+                f'WorkflowBuilder.load({self.path!r}) and add the functions again, or remove '
+                f'it.')
+        raise WorkflowError(
+            f'{path} has changed since this builder last wrote or read it, and writing would '
+            f'lose that change. Edit the function where it is defined and add it again with '
+            f'{adder}, or call WorkflowBuilder.load({self.path!r}) again to start from the '
+            f'file as it is.')
 
     def _funcs_path(self, kind):
         safe = re.sub(r'[^\w.-]+', '_', self.name).strip('_') or 'workflow'
@@ -450,12 +483,16 @@ class WorkflowBuilder:
         workflow file's path. A file whose content is unchanged is not rewritten.'''
         raw = self.to_dict()
         parse_workflow(copy.deepcopy(raw), path=self.path)
+        texts = {kind: self.funcs_source(kind) for kind in FUNCS_SETTINGS}
+        for kind, text in texts.items():
+            if text is not None:
+                self._refuse_changed_funcs_file(kind, text)
         for relative, text in self._data_files()[0].items():
             _write_if_changed(os.path.join(self.directory, relative), text)
-        for kind in FUNCS_SETTINGS:
-            text = self.funcs_source(kind)
+        for kind, text in texts.items():
             if text is not None:
                 _write_if_changed(self._funcs_path(kind), text)
+                self._funcs_seen[kind] = text
         _write_if_changed(self.path, json.dumps(raw, indent=1) + '\n')
         return self.path
 
@@ -534,11 +571,12 @@ class WorkflowBuilder:
     def model(self, view, output_dir=None, work_dir=None):
         '''The model of step ``view``, or of ``"target"``, with the values found so far
         (:func:`workflow_model`), generated under ``work_dir`` (default
-        ``<output_dir>_models``).'''
-        from libcuflynx.calibration_workflow.runner import workflow_model
+        ``<output_dir>/models/<view>``).'''
+        from libcuflynx.calibration_workflow.runner import MODELS_DIR, workflow_model
         output_dir = os.fspath(output_dir or self.output_dir)
         return workflow_model(self.write(), view, output_dir=output_dir,
-                              work_dir=os.fspath(work_dir or output_dir + '_models'))
+                              work_dir=os.fspath(work_dir or os.path.join(output_dir,
+                                                                          MODELS_DIR)))
 
     def step_dir(self, id, output_dir=None):
         '''The output directory of step ``id``.'''
@@ -708,6 +746,10 @@ class WorkflowBuilder:
         return out
 
 
+def _adder(kind):
+    return 'add_operation' if kind == 'operation' else f'add_{kind}_func'
+
+
 def _given(values, model_default=False):
     '''The keyword arguments of an ``add_*`` call that were given, as raw step keys.'''
     out = {}
@@ -868,7 +910,7 @@ def function_source(func, kind='operation', known=()):
             imports.append(line)
     if refused:
         why = '; '.join(f'{n!r} {reason}' for n, reason in refused)
-        adder = 'add_operation' if kind == 'operation' else f'add_{kind}_func'
+        adder = _adder(kind)
         raise WorkflowError(
             f'{name} cannot be written to a functions file: {why}. The file is imported on its '
             f'own, so a function it uses goes to {adder} '
