@@ -82,7 +82,9 @@ def _mixed_1d_0d_summing_ports(row, vessels_df):
                 continue
             others = []
             for name in neighbours:
-                if types.get(name, "FV1D_vessel") == "FV1D_vessel":
+                # a 1D vessel is not a 0D neighbour, and a name missing from vessels_df has no
+                # ports to read here
+                if name not in types or types[name] == "FV1D_vessel":
                     continue
                 match = vessels_df.loc[vessels_df["name"] == name].iloc[0]
                 if any(p.get("port_type") == port.get("port_type")
