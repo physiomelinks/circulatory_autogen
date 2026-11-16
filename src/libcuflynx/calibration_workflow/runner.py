@@ -70,6 +70,10 @@ from libcuflynx.utilities.paths import git_state, repo_root
 STEP_RESULT = 'step_result.json'
 # the inputs of a step that are not one file: their digests are in its recorded inputs
 SETTINGS_INPUT = 'settings'
+#: the inputs that are a step's user function files, and the settings naming them
+FUNCS_INPUTS = {'operation_funcs': 'operation_funcs_external_path',
+                'cost_funcs': 'cost_funcs_external_path',
+                'modifier_funcs': 'modifier_funcs_external_path'}
 LIBRARY_INPUT = 'module_library'
 #: the files of a module library a model is generated from
 LIBRARY_FILE_SUFFIXES = ('.cellml', '_modules_config.json', '_parameters.json')
@@ -268,6 +272,12 @@ class _Run:
             # a selection starts from the target's values
             files['target_parameters'] = self.workflow.target.parameters
             files['target_module_array'] = self.workflow.target.module_array
+        # the user function files the step runs with (a result recorded without them is not
+        # stale for that: changed_inputs compares only the keys a result has)
+        merged = self.workflow.step_settings(rs.step)
+        for key, setting in FUNCS_INPUTS.items():
+            if merged.get(setting) and os.path.isfile(merged[setting]):
+                files[key] = merged[setting]
         return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
                 SETTINGS_INPUT: settings, **self.library_input()}
 
