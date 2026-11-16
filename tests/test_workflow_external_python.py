@@ -397,7 +397,12 @@ def test_a_calibration_on_an_emulator_of_the_external_model(example, tmp_path):
     pytest.importorskip('autoemulate')
     from libcuflynx.external_testing.workflow_library import EMULATOR_SETTINGS
     raw = _fit_k(example)
-    raw['settings']['emulator_settings'] = EMULATOR_SETTINGS
+    # The library's settings are a quadratic for its linear models. The probe means are not
+    # quadratic in k over [0.05, 1]: probe 3 doubles up to k = 0.25 and then falls. So an
+    # interpolating RBF, with 64 samples (13 held out across the range, not 6 on the flat part)
+    # and 8 kernel draws: held-out R2 >= 0.97 for seeds 0-3.
+    raw['settings']['emulator_settings'] = {**EMULATOR_SETTINGS, 'num_train_samples': 64,
+                                            'n_iter': 8, 'models': 'RadialBasisFunctions'}
     obs, k_only = 'heat1d_obs_data.json', 'heat1d_k_params_for_id.json'
     raw['steps'] += [
         {'id': 'emulate', 'kind': 'emulation', 'model': external_model('heat1d_model.py'),
