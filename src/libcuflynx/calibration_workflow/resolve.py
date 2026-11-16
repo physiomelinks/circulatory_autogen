@@ -117,6 +117,52 @@ class ResolvedArray:
         return [p for p in paths if p]
 
 
+@dataclass
+class ResolvedExternal:
+    '''An external Python model: its file and the parameters ``SIM_HELPER`` declares
+    (``{'component/variable': default}``). Its vessels are the components.'''
+    model: object                  # spec.ExternalModel
+    parameters: dict
+
+    kind = 'external'
+
+    #: an external model has no parameters file of its own: its values are the class defaults
+    parameters_path = None
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.parameters}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+def read_external_parameters(path, where=''):
+    '''``{'component/variable': default}`` of the external model at ``path`` (its
+    ``SIM_HELPER.parameters``, checked as the external helper checks them). A name must be
+    ``component/variable`` with a plain component, as a workflow names it as vessel and
+    parameter.'''
+    from libcuflynx.solver_wrappers.external_simulation_helper import (_load_module_from_path,
+                                                                       _resolve_user_class)
+    if not os.path.isfile(path):
+        raise WorkflowError(f'{where}: its external model file {path} does not exist.')
+    try:
+        _, parameters, _ = _resolve_user_class(_load_module_from_path(path), path)
+    except Exception as exc:  # the user's file may raise anything on import
+        raise WorkflowError(f'{where}: cannot read the external model {path}: {exc}') from exc
+    for name in parameters:
+        component, _, variable = name.partition('/')
+        if '/' in variable or naming.LEVEL_SEPARATOR in component:
+            raise WorkflowError(f'{where}: {path} declares parameter "{name}"; a workflow names '
+                                f'an external model\'s parameters component/variable, with no '
+                                f'"/" in the variable and no "{naming.LEVEL_SEPARATOR}" in the '
+                                f'component.')
+    return parameters
+
+
 def _submodule_configs(entry, components, supermodules):
     paths = []
     for sub in entry.get('submodules', []):
@@ -291,6 +337,12 @@ def resolve_workflow(workflow):
                                      parameters=parameters, target=target,
                                      selection=selection)
         for parameter in parameters:
+            declared = f'{parameter.vessel}/{parameter.param}'
+            if model.kind == 'external' and declared not in model.parameters:
+                raise WorkflowError(
+                    f'{where}: {params_for_id or "its sweep"} names "{declared}", which the '
+                    f'external model {model.model.path} does not declare (SIM_HELPER.parameters: '
+                    f'{sorted(model.parameters)}).')
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
                     f'{where}: {params_for_id} names vessel "{parameter.vessel}", which '
@@ -350,6 +402,10 @@ def _resolve_set_step(step, target, claimed):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
                                 f'"{parameter.vessel}", which the target does not have (its '
                                 f'vessels: {sorted(target.vessels)}).')
+        if target.kind == 'external' and entry['parameter'] not in target.parameters:
+            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not declared by '
+                                f'the external model {target.model.path} (SIM_HELPER.parameters: '
+                                f'{sorted(target.parameters)}).')
         resolved.parameters.append(parameter)
         claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
     return resolved
@@ -369,6 +425,8 @@ def _swept_parameters(step, model):
 def _resolve_model(model, components, supermodules, where):
     if model.kind == 'library':
         return _resolve_parameterisation(model, components, supermodules, where)
+    if model.kind == 'external':
+        return ResolvedExternal(model=model, parameters=read_external_parameters(model.path, where))
     try:
         refuse_csv(model.parameters, f'{where}: ')
     except ValueError as exc:
@@ -385,6 +443,8 @@ def _resolve_model(model, components, supermodules, where):
 
 def _vessel_map(step, model, workflow_target, target, supermodules):
     '''How the step's model is named in the target (see the module docstring).'''
+    if model.kind == 'external':
+        return naming.Renamed({}, model.vessels)    # the target is the same file
     if model.kind == 'array':
         mapping = dict(step.vessel_map)
         if target.kind == 'library':

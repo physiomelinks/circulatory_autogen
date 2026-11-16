@@ -267,8 +267,10 @@ class _Run:
             del files['obs_data']         # a sweep without one
         if not files['params_for_id'] or not os.path.isfile(files['params_for_id']):
             del files['params_for_id']    # a sweep's, or a reduction's not yet written
-        if os.path.isfile(rs.model.parameters_path):
+        if rs.model.parameters_path and os.path.isfile(rs.model.parameters_path):
             files['parameters'] = rs.model.parameters_path
+        if rs.model.kind == 'external':
+            files['external_model'] = rs.model.model.path
         if rs.model.kind == 'array':
             files['module_array'] = rs.model.model.module_array
         if rs.selection is not None:
@@ -290,7 +292,9 @@ class _Run:
         inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
                                    'sha256': step_settings_digest(self.workflow, step)}}
         if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
-            path = self.resolved.target.parameters_path
+            # an external target's values are its model file's defaults
+            path = (self.resolved.target.model.path if self.resolved.target.kind == 'external'
+                    else self.resolved.target.parameters_path)
             if os.path.isfile(path):
                 inputs['target_parameters'] = {'path': path, 'sha256': sha256(path)}
             inputs.update(self.library_input())
@@ -518,6 +522,8 @@ class _Run:
             'do_uq': step.store_distribution,
         })
         inp.update({k: v for k, v in self.resolved.library_inputs.items()})
+        if resolved.model.kind == 'external':
+            inp.update(external_inputs(settings, generated))
         if step.emulator_from:
             emulation = self.workflow.step(step.emulator_from)
             inp['use_emulator'] = True
@@ -764,6 +770,12 @@ class _Run:
         where = f'sweep step "{step.id}"'
         settings = dict({'model_type': STEP_DEFAULTS['model_type']}, **settings)
         generated, _, units, fixed, _ = self.on_root(lambda: self._prepare(step, settings))
+        if resolved.model.kind == 'external':
+            # the sweep builds its helper from solver_info, without the user_inputs parser
+            external = external_inputs(settings, generated)
+            settings = dict(settings, model_type=external['model_type'], solver=external['solver'],
+                            solver_info=dict(external['solver_info'], external_parameters_file=
+                                             external['external_parameters_file']))
 
         def at_the_model():
             rows = {r['variable_name']: r for r in read_parameter_rows(
@@ -863,7 +875,8 @@ class _Run:
     def _as_packed(self, value):
         '''A path, or each path in a model's dict, as its packed copy when it has one.'''
         if isinstance(value, dict):
-            return {k: self._as_packed(v) if k in ('module_array', 'parameters') else v
+            return {k: self._as_packed(v)
+                    if k in ('module_array', 'parameters', 'external_model_path') else v
                     for k, v in value.items()}
         if isinstance(value, str) and value:
             return self.packed_inputs().get(os.path.realpath(value), value)
@@ -1013,6 +1026,20 @@ class _Run:
         return workflow_result
 
 
+#: the model type and solver an external model runs with, whatever the settings say
+EXTERNAL_MODEL_TYPE, EXTERNAL_SOLVER = 'external_python', 'external'
+
+
+def external_inputs(settings, generated):
+    '''The user_inputs that run an external model: its model type, solver, file and the values
+    file generate_external wrote. ``solver_info`` keeps the settings' ``user_config``.'''
+    solver_info = dict(settings.get('solver_info') or {},
+                       solver=EXTERNAL_SOLVER, method=EXTERNAL_SOLVER)
+    return {'model_type': EXTERNAL_MODEL_TYPE, 'solver': EXTERNAL_SOLVER,
+            'solver_info': solver_info, 'external_model_path': generated['model_path'],
+            'external_parameters_file': generated['parameters_path']}
+
+
 def under(base_rows, overrides):
     '''``base_rows`` without those ``overrides`` set again, then ``overrides``: the rows a step
     model is generated with.'''
@@ -1136,7 +1163,7 @@ def target_generated_parameters(target, library_inputs=None, generated_path=None
             doc = pf.read_parameters_file(generated['parameters_path'])
     else:
         doc = pf.read_parameters_file(generated_path)
-    if target.kind == 'array':
+    if target.kind in ('array', 'external'):
         return doc
     module = pf.new_document()
     if pf.GLOBAL in doc:
@@ -1164,14 +1191,17 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     (``cuflynx-derive``), and the step's generated parameters file (``generated.parameters_path``
     in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
-    kind = pf.MODEL if target.kind == 'array' else pf.MODULE
+    as_model = target.kind in ('array', 'external')
+    kind = pf.MODEL if as_model else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)
-    # the target's own leaves as it writes them (a library's "sourced" kept)
-    for place, leaf in pf.leaves(pf.read_parameters_file(target.parameters_path, kind=kind)):
-        pf.set_leaf(doc, place, leaf)
+    # the target's own leaves as it writes them (a library's "sourced" kept); an external
+    # model's are its class defaults, already in doc
+    if target.parameters_path:
+        for place, leaf in pf.leaves(pf.read_parameters_file(target.parameters_path, kind=kind)):
+            pf.set_leaf(doc, place, leaf)
     today = datetime.date.today().isoformat()
     for record in merged_parameters:
-        name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
+        name = record['host_name'] if as_model else record['parameterisation_name']
         place = pf.name_path(name, kind)
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
         leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},

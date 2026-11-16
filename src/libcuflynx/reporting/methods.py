@@ -607,6 +607,9 @@ def _step_intro(step):
     if 'module_array' in m:
         what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
         where = ''
+    elif 'external_model_path' in m:
+        what = f'the external Python model {_tt(os.path.basename(m["external_model_path"]))}'
+        where = ''
     else:
         what = (f'parameterisation {_tt(m["parameterisation"])} of module '
                 f'{_tt(m["module_type"])} (version {_tt(m["version"])})')
@@ -657,6 +660,10 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     from libcuflynx.calibration_workflow import load_workflow, resolve_workflow, workflow_model
 
     workflow = load_workflow(workflow_path, module_library_dirs)
+    if workflow.target.kind == 'external':
+        raise ValueError(f'workflow "{workflow.name}": the methods are written from the target\'s '
+                         f'CellML, and its target is the external Python model '
+                         f'{workflow.target.path}.')
     resolved = resolve_workflow(workflow)
     with tempfile.TemporaryDirectory(prefix='cuflynx-methods-') as work:
         view = workflow_model(workflow, 'target', output_dir=run_dir or os.path.join(work, 'run'),

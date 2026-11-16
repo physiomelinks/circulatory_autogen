@@ -9,6 +9,8 @@ and needs only ``\\usetikzlibrary{arrows.meta}`` in the preamble;
 :mod:`libcuflynx.reporting.provenance` draws the same graph as SVG.
 '''
 
+import os
+
 from libcuflynx.reporting.latex_names import escape
 
 NODE_STYLES = {
@@ -129,12 +131,16 @@ def _model_name(model):
     if 'module_array' in model:
         from libcuflynx.calibration_workflow.spec import array_prefix
         return array_prefix(model['module_array'])
+    if 'external_model_path' in model:
+        return os.path.basename(model['external_model_path'])
     return model['module_type']
 
 
 def _model_detail(model):
     if 'module_array' in model:
         return 'module array'
+    if 'external_model_path' in model:
+        return 'external Python model'
     return f'parameterisation `{model["parameterisation"]}`'
 
 
@@ -144,6 +150,8 @@ def model_line(model):
         return f'selection `{", ".join(model["select"])}` of the target'
     if 'module_array' in model:
         return f'model `{_model_name(model)}`'
+    if 'external_model_path' in model:
+        return f'external Python model `{_model_name(model)}`'
     return f'`{model["module_type"]}`, parameterisation `{model["parameterisation"]}`'
 
 

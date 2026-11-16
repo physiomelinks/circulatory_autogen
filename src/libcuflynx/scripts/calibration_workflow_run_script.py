@@ -68,6 +68,8 @@ def _model_label(model):
         return 'no model'
     if 'module_array' in model:
         return model['module_array']
+    if 'external_model_path' in model:
+        return model['external_model_path']
     return f"{model['module_type']}/{model['version']}/{model['parameterisation']}"
 
 

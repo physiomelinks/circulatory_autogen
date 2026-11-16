@@ -104,6 +104,8 @@ _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'para
               'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
               'store_distribution', 'on_target', 'settings', 'emulator_from', 'result_from',
               'sensitivity_from', 'params_for_id_from', 'set', 'sweep')
+#: the keys of a model that are paths, relative to the workflow file when written
+_MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path')
 
 
 # --------------------------------------------------------------------------------------------
@@ -121,6 +123,12 @@ def module_array(path, parameters=None):
     if parameters is None:
         return os.fspath(path)
     return {'module_array': os.fspath(path), 'parameters': os.fspath(parameters)}
+
+
+def external_model(path):
+    '''A model that is an external Python model: a ``.py`` file defining ``SIM_HELPER``. A
+    workflow with one has it as its target and as every step's model.'''
+    return {'external_model_path': os.fspath(path)}
 
 
 def select(*instances):
@@ -195,7 +203,7 @@ class WorkflowBuilder:
     Args:
         name: the workflow's ``workflow_name``.
         target: the model the calibrated values are merged into: a module array path,
-            :func:`module_array` or :func:`library_module`.
+            :func:`module_array`, :func:`library_module` or :func:`external_model`.
         directory: where the workflow file and its data are written.
         description: the workflow's description.
         module_library_dirs: module libraries the steps' models come from.
@@ -689,16 +697,16 @@ class WorkflowBuilder:
     def _abs_model(self, model, base=None):
         if isinstance(model, (str, os.PathLike)):
             return self._abs(model, base)
-        if isinstance(model, dict) and 'module_array' in model:
-            return {k: (self._abs(v, base) if k in ('module_array', 'parameters') else v)
+        if isinstance(model, dict) and set(model) & set(_MODEL_PATH_KEYS):
+            return {k: (self._abs(v, base) if k in _MODEL_PATH_KEYS else v)
                     for k, v in model.items()}
         return model
 
     def _rel_model(self, model):
         if isinstance(model, str):
             return self._rel(model)
-        if isinstance(model, dict) and 'module_array' in model:
-            return {k: (self._rel(v) if k in ('module_array', 'parameters') else v)
+        if isinstance(model, dict) and set(model) & set(_MODEL_PATH_KEYS):
+            return {k: (self._rel(v) if k in _MODEL_PATH_KEYS else v)
                     for k, v in model.items()}
         return model
 
