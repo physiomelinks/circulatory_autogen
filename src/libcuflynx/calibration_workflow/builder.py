@@ -35,7 +35,8 @@ is rewritten only when its content changes, so the runner's change detection (th
 each input file) finds exactly the steps whose data or functions changed, and
 :meth:`~WorkflowBuilder.run` runs those and the steps after them, keeping the rest. A functions
 file carries the checksum of what was generated (``utilities.user_funcs_file``): the builder
-regenerates one nobody edited and refuses to replace one edited by hand, unless told to
+regenerates one nobody edited, but refuses to replace one edited by hand, or one holding
+functions the builder does not have (added by another writer), unless told to
 (``overwrite=True``).
 '''
 
@@ -922,9 +923,23 @@ class WorkflowBuilder:
         checksum), nor the file :meth:`load` read with everything in it kept. Not after
         ``overwrite=True``.'''
         disk = self._funcs_on_disk(kind)
-        if disk is None or disk == text or self._overwrite[kind] or is_unedited(disk):
+        if disk is None or disk == text or self._overwrite[kind]:
             return
         path, adder = self._funcs_path(kind), _adder(kind)
+        if is_unedited(disk):
+            if disk == self._funcs_seen[kind]:
+                return
+            read = read_funcs_file(path, kind)
+            held = {n.name for n in ast.parse(text).body if isinstance(n, ast.FunctionDef)}
+            missing = [n for n in (read[0] if read else {}) if n not in held]
+            if missing:
+                raise WorkflowError(
+                    f'{path} holds {missing}, which this builder does not have (another writer '
+                    f'added them), and writing would drop them. Start from '
+                    f'WorkflowBuilder.load() to keep them, or call wf.write(overwrite=True) '
+                    f'(or wf.{adder}(f, overwrite=True)) to replace the file with the '
+                    f'functions given to this builder.')
+            return
         if disk == self._funcs_seen[kind]:
             if not self._funcs_unkept[kind]:
                 return

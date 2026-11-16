@@ -1467,8 +1467,9 @@ CUFLynx load it; it has the layout of CUFLynx's "Custom funcs" dialog
   registered as an operation), and put values into the function.
 - **The file is generated; edit the function where it is defined and add it again.** Its
   header records a checksum, so the builder regenerates a file nobody edited, in this session
-  or a later one. A file that was edited by hand (or that no builder wrote) is refused, so the
-  edit is not lost without a word: `wf.add_operation(f, overwrite=True)` or
+  or a later one. A file that was edited by hand (or that no builder wrote), or that holds
+  functions this builder does not have (another writer added them), is refused, so they are
+  not lost without a word: `wf.add_operation(f, overwrite=True)` or
   `wf.write(overwrite=True)` replaces it. `WorkflowBuilder.load` reads a hand-edited file's
   functions and keeps the file as it is until its functions change; a file holding other
   top-level statements (a constant, a class) is then refused with their names, since a
