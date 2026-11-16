@@ -492,11 +492,12 @@
         "id": {
           "type": "string",
           "pattern": "^[^/\\\\]+$",
-          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\"",
+          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\", \"..\" or \"models\" (the run's folder of models generated for viewing)",
           "not": {
             "enum": [
               ".",
-              ".."
+              "..",
+              "models"
             ]
           }
         },

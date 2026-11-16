@@ -7,6 +7,7 @@ of libcuflynx.external_testing.workflow_library (y = 2 p^2 for lin_a; z = 2 p_A^
 chain), whose optima are known in closed form.
 """
 import inspect
+import re
 import json
 import linecache
 import os
@@ -16,9 +17,9 @@ import pytest
 
 from libcuflynx.calibration_workflow import (WorkflowBuilder, WorkflowError, library_module,
                                              load_workflow, module_array, pack_workflow, prior,
-                                             scale_value, select, set_value)
+                                             scale_value, selection, set_value)
 from libcuflynx.calibration_workflow.builder import function_source
-from libcuflynx.calibration_workflow.runner import STEP_RESULT, workflow_status
+from libcuflynx.calibration_workflow.runner import MODELS_DIR, STEP_RESULT, workflow_status
 from libcuflynx.external_testing.workflow_library import (EMULATOR_SETTINGS, IA_OPTIONS,
                                                           OPTIMISER_SETTINGS, SA_OPTIONS,
                                                           STD_A, STD_C, UQ_OPTIONS, Y_A, Z_C,
@@ -199,7 +200,7 @@ def test_paths_are_relative_to_the_workflow_and_helpers_give_schema_fragments(li
     wf.add_calibration('a', model=module_array('a_only_module_array.json',
                                                 'a_only_parameters.json'),
                        obs_data='data/a_obs.json', params_for_id='data/a_params.json')
-    wf.add_calibration('sel', model=select('C'), obs_data='data/chain_obs.json',
+    wf.add_calibration('sel', model=selection('C'), obs_data='data/chain_obs.json',
                        params_for_id='data/chain_params.json', fixed_from=['a'])
     raw = wf.to_dict()
     arrays = os.path.relpath(library['arrays'], wf.directory)
@@ -210,10 +211,11 @@ def test_paths_are_relative_to_the_workflow_and_helpers_give_schema_fragments(li
     assert raw['steps'][1]['model'] == {'select': ['C']}
     assert raw['steps'][1]['obs_data'] == os.path.join(arrays, 'data', 'chain_obs.json')
     assert prior('fit') == 'fit'
-    # select() is the package's helper; the module of the same name still imports
-    assert select('a', 'b') == select(['a', 'b']) == {'select': ['a', 'b']}
-    from libcuflynx.calibration_workflow.select import write_step_inputs
-    assert callable(write_step_inputs)
+    assert selection('a', 'b') == selection(['a', 'b']) == {'select': ['a', 'b']}
+    # the package's attribute select is its submodule, which the helper's name leaves alone
+    import libcuflynx.calibration_workflow as package
+    import libcuflynx.calibration_workflow.select as select_module
+    assert package.select is select_module
     workflow = wf.check()
     assert workflow.step('a').obs_data == os.path.join(library['arrays'], 'data', 'a_obs.json')
 
@@ -232,6 +234,15 @@ def test_a_step_is_checked_when_it_is_added_and_the_workflow_when_written(librar
         wf.write()
     wf.remove_step('late')
     wf.write()
+
+
+@pytest.mark.unit
+def test_no_step_is_named_as_the_runs_folder_of_models(library, tmp_path):
+    schema = load_schema(CALIBRATION_WORKFLOW_SCHEMA)
+    assert MODELS_DIR in schema['$defs']['step']['properties']['id']['not']['enum']
+    wf = _chain(library, tmp_path / 'wf')
+    with pytest.raises(WorkflowError, match='step "models"'):
+        wf.add_calibration(MODELS_DIR, obs_data='x.json', params_for_id='y.json')
 
 
 @pytest.mark.unit
@@ -382,6 +393,35 @@ def test_a_function_is_written_with_what_it_needs_and_registers_as_an_operation(
 
 
 @pytest.mark.unit
+def test_a_functions_file_changed_outside_the_builder_is_not_overwritten(tmp_path):
+    target = library_module('lin_a', 'v1', 'fit_a')
+    wf = WorkflowBuilder('funcs', target=target, directory=tmp_path / 'wf')
+    wf.add_operation(double_mean)
+    wf.add_calibration('fit_a', obs_data='x.json', params_for_id='y.json')
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    with open(funcs, 'a') as f:
+        f.write('\n\ndef by_hand(x):\n    return x\n')
+    with pytest.raises(WorkflowError, match=re.escape(funcs) + ' has changed since this builder'):
+        wf.write()
+    with pytest.raises(WorkflowError, match='has changed since this builder'):
+        wf.add_operation(double_mean)
+    with open(funcs) as f:
+        assert 'def by_hand' in f.read()                 # not overwritten
+
+    # load() starts from the file as it is, and may then add to it
+    again = WorkflowBuilder.load(wf.path)
+    again.add_operation(double_mean)
+    again.write()
+    assert 'def by_hand' in again.funcs_source()
+
+    # a builder that did not write or read the file does not replace it
+    fresh = WorkflowBuilder('funcs', target=target, directory=tmp_path / 'wf')
+    with pytest.raises(WorkflowError, match='did neither write nor read it'):
+        fresh.add_operation(double_mean)
+
+
+@pytest.mark.unit
 def test_functions_that_cannot_live_in_a_file_are_refused(tmp_path):
     wf = WorkflowBuilder('funcs', target=library_module('lin_a', 'v1', 'fit_a'),
                          directory=tmp_path / 'wf')
@@ -440,6 +480,8 @@ def test_run_only_from_step_and_edited_dicts_make_their_steps_stale(library, tmp
     assert images and all(os.path.isfile(p) for p in images)
     model = wf.model('rest')
     assert os.path.isfile(model['model_path'])
+    # generated in the run's models/ folder, which no step's output can be
+    assert model['model_path'].startswith(os.path.join(wf.output_dir, MODELS_DIR, 'rest') + os.sep)
 
 
 @pytest.mark.integration

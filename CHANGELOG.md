@@ -36,14 +36,17 @@ next release; add to that section as you land a change.
 - `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
   API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
   `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
-  schema's step keys, with the helpers `library_module`, `module_array`, `select`, `prior`,
+  schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
   `set_value` and `scale_value`; then `write`, `check`, `plan`, `run(only=, from_step=,
   ranks=)`, `status`, `model`, `step_dir` and `plot_step`. Each step is checked against the
   schema when it is added. obs_data and params_for_id may be dicts (or the in-code
   `{vessel_name, param_name, min, max}` entries), written as files under `data/` beside the
   workflow; `add_operation` (and `add_cost_func`, `add_modifier_func`) writes a function
   defined in a notebook cell to the workflow's functions file. The result is an ordinary
-  workflow file that the command line and CUFLynx run and `pack_workflow` packs.
+  workflow file that the command line and CUFLynx run and `pack_workflow` packs. The builder
+  does not write over a functions file that changed since it last wrote or read it.
+  `WorkflowBuilder.model` generates under the run's `models/` folder, so a step can no longer
+  be named `models` (the schema refuses it).
   See "Building a workflow in Python" in the parameter-identification docs.
 - `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
   to the JSON document.

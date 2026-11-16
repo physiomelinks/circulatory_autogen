@@ -25,7 +25,7 @@ as the same file).
 
 from libcuflynx.calibration_workflow.builder import (WorkflowBuilder, library_module,
                                                      module_array, prior, scale_value,
-                                                     set_value)
+                                                     selection, set_value)
 from libcuflynx.calibration_workflow.distributions import StoredDistribution
 from libcuflynx.calibration_workflow.generate import generate_model, generate_parameterisation
 from libcuflynx.calibration_workflow.pack import pack_workflow
@@ -39,9 +39,6 @@ from libcuflynx.calibration_workflow.select import UnsetParametersError
 from libcuflynx.calibration_workflow.spec import (ALLOWED_SETTINGS, PRIOR_KINDS,
                                                   WORKFLOW_FILE_NAME, ModuleArray, Selection,
                                                   Target, Workflow, WorkflowError, load_workflow)
-# The builder's select() helper, bound after the imports above: importing the submodule
-# calibration_workflow.select sets this name to the module.
-from libcuflynx.calibration_workflow.builder import select  # noqa: E402
 
 __all__ = ['ALLOWED_SETTINGS', 'PRIOR_KINDS', 'WORKFLOW_FILE_NAME', 'ModuleArray',
            'Selection', 'StoredDistribution', 'Target', 'UnsetParametersError', 'Workflow',
@@ -49,6 +46,6 @@ __all__ = ['ALLOWED_SETTINGS', 'PRIOR_KINDS', 'WORKFLOW_FILE_NAME', 'ModuleArray
            'generate_model', 'generate_parameterisation',
            'library_module', 'load_workflow', 'load_workflow_run', 'module_array',
            'pack_workflow', 'plan_workflow', 'prior', 'resolve_workflow', 'scale_value',
-           'select', 'set_value',
+           'selection', 'set_value',
            'run_calibration_workflow', 'TARGET_VIEW', 'workflow_model',
            'workflow_status', 'write_calibrated_parameters_to']
