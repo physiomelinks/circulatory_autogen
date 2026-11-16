@@ -3056,7 +3056,7 @@ def step_from_dt_solver(solver_name, solver_info):
 
 def check_dt_solver_and_max_step(solver_info, model_type='cellml'):
     """Raise when a cellml (variable-step) solver is given both ``dt_solver`` and a different
-    ``MaximumStep``.
+    ``MaximumStep``, and warn (once per run) when it is given ``dt_solver`` and no ``MaximumStep``.
 
     For these solvers ``MaximumStep`` bounds the integrator step and ``dt_solver`` is not read
     (it is the step of the fixed-step and C++ solvers), so two different values mean the config
@@ -3073,6 +3073,14 @@ def check_dt_solver_and_max_step(solver_info, model_type='cellml'):
     if solver not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']:
         return
     dt_solver, max_step = solver_info.get('dt_solver'), solver_info.get('MaximumStep')
+    if dt_solver is not None and 'MaximumStep' not in solver_info:
+        # Python shows a warning from one line once per process: once per run, on rank 0.
+        if rank == 0:
+            warnings.warn(
+                f"solver_info sets dt_solver={dt_solver} without MaximumStep for the "
+                f"variable-step solver {solver!r}. dt_solver has no effect for this solver, and "
+                f"its step is unbounded unless MaximumStep is set. Set MaximumStep to bound the "
+                f"step, or remove dt_solver.", UserWarning)
     if dt_solver is None or max_step is None or float(dt_solver) == float(max_step):
         return
     raise ValueError(

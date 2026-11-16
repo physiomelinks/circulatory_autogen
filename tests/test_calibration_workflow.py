@@ -1146,6 +1146,9 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # the Laplace analysis is at fit's q: dz/dq = 2 q, so std(q) = STD_C / (2 q) (to the
     # finite-difference error; at the model's own q = 1 it would be three times as wide)
     ia = step('ia')
+    # every step that runs a solver records the solver settings it ran with
+    for sid in ('fit_a', 'screen', 'fit', 'ia'):
+        assert step(sid)['solver_info']['solver'] == 'CVODE_myokit', sid
     q = np.sqrt(Z_C - Y_A)
     assert ia['at'] == pytest.approx([q], rel=1e-5)
     assert ia['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
@@ -1187,6 +1190,7 @@ def test_steps_on_an_emulator_run_the_emulation_steps_model(library, tmp_path):
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
     emulate = step('emulate')
     assert os.path.isdir(emulate['emulator_dir'])
+    assert emulate['solver_info']['solver'] == 'CVODE_myokit'
     # rest runs a copy of emulate's model, so the emulator's fingerprint of it matches
     rest = step('rest')
     assert os.path.basename(rest['model_path']) == 'emulate.cellml'

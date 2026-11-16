@@ -2006,6 +2006,10 @@ def apply_offline_pre_time(sim_helper, protocol_info, param_id_info, warm_up=Tru
     """
     offline_pre_time = (protocol_info or {}).get('offline_pre_time')
     if offline_pre_time is None or float(offline_pre_time) <= 0:
+        # a protocol without one, set after a protocol with one: back to the initial values
+        clear = getattr(sim_helper, 'clear_offline_default_state', None)
+        if warm_up and clear is not None:
+            clear()
         return
     offenders = params_that_set_initial_states(param_id_info, sim_helper)
     if offenders:

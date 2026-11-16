@@ -417,6 +417,7 @@ class SimulationHelper(ExperimentTimeMixin):
         offline_pre_time = float(offline_pre_time)
         if offline_pre_time <= 0:
             return
+        self._start_offline_warm_up()
         self.update_times(self.dt, 0.0, offline_pre_time, 0.0)
         success = self.run()
         if not success:

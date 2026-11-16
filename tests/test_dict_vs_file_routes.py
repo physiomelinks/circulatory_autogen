@@ -258,6 +258,28 @@ def test_the_offline_warm_up_is_applied(routes, tmp_path, monkeypatch):
 
 
 @pytest.mark.integration
+def test_a_protocol_without_offline_pre_time_clears_an_earlier_warm_up(routes, tmp_path,
+                                                                       monkeypatch):
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(tmp_path / 'user_dir'))
+    with open(os.path.join(routes['root'], 'wf', 'fit', 'step_result.json')) as f:
+        fit = json.load(f)
+    cold_obs = copy.deepcopy(OBS_DATA)
+    del cold_obs['protocol_info']['offline_pre_time']
+    best = routes['workflow']['calibration']['best']
+
+    def cost(obs_sequence, name):
+        param_id = CVS0DParamID.init_from_dict(
+            _dict_inp(fit['model_path'], 'fit', str(tmp_path / name)))
+        for obs in obs_sequence:
+            param_id.set_ground_truth_data(copy.deepcopy(obs))
+        param_id.set_params_for_id(copy.deepcopy(PARAMS))
+        param_id.param_id.set_optimiser_options(dict(OPTIMISER_OPTIONS))
+        return float(param_id.param_id.get_cost_from_params(best))
+
+    assert cost([OBS_DATA, cold_obs], 'warm_then_cold') == cost([cold_obs], 'cold')
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize('route', ['dict', 'file'])
 def test_sobol_starts_from_the_offline_warm_up(routes, route):
     assert routes[route]['sobol_warm_state'] is not None
@@ -400,6 +422,53 @@ def test_the_parser_leaves_a_cellml_maximum_step_as_given(tmp_path, monkeypatch,
     parsed = inp['solver_info']
     assert parsed.get('MaximumStep') == solver_info.get('MaximumStep')
     assert parsed.get('dt_solver') == solver_info.get('dt_solver')
+
+
+DT_SOLVER_ONLY_WARNING = 'dt_solver has no effect for this solver'
+
+
+@pytest.mark.unit
+def test_dt_solver_without_maximum_step_warns_once_per_run():
+    import warnings
+    from libcuflynx.parsers import PrimitiveParsers
+    from libcuflynx.parsers.PrimitiveParsers import check_dt_solver_and_max_step
+    PrimitiveParsers.__dict__.get('__warningregistry__', {}).clear()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('default')  # as a notebook or a CLI run shows warnings
+        for _ in range(3):  # the parser, then the constructors, check the same solver_info
+            check_dt_solver_and_max_step({'solver': 'CVODE_myokit', 'dt_solver': 0.01})
+        check_dt_solver_and_max_step({'dt_solver': 0.01}, 'cellml')  # the default solver
+    messages = [str(w.message) for w in caught if DT_SOLVER_ONLY_WARNING in str(w.message)]
+    assert len(messages) == 1, messages
+    assert 'unbounded unless MaximumStep is set' in messages[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('solver_info, model_type', [
+    ({'solver': 'CVODE_myokit', 'MaximumStep': 0.001, 'dt_solver': 0.001}, 'cellml'),
+    ({'solver': 'CVODE_myokit', 'MaximumStep': 0.001}, 'cellml'),
+    ({'solver': 'CVODE_myokit'}, 'cellml'),
+    ({'solver': 'RK4', 'dt_solver': 0.001}, 'cpp'),  # a fixed-step solver reads dt_solver
+    ({'solver': 'CVODE', 'dt_solver': 0.001}, 'cpp'),
+])
+def test_dt_solver_warning_is_only_for_a_cellml_solver_without_maximum_step(solver_info,
+                                                                            model_type):
+    import warnings
+    from libcuflynx.parsers.PrimitiveParsers import check_dt_solver_and_max_step
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        check_dt_solver_and_max_step(solver_info, model_type)
+
+
+@pytest.mark.unit
+def test_the_parser_warns_about_dt_solver_without_maximum_step(tmp_path, monkeypatch):
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(tmp_path / 'user_dir'))
+    with pytest.warns(UserWarning, match=DT_SOLVER_ONLY_WARNING):
+        YamlFileParser().parse_user_inputs_file(
+            {'file_prefix': 'm', 'input_param_file': 'm_parameters.json', 'model_type': 'cellml',
+             'solver_info': {'solver': 'CVODE_myokit', 'dt_solver': 0.01},
+             'resources_dir': str(tmp_path), 'generated_models_dir': str(tmp_path / 'gm'),
+             'param_id_output_dir': str(tmp_path / 'param_id')})
 
 
 @pytest.mark.unit
