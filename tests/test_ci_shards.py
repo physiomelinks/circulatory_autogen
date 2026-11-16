@@ -57,11 +57,18 @@ def test_no_test_is_in_two_groups(suite):
             assert owner[path] == group, f'{entry} ({group}) is inside {path} ({owner[path]})'
 
 
-def _sharded_jobs():
+# Jobs that shard a suite but run only some of its groups: test-min-deps reruns the simulation
+# and solver-matrix groups of `main` at the oldest backend versions.
+PARTIAL_JOBS = {'test-min-deps': ('main', ['simulation', 'solver-matrix'])}
+
+
+def _sharded_jobs(partial=False):
     with open(WORKFLOW) as f:
         jobs = yaml.safe_load(f)['jobs']
     found = []
     for name, job in jobs.items():
+        if (name in PARTIAL_JOBS) != partial:
+            continue
         commands = '\n'.join(step.get('run', '') for step in job.get('steps', []))
         match = re.search(r'--ci-shard "([\w-]+):\$\{\{ matrix\.shard \}\}"', commands)
         if match:
@@ -69,8 +76,48 @@ def _sharded_jobs():
     return found
 
 
+def _required_backends(env_value, matrix):
+    """CUFLYNX_REQUIRED_BACKENDS for one matrix entry: the workflow's ``${{ a && b || c }}``
+    expressions evaluated with that entry's values."""
+    def evaluate(match):
+        expression = re.sub(r'matrix\.([\w-]+)', lambda m: repr(str(matrix[m.group(1)])),
+                            match.group(1))
+        expression = expression.replace('&&', ' and ').replace('||', ' or ')
+        return str(eval(expression, {'__builtins__': {}}))
+    return set(re.sub(r'\$\{\{(.*?)\}\}', evaluate, env_value).split(','))
+
+
+def test_every_python_3_12_test_shard_requires_libopencor():
+    """`.[dev]` installs libopencor on 3.12 (pyproject), so a broken install must fail the
+    need_libopencor tests on every 3.12 shard rather than skip them green; 3.10 and 3.11 do
+    not install it, so there it is not required."""
+    with open(WORKFLOW) as f:
+        job = yaml.safe_load(f)['jobs']['test']
+    env = next(step['env']['CUFLYNX_REQUIRED_BACKENDS'] for step in job['steps']
+               if 'CUFLYNX_REQUIRED_BACKENDS' in step.get('env', {}))
+    matrix = job['strategy']['matrix']
+    excluded = [tuple(sorted(e.items())) for e in matrix.get('exclude', [])]
+    checked = 0
+    for version in matrix['python-version']:
+        for shard in matrix['shard']:
+            entry = {'python-version': version, 'shard': shard}
+            if tuple(sorted(entry.items())) in excluded:
+                continue
+            required = _required_backends(env, entry)
+            assert ('libopencor' in required) == (version == '3.12'), (entry, required)
+            checked += 1
+    assert checked > 0
+
+
 def test_the_workflow_shards_jobs():
     assert {suite for _, suite, _ in _sharded_jobs()} == set(SHARDS)
+
+
+def test_the_partial_jobs_run_the_groups_they_name():
+    found = {name: (suite, list(matrix)) for name, suite, matrix in _sharded_jobs(partial=True)}
+    assert found == PARTIAL_JOBS
+    for suite, groups in found.values():
+        assert set(groups) <= set(SHARDS[suite]), groups
 
 
 @pytest.mark.parametrize('job, suite, matrix', _sharded_jobs(), ids=lambda v: str(v))
@@ -166,3 +213,87 @@ def test_the_param_id_jobs_run_the_profile_likelihood_tests(job):
         steps = yaml.safe_load(f)['jobs'][job]['steps']
     commands = '\n'.join(step.get('run', '') for step in steps)
     assert 'tests/test_profile_likelihood.py' in commands
+
+
+# --- every mpi-marked test runs somewhere ---------------------------------------------------
+
+def _pytest_commands():
+    """(job, pytest command) for every pytest run in tests.yml, continuation lines joined."""
+    with open(WORKFLOW) as f:
+        jobs = yaml.safe_load(f)['jobs']
+    found = []
+    for name, job in jobs.items():
+        if job.get('if') is False:
+            continue
+        for step in job.get('steps', []):
+            script = re.sub(r'[\\`]\n\s*', ' ', step.get('run', ''))
+            found += [(name, line) for line in script.splitlines() if 'pytest' in line]
+    return found
+
+
+def _selects_mpi(command):
+    """Whether a pytest command keeps `mpi` tests: no -m, or a -m without `not mpi`."""
+    match = re.search(r'-m\s+"([^"]*)"', command)
+    return match is None or not re.search(r'\bnot\s+mpi\b', match.group(1))
+
+
+def _mpi_test_files():
+    files = []
+    for name in sorted(os.listdir(os.path.join(ROOT, 'tests'))):
+        if name.startswith('test_') and name.endswith('.py'):
+            with open(os.path.join(ROOT, 'tests', name)) as f:
+                if re.search(r'pytest\.mark\.mpi\b', f.read()):
+                    files.append(f'tests/{name}')
+    return files
+
+
+def _covers(command, path):
+    if path in command:
+        return True
+    ignored = re.findall(r'--ignore=(\S+)', command)
+    return bool(re.search(r'\stests/?(\s|$)', command)) and path not in ignored
+
+
+def test_every_mpi_test_runs_in_some_ci_job():
+    """The `test` jobs deselect `mpi`; a file of `mpi` tests no job names would never run.
+
+    That is how ~40 tests (prediction features, emulator training, the working-directory and
+    plot checks) went unrun until test-mpi-rest.
+    """
+    files = _mpi_test_files()
+    assert 'tests/test_param_id.py' in files
+    commands = [(job, c) for job, c in _pytest_commands() if _selects_mpi(c)]
+    unrun = [f for f in files if not any(_covers(c, f) for _, c in commands)]
+    assert not unrun, f'mpi-marked tests that no CI job runs: {unrun}'
+
+
+def test_the_main_jobs_deselect_mpi_and_mpi_rest_selects_it():
+    by_job = {}
+    for job, command in _pytest_commands():
+        by_job.setdefault(job, []).append(command)
+    assert not any(_selects_mpi(c) for c in by_job['test'])
+    assert all(_selects_mpi(c) for c in by_job['test-mpi-rest'])
+
+
+def test_every_ci_job_with_pytest_uploads_or_checks_its_junit():
+    """Skip counts can only be audited from a junit file someone can download."""
+    with open(WORKFLOW) as f:
+        jobs = yaml.safe_load(f)['jobs']
+    for job in ('test', 'test-mpi-rest', 'test-min-deps', 'test-windows'):
+        uses = [step.get('uses', '') for step in jobs[job]['steps']]
+        assert any(u.startswith('actions/upload-artifact') for u in uses), job
+
+
+def test_the_min_deps_pins_are_the_pyproject_floors():
+    """test-min-deps tests the oldest versions a user can get; a raised floor must move it."""
+    from _pyproject import load_pyproject
+    floors = {}
+    for spec in load_pyproject()['project']['dependencies'] + \
+            load_pyproject()['project']['optional-dependencies']['casadi']:
+        match = re.match(r'([A-Za-z0-9_.-]+)>=([0-9.]+)', spec)
+        if match:
+            floors[match.group(1).lower()] = match.group(2)
+    with open(os.path.join(ROOT, 'tests', 'min-deps-constraints.txt')) as f:
+        pins = dict(line.strip().split('==') for line in f if '==' in line)
+    assert pins == {name: floors[name] for name in pins}
+    assert set(pins) == {'casadi', 'myokit', 'libcellml'}
