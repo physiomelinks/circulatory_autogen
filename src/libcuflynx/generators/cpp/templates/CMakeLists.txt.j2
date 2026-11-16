@@ -37,7 +37,13 @@ if(SUNDIALS_FOUND AND TARGET SUNDIALS::cvode)
     endif()
     message(STATUS "Using SUNDIALS ${SUNDIALS_VERSION} from CMake config")
 else()
-    find_path(SUNDIALS_INCLUDE_DIR cvode/cvode.h HINTS ${SUNDIALS_DIR} PATH_SUFFIXES include REQUIRED)
+    find_path(SUNDIALS_INCLUDE_DIR cvode/cvode.h HINTS ${SUNDIALS_DIR} PATH_SUFFIXES include)
+    if(NOT SUNDIALS_INCLUDE_DIR)
+        message(FATAL_ERROR "SUNDIALS (CVODE) was not found. Install it (Debian/Ubuntu: "
+                "sudo apt install libsundials-dev; macOS: brew install sundials) or pass "
+                "-DSUNDIALS_DIR=<install prefix> to cmake. The fixed-step solvers (RK4, Heun, "
+                "midpoint, explEul) need no SUNDIALS.")
+    endif()
     target_include_directories(model0d PUBLIC ${SUNDIALS_INCLUDE_DIR})
     foreach(lib sundials_cvode sundials_nvecserial sundials_sunmatrixdense sundials_sunlinsoldense)
         find_library(${lib}_LIB ${lib} HINTS ${SUNDIALS_DIR} PATH_SUFFIXES lib lib64 REQUIRED)

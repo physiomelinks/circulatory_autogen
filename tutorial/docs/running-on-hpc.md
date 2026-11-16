@@ -2,9 +2,9 @@
 
 ## ABI HPC Standard
 
-Clone the circulatory_autogen repo into a directory of your choice, create a virtual environment and install the project into it (`python3 -m venv .venv && .venv/bin/pip install -e .`, see [Getting Started](getting-started.md)), then set `python_path` in `python_path.sh` to that venv's Python:
+Clone the circulatory_autogen repo into a directory of your choice, create a virtual environment and install the project into it (`python3 -m venv venv && venv/bin/pip install -e .`, see [Getting Started](getting-started.md)), then activate it in the shell (or job script) the run starts from, so the `user_run_files/*.sh` helpers find the commands:
 
-`python_path={project_dir}/.venv/bin/python`
+`source {project_dir}/venv/bin/activate`
 
 !!! note
     Use a venv, not an OpenCOR `pythonshell`: CA does not run in OpenCOR's bundled Python (its

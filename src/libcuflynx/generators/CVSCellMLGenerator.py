@@ -85,6 +85,25 @@ def check_tissue_gas_mixing(module_df):
                     f'A venous_gas_mixing takes each region through a gas_flux_port: use a '
                     f'tissue_GE_simple version that has one.')
 
+def myokit_compile_hint(error_text):
+    """What to install when Myokit could not compile the model because a header is missing
+    (``Python.h`` or SUNDIALS' ``cvode/cvode.h``), in place of the compiler traceback; None for
+    any other error. ``CVODE_myokit`` compiles each model with the system C compiler."""
+    text = str(error_text)
+    if 'Python.h' in text:
+        return ('Myokit could not compile the model: the Python development headers (Python.h) '
+                'are not installed for this interpreter, so the CVODE_myokit solver cannot run. '
+                'Install them (Debian/Ubuntu: sudo apt install python3-dev, or pythonX.Y-dev for '
+                'the Python in use; Fedora: python3-devel) and run again.')
+    if 'cvode/cvode.h' in text or 'sundials/sundials' in text:
+        return ('Myokit could not compile the model: the SUNDIALS headers (cvode/cvode.h) were '
+                'not found, so the CVODE_myokit solver cannot run. Install SUNDIALS '
+                '(Debian/Ubuntu: sudo apt install build-essential libsundials-dev; macOS: brew '
+                'install sundials), or name its location under [sundials] in '
+                '~/.config/myokit/myokit.ini, and run again.')
+    return None
+
+
 class CVS0DCellMLGenerator(object):
     '''
     Generates CellML files for the 0D model represented in @
@@ -263,7 +282,7 @@ class CVS0DCellMLGenerator(object):
 
         print('Myokit validation failed for the generated model.')
         if myokit_error:
-            print(f'Myokit error: {myokit_error}')
+            print(f'Myokit error: {myokit_compile_hint(myokit_error) or myokit_error}')
 
         python_success, python_error = self._validate_with_python(cellml_path)
         if python_success:

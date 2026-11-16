@@ -2,11 +2,11 @@
 
 ## Prerequisites
 
-- **Python** 3.9 or newer — `pyproject.toml` declares `requires-python = ">=3.9"`, and the package really does need it (`importlib.resources.files`). Use the same interpreter for the whole project.
+- **Python** 3.10 or newer (`pyproject.toml` declares `requires-python = ">=3.10"`). Use the same interpreter for the whole project.
 - **Git**, to clone the repository.
 - **pip** (usually bundled with Python).
 - **MPI** (optional): needed only if you run parameter identification or sensitivity analysis with multiple processes. See [MPI and system libraries](#mpi-and-system-libraries) below.
-- **Compiler / SUNDIALS** (optional on Linux): Myokit’s CVODE backend may need `build-essential` and `libsundials-dev` (or your OS equivalent) so extensions can compile when first used.
+- **Compiler / SUNDIALS** (optional on Linux): the default solver, Myokit’s CVODE, compiles each model when it is first run, so it needs a C compiler, the Python development headers and SUNDIALS: `build-essential`, `python3-dev` (or `pythonX.Y-dev` for the Python you use) and `libsundials-dev`, or your OS equivalent.
 
 ## Install the package
 
@@ -30,10 +30,20 @@ pip install "libcuflynx[uq]"         # the pyMC sampler
 pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
 ```
 
-!!! note "The flat imports are deprecated"
-    `from param_id.paramID import CVS0DParamID` still works in 0.4.0 with a
-    `DeprecationWarning`, and is **removed in 0.6.0**. Use
-    `from libcuflynx.param_id.paramID import CVS0DParamID`.
+!!! note "Import from the `libcuflynx` namespace"
+    The flat imports (`from param_id.paramID import CVS0DParamID`) were removed in 0.6.0 and
+    raise `ModuleNotFoundError`. Use `from libcuflynx.param_id.paramID import CVS0DParamID`.
+
+!!! note "Features newer than the PyPI release"
+    PyPI holds the last release. This documentation describes the `master` branch, which can
+    be ahead of it: calibration workflows (`cuflynx-calibration-workflow`),
+    `cuflynx-methods-latex`, `cuflynx-variable-mapping`, `cuflynx-derive`,
+    `cuflynx-provenance` and `cuflynx-upgrade` are not in libcuflynx 0.7.3 on PyPI. Until the
+    next release, install from GitHub to get them:
+
+    ```
+    pip install "libcuflynx @ git+https://github.com/physiomelinks/circulatory_autogen@master"
+    ```
 
 ### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`
 
@@ -67,12 +77,12 @@ skip to [Model Generation and Simulation](model-generation-simulation.md).
 
 ## Clone the repository
 
-Clone the Circulatory Autogen project from the [GitHub repository](https://github.com/FinbarArgus/circulatory_autogen).
+Clone the Circulatory Autogen project from the [GitHub repository](https://github.com/physiomelinks/circulatory_autogen).
 
 !!! note
     If you have not used Git before: install Git, open a terminal, go to the folder where you want the code, then run:
 
-    - `git clone https://github.com/FinbarArgus/circulatory_autogen`
+    - `git clone https://github.com/physiomelinks/circulatory_autogen`
 
     To contribute via a fork:
 
@@ -97,22 +107,22 @@ Use the **same Python** you will use to run scripts and tests (check with `pytho
 === "Linux / macOS"
     ```
     cd [project_dir]
-    python3 -m venv .venv
-    source .venv/bin/activate
+    python3 -m venv venv
+    source venv/bin/activate
     ```
 
 === "Windows (cmd)"
     ```
     cd [project_dir]
-    py -3 -m venv .venv
-    .venv\Scripts\activate.bat
+    py -3 -m venv venv
+    venv\Scripts\activate.bat
     ```
 
 === "Windows (PowerShell)"
     ```
     cd [project_dir]
-    py -3 -m venv .venv
-    .venv\Scripts\Activate.ps1
+    py -3 -m venv venv
+    venv\Scripts\Activate.ps1
     ```
 
 If you prefer not to use a venv, skip the steps above and use `python -m pip` / `python3 -m pip` for the installs below.
@@ -157,22 +167,21 @@ The authoritative lists are `[project.dependencies]` and `[project.optional-depe
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).
 
-**4. Point the shell helpers at your venv**
+**4. Activate the venv before using the shell helpers**
 
-The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneration.sh`, `run_pytest.sh`, …) all invoke whatever interpreter `user_run_files/python_path.sh` names. Edit that file once so `python_path` is **your venv’s Python**, using an absolute path:
+The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneration.sh`, …) run
+the console commands (`cuflynx-param-id`, `cuflynx-generate`, …) found on your `PATH`, so
+activate the venv in the shell you run them from (`source venv/bin/activate`). To use an
+interpreter without activating its environment, set `CUFLYNX_PYTHON`:
 
-=== "Linux / macOS"
-    ```
-    python_path=[project_dir]/.venv/bin/python
-    ```
-
-=== "Windows"
-    ```
-    python_path=C:\[project_dir]\.venv\Scripts\python.exe
-    ```
+```
+CUFLYNX_PYTHON=[project_dir]/venv/bin/python ./run_param_id.sh 4
+```
 
 !!! note
-    `python_path.sh` only names the interpreter `run_pytest.sh` uses; relative paths are from the repository root, and the default is `venv/bin/python`.
+    `user_run_files/python_path.sh` only names the interpreter `run_pytest.sh` runs the tests
+    with. Its default is `venv/bin/python`, relative to the repository root, so a venv named
+    `venv` needs no edit.
 
 **5. Run scripts**
 
@@ -204,7 +213,7 @@ cd [project_dir]
 ./run_pytest.sh
 ```
 
-`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` you set above.
+`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` named in `user_run_files/python_path.sh`.
 
 - `./run_pytest.sh -n 4` — `-n N` is the **MPI rank count**, *not* pytest-xdist (xdist is force-disabled, because its workers conflict with MPI ranks).
 - `./run_pytest.sh -m "not slow"` — skip the expensive tests. `-k <expr>` and any other arguments pass straight through to pytest.
@@ -212,7 +221,7 @@ cd [project_dir]
 - Equivalent without the script (handy if `python_path.sh` is set for someone else’s machine):
 
     ```
-    mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist
+    mpiexec -n 1 venv/bin/python -m pytest -p no:xdist
     ```
 
 ## Optional third-party backends (not part of Circulatory Autogen)
@@ -260,14 +269,13 @@ is enabled by installing the `aadc` extra:
 python -m pip install "libcuflynx[aadc]"
 ```
 
-(Into the same venv you installed the project into — the one `python_path` points at. From a
+(Into the same venv you installed the project into. From a
 checkout, `python -m pip install -e ".[aadc]"`.)
 
 The extra installs two packages from PyPI:
 
 - `aadc>=2.12,<3` — Matlogica's AADC, under the **Matlogica EULA**: non-commercial /
   academic use only, published as **binary wheels only** (no source), for **Python >= 3.10**.
-  On Python 3.9 the extra does not resolve.
 - `aadc-ode` — ODE integration on top of AADC. The `gradient_strategy: kernel` gradient of
   `method: semi_implicit_signed` replays its recorded kernel through it. Without it that
   strategy warns and falls back to `gradient_strategy: tape`, which integrates the same scheme
@@ -322,10 +330,10 @@ gradient).
 
     On macOS, for example: `brew install openmpi`. On Windows, install [MS MPI](https://www.microsoft.com/en-us/download/details.aspx?id=57467) and the SDK, and ensure the MPI `bin` paths are on your `PATH` (see Microsoft’s documentation).
 
-    **Myokit (CVODE)** on Linux often needs a compiler and SUNDIALS headers, for example:
+    **Myokit (CVODE)** on Linux needs a compiler, the Python development headers (`Python.h`; `pythonX.Y-dev` for a Python other than the system one) and SUNDIALS headers, for example:
 
     ```
-    sudo apt install build-essential libsundials-dev
+    sudo apt install build-essential python3-dev libsundials-dev
     ```
 
 ## Expected outcome

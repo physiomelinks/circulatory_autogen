@@ -123,8 +123,6 @@ def plot_param_id(inp_data_dict=None, generate=True):
         param_id.run_sensitivity(None)
     # param_id.close_simulation() # remove this for identifiability analysis
 
-    print(f'doing ia for rank {rank}')
-    
     if do_identify:
         id_analysis = IdentifiabilityAnalysis(model_path, model_type, file_prefix, param_id_output_dir=param_id_output_dir,
                                               resources_dir=resources_dir, param_id=param_id.param_id)  # pass in param_id object so we can use its cost functions

@@ -54,7 +54,8 @@ def run_identifiability_analysis(inp_data_dict=None, best_param_vals=None):
     num_procs = comm.Get_size()
     if rank == 0:
         if DEBUG:
-            print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
+            print('WARNING: DEBUG is on: the debug_* options replace the full ones, so runs are short '
+                  'and not converged. Set DEBUG: false for real results.')
         print(f'Starting identifiability analysis with {num_procs} MPI rank(s)')
 
     # Optional external user-func files; None when absent, as in param_id_run_script.
