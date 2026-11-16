@@ -297,9 +297,12 @@ class GeneticAlgorithmOptimiser(Optimiser):
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
         if self.optimiser_options['num_calls_to_function'] < num_pop:
-            print(f'Number of calls (n_calls={self.optimiser_options["num_calls_to_function"]}) must be greater than the '
-                  f'gen alg population (num_pop={num_pop}), exiting')
-            exit()
+            raise ValueError(
+                f'optimiser_options num_calls_to_function='
+                f'{self.optimiser_options["num_calls_to_function"]} is less than the genetic '
+                f'algorithm population (num_pop={num_pop}): no generation can run. Set '
+                f'num_calls_to_function to at least {num_pop}, or use another param_id_method '
+                f'(CMA-ES runs on any budget).')
         if num_procs > num_pop:
             print(f'Number of processors must be less than number of population, exiting')
             exit()
@@ -761,14 +764,14 @@ class CMAESOptimiser(Optimiser):
             
             if out_of_bounds:
                 print('\n' + '='*80)
-                print('WARNING: Initial parameter values from CSV are outside bounds!')
+                print('WARNING: Initial parameter values from the parameters file are outside bounds!')
                 print('='*80)
                 for i in out_of_bounds:
                     param_name = param_names[i] if i < len(param_names) else f'Parameter {i}'
                     print(f'  Parameter: {param_name}')
                     # param_init is an ndarray (one flat theta slot per calibrated variable),
                     # so guard with `is not None` -- bare truthiness on an array raises.
-                    print(f'    Value from CSV: '
+                    print(f'    Value from the parameters file: '
                           f'{self.param_id_obj.param_init[i] if self.param_id_obj.param_init is not None else "N/A"}')
                     print(f'    Bounds: [{self.param_mins[i]:.6e}, {self.param_maxs[i]:.6e}]')
                     print(f'    Setting to mean: {x0[i]:.6e}')

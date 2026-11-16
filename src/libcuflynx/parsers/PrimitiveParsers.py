@@ -45,7 +45,7 @@ from libcuflynx.utilities.config_schemas import (load_module_config, load_module
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
                                         default_param_id_output_dir, default_resources_dir,
                                         default_sensitivity_outputs_dir, default_user_inputs_dir,
-                                        user_data_root)
+                                        missing_user_inputs_message, user_data_root)
 
 mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
@@ -64,6 +64,10 @@ class ObsDataError(ValueError):
     So they raise, and the message carries the offending numbers rather than naming the
     keys and leaving the reader to go and look them up.
     """
+
+
+class UserInputsError(ValueError):
+    """A ``user_inputs`` configuration the parser cannot use. The message says what to change."""
 
 
 def resolve_user_path(path, user_files_dir):
@@ -2241,6 +2245,61 @@ def refuse_removed_user_inputs(inp_data_dict):
                          f"semi_implicit_signed with gradient_strategy: {method[4:]} instead.")
 
 
+# Every top-level user_inputs key libcuflynx reads or writes back (the keys the parser derives
+# are here too, since a dated user_inputs_<yymmdd>.yaml holds them). Add a new key here:
+# tests/test_new_user_first_hour.py checks every key the code reads is listed.
+KNOWN_USER_INPUTS_KEYS = frozenset({
+    'DEBUG', 'MaximumNumberOfSteps', 'UQ_options', 'cost_funcs_external_path', 'couple_to_1d',
+    'coupler_pipe_dir', 'cpp_1d_model_config_path', 'cpp_generated_models_dir', 'cpp_output_dir',
+    'create_main_0d', 'cuflynx_study_copy_inputs', 'cuflynx_working_dir', 'debug_UQ_options',
+    'debug_optimiser_options', 'do_ad', 'do_emulation', 'do_ia', 'do_param_reduction',
+    'do_sensitivity', 'do_uq', 'dt', 'emulator_settings', 'external_model_path',
+    'external_modules_dir', 'file_name_prefix', 'file_prefix', 'file_prefix_0d', 'file_prefix_1d',
+    'generate_1d', 'generated_model_path', 'generated_models_dir', 'generated_models_subdir',
+    'human_readable', 'ia_options', 'identifiability_analysis_options', 'input_param_file',
+    'joint_priors', 'max_num_steps', 'max_step', 'method', 'model_1d_config_path', 'model_path',
+    'model_type', 'modifier_funcs_external_path', 'module_library_dirs', 'num_samples',
+    'obs_data_dict', 'one_rank', 'operation_funcs_external_path', 'optimiser_options',
+    'output_dir', 'override_best_param_vals_for_ia', 'param_id_method', 'param_id_obs_path',
+    'param_id_output_dir', 'param_id_output_dir_abs_path', 'param_reduction_options',
+    'parameters_csv_abs_path', 'params_for_id', 'params_for_id_file', 'params_for_id_path',
+    'plot_predictions', 'pre_time', 'resources_dir', 'sa_options', 'sample_type', 'sim_time',
+    'solver', 'solver_1d_type', 'solver_info', 'study_name', 'uncalibrated_model_path',
+    'use_builtin_modules', 'use_emulator', 'user_inputs_path', 'user_inputs_path_override',
+    'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
+    'write_cuflynx_study',
+})
+
+
+def unknown_user_inputs_keys(inp_data_dict):
+    """``{key: closest known key or None}`` for the top-level keys libcuflynx does not read."""
+    import difflib
+    unknown = {}
+    for key in inp_data_dict:
+        if key in KNOWN_USER_INPUTS_KEYS or key in REMOVED_USER_INPUTS_KEYS:
+            continue
+        close = difflib.get_close_matches(str(key), KNOWN_USER_INPUTS_KEYS, n=1, cutoff=0.6)
+        unknown[key] = close[0] if close else None
+    return unknown
+
+
+def warn_unknown_user_inputs_keys(inp_data_dict, source):
+    """Warn (UserWarning) about each key of a user_inputs file that libcuflynx does not read,
+    with the closest key it does read. A mistyped key is otherwise ignored and its default used.
+    For a file a user wrote: a dict built in code may carry keys of its own."""
+    for key, close in unknown_user_inputs_keys(inp_data_dict).items():
+        hint = f' Did you mean {close!r}?' if close else ''
+        warnings.warn(f'{source}: user_inputs key {key!r} is not one libcuflynx reads, so it '
+                      f'is ignored.{hint}', UserWarning, stacklevel=2)
+
+
+def invalid_solver_message(solver_name):
+    """The message for a ``solver`` no model type has, listing the solvers of each."""
+    valid = '; '.join(f'{model_type}: {", ".join(solvers)}'
+                      for model_type, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items())
+    return f'Invalid solver: {solver_name}. Valid solvers by model_type: {valid}.'
+
+
 def default_model_type_for(inp_data_dict):
     """The model_type for user_inputs that name none: the model_type whose solvers include the
     named solver (``solver`` or ``solver_info.solver``, shorthands included), else
@@ -2409,6 +2468,8 @@ class YamlFileParser(object):
         loaded_from = None
         if inp_data_dict is None:
             loaded_from = os.path.join(user_inputs_dir, 'user_inputs.yaml')
+            if not os.path.isfile(loaded_from):
+                raise FileNotFoundError(missing_user_inputs_message(loaded_from))
             with open(loaded_from, 'r') as file:
                 inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
             if "user_inputs_path_override" in inp_data_dict.keys() and inp_data_dict["user_inputs_path_override"]:
@@ -2430,6 +2491,8 @@ class YamlFileParser(object):
         if inp_data_dict is None:
             print('no inp_data_dict provided and user_inputs.yaml not found, exiting')
             exit()
+        if loaded_from is not None and rank == 0:
+            warn_unknown_user_inputs_keys(inp_data_dict, loaded_from)
             
         if 'file_prefix' not in inp_data_dict.keys():
             print('file_prefix not found in inp_data_dict, exiting')
@@ -2511,7 +2574,14 @@ class YamlFileParser(object):
         
         if inp_data_dict.get('param_id_obs_path'):
             # Resolved for every stage, since the dated archive of this config names it too.
-            inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
+            obs_path = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
+            if not os.path.isabs(obs_path) and not os.path.exists(obs_path):
+                # A relative path that is not there from the current directory is taken from the
+                # user directory, so `cd user_run_files && ./run_param_id.sh` finds it too.
+                in_user_dir = resolve_user_path(obs_path, user_files_dir)
+                if os.path.exists(in_user_dir):
+                    obs_path = in_user_dir
+            inp_data_dict['param_id_obs_path'] = obs_path
 
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
@@ -2661,8 +2731,7 @@ class YamlFileParser(object):
                 solver_name not in valid_casadi_solvers and
                 solver_name not in valid_aadc_solvers and
                 solver_name not in valid_external_solvers):
-                print(f'Invalid solver: {solver_name}')
-                exit()
+                raise UserInputsError(invalid_solver_message(solver_name))
         
 
         if 'solver_info' in inp_data_dict:
@@ -2760,14 +2829,7 @@ class YamlFileParser(object):
             and solver_name not in valid_casadi_solvers
             and solver_name not in valid_aadc_solvers
             and solver_name not in valid_external_solvers):
-            print(f'Invalid solver: {solver_name}')
-            print(f'Valid CellML solvers: {valid_cellml_solvers}')
-            print(f'Valid Python solvers: {valid_python_solvers}')
-            print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            print(f'Valid CasADi solvers: {valid_casadi_solvers}')
-            print(f'Valid AADC solvers: {valid_aadc_solvers}')
-            print(f'Valid external solvers: {valid_external_solvers}')
-            exit()
+            raise UserInputsError(invalid_solver_message(solver_name))
         
         
         # Validate solver-model compatibility
@@ -2834,8 +2896,7 @@ class YamlFileParser(object):
         try:
             validate_solver_info(solver_name, inp_data_dict['solver_info'])
         except ValueError as exc:
-            print(f'{exc}{solver_alias_note(inp_data_dict)}')
-            exit()
+            raise UserInputsError(f'{exc}{solver_alias_note(inp_data_dict)}') from None
 
         inp_data_dict.setdefault('DEBUG', False)
         if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
@@ -4669,7 +4730,9 @@ class ObsAndParamDataParser(object):
     def get_param_id_info_from_entries(self, params_for_id_entries, idxs_to_ignore=None):
         """
         Build param_id_info from a list/dict of parameter entries.
-        Each entry should include: vessel_name, param_name, min, max.
+        Each entry should include: vessel_name, param_name, min, max. Entries in the form of a
+        params_for_id file (``targets`` or ``modifies``), or the whole ``{"version", "params"}``
+        document, are read as the file is.
         """
         if params_for_id_entries is None:
             print('params_for_id_entries cannot be None, exiting')
@@ -4682,6 +4745,21 @@ class ObsAndParamDataParser(object):
                                               idxs_to_ignore=idxs_to_ignore)
             if "params" in params_for_id_entries:
                 params_for_id_entries = params_for_id_entries["params"]
+
+        if isinstance(params_for_id_entries, dict) and 'version' in params_for_id_entries:
+            doc = params_for_id_entries
+        elif isinstance(params_for_id_entries, list) and any(
+                isinstance(entry, dict) and ('targets' in entry or 'modifies' in entry)
+                for entry in params_for_id_entries):
+            from libcuflynx.utilities.params_for_id_file import VERSION
+            doc = {'version': VERSION, 'params': params_for_id_entries}
+        else:
+            doc = None
+        if doc is not None:
+            entries = self.resolve_params_for_id_doc(
+                doc, modifier_funcs=get_modifier_funcs(self.modifier_funcs_external_path),
+                source='params_for_id entries')
+            return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
         if not isinstance(params_for_id_entries, list):
             raise ValueError("params_for_id_entries must be a list of dicts or include params_for_id_path")

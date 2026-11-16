@@ -1028,7 +1028,7 @@ class SimulationHelper(ExperimentTimeMixin):
                         # fallback to first log value if available later
                         vals.append(self._extract(qname)[0] if self.last_log else 0.0)
                 else:
-                    raise ValueError(f"parameter {name} not found")
+                    raise ValueError(self._not_found('parameter', name))
             param_init.append(vals if len(vals) > 1 else vals[0])
         return param_init
 
@@ -1241,7 +1241,7 @@ class SimulationHelper(ExperimentTimeMixin):
                             except Exception:
                                 pass
                 else:
-                    raise ValueError(f"parameter {name} not found")
+                    raise ValueError(self._not_found('parameter', name))
         # Keep state defaults consistent with model-defined initial values. With change_states
         # the re-derived values are pushed into the Simulation too, not just recorded here --
         # otherwise self.default_states and simulation.default_state() silently disagree.
@@ -1408,7 +1408,13 @@ class SimulationHelper(ExperimentTimeMixin):
                     return np.asarray([current_value])  
                 except Exception:  
                     pass  
-        raise ValueError(f"variable {name} not found")
+        raise ValueError(self._not_found('variable', name))
+
+    def _not_found(self, what, name):
+        """The error for a name the model does not have: the model, the closest names it does
+        have, and the user file such a name comes from."""
+        qnames = list(self.state_index) + list(self.qname_to_var)
+        return VariableNameResolver.not_found_message(what, name, qnames, self.cellml_path)
 
     def _resolve_name(self, name):
         """Resolve a name to (kind, qname) using the unified VariableNameResolver."""

@@ -57,7 +57,8 @@ if __name__ == '__main__':
         num_procs = comm.Get_size()
         if rank == 0:
             if DEBUG:
-                print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
+                print('WARNING: DEBUG is on: the debug_* options replace the full ones, so runs are short '
+                      'and not converged. Set DEBUG: false for real results.')
             print(f'Starting multi-run parameter ID with {num_procs} MPI rank(s)')
 
 

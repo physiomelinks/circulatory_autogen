@@ -37,6 +37,8 @@ __all__ = [
     'package_dir',
     'repo_root',
     'user_data_root',
+    'user_data_root_source',
+    'missing_user_inputs_message',
     'default_resources_dir',
     'default_generated_models_dir',
     'default_param_id_output_dir',
@@ -113,6 +115,24 @@ def user_data_root():
     if root is not None:
         return root
     return os.getcwd()
+
+
+def user_data_root_source():
+    """How :func:`user_data_root` chose its directory, as a phrase for a message."""
+    if os.environ.get(CUFLYNX_USER_DIR_ENV_VAR):
+        return f'${CUFLYNX_USER_DIR_ENV_VAR}'
+    if repo_root() is not None:
+        return 'the circulatory_autogen checkout libcuflynx runs from'
+    return 'the current directory'
+
+
+def missing_user_inputs_message(path):
+    """One line for a default ``user_inputs.yaml`` that is not there: the user directory, how it
+    was chosen, and the three ways to give a configuration."""
+    return (f'No user_inputs.yaml at {path}. The user directory is {user_data_root()} '
+            f'({user_data_root_source()}). Create user_run_files/user_inputs.yaml there, set '
+            f'{CUFLYNX_USER_DIR_ENV_VAR} to the directory that holds one, or name a file with '
+            f'--user-inputs PATH (from Python, pass inp_data_dict).')
 
 
 def default_resources_dir():
