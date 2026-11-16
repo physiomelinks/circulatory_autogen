@@ -14,18 +14,25 @@ Found by installing libcuflynx as a new user and following the tutorial from an 
   `FileNotFoundError` traceback (`paths.missing_user_inputs_message`).
 - **The shipped `user_run_files/user_inputs.yaml` names no path of one machine.**
   `param_id_obs_path` is `resources/3compartment_obs_data.json` and the cpp paths are commented
-  out. A relative `param_id_obs_path` that is not there from the current directory is now taken
-  from the user directory (or the directory of the file `user_inputs_path_override` names), so
-  `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
+  out. A relative `param_id_obs_path` that is not there from the current directory (or from the
+  directory of the file `user_inputs_path_override` names) is now taken from the user directory,
+  so `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
 - **A key of a `user_inputs.yaml` that libcuflynx does not read gives a `UserWarning`** with the
   closest key it does read (`param_id_methd`: "Did you mean 'param_id_method'?"). It was ignored
-  in silence and the default used. Only files are checked, not dicts built in code.
-  `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys; add a new key there.
-- **Three refusals raise instead of calling `exit()`**: an invalid `solver`, a `solver_info` key
-  the solver does not take (both `UserInputsError`, a `ValueError`), and a genetic algorithm
-  budget below its population (`ValueError`). `cuflynx-generate` exited 0 on the first two, and a
-  script calling `pid.run()` stopped with exit 0 on the third. Code that caught `SystemExit`
-  around `parse_user_inputs_file` for these should catch `ValueError`.
+  in silence and the default used. Keys the parser derives (`model_path`,
+  `parameters_csv_abs_path`, ...) are never suggested, and an optimiser option at the top level
+  (`num_calls_to_function`) is pointed to `optimiser_options`. Only files are checked, not dicts
+  built in code. `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys; add a new key
+  there.
+- **`parse_user_inputs_file` and the genetic algorithm raise instead of calling `exit()`** on a
+  configuration they refuse: `UserInputsError` (a `ValueError`) for an invalid `solver`,
+  `model_type`, solver method, `dt` or `solver_info` key, a missing `file_prefix` and the
+  `sp_minimize` requirements; `FileNotFoundError` for a `user_inputs_path_override`,
+  `param_id_obs_path`, `external_modules_dir` or `module_library_dirs` entry that does not exist;
+  `ValueError` for a genetic algorithm budget below its population or more MPI ranks than its
+  population. `cuflynx-generate` exited 0 on these, and a script calling `pid.run()` stopped with
+  exit 0; both now exit 1 with the message. Code that caught `SystemExit` around
+  `parse_user_inputs_file` should catch `ValueError` / `FileNotFoundError`.
 - `model_type: cpp` with no `solver_info.dt_solver` says which key to add, in place of
   `KeyError: 'dt_solver'`.
 - A module array naming a module that no module library holds says how to give the library

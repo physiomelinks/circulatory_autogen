@@ -97,9 +97,9 @@ solver_info:
   # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
 # param_id_obs_path is the obs_data file to calibrate against: an absolute path, or a path
-# relative to the directory the run is started from. A relative path that is not there is then
-# taken from the user directory ($CUFLYNX_USER_DIR, else this checkout, else the current
-# directory), or from this file's directory when it is named by user_inputs_path_override.
+# relative to the directory the run is started from (to this file's directory when it is named
+# by user_inputs_path_override). A relative path that is not there is then taken from the user
+# directory ($CUFLYNX_USER_DIR, else this checkout, else the current directory).
 param_id_obs_path: resources/3compartment_obs_data.json
 # param_id_obs_path: resources/SN_simple_obs_data.json
 
