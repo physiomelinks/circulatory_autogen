@@ -49,51 +49,17 @@ import time
 
 from libcuflynx.calibration_workflow.spec import (PATH_SETTINGS, WORKFLOW_FILE_NAME,
                                                   WorkflowError, parse_workflow)
+from libcuflynx.utilities.user_funcs_file import (FUNCS_SETTINGS, HEADER_NAMES,
+                                                  funcs_file_source, read_funcs_file)
 
 #: where a dict input is written, relative to the workflow's directory
 DATA_DIR = 'data'
-#: the setting each kind of user function file is named by
-FUNCS_SETTINGS = {'operation': 'operation_funcs_external_path',
-                  'cost': 'cost_funcs_external_path',
-                  'modifier': 'modifier_funcs_external_path'}
-#: the first line of a functions file the builder writes
-FUNCS_MARKER = '# Written by libcuflynx.calibration_workflow.WorkflowBuilder.'
-#: the line that starts each function's block in that file
-_BLOCK = '# -- {kind}: {name} --'
-_BLOCK_RE = re.compile(r'^# -- (operation|cost|modifier): (\S+) --$', re.M)
-
-# the imports at the top of each functions file: (line, {name: (module, attribute or None)})
-_NP = ('import numpy as np', {'np': ('numpy', None)})
-_DIFF = ('from libcuflynx.param_id.differentiable import differentiable',
-         {'differentiable': ('libcuflynx.param_id.differentiable', 'differentiable')})
-_MB = ('from libcuflynx.param_id.math_backend import make_math_backend',
-       {'make_math_backend': ('libcuflynx.param_id.math_backend', 'make_math_backend')})
-_HEADERS = {
-    'operation': [_NP, _DIFF, _MB,
-                  ('from libcuflynx.param_id.operation_funcs import exact_tangent, '
-                   'series_to_constant',
-                   {'exact_tangent': ('libcuflynx.param_id.operation_funcs', 'exact_tangent'),
-                    'series_to_constant': ('libcuflynx.param_id.operation_funcs',
-                                           'series_to_constant')})],
-    'cost': [_NP, _DIFF, _MB,
-             ('from libcuflynx.funcs.cost_funcs_user import cost_combiner, is_MLE',
-              {'cost_combiner': ('libcuflynx.funcs.cost_funcs_user', 'cost_combiner'),
-               'is_MLE': ('libcuflynx.funcs.cost_funcs_user', 'is_MLE')})],
-    'modifier': [_NP, ('from libcuflynx.param_id.modifier_funcs import modifier_func',
-                       {'modifier_func': ('libcuflynx.param_id.modifier_funcs',
-                                          'modifier_func')})],
-}
-#: the math backend the operation and cost files define; libcuflynx rebinds it
-_MB_LINE = 'mb = make_math_backend("numpy")'
-#: markers a function may carry without its decorator in the source: (attribute, decorator,
-#: the line that sets it after the def)
-_MARKS = {'operation': [('series_to_constant', 'series_to_constant',
-                         '{name}.series_to_constant = True'),
-                        ('_circulatory_differentiable', 'differentiable',
-                         'differentiable({name})')],
-          'cost': [('is_MLE', 'is_MLE', 'is_MLE({name})'),
-                   ('cost_combiner', 'cost_combiner', 'cost_combiner({name})'),
-                   ('_circulatory_differentiable', 'differentiable', 'differentiable({name})')],
+#: the marker each decorator sets on a function: (attribute, decorator), by kind of file. A
+#: marker set after the def (``f.series_to_constant = True``) is written as the decorator.
+_MARKS = {'operation': [('series_to_constant', 'series_to_constant'),
+                        ('_circulatory_differentiable', 'differentiable')],
+          'cost': [('is_MLE', 'is_MLE'), ('cost_combiner', 'cost_combiner'),
+                   ('_circulatory_differentiable', 'differentiable')],
           'modifier': []}
 
 #: environment variables of an MPI launcher, left out of the environment run(ranks=N) gives
@@ -223,6 +189,7 @@ class WorkflowBuilder:
         self._steps = []
         self._order = None
         self._funcs = {kind: {} for kind in FUNCS_SETTINGS}
+        self._imports = {kind: [] for kind in FUNCS_SETTINGS}
 
     @classmethod
     def load(cls, path):
@@ -249,9 +216,11 @@ class WorkflowBuilder:
             else:
                 self._head[key] = value
         self._head.setdefault('module_library_dirs', [])
+        self._imports = {kind: [] for kind in FUNCS_SETTINGS}
         for kind in FUNCS_SETTINGS:
             if os.path.isfile(self._funcs_path(kind)):
-                self._funcs[kind] = _read_blocks(self._funcs_path(kind))
+                self._funcs[kind], self._imports[kind] = \
+                    read_funcs_file(self._funcs_path(kind), kind) or ({}, [])
         return self
 
     @property
@@ -417,12 +386,15 @@ class WorkflowBuilder:
                 f'add_{"operation" if kind == "operation" else kind + "_func"} cannot add its '
                 f'own file: a workflow takes one {kind} functions file. Add these functions to '
                 f'that file, or remove the setting.')
-        if os.path.isfile(path) and not self._funcs[kind] and not _builder_file(path):
-            raise WorkflowError(f'{path} exists and was not written by the builder; move it, '
-                                f'or name it in {key} instead of using add_{kind}.')
+        if os.path.isfile(path) and not self._funcs[kind] and \
+                read_funcs_file(path, kind) is None:
+            raise WorkflowError(f'{path} exists and is not a {kind} functions file; move it, '
+                                f'or name it in {key} instead.')
         known = set(self._funcs[kind]) | {f.__name__ for f in funcs}
-        blocks = {f.__name__: function_block(f, kind, known) for f in funcs}
-        self._funcs[kind].update(blocks)
+        for func in funcs:
+            source, imports = function_source(func, kind, known)
+            self._funcs[kind][func.__name__] = source
+            self._imports[kind] = list(dict.fromkeys(self._imports[kind] + imports))
         self.settings[key] = path
 
     def _funcs_path(self, kind):
@@ -444,19 +416,11 @@ class WorkflowBuilder:
                                     f'workflow takes one {kind} functions file.')
 
     def funcs_source(self, kind='operation'):
-        '''The text of the ``kind`` functions file :meth:`write` writes (None without any).'''
+        '''The text of the ``kind`` functions file :meth:`write` writes (None without any):
+        ``utilities.user_funcs_file``'s layout, which CUFLynx writes too.'''
         if not self._funcs[kind]:
             return None
-        lines = [FUNCS_MARKER,
-                 f'# {kind} functions of the calibration workflow "{self.name}", from their '
-                 f'source. Edit them where',
-                 '# they are defined and add them again: write() rewrites this file.']
-        lines += [line for line, _ in _HEADERS[kind]]
-        if kind in ('operation', 'cost'):
-            lines += ['', _MB_LINE]
-        for name, block in self._funcs[kind].items():
-            lines += ['', '', _BLOCK.format(kind=kind, name=name), block.rstrip('\n')]
-        return '\n'.join(lines) + '\n'
+        return funcs_file_source(kind, self._funcs[kind], self._imports[kind])
 
     # -- out ------------------------------------------------------------------------------
 
@@ -776,22 +740,6 @@ def _write_if_changed(path, text):
 # a function as source
 # --------------------------------------------------------------------------------------------
 
-def _builder_file(path):
-    with open(path, encoding='utf-8') as f:
-        return f.readline().rstrip('\n') == FUNCS_MARKER
-
-
-def _read_blocks(path):
-    '''``{name: block}`` of a functions file the builder wrote; {} for any other file.'''
-    if not _builder_file(path):
-        return {}
-    with open(path, encoding='utf-8') as f:
-        text = f.read()
-    marks = list(_BLOCK_RE.finditer(text))
-    return {m.group(2): text[m.end():(marks[i + 1].start() if i + 1 < len(marks) else None)]
-            .strip('\n') + '\n' for i, m in enumerate(marks)}
-
-
 def _code_names(code):
     names = set(code.co_names)
     for const in code.co_consts:
@@ -841,10 +789,12 @@ def _import_line(name, obj, func_module):
     return f'from {module} import {attr}' + ('' if attr == name else f' as {name}')
 
 
-def function_block(func, kind='operation', known=()):
-    '''The source of ``func`` as it is written into a ``kind`` functions file: the imports of
-    the modules (and importable objects) it uses, its definition with its decorators, and the
-    lines that set the markers (``series_to_constant`` ...) given to it after its definition.
+def function_source(func, kind='operation', known=()):
+    '''``(source, imports)``: the definition of ``func`` as it is written into a ``kind``
+    functions file (``utilities.user_funcs_file``), and the import statements it needs beyond
+    the file's header (the modules and importable objects it uses). A marker given to it after
+    its definition (``f.series_to_constant = True``, ``exact_tangent``) is written as its
+    decorator, so the function is complete in itself.
 
     ``known`` are the names of the other functions in the file. A lambda, a function that
     closes over local variables, and one that uses a name defined only in the session (a
@@ -868,20 +818,35 @@ def function_block(func, kind='operation', known=()):
                             f'notebook cell or a .py file, not with exec or eval.') from exc
     tree = ast.parse(source)
     node = tree.body[0] if tree.body else None
-    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != name:
+    if not isinstance(node, ast.FunctionDef) or node.name != name:
         raise WorkflowError(f'the source found for {name} is not its def statement.')
     if kind == 'modifier' and 'modifier_func' not in _decorator_names(node):
         raise WorkflowError(f'{name}: a modifier function carries @modifier_func(inputs=...).')
+
+    header = HEADER_NAMES[kind]
+    imports, refused, added = [], [], []
+    decorators = _decorator_names(node)
+    for attribute, decorator in _MARKS[kind]:
+        if getattr(func, attribute, False) and decorator not in decorators:
+            added.append(f'@{decorator}')
+    if kind == 'operation' and getattr(func, 'exact_tangent', None) is not None \
+            and 'exact_tangent' not in decorators:
+        rule = func.exact_tangent
+        rule_name = getattr(rule, '__name__', None)
+        line = None if rule_name in known else _import_line(rule_name or '', rule,
+                                                            func.__module__)
+        if rule_name not in known and line is None:
+            refused.append((rule_name, 'is its exact_tangent rule, defined in this session'))
+        else:
+            imports += [line] if line else []
+            imports.append('from libcuflynx.param_id.operation_funcs import exact_tangent')
+            added.append(f'@exact_tangent({rule_name})')
 
     loaded = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)
               and isinstance(n.ctx, ast.Load)}
     decorator_loads = {n.id for dec in node.decorator_list for n in ast.walk(dec)
                        if isinstance(n, ast.Name)}
     used = (_code_names(func.__code__) & loaded) | decorator_loads
-    header = {n: spec for _, names in _HEADERS[kind] for n, spec in names.items()}
-    if kind in ('operation', 'cost'):
-        header['mb'] = None
-    imports, refused = [], []
     for global_name in sorted(used):
         if global_name in known or global_name == name:
             continue
@@ -892,8 +857,7 @@ def function_block(func, kind='operation', known=()):
             continue
         obj = func.__globals__[global_name]
         if global_name in header:
-            spec = header[global_name]
-            if spec is None or _is(obj, spec):
+            if _is(obj, header[global_name]):
                 continue
             refused.append((global_name, 'is a name the functions file defines itself'))
             continue
@@ -902,24 +866,6 @@ def function_block(func, kind='operation', known=()):
             refused.append((global_name, f'is a {type(obj).__name__} defined in this session'))
         else:
             imports.append(line)
-    marks = []
-    decorators = _decorator_names(node)
-    for attribute, decorator, line in _MARKS[kind]:
-        if getattr(func, attribute, False) and decorator not in decorators:
-            marks.append(line.format(name=name))
-    if kind == 'operation' and getattr(func, 'exact_tangent', None) is not None \
-            and 'exact_tangent' not in decorators:
-        rule = func.exact_tangent
-        rule_name = getattr(rule, '__name__', None)
-        if rule_name in known:
-            marks.append(f'{name}.exact_tangent = {rule_name}')
-        else:
-            line = _import_line(rule_name or '', rule, func.__module__)
-            if line is None:
-                refused.append((rule_name, 'is its exact_tangent rule, defined in this session'))
-            else:
-                imports.append(line)
-                marks.append(f'{name}.exact_tangent = {rule_name}')
     if refused:
         why = '; '.join(f'{n!r} {reason}' for n, reason in refused)
         adder = 'add_operation' if kind == 'operation' else f'add_{kind}_func'
@@ -928,14 +874,13 @@ def function_block(func, kind='operation', known=()):
             f'own, so a function it uses goes to {adder} '
             f'too (name helpers with a leading _ so they are not registered), a value goes '
             f'into the function, and anything else is imported from a module.')
-    parts = (sorted(set(imports)) + [''] if imports else []) + [source.rstrip('\n')]
-    if marks:
-        parts += [''] + marks
-    return '\n'.join(parts) + '\n'
+    return '\n'.join(added + [source.strip('\n')]) + '\n', sorted(set(imports))
 
 
 def _is(obj, spec):
     module, attr = spec
+    if module is None:          # the math backend mb, which libcuflynx rebinds
+        return True
     try:
         target = importlib.import_module(module)
     except ImportError:
