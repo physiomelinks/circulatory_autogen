@@ -364,7 +364,8 @@ class sobol_SA():
     def _apply_offline_pre_time(self, helper, warm_up=True):
         """The protocol's offline_pre_time and its guard, applied as param_id applies them."""
         from libcuflynx.param_id.paramID import apply_offline_pre_time
-        apply_offline_pre_time(helper, self.protocol_info, self.param_id_info, warm_up=warm_up)
+        apply_offline_pre_time(helper, self.protocol_info, getattr(self, 'param_id_info', None),
+                               warm_up=warm_up)
 
     def _configure_emulator(self, helper):
         """Validate the emulator against this analysis, and map its outputs to the data_items.
