@@ -267,14 +267,15 @@ class WorkflowBuilder:
 
     def add_reduction(self, id, *, sensitivity_from, method='pca', n_params=None,
                       index_type=None, criterion=None, threshold=None, min_mode_std=None,
-                      variance_fraction=None, min_index=None, description=None, comment=None):
+                      variance_fraction=None, min_index=None, redundancy_check=None,
+                      description=None, comment=None):
         '''A reduction: the parameters a later step fits (``params_for_id_from``), chosen by
         the Sobol indices of ``sensitivity_from``. Options left as None take the schema's
         defaults.'''
         options = {k: v for k, v in dict(
             method=method, n_params=n_params, index_type=index_type, criterion=criterion,
             threshold=threshold, min_mode_std=min_mode_std, variance_fraction=variance_fraction,
-            min_index=min_index).items() if v is not None}
+            min_index=min_index, redundancy_check=redundancy_check).items() if v is not None}
         return self.add_step(id, kind='reduction', sensitivity_from=sensitivity_from,
                              settings={'param_reduction_options': options},
                              **_given({'description': description, 'comment': comment}))
