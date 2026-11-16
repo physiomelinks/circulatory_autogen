@@ -104,7 +104,7 @@ class _Packer:
     def cellml(self, source):
         '''Copy a CellML model, and the files it imports at their paths relative to it, into
         ``inputs/_target/<its directory>/``; the CellML's path in the pack.'''
-        from libcuflynx.calibration_workflow.cellml_model import cellml_imports
+        from libcuflynx.calibration_workflow.cellml_files import cellml_imports
         real = os.path.realpath(source)
         if real in self.packed:
             return self.packed[real]

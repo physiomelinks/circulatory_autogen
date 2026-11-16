@@ -165,7 +165,7 @@ def generate_cellml(model, work_dir, file_prefix, overrides=()):
     ``component/variable``) over those -- and ``<prefix>.cellml`` beside it, the model
     (flattened when it has imports) with every value that differs from its own written in.
     Returns as :func:`generate_parameterisation`.'''
-    from libcuflynx.calibration_workflow.cellml_model import (read_cellml_constants,
+    from libcuflynx.calibration_workflow.cellml_files import (read_cellml_constants,
                                                               write_cellml_with_values)
     from libcuflynx.calibration_workflow.resolve import read_cellml_parameters
     work_dir = os.path.abspath(work_dir)

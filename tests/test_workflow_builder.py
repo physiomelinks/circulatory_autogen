@@ -85,6 +85,16 @@ def _keywords(method):
 
 
 @pytest.mark.unit
+def test_cellml_model_helper_survives_importing_the_cellml_files_submodule(tmp_path):
+    """Importing the CellML-files submodule must not shadow the ``cellml_model`` builder helper."""
+    import importlib
+    importlib.import_module('libcuflynx.calibration_workflow.cellml_files')
+    import libcuflynx.calibration_workflow as cw
+    assert callable(cw.cellml_model)
+    assert cw.cellml_model(tmp_path / 'm.cellml') == {'cellml_model_path': str(tmp_path / 'm.cellml')}
+
+
+@pytest.mark.unit
 def test_every_schema_step_key_is_an_argument_of_the_builder():
     """The schema is the single source of truth: a step key added to it fails this until the
     builder takes it (add_step(**raw) reaches it meanwhile)."""

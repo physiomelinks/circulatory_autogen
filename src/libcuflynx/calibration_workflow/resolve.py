@@ -173,7 +173,7 @@ def read_cellml_parameters(model, where=''):
     them, its parameters file's values over the CellML's. A name must be ``component/variable``
     with a plain component, as a workflow names it as vessel and parameter; the parameters file
     sets only constants of the model.'''
-    from libcuflynx.calibration_workflow.cellml_model import read_cellml_constants
+    from libcuflynx.calibration_workflow.cellml_files import read_cellml_constants
     from libcuflynx.utilities import parameters_file as pf
     constants = read_cellml_constants(model.path, where)
     for name in constants:
