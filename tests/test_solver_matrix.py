@@ -607,9 +607,9 @@ def test_division_guard_keeps_the_sign_on_a_generated_model(control_phys_asd,
     """control_phys_asd's chemoreflex divides by quantities that change sign. casadi_python
     guards every division against zero; a guard that drops the sign sends the CO2 drive the
     wrong way. Checked where a calibration would see it: each state's mean, min and max over
-    the run, against CVODE_myokit at rtol 1e-10. At rtol 1e-8 this model's control takes a
-    different branch on SUNDIALS 6 than on 7 (chi_a peaks at 0.028 instead of 0.096), so the
-    comparison run has to be converged."""
+    the run, against CVODE_myokit at rtol 1e-10. The converged comparison is kept by Finbar's
+    decision (2026-11-16), although the matrix's rtol 1e-8 now agrees as closely (1.2e-6 to
+    1.5e-6, with SUNDIALS 6.5.1 and 7.7.0)."""
     record_property('backend', 'casadi_integrator')
     from libcuflynx.solver_wrappers import get_simulation_helper
     names = control_phys_asd['names']
