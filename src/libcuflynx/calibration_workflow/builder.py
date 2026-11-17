@@ -640,7 +640,8 @@ class WorkflowBuilder:
         """Add an identifiability analysis of ``params_for_id`` at a step's values.
 
         Args:
-            ia_options: the analysis options (the ``ia_options`` setting; ``method`` is
+            ia_options: the analysis options (the ``ia_options`` setting; ``method``,
+                ``'Laplace'`` or ``'profile_likelihood'``, is
                 required), written into the step's settings.
             result_from: the calibration or set step whose values the analysis is at.
                 Default: the model's own values.

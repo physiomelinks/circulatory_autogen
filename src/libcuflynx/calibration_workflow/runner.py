@@ -21,6 +21,8 @@ Output layout (``output_dir``)::
         sensitivity/               a sensitivity step's outputs (sa_options.output_dir)
         emulator/                  an emulation step's emulator
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
+        param_id/profile_likelihood/  an identifiability step's profiles (method
+                                   profile_likelihood)
         <step_id>_calibrated.cellml  a calibration's model with its best fit (a CellML model)
         uq/                        a uq step's run (its chain, or its Laplace mean and
                                    covariance); its distribution is in distribution/
@@ -116,14 +118,16 @@ ERROR_VECTOR_FILES = ('percent_error_vec.npy', 'error_vec_names.npy')
 #: its ``validation_results`` file)
 VALIDATION_SUMMARY_KEYS = ('data_item_name', 'data_reference', 'operand', 'operation', 'unit',
                            'data_type', 'n_points', 'rmse', 'nrmse', 'mean_abs_z', 'within_2std')
-SOBOL_INDICES_GLOB ='all_outputs_n*_Sobol_indices.csv'
+#: where an identifiability step's profile likelihood is written, in its run directory
+PROFILE_DIR = 'profile_likelihood'
+SOBOL_INDICES_GLOB = 'all_outputs_n*_Sobol_indices.csv'
 #: the result keys the study manifest lists as each kind's outputs
 STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'calibrated_model',
                                 'percent_error_vec', 'error_vec_names', 'validation_results'),
                 'sensitivity': ('sensitivity_dir', 'sobol_indices', 'local_sensitivity_signed'),
                 'reduction': ('params_for_id',),
                 'emulation': ('emulator_dir',),
-                'identifiability': ('laplace',),
+                'identifiability': ('laplace', 'profile_likelihood_dir'),
                 'set': (),
                 'sweep': ('sweep_dir', 'sweep_results'),
                 'uq': ('uq_output_dir', 'distribution_dir', 'posterior_predictive_dir',
@@ -258,6 +262,28 @@ def _libcellml_version():
 
 def default_output_dir(workflow):
     return os.path.join(os.getcwd(), 'workflow_output', workflow.name)
+
+
+def _profile_record(summary_path):
+    '''What an identifiability step's result keeps of a profile likelihood
+    (``ProfileLikelihood._save_results``): its directory, summary and options, and per parameter
+    the profile's file, the value profiled about, its cost and the 95% interval. The sweeps
+    (``param_values``, ``costs``, ``optima``) are in each file.'''
+    with open(summary_path, encoding='utf-8') as f:
+        summary = json.load(f)
+    directory = os.path.dirname(summary_path)
+    profiles = []
+    for path in sorted(glob.glob(os.path.join(directory, 'param_*.json')),
+                       key=lambda p: int(os.path.basename(p).split('_')[1])):
+        with open(path, encoding='utf-8') as f:
+            profile = json.load(f)
+        name = profile['param_name']
+        profiles.append({'parameter': '+'.join(name) if isinstance(name, list) else name,
+                         'file': path, 'best_val': profile['best_val'],
+                         'best_cost': profile['best_cost'], 'ci_95': profile['ci_95']})
+    return {'dir': directory, 'summary': summary_path, 'num_points': summary['num_points'],
+            'range_factor': summary['range_factor'],
+            'nll_threshold_95': summary['nll_threshold_95'], 'profiles': profiles}
 
 
 def _write_json(path, obj):
@@ -905,6 +931,11 @@ class _Run:
                                      'covariance': cov.tolist(),
                                      'std': np.sqrt(np.diag(cov)).tolist(),
                                      'mean_path': mean, 'covariance_path': covariance}
+            summaries = glob.glob(os.path.join(inp['param_id_output_dir'], PROFILE_DIR,
+                                               'summary.json'))
+            if summaries:
+                record['profile_likelihood'] = _profile_record(summaries[0])
+                record['profile_likelihood_dir'] = record['profile_likelihood']['dir']
             return record
 
         return self.on_root(finish)

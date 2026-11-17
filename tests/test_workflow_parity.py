@@ -23,6 +23,7 @@ from libcuflynx.calibration_workflow import (CellMLModel, StoredDistribution, Wo
                                              WorkflowError, cellml_model, load_workflow,
                                              pack_workflow, plan_workflow, resolve_workflow,
                                              run_calibration_workflow)
+from libcuflynx.calibration_workflow.builder import set_value
 from libcuflynx.calibration_workflow.spec import parse_workflow
 from libcuflynx.calibration_workflow.generate import read_parameter_rows
 
@@ -621,6 +622,40 @@ def test_local_sensitivity_and_identifiability_record_their_point(lv, tmp_path, 
     assert all(' (Exp' in label for label in table.index)
     ia = _step(out, 'ia-own')
     assert ia['at'] == [5.0, 3.0] and ia['at_source'] == 'model'
+
+
+@pytest.mark.integration
+def test_an_identifiability_step_runs_a_profile_likelihood_and_records_it(lv, tmp_path):
+    '''ia_options.method profile_likelihood: the step profiles each parameter about its
+    result_from point and records each profile's file and confidence interval.'''
+    out = str(tmp_path / 'run')
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'wf'), settings=copy.deepcopy(_FAST))
+    hand = wf.add_set('hand', [set_value(_ALPHA, 4.0, reason='the true value'),
+                               set_value(_GAMMA, 2.5, reason='the true value')], point=True)
+    wf.add_identifiability(
+        'profile', obs_data=os.path.join(lv, _OBS), params_for_id=os.path.join(lv, _PARAMS),
+        result_from=hand,
+        ia_options={'method': 'profile_likelihood', 'num_points': 5, 'range_factor': 0.05,
+                    'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10}})
+    assert wf.run(output_dir=out)['complete']
+
+    step = _step(out, 'profile')
+    assert step['method'] == 'profile_likelihood'
+    assert step['at'] == [4.0, 2.5] and step['at_source'] == 'hand'
+    assert 'laplace' not in step
+    record = step['profile_likelihood']
+    assert record['num_points'] == 5 and record['range_factor'] == 0.05
+    assert record['dir'].startswith(os.path.join(out, 'profile'))
+    assert os.path.isfile(record['summary'])
+    assert [p['parameter'] for p in record['profiles']] == [_ALPHA, _GAMMA]
+    for profile, best in zip(record['profiles'], [4.0, 2.5]):
+        written = _read_json(profile['file'])
+        assert profile['best_val'] == written['best_val'] == best
+        assert len(written['param_values']) == len(written['costs']) == 5
+        assert profile['ci_95'] == written['ci_95']
+    # the manifest lists the profiles' directory as the step's output
+    assert step['profile_likelihood_dir'] == record['dir']
 
 
 @pytest.mark.integration
