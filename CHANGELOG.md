@@ -499,7 +499,8 @@ the module, the port's variables, the 1D vessel and the 0D modules.
   effect on the informative PCA modes over its prior range, beyond what the parameters already
   kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
   every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences in
-  ln(parameter) at the centre of the box, 2M + 1 extra runs). One parameter per informative mode
+  ln(parameter) at the centre of the box, 2M + 1 extra runs, about 1/num_samples more; a
+  parameter whose bounds straddle 0 takes an additive step there). One parameter per informative mode
   (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
   parameters, and every parameter of a ratio or scaling symmetry.
 
@@ -508,6 +509,8 @@ the module, the port's variables, the 1D vessel and the 0D modules.
 - A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
   of every kind, mixing units. Each is now filled with that output's mean over the samples that
   ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
+- A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
+  now spreads its samples over the MPI ranks, one process running them all.
 
 ### Added — parameter reduction by PCA modes of the Sobol outputs
 
