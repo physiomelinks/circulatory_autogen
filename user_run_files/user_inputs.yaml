@@ -168,7 +168,7 @@ sa_options:
   # jacobian_points: 8         # 0 skips them
   # jacobian_location: base_points   # or centre
   # jacobian_scheme: central   # or forward
-  # jacobian_step: 0.001
+  # jacobian_step: 0.01
   # jacobian_check_steps: false     # also half the step, for redundancy_converged_only
     # output_dir: /non/default/path
 
@@ -185,7 +185,7 @@ param_reduction_options:
   # variance_fraction: 1.0  # pca: 1 = no relative cut; below 1, only the leading modes explaining this fraction
   # min_index: 0.05      # pca: a parameter below this index on every informative mode is not kept
   # redundancy_check: true  # pca: keep a parameter only for what the kept ones do not explain
-  # redundancy_statistic: rms        # pca: rms or median over the Jacobian points
+  # redundancy_statistic: median     # pca: median or rms over the Jacobian points
   # redundancy_converged_only: false # pca: needs sa_options.jacobian_check_steps
   # redundancy_convergence_tol: 0.1
   # criterion: max       # sobol: max or mean over the outputs

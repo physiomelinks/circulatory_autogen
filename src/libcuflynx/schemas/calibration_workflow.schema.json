@@ -339,7 +339,7 @@
         },
         "redundancy_statistic": {
           "enum": ["rms", "median"],
-          "default": "rms",
+          "default": "median",
           "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
         },
         "redundancy_converged_only": {

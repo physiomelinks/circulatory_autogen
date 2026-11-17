@@ -158,7 +158,7 @@ def test_options_are_the_param_reduction_options_descriptors():
     # round trip, and the paths are ignored
     options = {'method': 'pca', 'n_params': 3, 'index_type': 'S1', 'min_mode_std': 2.0,
                'variance_fraction': 0.9, 'min_index': 0.1, 'redundancy_check': False,
-               'redundancy_statistic': 'median', 'redundancy_converged_only': True,
+               'redundancy_statistic': 'rms', 'redundancy_converged_only': True,
                'redundancy_convergence_tol': 0.2}
     assert ParamReduction.from_options(dict(options, sensitivity_dir='x')).as_dict() == options
     # an option of the other method at its default is fine (a filled-in form); changed, not
@@ -367,6 +367,8 @@ def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
     """The redundancy check, on by default, needs the local Jacobian, so every Sobol run makes
     it, with or without use_MPI."""
     sa = _bare_sobol_sa([0.5, 0.5], [2.0, 2.0], lambda p: [p[0] * p[1]])
+    # a step of 1e-3: a central difference of exp in ln p is off by step**2 / 6
+    sa.jacobian = jacobian_options({'jacobian_step': 1e-3})
     samples = np.array([[1.0, 1.0]] * 6 + [[2.0, 0.5]] * 6)
     sa.generate_samples = lambda: samples
     sa.sobol_index = lambda outputs: ('S1', 'ST', 'S2')
@@ -383,7 +385,7 @@ def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
                                  {'jacobian_step': 1.5}, {'jacobian_check_steps': 'yes'}])
 def test_the_jacobian_options_are_checked(bad):
     assert jacobian_options({}) == {'jacobian_points': 8, 'jacobian_location': 'base_points',
-                                    'jacobian_scheme': 'central', 'jacobian_step': 1e-3,
+                                    'jacobian_scheme': 'central', 'jacobian_step': 1e-2,
                                     'jacobian_check_steps': False}
     with pytest.raises(ValueError, match=list(bad)[0]):
         jacobian_options(bad)
@@ -402,7 +404,7 @@ def test_the_redundancy_statistic_and_converged_points(tmp_path):
     source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
     run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params,
                            jacobian={'jacobian_check_steps': True})
-    for options in ({}, {'redundancy_statistic': 'median'},
+    for options in ({}, {'redundancy_statistic': 'rms'},
                     {'redundancy_converged_only': True}):
         kept = [r['parameter'] for r in PCASobolReduction(**options).reduce(
             run, source, str(tmp_path / 'out' / 'kept.json'))]
@@ -419,11 +421,12 @@ def test_the_redundancy_statistic_and_converged_points(tmp_path):
         return {'y1': (a * b, 0.05), 'y2': (a * b + ripple, 0.05), 'y3': (c, 0.05)}
 
     run = _write_sobol_run(str(tmp_path / 'rough'), outputs_of=rough, params=params,
-                           jacobian={'jacobian_check_steps': True})
+                           jacobian={'jacobian_check_steps': True, 'jacobian_step': 1e-3})
     samples = pd.read_csv(os.path.join(run, 'all_outputs_n256_Sobol_samples.csv'))
     rows = [8 * k for k in range(8) if samples.iloc[8 * k]['m/a'] > 1.75]
     assert rows                                     # the design has such points
-    every = PCASobolReduction().reduce(run, source, str(tmp_path / 'r1' / 'kept.json'))
+    every = PCASobolReduction(redundancy_statistic='rms').reduce(
+        run, source, str(tmp_path / 'r1' / 'kept.json'))
     assert {'m/a', 'm/b'} <= {r['parameter'] for r in every}
     with pytest.warns(UserWarning, match='left out'):
         kept = PCASobolReduction(redundancy_converged_only=True).reduce(

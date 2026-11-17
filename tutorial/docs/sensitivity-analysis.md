@@ -215,12 +215,12 @@ parameter, the direction it moves the data in, and compares those.
 | `jacobian_points` | 8 | how many points; 0 skips the derivatives |
 | `jacobian_location` | `base_points` | `base_points`: the first `jacobian_points` Saltelli base points, the rows starting each block of 2M + 2 samples, which come from a Sobol sequence and so spread over the box; `centre`: one point at the centre of the box |
 | `jacobian_scheme` | `central` | `central` (2 runs per parameter and point) or `forward` (1, reusing the base point's own run) |
-| `jacobian_step` | 0.001 | the step in ln(parameter), or as a fraction of the range for bounds that straddle 0 |
+| `jacobian_step` | 0.01 | the step in ln(parameter), or as a fraction of the range for bounds that straddle 0 |
 | `jacobian_check_steps` | false | also take them with half the step (twice the runs), for `redundancy_converged_only` |
 
 With the defaults a run costs `2 x jacobian_points x M` extra simulations, about
 `jacobian_points / num_samples` of the Sobol run: 192 next to 6656 (2.9%) for 12 parameters and
-`num_samples: 256`. Central differences are the default because a forward step's error is first
+`num_samples: 256`; `jacobian_check_steps: true` doubles that. Central differences are the default because a forward step's error is first
 order: in an oscillator a step shifts the phase, the error grows along the time course, and in
 the Goodwin benchmark it hid an exact symmetry. Each derivative is multiplied by the parameter's
 prior range (`ln(max/min)`, or `max - min` for bounds that straddle 0), so it reads as how far the
@@ -243,14 +243,25 @@ parameter's `effects` (the statistic before anything is removed) and the
 
 Two `param_reduction_options` set how the points are combined:
 
-- `redundancy_statistic`: `rms` (the default) keeps a parameter that is unexplained at any
-  point, however few; `median` keeps it only if it is unexplained at most points, which ignores
-  a minority of points where the derivatives are poor, and also a parameter that matters in
-  less than half the box.
+- `redundancy_statistic`: `median` (the default) keeps a parameter only if it is unexplained at
+  most points, which ignores a minority of points where the derivatives are poor, and also a
+  parameter that matters in less than half the box; `rms` keeps a parameter that is unexplained
+  at any point, however few.
 - `redundancy_converged_only` (default false): leave out the points where the derivatives at
   `jacobian_step` and at half of it differ by more than `redundancy_convergence_tol` (default
   0.1) of the effect. It needs `jacobian_check_steps`, and the report lists the
   `unconverged_points`.
+
+The defaults (central differences of 0.01 at 8 base points, the `median` over the points)
+come from `benchmarks/param_reduction/compare_redundancy.py`, which runs every setting on the
+FitzHugh-Nagumo, Goodwin and Teusink benchmarks and compares the kept count with the Fisher
+information at the truth (`redundancy_comparison_results.md`). FitzHugh-Nagumo and Teusink give
+the same count under every setting. Goodwin is decided by the points below: `rms` over all
+points keeps one parameter too many. `rms` over the converged points and the centre point alone
+also give the right count there, but on a stiff model such as the 3-compartment test model
+solver noise (which grows as 1/step) leaves no point converged at a step of 0.001, and the centre
+point misses a parameter that is flat at the centre. The cost of `median` is a parameter that
+matters in less than half the box: set `redundancy_statistic: rms` to keep such parameters.
 
 **Why local derivatives, at several points.**
 
@@ -267,9 +278,8 @@ Two `param_reduction_options` set how the points are combined:
   an exact scaling symmetry, so `ai` is explained by the other two at every point in exact
   arithmetic. At six of eight points the derivatives show it (under 1 noise std left), but at
   the two where `ai` is small next to `Ai` they do not settle as the step shrinks, and leave
-  tens of noise stds. With `rms` those two points keep `ai`; `median` or
-  `redundancy_converged_only` drop it. `benchmarks/param_reduction/compare_redundancy.py`
-  compares the settings on the benchmark models.
+  tens of noise stds. The default `median` outvotes those points and drops `ai`;
+  `rms` over every point would keep it.
 
 **Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
 such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.

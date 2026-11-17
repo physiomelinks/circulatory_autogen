@@ -1880,7 +1880,7 @@ ANALYSIS_OPTIONS = {
              'choices': ['central', 'forward'],
              'description': ('central (2 runs per parameter and point) or forward (1) '
                              'differences.')},
-            {'name': 'jacobian_step', 'type': 'float', 'default': 1e-3, 'required': False,
+            {'name': 'jacobian_step', 'type': 'float', 'default': 1e-2, 'required': False,
              'description': ('The difference step: in ln(parameter), or, for bounds that '
                              'straddle 0, as a fraction of the range.')},
             {'name': 'jacobian_check_steps', 'type': 'bool', 'default': False,
@@ -2026,7 +2026,7 @@ ANALYSIS_OPTIONS = {
                              'then kept once. Off: one parameter per informative mode, which '
                              'does not reduce when the outputs are a time course with more modes '
                              'than parameters.')},
-            {'name': 'redundancy_statistic', 'type': 'enum', 'default': 'rms', 'required': False,
+            {'name': 'redundancy_statistic', 'type': 'enum', 'default': 'median', 'required': False,
              'choices': ['rms', 'median'],
              'description': ('For "pca" with redundancy_check: how a parameter\'s unexplained '
                              'effect at the Jacobian points is summarised: rms (any point where '

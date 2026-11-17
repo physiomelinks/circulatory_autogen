@@ -35,6 +35,8 @@ DERIVATIVE_VARIANTS = {
     'K8_forward_1e-2': {'jacobian_points': 8, 'jacobian_scheme': 'forward',
                         'jacobian_step': 1e-2},
     'K8_central_1e-2': {'jacobian_points': 8, 'jacobian_step': 1e-2},
+    'K8_central_1e-2_checked': {'jacobian_points': 8, 'jacobian_step': 1e-2,
+                                'jacobian_check_steps': True},
     'K8_central_1e-3_checked': {'jacobian_points': 8, 'jacobian_step': 1e-3,
                                 'jacobian_check_steps': True},
     'K16_central_1e-3_checked': {'jacobian_points': 16, 'jacobian_step': 1e-3,

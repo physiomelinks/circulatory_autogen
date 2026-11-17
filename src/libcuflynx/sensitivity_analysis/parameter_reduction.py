@@ -273,7 +273,7 @@ class PCASobolReduction(ParamReduction):
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
                  variance_fraction=1.0, min_index=0.05, redundancy_check=True,
-                 redundancy_statistic='rms', redundancy_converged_only=False,
+                 redundancy_statistic='median', redundancy_converged_only=False,
                  redundancy_convergence_tol=0.1):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
