@@ -534,6 +534,24 @@ def test_a_modifier_entry_starts_and_is_analysed_at_a_theta(lv, tmp_path):
     # no point given: the theta that leaves alpha as the model has it
     assert _step(out, 'ia-own')['at'] == [1.0, _OWN[_GAMMA]]
 
+    # the provenance, the plan and the methods name the theta as a value set by hand
+    from libcuflynx.reporting import flowchart
+    from libcuflynx.reporting.provenance import provenance_graph
+    assert os.path.isfile(os.path.join(out, 'provenance.svg'))
+    (node,) = [n for n in provenance_graph(out)['nodes'] if n['id'] == 'sliders']
+    assert '`theta of alpha_scale` = 0.9: slider position' in node['lines']
+    assert flowchart.POINT_ONLY in node['lines']
+    gamma, theta = node['parameters']
+    assert (theta['name'], theta['value'], theta['origin'], theta['reason']) == (
+        'theta of alpha_scale', 0.9, 'set_by_hand', 'slider position')
+    assert gamma['value'] == 2.8 and node['counts']['set_by_hand'] == 2
+    workflow_file = os.path.join(lv, 'workflow.json')
+    plan = {s['id']: s for s in plan_workflow(workflow_file)['steps']}
+    assert plan['sliders']['set'][-1] == sliders['set'][0]
+    # the methods text of a set step is made of these lines
+    assert flowchart.latex(flowchart.set_line(sliders['set'][0])) == (
+        r'theta of \texttt{alpha\_scale} = 0.9: slider position')
+
 
 @pytest.mark.integration
 def test_a_theta_for_an_entry_the_step_does_not_have_is_refused(lv, tmp_path):
