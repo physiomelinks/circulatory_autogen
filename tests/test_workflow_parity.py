@@ -407,6 +407,7 @@ def test_a_calibration_validates_its_best_fit_against_held_out_data(lv, tmp_path
     assert written['rmse'] == item['rmse']
 
 
+@pytest.mark.integration
 def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.2, 'reason': 'near the fit'},
