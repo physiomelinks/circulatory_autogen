@@ -199,16 +199,19 @@ bounds that straddle 0), so it reads as how far the data would move if that slop
 the whole range. They are saved in `all_outputs_n<N>_Sobol_local_jacobian.csv`, one row per
 point and parameter.
 
-**The effects.** Each derivative is scaled to noise stds like the outputs in step 1 and
-projected onto the informative modes. A parameter's effect is these projections at all the
-points, side by side in one vector, divided by the square root of the number of points, so its
-length is the root mean square over the points, in noise stds.
+**The effects.** At each point, each derivative is scaled to noise stds like the outputs in
+step 1 and projected onto the informative modes: a parameter's effect at that point, a vector
+with one entry per informative mode.
 
-**The choice.** Pivoted Gram-Schmidt on the effects: keep the parameter with the longest
-effect, subtract its direction from every other effect, and repeat with what is left, until
-the longest remaining effect is below `min_mode_std`. The report lists each parameter's
-`effects` (the length before any subtraction) and the `unexplained_effects` of those not kept
-(what was left).
+**The choice.** Pivoted Gram-Schmidt, done at each point separately and chosen jointly. For
+every parameter, take what is left of its effect at each point once the kept parameters'
+effects at that point are removed, and its root mean square length over the points. Keep the
+parameter with the largest, remove its direction at every point, and repeat until the largest
+is below `min_mode_std`. Because each point is explained by the kept parameters at that same
+point, the combination that reproduces a redundant parameter may change across the box, as it
+does for a scaling symmetry or for parameters entering as a sum. The report lists each
+parameter's `effects` (root mean square length before anything is removed) and the
+`unexplained_effects` of those not kept (what was left).
 
 **Why local derivatives, at several points.**
 
@@ -220,6 +223,12 @@ the longest remaining effect is below `min_mode_std`. The report lists each para
 - *A flat spot at one point is not mistaken for no effect.* `p^2` on `[-1, 1]` has slope 0 at
   the centre of its range, and a derivative there alone would drop it. Across 8 points its
   effect is many noise stds, and it is kept.
+
+- *A redundancy that holds in only part of the box does not drop the parameter.* In the
+  Goodwin oscillator benchmark, `ai` is explained by `Ai` and `ki` at half the points and not at
+  the others, where `ai` is small next to `Ai`: if the truth lay there, the data could tell `ai`
+  apart, so it is kept. A derivative at the centre alone, which sits in the symmetric part,
+  dropped it.
 
 **Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
 such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.

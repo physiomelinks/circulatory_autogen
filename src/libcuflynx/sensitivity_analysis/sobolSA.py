@@ -1202,9 +1202,9 @@ class sobol_SA():
         the range. Kept on rank 0 as ``self.local_jacobian`` (points x parameters x outputs,
         NaN where a run failed) and ``self.local_jacobian_rows`` for
         :meth:`save_sobol_samples_and_outputs`. A PCA parameter reduction compares these
-        effects, stacked over the points, to tell parameters that move the data the same way
-        (a product, a ratio) apart: local derivatives keep that exact, which finite jumps between
-        Saltelli samples do not, and several points keep a parameter that is flat at one of them."""
+        effects point by point to tell parameters that move the data the same way (a product,
+        a ratio) apart: local derivatives keep that exact, which finite jumps between Saltelli
+        samples do not, and several points keep a parameter that is flat at one of them."""
         rows, points = self.local_jacobian_points(samples)
         self.local_jacobian = None
         if not len(rows):

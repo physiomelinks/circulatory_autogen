@@ -13,8 +13,9 @@ next release; add to that section as you land a change.
   every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: forward differences
   at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
   `jacobian_points` x M extra runs, about 1.4% of a 12-parameter run at `num_samples: 256`).
-  Derivatives at several points keep a parameter that is flat at one of them, and keep products
-  and ratios exactly redundant. One parameter per informative mode
+  The redundancy is judged at each point (Gram-Schmidt per point, chosen by the root mean square
+  over the points), so a parameter flat at one point is still seen, products, ratios and
+  symmetries stay exactly redundant, and one redundant in only part of the box is kept. One parameter per informative mode
   (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
   parameters, and every parameter of a ratio or scaling symmetry.
 

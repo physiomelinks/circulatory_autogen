@@ -379,3 +379,21 @@ def test_a_parameter_flat_at_the_centre_of_its_range_is_kept(tmp_path):
     kept = [r['parameter'] for r in PCASobolReduction().reduce(
         run, source, str(tmp_path / 'pca' / 'kept.json'))]
     assert 'm/p' in kept and len(kept) == 2 and len({'m/a', 'm/b'} & set(kept)) == 1
+
+
+@pytest.mark.unit
+def test_a_redundancy_whose_coefficients_vary_over_the_box_keeps_one_parameter(tmp_path):
+    """The data depend on a + b only. In ln(parameter), b's effect is a's times b / a, which
+    changes from point to point: explained at each point, so one of a and b is kept, although
+    the two effects stacked over the points are not parallel."""
+    params = ['m/a', 'm/b', 'm/c']
+
+    def outputs(x):
+        a, b, c = x.T
+        return {f'y(t={t:.2f})': ((a + b) * np.exp(-c * t), 0.05) for t in TIMES}
+
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params)
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    kept = [r['parameter'] for r in PCASobolReduction().reduce(
+        run, source, str(tmp_path / 'pca' / 'kept.json'))]
+    assert 'm/c' in kept and len(kept) == 2 and len({'m/a', 'm/b'} & set(kept)) == 1
