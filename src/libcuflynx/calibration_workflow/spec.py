@@ -22,7 +22,9 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``set`` -- declares values or scales by hand, each with a ``reason``. It runs nothing: later
   steps take its values with ``fixed_from``, and they reach the target as calibrated values do,
   unless it has ``"point": true``: then they are only a point for ``start_from``,
-  ``result_from`` or ``fixed_from``, and never reach the target;
+  ``result_from`` or ``fixed_from``, and never reach the target. A point step may also give
+  the theta of a params_for_id modifier entry (``{"entry", "theta", "reason"}``), which a
+  step with that entry starts or is analysed at;
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
   values go no further: no step takes from it and it does not reach the target. With
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
@@ -270,6 +272,9 @@ class Step:
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
     set_values: list = field(default_factory=list)   # (set) the entries it declares
+    # (set) its modifier thetas: [{'entry', 'theta', 'reason'}], a point for the steps whose
+    # params_for_id has a modifier entry of that name
+    set_thetas: list = field(default_factory=list)
     point: bool = False            # (set) its values are a point only, not merged into the target
     sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
     on_target: bool = False        # (sweep) runs on the target with the merged values
@@ -574,9 +579,12 @@ def _step(value, where, base_dir):
         if 'settings' in value:
             raise WorkflowError(f'{label}: a set step declares values for the target and has '
                                 f'no "settings".')
-        entries = [_set_entry(entry) for entry in value['set']]
+        entries = [_set_entry(entry) for entry in value['set'] if 'entry' not in entry]
+        thetas = [{'entry': entry['entry'].strip(), 'theta': entry['theta'],
+                   'reason': entry['reason'].strip()}
+                  for entry in value['set'] if 'entry' in entry]
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
-                    depends_on=scale_sources(entries), set_values=entries,
+                    depends_on=scale_sources(entries), set_values=entries, set_thetas=thetas,
                     point=value.get('point', False), description=value.get('description', '') or '')
     if kind == 'reduction':
         settings = dict(value.get('settings') or {})
@@ -835,6 +843,14 @@ def _check_set_step(workflow, step):
     twice = sorted({name for name in names if names.count(name) > 1})
     if twice:
         raise WorkflowError(f'set step "{step.id}" sets {twice} more than once.')
+    names = [entry['entry'] for entry in step.set_thetas]
+    twice = sorted({name for name in names if names.count(name) > 1})
+    if twice:
+        raise WorkflowError(f'set step "{step.id}" gives the theta of {twice} more than once.')
+    if step.set_thetas and not step.point:
+        raise WorkflowError(f'set step "{step.id}" gives the theta of {names}: a theta is a '
+                            f'point for start_from or result_from, not a value of the target, '
+                            f'so the step needs "point": true.')
     if any(entry.get('of') == INHERITED_BASE for entry in step.set_values) and \
             any(s.id == INHERITED_BASE for s in workflow.steps):
         raise WorkflowError(f'set step "{step.id}" scales the value "{INHERITED_BASE}", which is '

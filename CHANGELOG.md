@@ -241,6 +241,14 @@ number of vessels at a node (node sums #609, node rule D #617).
   of the parameters it modifies, `modifier(theta, baseline)`, and records theta under
   `modifiers`. It recorded theta as each parameter's value, so the merged target had theta in
   place of the parameter.
+- **A modifier's theta as a point:** a point set step entry `{"entry": <params_for_id
+  modifier entry name>, "theta": ..., "reason": ...}` (the builder's `set_theta`), and the
+  thetas a calibration fitted, are where a step with `start_from` or `result_from` starts or
+  analyses that modifier entry; the parameters it modifies keep their values in the step's
+  model. A params_for_id modifier entry takes `theta`, its starting and nominal value, which
+  the step's copy of the params_for_id carries. An identifiability, uq or local sensitivity
+  step with a modifier entry and no point was at the first modified parameter's value read
+  as theta; it is now at the theta that leaves the parameters at the model's values.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
   `on_target` sweep), do not count towards "calibrated by more than one step", and the

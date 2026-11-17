@@ -34,6 +34,7 @@ The keys of an entry:
 
 - **targets**: the model parameters this calibrated value sets, all to the same value, named as in the `[file_prefix]_parameters.json` file: `<vessel>/<variable>` (`aortic_root/C`), a nested vessel by its path (`heart/lv/E_A`, a supermodule instance's submodule) and a global constant as `global/<variable>`.
 - **modifies**, **modifier**, **inputs** (instead of **targets**): a modifier entry, whose calibrated value acts on the parameters it lists through a modifier function (`scale`, `remainder`, or your own, see `modifier_funcs_external_path`).
+- **theta** (a modifier entry only): the value the entry starts at in a calibration and is analysed about in a local sensitivity analysis. By default it is the one that leaves the modified parameters at their values in the model (1 for `scale`).
 - **name**: the entry's name, unique in the file; by default its first target.
 - **min**, **max**: the range of possible values (the uniform prior's bounds, the optimiser's search box).
 - **param_type**: **"state"** or **"const"**; whether the parameter is the initial value of a state or a const.
@@ -1424,8 +1425,8 @@ argument of their own (`sa_options=`, `ia_options=`, `uq_options=`, `emulator_se
 In all of them `model` defaults to the target. `library_module(type, version,
 parameterisation)`, `module_array(path, parameters=None)`, `external_model(path)`, `cellml_model(path,
 parameters=None)`, `selection(*instances)`,
-`prior(step, kind=, inflate=, parameters=)`, `set_value(parameter, value, reason=)` and
-`scale_value(parameter, scale, of=, reason=)` give a step's model, priors and set entries. A
+`prior(step, kind=, inflate=, parameters=)`, `set_value(parameter, value, reason=)`,
+`scale_value(parameter, scale, of=, reason=)` and `set_theta(entry, theta, reason=)` give a step's model, priors and set entries. A
 step is checked against the schema when it is added.
 
 Values set by hand go in a `set` step (`add_set`), not in a parameters dict: each carries its
@@ -1840,6 +1841,29 @@ not change when a step is added. The builder's `add_set(..., point=True)`.
 {"id": "sliders-1", "kind": "set", "point": true, "set": [
   {"parameter": "Lotka_Volterra_module/alpha", "value": 4.2, "reason": "slider position"}]}
 ```
+
+A params_for_id **modifier entry** is calibrated as its theta, which acts on the parameters it
+modifies (`scale`: theta times each one's value in the model). Its point is therefore a theta,
+not a value of those parameters, and a point set step gives it with an `entry` and a `theta`
+(the builder's `set_theta(entry, theta, reason=)`), naming the modifier entry in the
+params_for_id of the steps that take it:
+
+```json
+{"id": "sliders-2", "kind": "set", "point": true, "set": [
+  {"entry": "alpha_scale", "theta": 0.9, "reason": "slider position"},
+  {"parameter": "Lotka_Volterra_module/gamma", "value": 2.8, "reason": "slider position"}]}
+```
+
+A step with `start_from` or `result_from` that step starts or is analysed at theta 0.9, and
+`alpha` keeps its value in the step's model, so theta, its `min` and `max` and its prior mean
+what the params_for_id says. A calibration gives the thetas it fitted the same way: a step
+with `result_from` (or `start_from`) a calibration that has the same modifier entry is at its
+fitted theta, about the model's values, rather than at theta 1 about the fitted parameters.
+The step runs with a copy of its params_for_id that has `theta` on those entries
+(`<step_id>/<step_id>_params_for_id.json`). A theta entry is refused in a set step without
+`"point": true` (a theta is not a value of the target) and in a step whose params_for_id has
+no modifier entry of that name. With no theta given, an analysis of a modifier entry is at the
+theta that leaves its parameters at the model's values.
 
 A **sweep** runs its model at each point and keeps every run. It feeds nothing forward: no step
 can take from it, and its values do not reach the target. It can start from values with

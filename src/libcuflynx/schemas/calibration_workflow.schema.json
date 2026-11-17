@@ -402,10 +402,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "parameter",
         "reason"
       ],
       "properties": {
+        "entry": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "a modifier's theta: the name of the params_for_id modifier entry it is the theta of, in the steps that take this step as start_from or result_from"
+        },
+        "theta": {
+          "type": "number",
+          "description": "the theta of the modifier entry named by \"entry\": where a calibration starts it, or what an analysis is at. The parameters it modifies keep their values in the step's model. Only in a set step with \"point\": true"
+        },
         "parameter": {
           "type": "string",
           "pattern": "^\\s*\\S.*/\\S+\\s*$",
@@ -437,6 +445,7 @@
       "oneOf": [
         {
           "required": [
+            "parameter",
             "value"
           ],
           "not": {
@@ -450,23 +459,83 @@
                 "required": [
                   "of"
                 ]
+              },
+              {
+                "required": [
+                  "entry"
+                ]
+              },
+              {
+                "required": [
+                  "theta"
+                ]
               }
             ]
           }
         },
         {
           "required": [
+            "parameter",
             "scale",
             "of"
           ],
           "not": {
-            "required": [
-              "value"
+            "anyOf": [
+              {
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "required": [
+                  "entry"
+                ]
+              },
+              {
+                "required": [
+                  "theta"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "entry",
+            "theta"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "parameter"
+                ]
+              },
+              {
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "required": [
+                  "scale"
+                ]
+              },
+              {
+                "required": [
+                  "of"
+                ]
+              },
+              {
+                "required": [
+                  "units"
+                ]
+              }
             ]
           }
         }
       ],
-      "description": "one value set by hand: a value, or a scale of an existing value"
+      "description": "one value set by hand: a parameter's value, a scale of an existing value, or the theta of a params_for_id modifier entry"
     },
     "sweep_range": {
       "oneOf": [

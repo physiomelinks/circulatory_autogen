@@ -441,6 +441,10 @@ def resolve_workflow(workflow):
             [s for s in (step.result_from, step.start_from) if s]
         for source in flows:
             mapped = result.map_between(source, step.id)
+            if workflow.step(source).set_thetas and not resolved[source].parameters:
+                # a set step of modifier thetas alone names no vessel: the run checks that the
+                # step has those modifier entries
+                continue
             if not any(mapped(p.vessel) for p in resolved[source].parameters):
                 raise WorkflowError(
                     f'step "{step.id}" takes values from "{source}", but none of the vessels '
