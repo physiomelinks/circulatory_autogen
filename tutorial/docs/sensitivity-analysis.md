@@ -164,7 +164,8 @@ by more than its noise, and keeps one parameter for each:
    largest index over the informative modes is below `min_index` is not a candidate.
 4. With `redundancy_check: true` (the default), each candidate's effect on the informative modes
    over its prior range is taken from a local Jacobian the Sobol run saves: central differences
-   in ln(parameter) at the centre of the box (2M + 1 extra runs). The reduction keeps the
+   in ln(parameter) at the centre of the box, or in the parameter itself when its bounds
+   straddle 0 (2M + 1 extra runs, about 1/num_samples more). The reduction keeps the
    candidate with the largest effect, removes that direction from the others' effects, and
    repeats, stopping when the largest effect left is below `min_mode_std` noise stds: what that
    parameter would add to the fit is inside the noise. Parameters that move the data the same

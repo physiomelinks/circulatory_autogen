@@ -1133,24 +1133,35 @@ class sobol_SA():
     def local_jacobian_points(self):
         """``(centre, points)``: the centre of the sampled box (the geometric mean of each
         parameter's bounds when they share a sign, else their midpoint) and the central-difference
-        points around it, ``centre`` then each parameter times ``exp(+h)`` and ``exp(-h)``,
-        ``h = LOCAL_JACOBIAN_LOG_STEP``."""
-        lows = np.asarray(self.SA_info['param_mins'], float)
-        highs = np.asarray(self.SA_info['param_maxs'], float)
-        same_sign = lows * highs > 0
-        centre = np.where(same_sign, np.sign(highs) * np.sqrt(np.abs(lows * highs)),
-                          0.5 * (lows + highs))
+        points around it, ``centre`` then each parameter stepped up and down: times ``exp(±h)``,
+        ``h = LOCAL_JACOBIAN_LOG_STEP``, or, when its bounds straddle 0, plus and minus
+        ``h * (max - min)`` (a multiplicative step from a centre of 0 would not move it)."""
+        lows, highs, straddles = self._local_jacobian_bounds()
+        centre = np.where(straddles, 0.5 * (lows + highs),
+                          np.sign(highs) * np.sqrt(np.abs(lows * highs)))
         points = [centre]
         for i in range(len(centre)):
             for sign in (1, -1):
                 point = centre.copy()
-                point[i] *= np.exp(sign * LOCAL_JACOBIAN_LOG_STEP)
+                if straddles[i]:
+                    point[i] += sign * LOCAL_JACOBIAN_LOG_STEP * (highs[i] - lows[i])
+                else:
+                    point[i] *= np.exp(sign * LOCAL_JACOBIAN_LOG_STEP)
                 points.append(point)
         return centre, np.array(points)
 
+    def _local_jacobian_bounds(self):
+        """``(lows, highs, straddles)``: the Sobol bounds, and which of them straddle 0."""
+        lows = np.asarray(self.SA_info['param_mins'], float)
+        highs = np.asarray(self.SA_info['param_maxs'], float)
+        return lows, highs, ~(lows * highs > 0)
+
     def run_local_jacobian(self):
         """d(output)/d ln(parameter) at the centre of the box, by central differences (2M + 1
-        runs, spread over the ranks as the Sobol samples are). Kept on rank 0 as
+        runs, spread over the ranks as the Sobol samples are). For a parameter whose bounds
+        straddle 0 the row is d(output)/d(parameter) times ``|centre|`` (1 when the centre is
+        0), so that, as for the others, the row times the parameter's ``log_ranges`` entry
+        (parameter_reduction) is its effect over its prior range. Kept on rank 0 as
         ``self.local_jacobian`` (parameters x outputs, NaN where a run failed) for
         :meth:`save_sobol_samples_and_outputs`; a PCA parameter reduction reads it to tell
         parameters that move the data the same way apart."""
@@ -1159,24 +1170,24 @@ class sobol_SA():
         if self.rank != 0:
             return None
         outputs = np.array(outputs, dtype=float)
+        lows, highs, straddles = self._local_jacobian_bounds()
+        scale = np.where(np.abs(centre) > 0, np.abs(centre), 1.0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            step = np.where(straddles, LOCAL_JACOBIAN_LOG_STEP * (highs - lows) / scale,
+                            LOCAL_JACOBIAN_LOG_STEP)
+            self.local_jacobian = (outputs[1::2] - outputs[2::2]) / (2 * step[:, None])
         self.local_jacobian_centre = centre
-        self.local_jacobian = (outputs[1::2] - outputs[2::2]) / (2 * LOCAL_JACOBIAN_LOG_STEP)
         return self.local_jacobian
 
     def run(self):
+        """The Sobol indices ``(S1, ST, S2)`` on rank 0 (None on the others), after the Saltelli
+        samples and the local Jacobian (run_local_jacobian) have run, spread over the MPI ranks;
+        one process runs them all."""
         samples = self.generate_samples()
         self.samples = samples
-        if self.use_mpi:
-            outputs = self.generate_outputs_mpi(samples)
-            self.run_local_jacobian()
-            if self.rank == 0:
-                S1_all, ST_all, S2_all = self.sobol_index(outputs)
-                # print(f">>>>>>>>>>  {S1_all}, {ST_all}, {S2_all}")
-                return S1_all, ST_all, S2_all
-            else:
-                return None, None, None
-        else:
-            outputs = self.generate_outputs(samples)
-            S1_all, ST_all, S2_all = self.sobol_index(outputs)
-            return S1_all, ST_all, S2_all
+        outputs = self.generate_outputs_mpi(samples)
+        self.run_local_jacobian()
+        if self.rank != 0:
+            return None, None, None
+        return self.sobol_index(outputs)
 
