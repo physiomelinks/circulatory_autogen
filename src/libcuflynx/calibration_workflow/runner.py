@@ -116,7 +116,7 @@ ERROR_VECTOR_FILES = ('percent_error_vec.npy', 'error_vec_names.npy')
 #: its ``validation_results`` file)
 VALIDATION_SUMMARY_KEYS = ('data_item_name', 'data_reference', 'operand', 'operation', 'unit',
                            'data_type', 'n_points', 'rmse', 'nrmse', 'mean_abs_z', 'within_2std')
-SOBOL_INDICES_GLOB ='all_outputs_n*_Sobol_indices.csv'
+SOBOL_INDICES_GLOB = 'all_outputs_n*_Sobol_indices.csv'
 #: the result keys the study manifest lists as each kind's outputs
 STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'calibrated_model',
                                 'percent_error_vec', 'error_vec_names', 'validation_results'),
