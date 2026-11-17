@@ -19,6 +19,7 @@ from libcuflynx.parsers.PrimitiveParsers import (expand_modifier_param_vals,
 from libcuflynx.solver_wrappers.param_grouping import pair_names_with_values
 
 __all__ = ['CALIBRATED_MODEL_SUFFIX', 'PARAMETER_COMPONENTS', 'calibrated_model_name',
+           'constant_named',
            'calibrated_parameter_values', 'flattened_cellml_text', 'substitute_parameter_values',
            'write_calibrated_model', 'write_cellml_values']
 
@@ -112,6 +113,17 @@ def _resolve(name, constants, by_variable):
         if len(hits) == 1:
             return hits[0]
     return None
+
+
+def constant_named(name, constants):
+    """The name in ``constants`` (``component/variable`` names) of the constant ``name`` is, by
+    the rule ``substitute_parameter_values`` writes values with: itself, or the first of
+    ``model_qname_candidates`` the model has (``global/q_init`` is ``parameters_global/q_init``
+    in a model that has that component). None when it is none of them."""
+    by_variable = {}
+    for qname in sorted(constants):
+        by_variable.setdefault(qname.split('/', 1)[1], []).append(qname)
+    return _resolve(str(name), constants, by_variable)
 
 
 def substitute_parameter_values(cellml_text, values):

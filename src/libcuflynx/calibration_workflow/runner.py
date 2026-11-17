@@ -587,6 +587,7 @@ class _Run:
         calibrates or analyses.'''
         resolved = self.resolved.steps[step.id]
         own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
+        own = [resolved.in_model(p) for p in own]
         if resolved.renames_inputs:
             own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
                                        p.param) for p in own]
@@ -609,7 +610,8 @@ class _Run:
                 vessel, _, param = str(qname).partition('/')
                 if resolved.renames_inputs:
                     vessel = resolved.vessel_map.from_target(vessel) or vessel
-                names.add(CalibratedParameter(vessel=vessel, param=param).model_name)
+                names.add(resolved.in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name)
             modifiers[mod['name']] = names
         return modifiers
 
@@ -829,7 +831,9 @@ class _Run:
                 names = qnames if isinstance(qnames, (list, tuple)) else [qnames]
                 for qname, value in zip(names, entry_values):
                     vessel, _, param = str(qname).partition('/')
-                    parameter = CalibratedParameter(vessel=vessel, param=param)
+                    # as the step's model names it (a CellML's constant)
+                    parameter = resolved.in_model(CalibratedParameter(vessel=vessel, param=param))
+                    vessel, param = parameter.vessel, parameter.param
                     calibrated.append({
                         'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
@@ -1061,7 +1065,8 @@ class _Run:
             vessel, _, param = first.partition('/')
             names.append(first)
             if index not in modifiers:
-                values.append(rows[CalibratedParameter(vessel=vessel, param=param).model_name])
+                values.append(rows[self.resolved.steps[step.id].in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name])
                 continue
             mod = modifiers[index]
             theta = mod.get('theta')

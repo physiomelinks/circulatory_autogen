@@ -1583,7 +1583,11 @@ Paths are relative to the workflow file. A **model** is one of:
   `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` with a parameters file
   (`{"<component>": {"<variable>": {"value": ..., "units": ...}}}`) whose values replace the
   CellML's. Its parameters are its constants, named `component/variable` (states and computed
-  variables are not), and every component is a vessel. It is never generated: a step runs a
+  variables are not), and every component is a vessel. A params_for_id, set entry or sweep
+  may also name a constant as a calibration of the same file reads it (`global/q_lv_init`
+  for `parameters_global/q_lv_init`, `aortic_root/C` for `parameters/C_aortic_root`): the
+  step resolves the name to the constant, and its results, the merged target and the
+  calibrated files name the constant. It is never generated: a step runs a
   flattened copy, `<step_id>/model/generated_models/<step_id>/<step_id>.cellml`, with the
   step's values written in, and `<step_id>_parameters.json` beside it lists every constant's
   value. As for an external model, it is the target and every step's model. It runs as

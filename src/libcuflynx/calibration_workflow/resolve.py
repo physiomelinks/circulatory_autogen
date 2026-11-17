@@ -259,6 +259,13 @@ class ResolvedStep:
     target: object = None          # the workflow target, resolved
     selection: object = None       # select.ResolvedSelection of a selection step
 
+    def in_model(self, parameter):
+        '''``parameter`` (a CalibratedParameter, as a params_for_id names it) as the step's
+        model names it: for a CellML model the constant it is (:func:`cellml_parameter`).'''
+        if self.model is not None and self.model.kind == 'cellml':
+            return cellml_parameter(self.model, parameter, f'step "{self.step.id}"')
+        return parameter
+
     @property
     def base_rows(self):
         '''The parameter rows the step's model starts from, under any fixed values: the
@@ -398,6 +405,9 @@ def resolve_workflow(workflow):
         parameters = read_calibrated_parameters(params_for_id, where) if params_for_id else []
         if step.kind == 'sweep':
             parameters = _swept_parameters(step, model)
+        if model.kind == 'cellml':
+            parameters = [cellml_parameter(model, p, f'{where}: {params_for_id or "its sweep"}')
+                          for p in parameters]
         if selection is not None and selection.vessel:
             parameters = _in_step_naming(parameters, vessel_map, target.vessels, step)
         resolved_step = ResolvedStep(step=step, model=model, vessel_map=vessel_map,
@@ -470,11 +480,13 @@ def _resolve_set_step(step, target, claimed):
                             vessel_map=naming.Renamed({}, target.vessels))
     for entry in step.set_values:
         parameter = split_parameter(entry['parameter'])
+        if target.kind == 'cellml':
+            parameter = cellml_parameter(target, parameter, f'set step "{step.id}"')
         if parameter.vessel not in target.vessels and not naming.is_global(parameter.vessel):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
                                 f'"{parameter.vessel}", which the target does not have (its '
                                 f'vessels: {sorted(target.vessels)}).')
-        if target.kind in ('external', 'cellml') and entry['parameter'] not in target.parameters:
+        if target.kind == 'external' and entry['parameter'] not in target.parameters:
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not '
                                 f'{_declared_by(target)}.')
         resolved.parameters.append(parameter)
@@ -484,8 +496,30 @@ def _resolve_set_step(step, target, claimed):
     return resolved
 
 
+def cellml_parameter(model, parameter, where):
+    '''``parameter`` (a CalibratedParameter, as a params_for_id, set entry or sweep names it)
+    as the constant of the CellML model ``model`` (a ResolvedCellML) it is: its
+    ``component/variable``, or the first name the engine would read it as that the model has
+    (``calibrated_model.constant_named``: ``global/q_init`` is ``parameters_global/q_init``,
+    ``aortic_root/C`` is ``parameters/C_aortic_root``). So a step sets, records and merges the
+    constant a direct run of the same file calibrates.'''
+    from libcuflynx.param_id.calibrated_model import constant_named
+    from libcuflynx.parsers.PrimitiveParsers import model_qname_candidates
+    declared = f'{parameter.vessel}/{parameter.param}'
+    qname = constant_named(declared, model.constants)
+    if qname is None:
+        raise WorkflowError(
+            f'{where} names "{declared}", which is not a constant of the CellML model '
+            f'{model.model.path} under any of the names it is read as '
+            f'({model_qname_candidates(declared)}); its constants: {sorted(model.constants)}.')
+    component, variable = qname.split('/', 1)
+    return CalibratedParameter(vessel=component, param=variable)
+
+
 def _swept_parameters(step, model):
     parameters = [split_parameter(name) for name in step.sweep['parameters']]
+    if model.kind == 'cellml':
+        return parameters          # named as cellml_parameter resolves them
     for parameter in parameters:
         if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
             raise WorkflowError(

@@ -188,6 +188,11 @@ number of vessels at a node (node sums #609, node rule D #617).
   Python generated from that copy (`spec.CELLML_MODEL_TYPES`; the values still go into the
   CellML). `write_calibrated` writes `<stem>_calibrated_parameters.json` and
   `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
+- A step on a CellML model reads a params_for_id, set entry or sweep name as the engine
+  does: `global/q_lv_init` is the constant `parameters_global/q_lv_init`
+  (`calibrated_model.constant_named`, the first of `model_qname_candidates` the model has).
+  Such a name was refused as "not a constant of the CellML model", though a direct run of
+  the same files calibrated it.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
   parameters are where its fit starts (the model is generated with them, so they are x0). They
   are not fixed. The builder's `add_calibration(start_from=)`.
