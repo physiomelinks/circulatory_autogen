@@ -96,7 +96,7 @@ def load_config():
     matches = sorted(glob.glob(os.path.join(HERE, "user_inputs_*.yaml")))
     if not matches:
         sys.exit("No user_inputs_*.yaml found next to this script.")
-    with open(matches[-1]) as fh:
+    with open(matches[-1], encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
@@ -228,7 +228,7 @@ def build_inp_data_dict(cfg, output_dir):
         # only inp["pre_time"]/["sim_time"], so without this the simulation would run
         # an unwarmed, wrong-length window and its outputs wouldn't match the obs_data.
         try:
-            proto = obs_protocol_info(json.loads(open(inp["param_id_obs_path"]).read()))
+            proto = obs_protocol_info(json.loads(open(inp["param_id_obs_path"], encoding="utf-8").read()))
             pre = (proto.get("pre_times") or [None])[0]
             sim = (proto.get("sim_times") or [[None]])[0][0]
             if pre is not None:
@@ -288,7 +288,7 @@ def mle_obs_data(obs_path, working_dir, cost_type="gaussian_MLE"):
     (``inputs/obs_data/<stamp>/uq_obs_data.json``, as CUFLynx's UQ run stores it)."""
     store_input = ca_from("utilities.cuflynx_study", "store_input")
 
-    obs = json.loads(open(obs_path).read())
+    obs = json.loads(open(obs_path, encoding="utf-8").read())
     for item in obs_data_items(obs):
         if isinstance(item, dict):
             item["cost_type"] = cost_type
@@ -340,7 +340,7 @@ def save_uq_samples(out_dir, flat, qnames):
     bundle carries no summary format of CUFLynx's own devising.
     """
     np.save(os.path.join(out_dir, "uq_posterior_samples.npy"), np.asarray(flat, dtype=float))
-    with open(os.path.join(out_dir, "uq_param_names.csv"), "w", newline="") as fh:
+    with open(os.path.join(out_dir, "uq_param_names.csv"), "w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows([[name] for name in qnames])
 
 
@@ -1100,7 +1100,7 @@ def posterior_predictive_coverage():
     if not path:
         return None
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             return json.load(handle)
     except (OSError, ValueError):
         return None
@@ -1114,7 +1114,7 @@ def parameter_names():
     if not path:
         return None
     try:
-        with open(path, newline="") as handle:
+        with open(path, newline="", encoding="utf-8") as handle:
             rows = [row[0].strip() for row in csv.reader(handle) if row and row[0].strip()]
         return rows or None
     except OSError:
@@ -1992,12 +1992,12 @@ def write_pipeline_bundle(inp_data_dict, output_dir, today=None):
             written.append('emulator/')
 
     yaml_name = 'user_inputs_%s.yaml' % dated_suffix(today)
-    with open(os.path.join(output_dir, yaml_name), 'w') as file:
+    with open(os.path.join(output_dir, yaml_name), 'w', encoding='utf-8') as file:
         yaml.safe_dump(cfg, file, default_flow_style=False, sort_keys=False)
     written.insert(0, yaml_name)
 
     script_path = os.path.join(output_dir, PIPELINE_SCRIPT_NAME)
-    with open(script_path, 'w') as file:
+    with open(script_path, 'w', encoding='utf-8') as file:
         file.write(render_pipeline_script())
     os.chmod(script_path, 0o755)
     written.insert(1, PIPELINE_SCRIPT_NAME)
@@ -2021,7 +2021,7 @@ def write_pipeline_bundle(inp_data_dict, output_dir, today=None):
             (PLOT_UTILITIES_NAME, render_plot_utilities()),
             (PLOTTING_SCRIPT_NAME, render_plotting_script(obs_document))):
         path = os.path.join(output_dir, name)
-        with open(path, 'w') as file:
+        with open(path, 'w', encoding='utf-8') as file:
             file.write(contents)
         os.chmod(path, 0o755)
         written.insert(2, name)
