@@ -112,14 +112,16 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         # each output's obs_data std and weight (3compartment_obs_data.json's first item)
         assert problem['outputs'][0]['std'] == pytest.approx(1.0731181019893536e-05)
         assert problem['outputs'][0]['weight'] == 1.0
-        # the local Jacobian: one row per parameter at the geometric centre of the box
+        # the local Jacobian: one row per parameter at each of the first 8 Saltelli base points
         jacobian = pd.read_csv(os.path.join(output_dir,
                                             'all_outputs_n16_Sobol_local_jacobian.csv'))
-        assert list(jacobian['Parameter']) == list(indices['Parameter'])
-        assert list(jacobian.columns[1:]) == list(outputs.columns)
-        assert np.all(np.isfinite(jacobian.iloc[:, 1:].to_numpy()))
-        lows, highs = np.array(problem['bounds']).T
-        assert problem['local_jacobian']['centre'] == pytest.approx(np.sqrt(lows * highs))
+        rows = [10 * k for k in range(8)]          # blocks of 2M + 2 = 10 rows
+        assert list(jacobian['point']) == [r for r in rows for _ in range(4)]
+        assert list(jacobian['Parameter']) == list(indices['Parameter']) * 8
+        assert list(jacobian.columns[2:]) == list(outputs.columns)
+        assert np.all(np.isfinite(jacobian.iloc[:, 2:].to_numpy()))
+        assert problem['local_jacobian']['points'] == rows
+        assert problem['local_jacobian']['failed_points'] == []
         reduction_dir = os.path.join(output_dir, 'param_reduction')
         assert os.path.isfile(os.path.join(reduction_dir, 'reduced_params_for_id.json'))
         with open(os.path.join(reduction_dir, 'param_reduction.json')) as f:

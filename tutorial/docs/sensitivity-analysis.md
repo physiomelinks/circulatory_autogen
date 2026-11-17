@@ -184,15 +184,13 @@ by more than its noise, and keeps one parameter for each:
    small share of the variance can be dropped.
 3. Sobol indices are computed for each mode's score, from the same samples. A parameter whose
    largest index over the informative modes is below `min_index` is not a candidate.
-4. With `redundancy_check: true` (the default), each candidate's effect on the informative modes
-   over its prior range is taken from a local Jacobian the Sobol run saves: central differences
-   in ln(parameter) at the centre of the box, or in the parameter itself when its bounds
-   straddle 0 (2M + 1 extra runs, about 1/num_samples more). The reduction keeps the
-   candidate with the largest effect, removes that direction from the others' effects, and
-   repeats, stopping when the largest effect left is below `min_mode_std` noise stds: what that
-   parameter would add to the fit is inside the noise. Parameters that move the data the same
-   way (only their product or ratio matters, or a scaling symmetry) have the same effect, so
-   only one of them is kept, however many modes they drive.
+4. With `redundancy_check: true` (the default), the reduction asks which candidates move the
+   data in different ways, using local derivatives (see "How the redundancy check works" below).
+   It keeps the candidate with the largest effect, removes that direction from the others'
+   effects, and repeats, stopping when the largest effect left is below `min_mode_std` noise
+   stds: what that parameter would add to the fit is inside the noise. Parameters that move the
+   data the same way (only their product or ratio matters, or a scaling symmetry) have the same
+   effect, so only one of them is kept, however many modes they drive.
 5. With `redundancy_check: false` it goes through the informative modes, largest first, and
    keeps the parameter, not kept already, with the largest index for that mode, skipping a mode
    that no free parameter reaches `min_index` for. This keeps at most one parameter per mode, so
@@ -201,8 +199,54 @@ by more than its noise, and keeps one parameter for each:
    parameters, and it keeps them all.
 
 Both stop after `n_params`. A parameter that drives an output strongly, but by less than that
-output's noise, is not kept. The local Jacobian is at one point, the centre of the box; the
-modes and indices cover the whole box.
+output's noise, is not kept.
+
+#### How the redundancy check works
+
+Sobol indices say how much of a mode's variance each parameter drives, but not in which
+direction, so they cannot tell that two parameters are interchangeable: when only `a * b`
+matters, `a` and `b` get the same large index on the same modes. The check needs, for each
+parameter, the direction it moves the data in, and compares those.
+
+**The derivatives.** Every Sobol run also takes local derivatives at the first
+`sa_options.jacobian_points` (default 8) Saltelli base points. These are the rows that start
+each block of 2M + 2 samples. They come from a Sobol sequence, so they spread over the prior
+box, and their outputs are already computed. At each point every parameter is stepped forward
+once, by 1% in ln(parameter), or by 1% of its range when its bounds straddle 0, so the run
+costs `jacobian_points` x M extra simulations, about `jacobian_points / (2 num_samples)` of the
+Sobol run: 96 runs next to 6656 (1.4%) for 12 parameters, `num_samples: 256` and the default 8
+points. Each
+derivative is multiplied by the parameter's prior range (`ln(max/min)`, or `max - min` for
+bounds that straddle 0), so it reads as how far the data would move if that slope held across
+the whole range. They are saved in `all_outputs_n<N>_Sobol_local_jacobian.csv`, one row per
+point and parameter.
+
+**The effects.** Each derivative is scaled to noise stds like the outputs in step 1 and
+projected onto the informative modes. A parameter's effect is these projections at all the
+points, side by side in one vector, divided by the square root of the number of points, so its
+length is the root mean square over the points, in noise stds.
+
+**The choice.** Pivoted Gram-Schmidt on the effects: keep the parameter with the longest
+effect, subtract its direction from every other effect, and repeat with what is left, until
+the longest remaining effect is below `min_mode_std`. The report lists each parameter's
+`effects` (the length before any subtraction) and the `unexplained_effects` of those not kept
+(what was left).
+
+**Why local derivatives, at several points.**
+
+- *Products and ratios stay exact.* If only `a * b` matters, a 1% step in `a` and a 1% step in
+  `b` change the data identically at every point, so once `a` is kept nothing of `b` is left.
+  Differences between Saltelli samples cannot do this: each pair of samples jumps by a
+  different random amount, and on a curved response even jumps of the same size in ln(a) and
+  ln(b) leave a remainder (about 20% of the effect, many noise stds, in a test of `a * b`).
+- *A flat spot at one point is not mistaken for no effect.* `p^2` on `[-1, 1]` has slope 0 at
+  the centre of its range, and a derivative there alone would drop it. Across 8 points its
+  effect is many noise stds, and it is kept.
+
+**Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
+such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.
+A point where a run fails is left out, with a warning. `jacobian_points: 0` skips the
+derivatives, and then a reduction needs `redundancy_check: false`.
 
 **`method: sobol`** keeps the `n_params` parameters with the highest Sobol index over the
 outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the

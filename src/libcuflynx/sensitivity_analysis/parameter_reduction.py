@@ -245,14 +245,17 @@ class PCASobolReduction(ParamReduction):
        is a global, prior-wide measure of what the parameters can do, not local to the fit.
     3. Sobol indices of each informative mode's score, from the same Saltelli samples.
     4. With ``redundancy_check`` (the default), the candidates are the parameters whose
-       largest index over the informative modes is at least ``min_index``. Their effect on the
-       informative mode scores over their prior range comes from the Sobol run's local
-       Jacobian (central differences in ln(parameter) at the centre of the box), in noise
-       stds. Greedily keep the candidate whose effect not already explained by the kept
-       parameters is largest (pivoted Gram-Schmidt), and stop when that unexplained effect is
-       below ``min_mode_std``: what it would add to the fit is inside the noise. Two parameters
-       that move the data the same way (a product, a ratio, a scaling symmetry) have the same
-       effect, so only one is kept, however many modes they drive.
+       largest index over the informative modes is at least ``min_index``. A candidate's effect
+       is its local derivative of the informative mode scores, scaled to its prior range and in
+       noise stds, at each of the Sobol run's Jacobian points (sobolSA.run_local_jacobian:
+       forward differences at the first ``jacobian_points`` Saltelli base points), stacked over
+       the points and divided by sqrt(points), so its norm is the root mean square over them.
+       Greedily keep the candidate whose effect not already explained by the kept parameters
+       is largest (pivoted Gram-Schmidt), and stop when that unexplained effect is below
+       ``min_mode_std``: what it would add to the fit is inside the noise. Two parameters that
+       move the data the same way (a product, a ratio, a scaling symmetry) have parallel
+       derivatives at every point, so only one is kept, however many modes they drive; one
+       whose slope is flat at one point but not at others is still seen.
     5. Without it: over the informative modes, largest first, keep the parameter not yet kept
        with the largest index for that mode, unless that index is below ``min_index`` (no free
        parameter drives the mode). This keeps one parameter per mode, so it reduces only when
@@ -382,22 +385,10 @@ class PCASobolReduction(ParamReduction):
                              'mode_std': float(np.sqrt(variances[k]))})
         return selected, skipped
 
-    @staticmethod
-    def log_ranges(bounds, centre):
-        """Each parameter's prior range in ln(parameter): ``ln(max / min)`` when the bounds
-        share a sign, else ``(max - min) / |centre|``."""
-        ranges = []
-        for (low, high), mid in zip(bounds, centre):
-            if low * high > 0:
-                ranges.append(abs(np.log(high / low)))
-            else:
-                ranges.append((high - low) / (abs(mid) or 1.0))
-        return np.array(ranges)
-
     def choose_independent(self, effects, candidates, names, weighted, informative_idx):
-        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt on ``effects`` (parameters
-        x informative modes, each row a parameter's effect over its prior range in noise
-        stds), over the ``candidates``, stopping when the largest unexplained effect is below
+        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt on ``effects`` (one row per
+        parameter: its effect on the informative modes over its prior range in noise stds, one
+        block of modes per Jacobian point), over the ``candidates``, stopping when the largest unexplained effect is below
         ``min_mode_std`` or after ``n_params``. ``unexplained`` is each parameter's effect left
         once the kept ones are accounted for."""
         residual = np.array(effects, dtype=float)
@@ -410,7 +401,7 @@ class PCASobolReduction(ParamReduction):
             direction = residual[best] / norms[best]
             residual -= np.outer(residual @ direction, direction)
             free.remove(best)
-            column = int(np.argmax(np.abs(effects[best])))
+            column = int(np.argmax(np.abs(effects[best]))) % len(informative_idx)
             selected.append({'parameter': names[best], 'score': float(weighted[best]),
                              'mode': int(informative_idx[column]) + 1,
                              'new_effect': norms[best],
@@ -468,20 +459,27 @@ class PCASobolReduction(ParamReduction):
 
     def _choose_with_redundancy_check(self, files, problem, names, scales, loadings,
                                       variances, informative, indices, params):
-        jacobian = pd.read_csv(files['local_jacobian']).set_index('Parameter')
-        jacobian = jacobian.loc[params, names].to_numpy(dtype=float)
-        failed = [params[i] for i in range(len(params)) if not np.all(np.isfinite(jacobian[i]))]
-        if failed:
-            warnings.warn(f'the local Jacobian failed for {failed}: their effect is taken as '
-                          f'zero, so they are not kept.', stacklevel=3)
-        jacobian = np.nan_to_num(jacobian)
+        table = pd.read_csv(files['local_jacobian'])
+        points = list(dict.fromkeys(table['point']))
+        jacobian = np.stack([table[table['point'] == point].set_index('Parameter')
+                             .loc[params, names].to_numpy(dtype=float) for point in points])
+        ok = np.all(np.isfinite(jacobian), axis=(1, 2))
+        if not ok.any():
+            raise SensitivityFilesError(
+                f'a run failed at every local Jacobian point of {files["local_jacobian"]}, so '
+                f'the redundancy check has no effects to compare; rerun the Sobol analysis with '
+                f'more jacobian_points, or set redundancy_check: false.')
+        if not ok.all():
+            warnings.warn(f'a run failed at {int((~ok).sum())} of {len(points)} local Jacobian '
+                          f'points: the redundancy check uses the other {int(ok.sum())}.',
+                          stacklevel=3)
+        jacobian = jacobian[ok]
         informative_idx = [k for k in np.argsort(-variances) if informative[k]]
-        centre = problem.get('local_jacobian', {}).get('centre') or \
-            [float(np.sqrt(abs(lo * hi))) for lo, hi in problem['bounds']]
-        ranges = self.log_ranges(problem['bounds'], centre)
         with np.errstate(divide='ignore', invalid='ignore'):
             per_output = np.where(np.isfinite(scales) & (scales > 0), jacobian / scales, 0.0)
-        effects = (per_output @ loadings[informative_idx].T) * ranges[:, None]
+        # points x parameters x informative modes -> parameters x (points * modes)
+        by_point = per_output @ loadings[informative_idx].T
+        effects = by_point.transpose(1, 0, 2).reshape(len(params), -1) / np.sqrt(len(jacobian))
         total = float(np.sum(variances[informative_idx])) or 1.0
         weighted = (variances[informative_idx, None] * indices[informative_idx]).sum(axis=0)
         weighted = weighted / total
@@ -493,7 +491,8 @@ class PCASobolReduction(ParamReduction):
         return selected, [], {
             'candidates': [params[i] for i in candidates],
             'effects': {params[i]: float(np.linalg.norm(effects[i])) for i in range(len(params))},
-            'unexplained_effects': unexplained, 'log_ranges': dict(zip(params, ranges.tolist()))}
+            'unexplained_effects': unexplained,
+            'jacobian_points_used': int(len(jacobian))}
 
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):

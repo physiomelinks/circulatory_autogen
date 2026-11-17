@@ -522,7 +522,7 @@ def test_analysis_options_schema_well_formed():
     # read by sobol_SA (and, through it, the local method).
     assert names('sensitivity_analysis') == {
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step',
-        'include_prediction_items'}
+        'include_prediction_items', 'jacobian_points'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
                            'num_tune', 'pymc_method', 'chain_save_every', 'num_samples',

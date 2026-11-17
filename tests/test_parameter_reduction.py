@@ -30,12 +30,13 @@ def _toy_outputs(x):
 
 
 def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, std_scale=1.0,
-                     with_samples=True, with_jacobian=True):
+                     with_samples=True, with_jacobian=True, bounds=None, jacobian_points=8):
     """A Sobol run of ``outputs_of`` in ``directory``, in sobolSA's file layout, with the local
-    Jacobian sobolSA.run_local_jacobian saves (central differences in ln(parameter) at the
-    geometric centre of the box)."""
+    Jacobian sobolSA.run_local_jacobian saves (forward differences at the first
+    ``jacobian_points`` Saltelli base points), made by sobolSA's own methods."""
     os.makedirs(directory, exist_ok=True)
-    problem = {'num_vars': len(params), 'names': params, 'bounds': [[1.0, 2.0]] * len(params)}
+    bounds = bounds or [[1.0, 2.0]] * len(params)
+    problem = {'num_vars': len(params), 'names': params, 'bounds': bounds}
     samples = saltelli.sample(problem, n, calc_second_order=True)
     outputs = outputs_of(samples)
     stem = os.path.join(directory, f'all_outputs_n{n}_Sobol')
@@ -46,25 +47,25 @@ def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, s
         table[f'S1_{name}'], table[f'ST_{name}'] = result['S1'], result['ST']
     table.to_csv(f'{stem}_indices.csv', index=False)
     if with_samples:
+        columns = list(outputs)
+        values = np.column_stack([outputs[k][0] for k in columns])
         pd.DataFrame(samples, columns=params).to_csv(f'{stem}_samples.csv', index=False)
-        pd.DataFrame({k: v for k, (v, _) in outputs.items()}).to_csv(f'{stem}_outputs.csv',
-                                                                     index=False)
-        centre = np.sqrt(np.prod(problem['bounds'], axis=1))
+        pd.DataFrame(values, columns=columns).to_csv(f'{stem}_outputs.csv', index=False)
+        meta = {}
         if with_jacobian:
-            step, rows = 1e-2, []
-            for i in range(len(params)):
-                up, down = centre.copy(), centre.copy()
-                up[i] *= np.exp(step)
-                down[i] *= np.exp(-step)
-                hi, lo = outputs_of(up[None, :]), outputs_of(down[None, :])
-                rows.append([float((hi[k][0][0] - lo[k][0][0]) / (2 * step)) for k in outputs])
-            table = pd.DataFrame(rows, columns=list(outputs))
-            table.insert(0, 'Parameter', params)
-            table.to_csv(f'{stem}_local_jacobian.csv', index=False)
+            sa = _bare_sobol_sa(*zip(*bounds), lambda x: [outputs_of(x[None, :])[k][0][0]
+                                                           for k in columns])
+            sa.jacobian_points = jacobian_points
+            jacobian = sa.run_local_jacobian(samples, values)
+            rows = sa.local_jacobian_rows
+            frame = pd.DataFrame(jacobian.reshape(-1, len(columns)), columns=columns)
+            frame.insert(0, 'Parameter', params * len(rows))
+            frame.insert(0, 'point', np.repeat(rows, len(params)))
+            frame.to_csv(f'{stem}_local_jacobian.csv', index=False)
+            meta = {'local_jacobian': {'points': rows.tolist(), 'log_step': 1e-2}}
         with open(os.path.join(directory, 'sobol_problem.json'), 'w') as f:
-            json.dump({'names': params, 'bounds': problem['bounds'], 'num_samples': n,
-                       'sample_type': 'saltelli', 'calc_second_order': True,
-                       'local_jacobian': {'centre': centre.tolist(), 'log_step': 1e-2},
+            json.dump({'names': params, 'bounds': bounds, 'num_samples': n,
+                       'sample_type': 'saltelli', 'calc_second_order': True, **meta,
                        'outputs': [{'output': k, 'kind': 'data_item',
                                     'std': None if std is None else std * std_scale,
                                     'weight': 1.0} for k, (_, std) in outputs.items()]}, f)
@@ -306,41 +307,75 @@ def test_the_redundancy_check_needs_the_local_jacobian(tmp_path):
         run, source, str(tmp_path / 'out' / 'kept.json'))
 
 
+
 def _bare_sobol_sa(mins, maxs, model):
     """A sobol_SA over ``mins``/``maxs`` whose simulations are ``model(point)`` on one process,
     without building a model."""
     from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA
     sa = sobol_SA.__new__(sobol_SA)
-    sa.SA_info = {'param_mins': mins, 'param_maxs': maxs}
-    sa.rank, sa.num_procs, sa.use_mpi = 0, 1, False
-    sa.generate_outputs_mpi = lambda points: [model(p) for p in points]
+    sa.SA_info = {'param_mins': list(mins), 'param_maxs': list(maxs)}
+    sa.rank, sa.num_procs, sa.use_mpi, sa.jacobian_points = 0, 1, False, 8
+    sa.generate_outputs_mpi = lambda points: np.array([model(p) for p in points])
     return sa
 
 
 @pytest.mark.unit
-def test_the_local_jacobian_moves_a_parameter_whose_bounds_straddle_zero():
-    """A multiplicative step from a centre of 0 does not move the parameter, which zeroed its
-    row and kept it out of every reduction. Each row times its log range is the change in the
-    output over the parameter's prior range, whichever step it took."""
+def test_the_local_jacobian_is_taken_at_saltelli_base_points_scaled_to_each_range():
+    """One forward step per parameter at each of the first jacobian_points base points (the
+    rows starting each block of 2M + 2), each derivative times the parameter's range: in
+    ln(parameter), or, for bounds that straddle 0, in the parameter itself."""
     mins, maxs = [-1.0, 0.5, -3.0], [1.0, 2.0, 1.0]
     sa = _bare_sobol_sa(mins, maxs, lambda p: [3 * p[0] + 5 * p[2], np.log(p[1])])
-    centre, points = sa.local_jacobian_points()
-    assert centre == pytest.approx([0.0, 1.0, -1.0])
-    assert points[1][0] > 0 > points[2][0]
-    jacobian = sa.run_local_jacobian()
-    ranges = PCASobolReduction.log_ranges(list(zip(mins, maxs)), centre)
-    effects = jacobian * ranges[:, None]
-    assert effects[0] == pytest.approx([3 * 2, 0], abs=1e-9)        # 3 * (1 - -1)
-    assert effects[1] == pytest.approx([0, np.log(4)], abs=1e-9)    # ln 2 - ln 0.5
-    assert effects[2] == pytest.approx([5 * 4, 0], abs=1e-9)        # 5 * (1 - -3)
+    sa.jacobian_points = 4
+    samples = saltelli.sample({'num_vars': 3, 'names': list('abc'),
+                               'bounds': list(zip(mins, maxs))}, 16, calc_second_order=True)
+    outputs = np.array([[3 * p[0] + 5 * p[2], np.log(p[1])] for p in samples])
+    jacobian = sa.run_local_jacobian(samples, outputs)
+    assert list(sa.local_jacobian_rows) == [0, 8, 16, 24]
+    assert jacobian.shape == (4, 3, 2)
+    for block in jacobian:   # linear in p0, p2 and in ln p1: the same at every point
+        assert block[0] == pytest.approx([3 * 2, 0], abs=1e-9)        # 3 * (1 - -1)
+        assert block[1] == pytest.approx([0, np.log(4)], abs=1e-9)    # ln 2 - ln 0.5
+        assert block[2] == pytest.approx([5 * 4, 0], abs=1e-9)        # 5 * (1 - -3)
 
 
 @pytest.mark.unit
 def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
     """The redundancy check, on by default, needs the local Jacobian, so every Sobol run makes
-    it, with or without use_MPI."""
+    it, with or without use_MPI, from the run's own outputs at the base points."""
     sa = _bare_sobol_sa([0.5, 0.5], [2.0, 2.0], lambda p: [p[0] * p[1]])
-    sa.generate_samples = lambda: np.array([[1.0, 1.0], [2.0, 0.5]])
+    samples = np.array([[1.0, 1.0]] * 6 + [[2.0, 0.5]] * 6)
+    sa.generate_samples = lambda: samples
     sa.sobol_index = lambda outputs: ('S1', 'ST', 'S2')
     assert sa.run() == ('S1', 'ST', 'S2')
-    assert sa.local_jacobian.ravel() == pytest.approx([1.0, 1.0], rel=1e-4)   # h²/6 off
+    assert list(sa.local_jacobian_rows) == [0, 6]
+    # d(p0 p1)/d ln p0 = p0 p1, times ln 4; forward step: off by h/2
+    assert sa.local_jacobian[:, 0, 0] == pytest.approx([np.log(4), np.log(4)], rel=1e-2)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('value', [-1, 2.5, True, 'eight'])
+def test_jacobian_points_is_a_whole_number(value):
+    from libcuflynx.sensitivity_analysis.sobolSA import jacobian_points_option
+    assert jacobian_points_option({}) == 8 and jacobian_points_option({'jacobian_points': 0}) == 0
+    with pytest.raises(ValueError, match='jacobian_points'):
+        jacobian_points_option({'jacobian_points': value})
+
+
+@pytest.mark.unit
+def test_a_parameter_flat_at_the_centre_of_its_range_is_kept(tmp_path):
+    """p^2 on [-1, 1] has slope 0 at the centre of its box but moves the data far above the
+    noise elsewhere; derivatives at several points see it. a and b enter only as a * b, so one
+    of them is kept."""
+    params = ['m/p', 'm/a', 'm/b']
+
+    def outputs(x):
+        p, a, b = x.T
+        return {'y1': (p ** 2, 0.05), 'y2': (a * b, 0.05), 'y3': (a * b + p ** 2, 0.1)}
+
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params,
+                           bounds=[[-1.0, 1.0], [1.0, 2.0], [1.0, 2.0]])
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    kept = [r['parameter'] for r in PCASobolReduction().reduce(
+        run, source, str(tmp_path / 'pca' / 'kept.json'))]
+    assert 'm/p' in kept and len(kept) == 2 and len({'m/a', 'm/b'} & set(kept)) == 1
