@@ -304,3 +304,43 @@ def test_the_redundancy_check_needs_the_local_jacobian(tmp_path):
         PCASobolReduction().reduce(run, source, str(tmp_path / 'out' / 'kept.json'))
     assert PCASobolReduction(redundancy_check=False).reduce(
         run, source, str(tmp_path / 'out' / 'kept.json'))
+
+
+def _bare_sobol_sa(mins, maxs, model):
+    """A sobol_SA over ``mins``/``maxs`` whose simulations are ``model(point)`` on one process,
+    without building a model."""
+    from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA
+    sa = sobol_SA.__new__(sobol_SA)
+    sa.SA_info = {'param_mins': mins, 'param_maxs': maxs}
+    sa.rank, sa.num_procs, sa.use_mpi = 0, 1, False
+    sa.generate_outputs_mpi = lambda points: [model(p) for p in points]
+    return sa
+
+
+@pytest.mark.unit
+def test_the_local_jacobian_moves_a_parameter_whose_bounds_straddle_zero():
+    """A multiplicative step from a centre of 0 does not move the parameter, which zeroed its
+    row and kept it out of every reduction. Each row times its log range is the change in the
+    output over the parameter's prior range, whichever step it took."""
+    mins, maxs = [-1.0, 0.5, -3.0], [1.0, 2.0, 1.0]
+    sa = _bare_sobol_sa(mins, maxs, lambda p: [3 * p[0] + 5 * p[2], np.log(p[1])])
+    centre, points = sa.local_jacobian_points()
+    assert centre == pytest.approx([0.0, 1.0, -1.0])
+    assert points[1][0] > 0 > points[2][0]
+    jacobian = sa.run_local_jacobian()
+    ranges = PCASobolReduction.log_ranges(list(zip(mins, maxs)), centre)
+    effects = jacobian * ranges[:, None]
+    assert effects[0] == pytest.approx([3 * 2, 0], abs=1e-9)        # 3 * (1 - -1)
+    assert effects[1] == pytest.approx([0, np.log(4)], abs=1e-9)    # ln 2 - ln 0.5
+    assert effects[2] == pytest.approx([5 * 4, 0], abs=1e-9)        # 5 * (1 - -3)
+
+
+@pytest.mark.unit
+def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
+    """The redundancy check, on by default, needs the local Jacobian, so every Sobol run makes
+    it, with or without use_MPI."""
+    sa = _bare_sobol_sa([0.5, 0.5], [2.0, 2.0], lambda p: [p[0] * p[1]])
+    sa.generate_samples = lambda: np.array([[1.0, 1.0], [2.0, 0.5]])
+    sa.sobol_index = lambda outputs: ('S1', 'ST', 'S2')
+    assert sa.run() == ('S1', 'ST', 'S2')
+    assert sa.local_jacobian.ravel() == pytest.approx([1.0, 1.0], rel=1e-4)   # h²/6 off
