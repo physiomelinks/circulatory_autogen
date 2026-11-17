@@ -1688,7 +1688,7 @@ of calibrations and `set` steps are merged into the target.
 | `sensitivity` | Sobol or local sensitivity analysis | `sa_options` in its settings | `fixed_from`, `emulator_from`, `result_from` |
 | `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `param_reduction_options` in its settings; no model or files | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
-| `identifiability` | Laplace identifiability analysis at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
+| `identifiability` | Identifiability analysis (Laplace or a profile likelihood) at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
 | `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
 | `set` | declares values or scales by hand, each with a reason; with `"point": true` they are only a point for other steps and never reach the target | `set`; no model or files | the calibration or set steps it scales |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
@@ -1774,7 +1774,20 @@ a warning, and the fit stands. A local sensitivity step records the point it lin
 under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values)
 and its signed coefficients under `local_sensitivity_signed` (see
 [Local sensitivity files](sensitivity-analysis.md#local-sensitivity-files-method-local)), and an
-identifiability or uq step its point under `at` and `at_source`.
+identifiability or uq step its point under `at` and `at_source`. An identifiability step runs
+the method its `ia_options.method` names: `Laplace`, recorded under `laplace`, or
+`profile_likelihood` (with `num_points`, `range_factor` and `optimiser_options`), which
+profiles each parameter about that point. Its files are in `profile_likelihood/` in the
+step's `param_id/` directory (`profile_likelihood_dir`), and `profile_likelihood` in the result lists
+each parameter's file, the value profiled about (`best_val`), its cost and its 95% interval
+(`ci_95`).
+
+```json
+{"id": "profiles", "kind": "identifiability", "model": {...}, "obs_data": "...",
+ "params_for_id": "...", "result_from": "fit",
+ "settings": {"ia_options": {"method": "profile_likelihood", "num_points": 21,
+                             "range_factor": 0.2}}}
+```
 
 Every calibrated CellML (a step's, the target's `<stem>_calibrated.cellml`, a CellML step's
 generated model, and a calibration's `<prefix>_calibrated.cellml`) is written by one writer,

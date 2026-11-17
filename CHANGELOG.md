@@ -57,6 +57,9 @@ next release; add to that section as you land a change.
   (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
   calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
   identifiability or uq step its point (`at_source`).
+- An identifiability step with `ia_options.method: profile_likelihood` records its profiles:
+  `profile_likelihood_dir`, and under `profile_likelihood` each parameter's file, the value
+  profiled about, its cost and its 95% interval.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
   `on_target` sweep), do not count towards "calibrated by more than one step", and the
