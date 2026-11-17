@@ -479,11 +479,12 @@ def test_calibrating_independent_parts_apart_matches_calibrating_them_together(l
     for step_id, param_vessel in (('fit_a', 'mod'), ('fit_b', 'mod')):
         step = _read_json(str(tmp_path / 'split' / step_id / 'step_result.json'))
         assert step['inputs']['params_for_id']['path'].endswith(f'{step_id}_params_for_id.json')
-        snapshots = [f for f in os.listdir(step['param_id_output_dir'])
-                     if f.startswith(f'{step_id}_params_for_id_') and f.endswith('.json')]
-        assert len(snapshots) == 1
-        entries = params_for_id_entries(
-            os.path.join(step['param_id_output_dir'], snapshots[0]))
+        # the copy the run used: the one its manifest names, in the working dir's inputs/
+        from libcuflynx.utilities.cuflynx_study import read_study
+        study = read_study(os.path.join(os.path.dirname(step['param_id_output_dir']),
+                                        f'{step_id}_cuflynx_study.json'))
+        assert os.path.basename(study['params_for_id']) == f'{step_id}_params_for_id.json'
+        entries = params_for_id_entries(study['params_for_id'])
         assert [e['targets'] for e in entries] == [[f'{param_vessel}/p']]
         assert [c['model_name'] for c in step['calibrated']] == ['p_mod']
 
@@ -968,7 +969,6 @@ def _reduce_options(raw):
     (lambda w: _steps(w)['screen']['settings']['sa_options'].update(method='local'),
      'reads Sobol indices'),
     (lambda w: _steps(w)['screen'].update(settings={}), 'needs "sa_options"'),
-    (lambda w: _steps(w)['ia'].pop('result_from'), 'needs "result_from"'),
     (lambda w: _steps(w)['ia'].update(result_from='screen'),
      '"result_from" names "screen", a sensitivity step'),
     (lambda w: _steps(w)['fit'].update(fixed_from=['screen']),
@@ -1124,7 +1124,12 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # only calibrations land in the target
     assert plan['screen']['calibrates'] == [] and plan['ia']['calibrates'] == []
 
-    result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    # screen's p_A is only a candidate of fit: reduce keeps q alone, so p_A is fit_a's alone
+    assert not [w for w in caught if 'more than one step' in str(w.message)]
     assert result['complete'] and result['order'] == ['fit_a', 'screen', 'reduce', 'fit', 'ia']
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
 
@@ -1148,6 +1153,17 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     ia = step('ia')
     q = np.sqrt(Z_C - Y_A)
     assert ia['at'] == pytest.approx([q], rel=1e-5)
+    # q is the point analysed, in `at`; only what ia does not analyse is fixed, in the result
+    # and in the tab's view, whose model has both
+    from libcuflynx.calibration_workflow import workflow_model
+    assert [(f['model_name'], f['from_step']) for f in ia['fixed']] == [('p_mod__A', 'fit_a')]
+    view = workflow_model(library['chain_analysed'], 'ia', output_dir=out,
+                          work_dir=str(tmp_path / 'views'))
+    assert [(f['model_name'], f['from_step']) for f in view['fixed']] == [('p_mod__A', 'fit_a')]
+    in_view = {r['variable_name']: float(r['value'])
+               for r in model_parameter_rows(view['parameters_path'])}
+    assert in_view['q_mod__C'] == pytest.approx(q, rel=1e-5)
+    assert in_view['p_mod__A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
     assert ia['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
 
     # the manifest lists every step's kind, what it took from where, and its outputs
@@ -1174,6 +1190,30 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     status = workflow_status(library['chain_analysed'], out)['steps']
     assert {i: s['stale'] for i, s in status.items()} == {
         'fit_a': False, 'screen': True, 'reduce': True, 'fit': True, 'ia': True}
+
+
+@pytest.mark.unit
+def test_a_value_a_reduction_kept_and_a_set_step_replaced_is_warned_after_the_run(library,
+                                                                                 tmp_path):
+    """Whether a step fitting a reduction's choice calibrates a parameter is known only once the
+    reduction ran, so the merge warns; a set step replacing it gets no priors_from advice."""
+    import warnings
+    from libcuflynx.calibration_workflow.resolve import resolve_workflow
+    raw = _raw(library, 'chain_analysed')
+    raw['steps'].append({'id': 'by_hand', 'kind': 'set', 'set': [
+        {'parameter': 'mod__C/q', 'value': 2.5, 'reason': 'the slider position'}]})
+    path = os.path.join(library['chain/screened'], 'by_hand.json')
+    _write_json(path, raw)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(parse_workflow(raw, path=path))   # q is only a candidate of fit here
+    with pytest.warns(UserWarning, match='calibrated by more than one step') as caught:
+        result = run_calibration_workflow(path, output_dir=str(tmp_path / 'run'))
+    message = next(str(w.message) for w in caught if 'more than one step' in str(w.message))
+    # q alone: p_A was a candidate of fit, which the reduction left out
+    assert "by 'fit', then 'by_hand'" in message and ': 1 parameter(s)' in message
+    assert 'priors_from' not in message and 'remove the parameter from the set step' in message
+    assert _merged(result)['C/q'] == 2.5
 
 
 @pytest.mark.unit
@@ -1319,7 +1359,8 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     study = read_study(os.path.join(out, 'posterior', 'param_id',
                                     'posterior_cuflynx_study.json'))
     assert study['emulator'] == emulate['emulator_dir']
-    assert study['runs'][0]['analyses'] == ['CMA-ES', 'mcmc']
+    # newest first: the MCMC run, then the calibration it followed, a directory each
+    assert [run['analyses'] for run in study['runs'][:2]] == [['mcmc'], ['CMA-ES']]
 
     # dz/dq = 2 q at q = 3, so sd(q) = STD_C / 6; the emulator is good to about 1 %
     distribution = StoredDistribution.load(posterior['distribution_dir'])

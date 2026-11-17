@@ -440,6 +440,10 @@ SOLVER_INFO_FIELDS = {
         {'name': 'user_config', 'type': 'dict', 'default': None, 'required': False,
          'description': "free-form options dict passed to the user class's init_solver via "
                         "config['solver_info']"},
+        {'name': 'external_parameters_file', 'type': 'str', 'default': None, 'required': False,
+         'description': "a parameters file ({component: {variable: {value, ...}}}) whose values "
+                        "replace the defaults of SIM_HELPER.parameters; set from the user input "
+                        "external_parameters_file"},
     ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
@@ -1881,9 +1885,11 @@ ANALYSIS_OPTIONS = {
         'options_key': 'UQ_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'mcmc', 'required': False,
-             'choices': ['mcmc'],
-             'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
-                            'is implemented so far.'},
+             'choices': ['mcmc', 'laplace'],
+             'description': "Uncertainty-quantification method. 'mcmc' samples the posterior "
+                            "from the best fit; 'laplace' approximates it there by a Gaussian "
+                            'from the Hessian of the cost (ia_options configure that), without '
+                            'sampling.'},
             {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
              'choices': ['emcee', 'pymc'],
              'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
@@ -1891,6 +1897,19 @@ ANALYSIS_OPTIONS = {
                             'Monte Carlo and needs the optional [uq] extra.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'description': 'Number of MCMC steps per walker.'},
+            {'name': 'num_samples', 'type': 'int', 'default': 2000, 'required': False,
+             'description': "method 'laplace' in a calibration workflow's uq step: the draws of "
+                            'the Gaussian it stores as its distribution (those outside the '
+                            'params_for_id bounds are dropped).'},
+            {'name': 'posterior_predictive', 'type': 'bool', 'default': True, 'required': False,
+             'description': "A calibration workflow's uq step: after the MCMC or Laplace "
+                            'approximation, run the posterior predictive check '
+                            '(param_id.posterior_predictive): the model at posterior draws, '
+                            'and how often the data lies inside their intervals. Written in '
+                            "the step's posterior_predictive directory."},
+            {'name': 'posterior_predictive_samples', 'type': 'int', 'default': 100,
+             'required': False,
+             'description': 'The posterior draws the posterior predictive check simulates.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
             {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,
@@ -2491,7 +2510,7 @@ class YamlFileParser(object):
         # FileNotFoundError.
         for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
                      'modifier_funcs_external_path', 'external_model_path',
-                     'generated_model_path'):
+                     'external_parameters_file', 'generated_model_path'):
             if inp_data_dict.get(_key):
                 inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
 
@@ -2831,6 +2850,13 @@ class YamlFileParser(object):
                 print(f'Use {valid_cpp_solvers} for Cpp models')
                 exit()
 
+        # The external helper is built from solver_info at every construction site, so the
+        # values file of an external model travels there.
+        if inp_data_dict.get('model_type') == 'external_python' and \
+                inp_data_dict.get('external_parameters_file'):
+            inp_data_dict['solver_info']['external_parameters_file'] = \
+                inp_data_dict['external_parameters_file']
+
         try:
             validate_solver_info(solver_name, inp_data_dict['solver_info'])
         except ValueError as exc:
@@ -2906,11 +2932,16 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['sa_options'].keys():
                 print('No method specified for sensitivity analysis, setting to sobol by default')
                 inp_data_dict['sa_options']['method'] = 'sobol'
+            # the Sobol sampling manager is built for every method, but only sobol samples:
+            # the defaults are announced only to a sobol run
+            sobol = inp_data_dict['sa_options']['method'] == 'sobol'
             if 'num_samples' not in inp_data_dict['sa_options'].keys():
-                print('No num_samples specified for sensitivity analysis, setting to 32 by default')
+                if sobol:
+                    print('No num_samples specified for sensitivity analysis, setting to 32 by default')
                 inp_data_dict['sa_options']['num_samples'] = 32
             if 'sample_type' not in inp_data_dict['sa_options'].keys():
-                print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
+                if sobol:
+                    print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
                 inp_data_dict['sa_options']['sample_type'] = 'saltelli'
             
         # Parameter reduction after a Sobol analysis (ANALYSIS_OPTIONS['param_reduction']):

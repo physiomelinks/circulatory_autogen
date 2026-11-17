@@ -867,77 +867,18 @@ class sobol_SA():
         return [float(predicted[j]) for j in self._observable_indices()]
 
     def _observable_indices(self):
-        """The data_items this analysis reports on, by index into ``obs_info``.
-
-        An item with no operation, or with zero weight, is not an observable here.
-        A recorded trace carried for plotting is both: there is no scalar to reduce
-        it to, and nothing is fitted to it, so its "sensitivity" would not be a
-        number anyone should read. Skipped before the model is asked for it rather
-        than computed and dropped afterwards -- reducing a trace costs the same as
-        reducing a real observable, and every sample pays it.
-        """
-        operations = self.obs_info.get('operations') or []
-        # Each weight vector is indexed by position among items of its own data_type, not
-        # by data_item: map every weight back through its *_idx_to_obs_idx. Indexing
-        # weight_const_vec by data_item index reads another item's weight whenever a
-        # non-constant precedes a constant -- in a joint obs_data that reported other
-        # datasets' zero-weighted items and dropped weighted ones.
-        weighted = {}
-        for kind in ('const', 'series', 'amp', 'phase'):
-            weights = self.obs_info.get('weight_%s_vec' % kind)
-            idx_map = self.obs_info.get('%s_idx_to_obs_idx' % kind)
-            if weights is None or idx_map is None:
-                continue
-            for weight, obs_idx in zip(weights, idx_map):
-                weighted[int(obs_idx)] = bool(np.any(np.asarray(weight, dtype=float)))
-        keep = []
-        for index, operation in enumerate(operations):
-            if operation is None:
-                continue
-            if not weighted.get(index, True):
-                continue
-            keep.append(index)
-        return keep
+        """The data_items this analysis reports on (``observable_indices``)."""
+        return observable_indices(self.obs_info)
 
     @staticmethod
     def _uniquify_output_names(labels, ops):
-        """Return labels guaranteed unique so each Sobol output keeps its own
-        column. pandas assigns DataFrame columns by label, so a repeated label
-        would let a later data_item silently overwrite an earlier one and the
-        outputs would collapse to one-per-name (issue #240). Repeated labels are
-        first distinguished by their operation, then by a ' #k' suffix."""
-        counts = {}
-        for lab in labels:
-            counts[lab] = counts.get(lab, 0) + 1
-        stage1 = [
-            f"{lab} [{ops[i]}]" if counts[lab] > 1 and ops[i] else lab
-            for i, lab in enumerate(labels)
-        ]
-        seen, out = {}, []
-        for lab in stage1:
-            if lab in seen:
-                seen[lab] += 1
-                out.append(f"{lab} #{seen[lab]}")
-            else:
-                seen[lab] = 1
-                out.append(lab)
-        return out
+        """Labels made unique (``uniquify_output_names``)."""
+        return uniquify_output_names(labels, ops)
 
     def _output_columns(self, n_outputs):
         """``(output_names, sources)`` of the ``n_outputs`` Sobol outputs: the column names the
         indices and outputs CSVs use, and ``(kind, index)`` per column, kind one of
-        ``'data_item'``, ``'cost'`` and ``'prediction_item'``."""
-        # Prepare output/feature names. Two data_items that resolve to the same
-        # (item_name_for_plotting, experiment, subexperiment) produce identical column
-        # labels; since pandas assigns DataFrame columns by label, the later one
-        # would silently overwrite the earlier and the Sobol output would collapse
-        # to one-per-name (issue #240). Build the labels, then disambiguate any
-        # collisions so every data_item keeps its own column.
-        names = obs_item_labels(self.obs_info)
-        exps = self.obs_info['experiment_idxs']
-        subs = self.obs_info['subexperiment_idxs']
-        ops = self.obs_info.get('operations', [])
-
+        ``'data_item'``, ``'cost'`` and ``'prediction_item'`` (``output_labels``)."""
         # The same indices the feature loop used, so a label always names the output
         # beside it. Building these from range(len(names)) instead would shift every
         # column by one for each item the loop skipped.
@@ -946,23 +887,10 @@ class sobol_SA():
         # their data_item_name in the same "(Exp, Sub)" form.
         pred_labels = self._prediction_labels()
         n_data_outputs = n_outputs - len(pred_labels)
-        base_labels, base_ops, sources = [], [], []
-        for i in reported[:n_data_outputs]:
-            base_labels.append(f"{names[i]} (Exp{exps[i]}, Sub{subs[i]})")
-            base_ops.append(ops[i] if i < len(ops) else None)
-            sources.append(('data_item', i))
-        if n_data_outputs > len(base_labels):
-            base_labels.append("Cost")
-            base_ops.append(None)
-            sources.append(('cost', None))
-        pred_indices = self._prediction_indices()
         pred_ops = (self.prediction_info or {}).get('operations') or []
-        for k, label in enumerate(pred_labels):
-            base_labels.append(label)
-            base_ops.append(pred_ops[pred_indices[k]])
-            sources.append(('prediction_item', k))
-
-        return self._uniquify_output_names(base_labels, base_ops), sources
+        return output_labels(self.obs_info, reported[:n_data_outputs], pred_labels,
+                             [pred_ops[i] for i in self._prediction_indices()],
+                             cost=n_data_outputs > len(reported[:n_data_outputs]))
 
     def save_sobol_indices(self, S1_all, ST_all, S2_all):
         if self.rank != 0:
@@ -1108,3 +1036,89 @@ class sobol_SA():
             S1_all, ST_all, S2_all = self.sobol_index(outputs)
             return S1_all, ST_all, S2_all
 
+
+def observable_indices(obs_info):
+    """The data_items a sensitivity analysis reports on, by index into ``obs_info``.
+
+    An item with no operation, or with zero weight, is not an observable here.
+    A recorded trace carried for plotting is both: there is no scalar to reduce
+    it to, and nothing is fitted to it, so its "sensitivity" would not be a
+    number anyone should read. Skipped before the model is asked for it rather
+    than computed and dropped afterwards -- reducing a trace costs the same as
+    reducing a real observable, and every sample pays it.
+    """
+    operations = obs_info.get('operations') or []
+    # Each weight vector is indexed by position among items of its own data_type, not
+    # by data_item: map every weight back through its *_idx_to_obs_idx. Indexing
+    # weight_const_vec by data_item index reads another item's weight whenever a
+    # non-constant precedes a constant -- in a joint obs_data that reported other
+    # datasets' zero-weighted items and dropped weighted ones.
+    weighted = {}
+    for kind in ('const', 'series', 'amp', 'phase'):
+        weights = obs_info.get('weight_%s_vec' % kind)
+        idx_map = obs_info.get('%s_idx_to_obs_idx' % kind)
+        if weights is None or idx_map is None:
+            continue
+        for weight, obs_idx in zip(weights, idx_map):
+            weighted[int(obs_idx)] = bool(np.any(np.asarray(weight, dtype=float)))
+    keep = []
+    for index, operation in enumerate(operations):
+        if operation is None:
+            continue
+        if not weighted.get(index, True):
+            continue
+        keep.append(index)
+    return keep
+
+
+def uniquify_output_names(labels, ops):
+    """Return labels guaranteed unique so each Sobol output keeps its own
+    column. pandas assigns DataFrame columns by label, so a repeated label
+    would let a later data_item silently overwrite an earlier one and the
+    outputs would collapse to one-per-name (issue #240). Repeated labels are
+    first distinguished by their operation, then by a ' #k' suffix."""
+    counts = {}
+    for lab in labels:
+        counts[lab] = counts.get(lab, 0) + 1
+    stage1 = [
+        f"{lab} [{ops[i]}]" if counts[lab] > 1 and ops[i] else lab
+        for i, lab in enumerate(labels)
+    ]
+    seen, out = {}, []
+    for lab in stage1:
+        if lab in seen:
+            seen[lab] += 1
+            out.append(f"{lab} #{seen[lab]}")
+        else:
+            seen[lab] = 1
+            out.append(lab)
+    return out
+
+
+def output_labels(obs_info, indices, prediction_labels=(), prediction_ops=(), cost=False):
+    """``(labels, sources)``: the Sobol output label of each data_item in ``indices``
+    (``"<item_name_for_plotting> (Exp<e>, Sub<s>)"``), then ``"Cost"`` with ``cost``, then
+    ``prediction_labels``; made unique by ``uniquify_output_names``. ``sources`` is
+    ``(kind, index)`` per label, kind ``'data_item'``, ``'cost'`` or ``'prediction_item'``.
+
+    The local sensitivity analysis labels its signed rows with this too, so a Sobol index and a
+    local coefficient of one observable have one label.
+    """
+    names = obs_item_labels(obs_info)
+    exps = obs_info['experiment_idxs']
+    subs = obs_info['subexperiment_idxs']
+    ops = obs_info.get('operations') or []
+    labels, label_ops, sources = [], [], []
+    for i in indices:
+        labels.append(f"{names[i]} (Exp{exps[i]}, Sub{subs[i]})")
+        label_ops.append(ops[i] if i < len(ops) else None)
+        sources.append(('data_item', i))
+    if cost:
+        labels.append("Cost")
+        label_ops.append(None)
+        sources.append(('cost', None))
+    for k, label in enumerate(prediction_labels):
+        labels.append(label)
+        label_ops.append(prediction_ops[k] if k < len(prediction_ops) else None)
+        sources.append(('prediction_item', k))
+    return uniquify_output_names(labels, label_ops), sources

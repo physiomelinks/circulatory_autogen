@@ -377,7 +377,7 @@ def test_mcmc_over_an_emulator_recovers_the_conductance_that_made_the_data(
         runner.set_best_param_vals(np.array([truth]))
         runner.run_UQ()
         _checked_on_rank_0(mpi_comm, lambda: _check_recovery(
-            name, truth, identified_from_both_sides, _posterior(runner.output_dir)))
+            name, truth, identified_from_both_sides, _posterior(os.path.dirname(runner.mcmc_chain_path()))))
 
 
 def _check_recovery(name, truth, identified_from_both_sides, samples):

@@ -117,6 +117,118 @@ class ResolvedArray:
         return [p for p in paths if p]
 
 
+@dataclass
+class ResolvedExternal:
+    '''An external Python model: its file and the parameters ``SIM_HELPER`` declares
+    (``{'component/variable': default}``). Its vessels are the components.'''
+    model: object                  # spec.ExternalModel
+    parameters: dict
+
+    kind = 'external'
+
+    #: an external model has no parameters file of its own: its values are the class defaults
+    parameters_path = None
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.parameters}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+@dataclass
+class ResolvedCellML:
+    '''A CellML model: its file and its constants (``{'component/variable': {value, units}}``),
+    with the values of its ``parameters`` file over them. Its vessels are the components.'''
+    model: object                  # spec.CellMLModel
+    constants: dict
+
+    kind = 'cellml'
+
+    @property
+    def parameters(self):
+        return {name: c['value'] for name, c in self.constants.items()}
+
+    @property
+    def parameters_path(self):
+        return self.model.parameters
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.constants}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+def read_cellml_parameters(model, where=''):
+    '''The constants of the CellML model ``model`` (a spec.CellMLModel) as ResolvedCellML holds
+    them, its parameters file's values over the CellML's. A name must be ``component/variable``
+    with a plain component, as a workflow names it as vessel and parameter; the parameters file
+    sets only constants of the model.'''
+    from libcuflynx.calibration_workflow.cellml_files import read_cellml_constants
+    from libcuflynx.utilities import parameters_file as pf
+    constants = read_cellml_constants(model.path, where)
+    for name in constants:
+        component = name.partition('/')[0]
+        if naming.LEVEL_SEPARATOR in component or naming.is_global(component):
+            raise WorkflowError(f'{where}: {model.path} has component "{component}"; a workflow '
+                                f'names a CellML model\'s parameters component/variable, with no '
+                                f'"{naming.LEVEL_SEPARATOR}" in the component and none named '
+                                f'"{naming.GLOBAL_VESSEL}".')
+    if model.parameters:
+        if not os.path.isfile(model.parameters):
+            raise WorkflowError(f'{where}: its parameters file {model.parameters} does not '
+                                f'exist.')
+        unknown = []
+        for place, leaf in pf.leaves(pf.read_parameters_file(model.parameters, kind=pf.MODEL)):
+            name = '/'.join(place)
+            if name not in constants:
+                unknown.append(name)
+                continue
+            try:
+                value = float(leaf.get('value'))
+            except (TypeError, ValueError) as exc:
+                raise WorkflowError(f'{where}: {model.parameters} gives "{name}" the value '
+                                    f'{leaf.get("value")!r}, not a number.') from exc
+            constants[name] = dict(constants[name], value=value)
+        if unknown:
+            raise WorkflowError(f'{where}: {model.parameters} sets {sorted(unknown)}, which are '
+                                f'not constants of {model.path} (its constants: '
+                                f'{sorted(constants)}).')
+    return constants
+
+
+def read_external_parameters(path, where=''):
+    '''``{'component/variable': default}`` of the external model at ``path`` (its
+    ``SIM_HELPER.parameters``, checked as the external helper checks them). A name must be
+    ``component/variable`` with a plain component, as a workflow names it as vessel and
+    parameter.'''
+    from libcuflynx.solver_wrappers.external_simulation_helper import (_load_module_from_path,
+                                                                       _resolve_user_class)
+    if not os.path.isfile(path):
+        raise WorkflowError(f'{where}: its external model file {path} does not exist.')
+    try:
+        _, parameters, _ = _resolve_user_class(_load_module_from_path(path), path)
+    except Exception as exc:  # the user's file may raise anything on import
+        raise WorkflowError(f'{where}: cannot read the external model {path}: {exc}') from exc
+    for name in parameters:
+        component, _, variable = name.partition('/')
+        if '/' in variable or naming.LEVEL_SEPARATOR in component:
+            raise WorkflowError(f'{where}: {path} declares parameter "{name}"; a workflow names '
+                                f'an external model\'s parameters component/variable, with no '
+                                f'"/" in the variable and no "{naming.LEVEL_SEPARATOR}" in the '
+                                f'component.')
+    return parameters
+
+
 def _submodule_configs(entry, components, supermodules):
     paths = []
     for sub in entry.get('submodules', []):
@@ -233,8 +345,9 @@ def resolve_workflow(workflow):
     if any(m.kind == 'library' for m in library) and not workflow.module_library_dirs:
         raise WorkflowError(
             f'workflow "{workflow.name}" uses a library module but names no module library. '
-            f'Pass module_library_dirs (the --module-library-dir option of '
-            f'cuflynx-calibration-workflow) or list them in the file\'s "module_library_dirs".')
+            f'Pass module_library_dirs (WorkflowBuilder(..., module_library_dirs=[...]) in '
+            f'Python, the --module-library-dir option of cuflynx-calibration-workflow) or list '
+            f'them in the file\'s "module_library_dirs".')
     inputs = library_inputs(workflow)
     try:
         sources = ModuleSources(inputs)
@@ -291,6 +404,11 @@ def resolve_workflow(workflow):
                                      parameters=parameters, target=target,
                                      selection=selection)
         for parameter in parameters:
+            declared = f'{parameter.vessel}/{parameter.param}'
+            if model.kind in ('external', 'cellml') and declared not in model.parameters:
+                raise WorkflowError(
+                    f'{where}: {params_for_id or "its sweep"} names "{declared}", which '
+                    f'{_declares(model)}.')
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
                     f'{where}: {params_for_id} names vessel "{parameter.vessel}", which '
@@ -309,7 +427,9 @@ def resolve_workflow(workflow):
                     f'"{landing}" of the target {workflow.target.label()}, which has no such '
                     f'vessel (its vessels: {sorted(target.vessels)}). Map it with '
                     f'"vessel_map" (a module array) or "vessel"/"submodule" (a library module).')
-            claimed.setdefault(name, []).append(step.id)
+            if not step.params_for_id_from:
+                # a reduction's candidates are not what it calibrates: the run checks those
+                claimed.setdefault(name, []).append(step.id)
         resolved[step.id] = resolved_step
     _warn_recalibrated(workflow, {n: ids for n, ids in claimed.items() if len(ids) > 1})
 
@@ -318,7 +438,7 @@ def resolve_workflow(workflow):
                               components=components, supermodules=supermodules)
     for step in workflow.steps:
         flows = step.fixed_from + [p.step for p in step.priors_from] + \
-            ([step.result_from] if step.result_from else [])
+            [s for s in (step.result_from, step.start_from) if s]
         for source in flows:
             mapped = result.map_between(source, step.id)
             if not any(mapped(p.vessel) for p in resolved[source].parameters):
@@ -350,8 +470,13 @@ def _resolve_set_step(step, target, claimed):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
                                 f'"{parameter.vessel}", which the target does not have (its '
                                 f'vessels: {sorted(target.vessels)}).')
+        if target.kind in ('external', 'cellml') and entry['parameter'] not in target.parameters:
+            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not '
+                                f'{_declared_by(target)}.')
         resolved.parameters.append(parameter)
-        claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
+        if not step.point:
+            # a point step's values never reach the target, so they replace nothing there
+            claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
     return resolved
 
 
@@ -366,9 +491,30 @@ def _swept_parameters(step, model):
     return parameters
 
 
+def _declares(model):
+    '''Why a name is not a parameter of a file model, for an error.'''
+    if model.kind == 'cellml':
+        return (f'is not a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'the external model {model.model.path} does not declare (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
+def _declared_by(model):
+    if model.kind == 'cellml':
+        return (f'a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'declared by the external model {model.model.path} (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
 def _resolve_model(model, components, supermodules, where):
     if model.kind == 'library':
         return _resolve_parameterisation(model, components, supermodules, where)
+    if model.kind == 'cellml':
+        return ResolvedCellML(model=model, constants=read_cellml_parameters(model, where))
+    if model.kind == 'external':
+        return ResolvedExternal(model=model, parameters=read_external_parameters(model.path, where))
     try:
         refuse_csv(model.parameters, f'{where}: ')
     except ValueError as exc:
@@ -385,6 +531,8 @@ def _resolve_model(model, components, supermodules, where):
 
 def _vessel_map(step, model, workflow_target, target, supermodules):
     '''How the step's model is named in the target (see the module docstring).'''
+    if model.kind in ('external', 'cellml'):
+        return naming.Renamed({}, model.vessels)    # the target is the same file
     if model.kind == 'array':
         mapping = dict(step.vessel_map)
         if target.kind == 'library':
@@ -430,25 +578,44 @@ def _library_vessel(path, target, step):
                         f'{sorted("/".join(p) for p in target.paths)}).')
 
 
-def _warn_recalibrated(workflow, claimed):
+def _warn_recalibrated(workflow, claimed, stacklevel=3):
     '''One UserWarning for the target parameters ``{name: [step ids]}`` that several steps
     calibrate or set. The merge takes them in run order, so the last step's value is used.'''
     if not claimed:
         return
     order = [s.id for s in workflow.topological_order()]
     lines = []
+    last_kinds = set()
     for name, ids in sorted(claimed.items()):
         ids = sorted(ids, key=order.index)
+        last_kinds.add(workflow.step(ids[-1]).kind)
         lines.append(f'"{name}" by {", then ".join(repr(i) for i in ids)} '
                      f'(the value of {ids[-1]!r} is used)')
+    advice = []
+    if last_kinds - {'set'}:
+        advice.append(
+            'To update an earlier calibration with new data rather than replace it, calibrate '
+            'Bayesianly: remove the parameter from the later step\'s params_for_id and list the '
+            'earlier step in its "priors_from" (with "store_distribution": true on the earlier '
+            'step), so the earlier posterior becomes the later step\'s prior.')
+    if 'set' in last_kinds:
+        advice.append('A set step\'s value replaces the calibrated one; to keep the calibrated '
+                      'value, remove the parameter from the set step.')
     warnings.warn(
         f'calibration workflow "{workflow.name}": {len(lines)} parameter(s) of '
         f'{workflow.target.label()} are calibrated by more than one step, and the later '
-        f'calibration replaces the earlier: ' + '; '.join(lines) + '. To update an earlier '
-        f'calibration with new data rather than replace it, calibrate Bayesianly: remove the '
-        f'parameter from the later step\'s params_for_id and list the earlier step in its '
-        f'"priors_from" (with "store_distribution": true on the earlier step), so the earlier '
-        f'posterior becomes the later step\'s prior.', UserWarning, stacklevel=3)
+        f'step replaces the earlier: ' + '; '.join(lines) + '. ' + ' '.join(advice),
+        UserWarning, stacklevel=stacklevel)
+
+
+def warn_reduced_recalibrated(workflow, claimed):
+    '''The check `resolve_workflow` leaves to the run for a step fitting a reduction's
+    choice: ``claimed`` (``{name: [step ids]}``, every value the merge took) narrowed to the
+    names such a step calibrated and another step also gave.'''
+    _warn_recalibrated(workflow, {
+        name: ids for name, ids in claimed.items()
+        if len(ids) > 1 and any(workflow.step(i).params_for_id_from for i in ids)},
+        stacklevel=4)
 
 
 def read_calibrated_parameters(params_for_id_path, where=''):

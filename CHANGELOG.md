@@ -5,6 +5,190 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — calibration workflows can express a GUI study
+
+- **A CellML model as a workflow's target and steps' model:**
+  `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` (`parameters` optional;
+  `spec.CellMLModel`, the builder's `cellml_model()`). Its parameters are its constants, named
+  `component/variable`. A step runs a copy with its values written in by the calibrated-model
+  writer (below; flattened when the file has imports, checked after writing), as
+  `model_type: cellml`, or with `model_type` `python`, `casadi_python` or `aadc_python` as the
+  Python generated from that copy (`spec.CELLML_MODEL_TYPES`; the values still go into the
+  CellML). `write_calibrated` writes `<stem>_calibrated_parameters.json` and
+  `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
+- **`start_from`** on a calibration: a calibration or set step whose values of the step's own
+  parameters are where its fit starts (the model is generated with them, so they are x0). They
+  are not fixed. The builder's `add_calibration(start_from=)`.
+- **A `uq` step kind:** MCMC or a Laplace approximation (`UQ_options.method`: `mcmc`, `laplace`)
+  at `result_from` (a calibration or set step) or at the model's values, with no fit. It stores
+  its distribution (`<step>/distribution/`), which `priors_from` takes. The builder's
+  `add_uq()`. Outside a workflow, `param_id_run_script.run_uq(inp_data_dict, best_param_vals,
+  method)`, and `do_uq` with `method: laplace`. `ANALYSIS_OPTIONS['uq']` offers `laplace` and
+  its `num_samples`. A calibration with `store_distribution` and `method: laplace` is refused
+  (use a uq step). An empty `UQ_options` is MCMC with the defaults, and `add_uq()`'s
+  `uq_options` defaults to `{}`.
+- **A uq step runs the posterior predictive check** after its MCMC (draws from the chain after
+  `burn_in`) or Laplace approximation (draws from its stored samples), into
+  `<step>/posterior_predictive/`; `step_result.json` names `posterior_predictive_dir`,
+  `posterior_predictive_draws`, `posterior_predictive_coverage`, `posterior_predictive_series`
+  and a `posterior_predictive_summary`. New `UQ_options`: `posterior_predictive` (default true)
+  and `posterior_predictive_samples` (default 100). `posterior_predictive(samples=...)` checks
+  given draws in place of a chain, and a `CVS0DParamID` built to run MCMC can be the `client`
+  (`posterior_predictive.engine_of`).
+- **One calibrated-model writer** (`param_id.calibrated_model`): `write_cellml_values(path,
+  values, output_path, flatten=None)` and `substitute_parameter_values(text, values)` write
+  values named `vessel/param` or `component/variable` and return a report, `{'updated',
+  'unresolved', 'resolved': {name: 'component/variable'}}` (with `path` and `flattened` from
+  the file writer). `flatten=None` flattens a file with imports (a generated model) and writes
+  a single-file model in its own form, with only the values changed.
+  `write_calibrated_model(..., flatten=None, return_report=False)` and
+  `CVS0DParamID.write_calibrated_model(..., flatten=None)` (report in
+  `calibrated_model_report`) use it, as do a workflow's CellML steps, so a best fit gives the
+  same file from CA, a workflow and CUFLynx. An unresolved name is a warning.
+- **Signed local sensitivities:** `method: local` also writes `local_sensitivity_signed.csv`,
+  d ln Y / d ln p = (p / Y) dY/dp, NaN where Y = 0, its rows labelled as the Sobol outputs
+  (`<item_name_for_plotting> (Exp<e>, Sub<s>)`, `sobolSA.output_labels`). The nominal features
+  are evaluated before the sensitivities. `get_local_sensitivities()` adds `signed`,
+  `signed_output_names` and `nominal_feature_vals`; a workflow's local sensitivity step records
+  the file as `local_sensitivity_signed`.
+- **`emulator_dir`** on a calibration, sensitivity or uq step: an emulator trained outside the
+  workflow, in place of `emulator_from`; hashed into the step's inputs and packed.
+- An identifiability step's `result_from` is optional (the analysis is then at the model's
+  values), and `result_from` may name a set step.
+- After a calibration step, the observables at its best fit and the error vectors
+  (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
+  calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
+  identifiability or uq step its point (`at_source`).
+- **`"point": true` on a set step:** its values are only a point for `start_from`,
+  `result_from` or `fixed_from`. They are not merged into the target (nor given to an
+  `on_target` sweep), do not count towards "calibrated by more than one step", and the
+  provenance diagram labels the step "point only, not in the target". The builder's
+  `add_set(..., point=True)`. An explicit key, so a hand-written workflow's meaning never
+  depends on how its steps are used.
+
+### Fixed
+
+- The provenance diagram marked every step on a CellML model stale: it compared the file's
+  sha256 with the step's `cellml_model` input, which the runner records as the digest of the
+  file and its imports. Both now use `runner.input_digest`, which also checks an
+  `emulator_dir` input (a directory) rather than reporting it missing.
+
+- Local sensitivity analysis run from a configuration that names its obs_data and params_for_id
+  files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,
+  ground-truth data and params for id": its engine now reads those files itself.
+
+- "Calibrated by more than one step" warned about every candidate a step fitting a reduction's
+  choice (`params_for_id_from`) might calibrate. Such a step is checked once the reduction has
+  run, against what it kept; a set step replacing a calibrated value gets no `priors_from`
+  advice.
+- A sensitivity, identifiability or uq step's `fixed` (in `step_result.json` and the
+  `workflow_model` view) listed its own parameters' values from `result_from`. They are the
+  point it analyses (`at`, or a local analysis's `nominal`), not fixed values; the view's model
+  now has them too.
+- An MCMC or Laplace uq step announced optimiser defaults, and a local sensitivity analysis
+  Sobol's `num_samples` and `sample_type` defaults, that they do not use.
+- `write_calibrated` rounded the calibrated parameters file, and so the target's calibrated
+  CellML, to 10 significant figures; both keep full precision, as a step's calibrated CellML
+  does. The command reports the calibrated CellML it writes, and `--help` names it and every
+  step kind.
+- A pack put a CellML target at `inputs/_target/<its folder>/`; it is now in
+  `inputs/_target/`, with its imports at their relative paths.
+
+### Added — external Python models in calibration workflows
+
+- A calibration workflow's `target`, and its steps' `model`, may be an external Python model:
+  `{"external_model_path": "model.py"}` (`spec.ExternalModel`, the builder's
+  `external_model()`). It is never generated: each step runs the `.py` with its values -- the
+  `SIM_HELPER.parameters` defaults with the step's fixed values over them -- in
+  `<step>/model/generated_models/<step>/<step>_parameters.json`. Every step kind runs on it.
+  It must be the target and every step's model; parameters keep their `component/variable`
+  names, and a name the class does not declare is refused when the workflow is resolved.
+  `write_calibrated` writes `<prefix>_calibrated_parameters.json` beside the `.py`
+  (`heat1d_model.py` -> `heat1d_calibrated_parameters.json`), and a pack copies the `.py` with
+  the files beside it.
+- New user input **`external_parameters_file`** (`model_type: external_python`): a parameters
+  file whose values replace the class defaults, set on the user class after `init_solver` and
+  kept by `reset_and_clear`. The parser passes it to the helper as the `external` solver's new
+  `solver_info` field `external_parameters_file`.
+- Example: `funcs_user/example_model_external/heat1d_calibration_workflow.json` (a `set` step,
+  a calibration with MCMC, and a refinement with its posterior as the prior).
+
+### Changed — one working dir layout for CA runs, pipeline bundles and CUFLynx
+
+- **An MCMC run has its own run directory**, `mcmc_<prefix>_<obs>` beside the calibration's
+  `<param_id_method>_<prefix>_<obs>` (`paramID.case_dir_name`, `UQ_CASE_METHOD`), and its own
+  entry in the study manifest's `runs`. The chain, `mcmc_statistics.json`, the posterior point
+  estimates and the posterior predictive check go there; the calibration's directory keeps the
+  best fit. `CVS0DParamID.uq_output_dir` and `calibration_output_dir` name the two, and
+  `CVS0DParamID.mcmc_chain_path()` finds the chain (in a calibration's directory too, for a
+  run whose chain is there). `run_param_id` returns `uq_output_dir`. Readers that took the chain
+  from the calibration's directory now take it from the MCMC run's.
+- **A run in a working dir no longer copies its obs_data and params_for_id into its run
+  directory**: `inputs/` holds them, with `inputs/index.json`. A run with no working dir
+  (`write_cuflynx_study: false` or `cuflynx_study_copy_inputs: false`) still copies them.
+- **`CVS0DParamID.write_calibrated_model(cellml_path=None, output_dir=None)`** writes
+  `<param_id_output_dir>/<file_prefix>_calibrated.cellml`, the model with the best fit written
+  in (grouped and modifier rows expanded), and records it as the manifest's `model`.
+  `libcuflynx.param_id.calibrated_model.write_calibrated_model` does the same from a CellML, a
+  `param_id_info` and the values.
+- **A pipeline bundle is its study's working dir.** `run_pipeline.py` writes its results, the
+  manifest and `inputs/` into the bundle folder rather than `output/`; its sensitivity analysis
+  writes to `sensitivity/` there (an absolute `sa_options` `output_dir` is dropped from the
+  bundled yaml, a relative one goes under `sensitivity/`); the MLE obs_data its UQ stage scores
+  with is stored as `inputs/obs_data/<stamp>/uq_obs_data.json`; and a calibration leaves
+  `<prefix>_calibrated.cellml`. `plot_utilities.py` reads the chain and the posterior predictive
+  check from the MCMC run's directory, and still reads a bundle's `output/` folder when there is
+  one.
+
+### Added — building a calibration workflow in Python (`WorkflowBuilder`)
+
+- `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
+  API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+  `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
+  schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
+  `set_value` and `scale_value`; then `check`, `write`, `plan`, `run(only=, from_step=, force=,
+  ranks=)`, `status`, `result`, `model`, `step_dir` and `plot_step`. Each step, and the
+  workflow's settings, are checked against the schema when they are given. obs_data and
+  params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
+  written as files under `data/` beside the workflow. The result is an ordinary workflow file
+  that the command line and CUFLynx run and `pack_workflow` packs.
+  See "Building a workflow in Python" in the parameter-identification docs, and the
+  "Calibration workflows" page of the API reference.
+- `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
+  the rest, printing a line for each step kept, so a script or notebook can be run again;
+  `force=True` runs every step. `check()` (and `plan()`, `run()`) names what a run still
+  needs: a module library when a model names library modules, and the `optimiser_options` the
+  calibration method requires. `result(id)` returns what a step recorded.
+- `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
+  script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
+  remove and list them. The file's header records a checksum of what was generated: a builder
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand or
+  written by something else, until `add_operation(f, overwrite=True)` or
+  `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
+  refuses to rewrite a file whose other top-level statements (a constant, a class) it would
+  drop.
+- `cuflynx-calibration-workflow --stale-only` and `run_calibration_workflow(stale_only=True)`
+  run only the steps that have not run or are stale. Their defaults are unchanged: every step
+  runs.
+- A step can no longer be named `models`, `target`, `_target` or `inputs`, names the run's
+  output directory uses itself (the schema refuses them). `WorkflowBuilder.model` generates
+  under the run's `models/` folder.
+- The genetic algorithm without `optimiser_options.num_calls_to_function` says so, instead of
+  a `KeyError`. The messages for a result a step needs name the Python call
+  (`wf.run(from_step=...)`) beside the command-line option, and a step left out of an `--only`
+  run that never ran is reported as "not run", not as reusing its earlier result.
+- `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
+  to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, checksum line,
+  extra imports, the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one
+  `def` per function): `funcs_file_source`, `write_funcs_file`, `read_funcs_file`,
+  `is_unedited` and `unkept_statements`, for `add_operation` and for CUFLynx's "Custom funcs"
+  dialog. The checksum line is a comment (`# libcuflynx-generated sha256: ...`).
+- A workflow step's recorded inputs include the user function files it runs with
+  (`operation_funcs_external_path`, `cost_funcs_external_path`,
+  `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
+  before this are not made stale by it.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had

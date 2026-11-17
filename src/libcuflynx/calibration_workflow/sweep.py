@@ -154,8 +154,14 @@ class PointRunner:
         from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
 
         self.outputs = list(outputs)
-        solver = settings.get('solver') or DEFAULT_SOLVER
+        from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA
+        solver = settings.get('solver') or SOLVER_SCHEMA['default_solver_by_model_type'].get(
+            settings.get('model_type'), DEFAULT_SOLVER)
         solver_info = dict(settings.get('solver_info') or {})
+        if solver != 'CVODE_myokit' and SOLVER_SCHEMA['methods_by_solver'].get(solver):
+            # the method the user_inputs parser gives a solver that is named none
+            solver_info.setdefault('method', SOLVER_SCHEMA['default_method_by_solver'].get(
+                solver, 'RK45' if solver == 'solve_ivp' else None))
         if solver == 'CVODE_myokit':
             # Without a MaximumStep the calibration runs CVODE uncapped; ProtocolRunner would
             # cap it at 1e-3, which over a long pre_time costs millions of steps per point.

@@ -447,7 +447,8 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'emulation': ('emulator training', 'emulator trainings'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
-              'sweep': ('parameter sweep', 'parameter sweeps')}
+              'sweep': ('parameter sweep', 'parameter sweeps'),
+              'uq': ('uncertainty quantification', 'uncertainty quantifications')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -476,6 +477,12 @@ def _step_section(step, symbols, entries=()):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
                    f'(Section~\\ref{{sec:step:{step["emulator_from"].replace("_", "-")}}}), '
                    'not on the model.')
+    if step.get('emulator_dir'):
+        out.append(f'It runs on the emulator in {_tt(os.path.basename(step["emulator_dir"]))}, '
+                   'trained outside the workflow, not on the model.')
+    if step.get('start_from'):
+        out.append(f'Its fit starts at the values of its parameters in step '
+                   f'{escape(step["start_from"])}.')
     if step.get('params_for_id_from'):
         out.append(f'It calibrates the parameters kept by step '
                    f'{escape(step["params_for_id_from"])}.')
@@ -524,7 +531,7 @@ def _step_section(step, symbols, entries=()):
         out.append(r'\paragraph{Uncertainty.} ' + uq_text(step['settings']))
     if step.get('result') and _kind(step) == 'calibration':
         out.append(r'\paragraph{Result.} ' + results_text(step['result'], symbols['step']))
-    elif _kind(step) == 'identifiability' and (step.get('result') or {}).get('laplace'):
+    elif _kind(step) in ('identifiability', 'uq') and (step.get('result') or {}).get('laplace'):
         result = step['result']
         stds = ', '.join(f'{escape(name)}: {_number(value)}' for name, value in
                          zip(result['parameters'], result['laplace']['std']))
@@ -536,7 +543,8 @@ def _step_section(step, symbols, entries=()):
 #: what the Parameters paragraph says a non-calibration step does with its parameters
 ANALYSED = {'sensitivity': 'whose influence was analysed',
             'emulation': 'the emulator was trained over',
-            'identifiability': 'whose identifiability was analysed'}
+            'identifiability': 'whose identifiability was analysed',
+            'uq': 'whose uncertainty was quantified'}
 
 
 def _analysis_method(step):
@@ -566,6 +574,16 @@ def _analysis_method(step):
         return (f'An emulator of the observables was trained on '
                 f'{em.get("num_train_samples", 128)} model runs '
                 f'({escape(str(em.get("sample_type", "sobol")))} sampling).')
+    if kind == 'uq':
+        from libcuflynx.calibration_workflow.spec import uq_method
+        point = ('the values of step ' + escape(step['result_from'])
+                 if step.get('result_from') else 'the model\'s values')
+        if uq_method(settings) == 'laplace':
+            ia = settings.get('ia_options') or {}
+            return (f'The Laplace approximation of the posterior at {point}, with gradients by '
+                    f'{escape(str(ia.get("gradient_source", "FD")))}; its samples are stored.')
+        return uq_text(settings).replace('After the fit, the', 'The').replace(
+            'starting from the best fit', f'starting from {point}')
     ia = settings.get('ia_options') or {}
     return (f'The {escape(str(ia.get("method", "Laplace")))} approximation of the posterior '
             f'at the calibrated values, with gradients by '
@@ -607,6 +625,12 @@ def _step_intro(step):
     if 'module_array' in m:
         what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
         where = ''
+    elif 'external_model_path' in m:
+        what = f'the external Python model {_tt(os.path.basename(m["external_model_path"]))}'
+        where = ''
+    elif 'cellml_model_path' in m:
+        what = f'the CellML model {_tt(os.path.basename(m["cellml_model_path"]))}'
+        where = ''
     else:
         what = (f'parameterisation {_tt(m["parameterisation"])} of module '
                 f'{_tt(m["module_type"])} (version {_tt(m["version"])})')
@@ -614,7 +638,8 @@ def _step_intro(step):
     verb = {'calibration': 'calibrates', 'sensitivity': 'analyses the sensitivity of',
             'emulation': 'trains an emulator of',
             'identifiability': 'analyses the identifiability of',
-            'sweep': 'sweeps parameters of'}[_kind(step)]
+            'sweep': 'sweeps parameters of',
+            'uq': 'quantifies the uncertainty of the parameters of'}[_kind(step)]
     at = (f', at the values calibrated in step {escape(step["result_from"])}'
           if step.get('result_from') else '')
     against = (f', against the observations in {_tt(os.path.basename(step["obs_path"]))}'
@@ -657,6 +682,10 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     from libcuflynx.calibration_workflow import load_workflow, resolve_workflow, workflow_model
 
     workflow = load_workflow(workflow_path, module_library_dirs)
+    if workflow.target.kind == 'external':
+        raise ValueError(f'workflow "{workflow.name}": the methods are written from the target\'s '
+                         f'CellML, and its target is the external Python model '
+                         f'{workflow.target.path}.')
     resolved = resolve_workflow(workflow)
     with tempfile.TemporaryDirectory(prefix='cuflynx-methods-') as work:
         view = workflow_model(workflow, 'target', output_dir=run_dir or os.path.join(work, 'run'),
@@ -687,6 +716,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'priors_from': [p.as_dict() for p in step.priors_from],
             'store_distribution': step.store_distribution, 'result': result,
             'emulator_from': step.emulator_from, 'result_from': step.result_from,
+            'emulator_dir': step.emulator_dir, 'start_from': step.start_from,
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
             'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,

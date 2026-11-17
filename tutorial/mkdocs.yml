@@ -57,6 +57,7 @@ nav:
       - Model generation: api/generation.md
       - Simulation: api/solver-wrappers.md
       - Parameter identification: api/param-id.md
+      - Calibration workflows: api/calibration-workflow.md
       - Sensitivity analysis: api/sensitivity.md
       - Identifiability analysis: api/identifiability.md
       - Emulators: api/emulators.md
