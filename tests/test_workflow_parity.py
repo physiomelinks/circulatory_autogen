@@ -415,6 +415,7 @@ def test_a_cellml_model_runs_as_its_generated_python(lv, tmp_path, model_type, s
     assert _constants(result['calibrated_model_file'])[_GAMMA] == pytest.approx(merged[_GAMMA])
 
 
+@pytest.mark.integration
 def test_a_sweep_of_a_cellml_model_runs_its_generated_python(lv, tmp_path):
     '''A sweep with model_type python and no solver named runs solve_ivp on the Python.'''
     out = str(tmp_path / 'run')
@@ -429,6 +430,7 @@ def test_a_sweep_of_a_cellml_model_runs_its_generated_python(lv, tmp_path):
     assert step['model_path'].endswith('sweep.py')
 
 
+@pytest.mark.integration
 def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.2, 'reason': 'near the fit'},
