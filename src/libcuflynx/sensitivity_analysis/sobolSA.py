@@ -63,9 +63,9 @@ SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
 #: weight), written beside the samples and outputs so a later analysis (a PCA parameter
 #: reduction) can recompute Sobol indices of any function of the outputs.
 SOBOL_PROBLEM_FILE = 'sobol_problem.json'
-#: The forward step of run_local_jacobian: in ln(parameter), or, for bounds that straddle 0, as
-#: a fraction of the parameter's range.
-LOCAL_JACOBIAN_LOG_STEP = 1e-2
+#: The step of run_local_jacobian's central differences: in ln(parameter), or, for bounds that
+#: straddle 0, as a fraction of the parameter's range.
+LOCAL_JACOBIAN_LOG_STEP = 1e-3
 #: How many Saltelli base points run_local_jacobian differentiates at (sa_options.jacobian_points).
 DEFAULT_JACOBIAN_POINTS = 8
 
@@ -1160,9 +1160,10 @@ class sobol_SA():
     def local_jacobian_points(self, samples):
         """``(rows, points)``: the first ``jacobian_points`` Saltelli base points (the rows of
         ``samples`` that start each block of 2M + 2, which come from a Sobol sequence and so
-        spread over the box) and, for each, the point with each parameter stepped forward in
-        turn: times ``exp(h)``, ``h = LOCAL_JACOBIAN_LOG_STEP``, or, when its bounds straddle 0,
-        plus ``h * (max - min)``. ``points`` is ordered base point, then parameter."""
+        spread over the box) and, for each, the points with each parameter stepped up and down
+        in turn: times ``exp(±h)``, ``h = LOCAL_JACOBIAN_LOG_STEP``, or, when its bounds
+        straddle 0, plus and minus ``h * (max - min)``. ``points`` is ordered base point, then
+        parameter, then up before down."""
         samples = np.asarray(samples, float)
         n_params = samples.shape[1]
         block = 2 * n_params + 2
@@ -1172,13 +1173,14 @@ class sobol_SA():
         points = []
         for row in rows:
             for i in range(n_params):
-                point = samples[row].copy()
-                if straddles[i]:
-                    point[i] += LOCAL_JACOBIAN_LOG_STEP * (highs[i] - lows[i])
-                else:
-                    point[i] *= np.exp(LOCAL_JACOBIAN_LOG_STEP)
-                points.append(point)
-        return rows, np.array(points).reshape(len(rows) * n_params, n_params)
+                for sign in (1, -1):
+                    point = samples[row].copy()
+                    if straddles[i]:
+                        point[i] += sign * LOCAL_JACOBIAN_LOG_STEP * (highs[i] - lows[i])
+                    else:
+                        point[i] *= np.exp(sign * LOCAL_JACOBIAN_LOG_STEP)
+                    points.append(point)
+        return rows, np.array(points).reshape(2 * len(rows) * n_params, n_params)
 
     def _bounds(self):
         return (np.asarray(self.SA_info['param_mins'], float),
@@ -1194,17 +1196,19 @@ class sobol_SA():
             return np.where(same_sign, np.abs(np.log(np.abs(highs / lows))), 1.0)
 
     def run_local_jacobian(self, samples, outputs):
-        """Forward differences of the outputs at the first ``jacobian_points`` Saltelli base
-        points (local_jacobian_points; ``outputs`` are the Sobol run's own, NaN where a run
-        failed, so only ``jacobian_points * M`` runs are added, spread over the ranks as the
-        samples are). Each derivative is scaled to the parameter's whole prior range (times
-        range_units), so it reads as the change in each output if the slope there held across
-        the range. Kept on rank 0 as ``self.local_jacobian`` (points x parameters x outputs,
-        NaN where a run failed) and ``self.local_jacobian_rows`` for
-        :meth:`save_sobol_samples_and_outputs`. A PCA parameter reduction compares these
-        effects point by point to tell parameters that move the data the same way (a product,
-        a ratio) apart: local derivatives keep that exact, which finite jumps between Saltelli
-        samples do not, and several points keep a parameter that is flat at one of them."""
+        """Central differences of the outputs at the first ``jacobian_points`` Saltelli base
+        points (local_jacobian_points: ``2 * jacobian_points * M`` runs, spread over the ranks as
+        the samples are). Central, not forward: a forward step's first-order error grows along
+        an oscillator's time course (the step shifts its phase) until it hides an exact
+        symmetry. ``outputs`` (the Sobol run's own) are not needed and kept for the call's shape.
+        Each derivative is scaled to the parameter's whole prior range (times range_units), so it
+        reads as the change in each output if the slope there held across the range. Kept on
+        rank 0 as ``self.local_jacobian`` (points x parameters x outputs, NaN where a run failed)
+        and ``self.local_jacobian_rows`` for :meth:`save_sobol_samples_and_outputs`. A PCA
+        parameter reduction compares these effects point by point to tell parameters that move
+        the data the same way (a product, a ratio) apart: local derivatives keep that exact,
+        which finite jumps between Saltelli samples do not, and several points keep a parameter
+        that is flat at one of them."""
         rows, points = self.local_jacobian_points(samples)
         self.local_jacobian = None
         if not len(rows):
@@ -1213,11 +1217,10 @@ class sobol_SA():
         if self.rank != 0:
             return None
         n_params = points.shape[1]
-        base = np.asarray(outputs, dtype=float)[rows]
-        stepped = np.asarray(stepped, dtype=float).reshape(len(rows), n_params, -1)
+        stepped = np.asarray(stepped, dtype=float).reshape(len(rows), n_params, 2, -1)
         units = self.range_units()
-        self.local_jacobian = ((stepped - base[:, None, :]) / LOCAL_JACOBIAN_LOG_STEP
-                               * units[None, :, None])
+        self.local_jacobian = ((stepped[:, :, 0] - stepped[:, :, 1])
+                               / (2 * LOCAL_JACOBIAN_LOG_STEP) * units[None, :, None])
         self.local_jacobian_rows = rows
         return self.local_jacobian
 
