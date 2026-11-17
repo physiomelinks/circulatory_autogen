@@ -180,7 +180,7 @@ WORKFLOW_PATH_KEYS = ('file', 'source', 'result', 'manifest', 'run', 'module_arr
                       'error_vec_names', 'uq_output_dir', 'cellml_model_path',
                       'local_sensitivity_signed', 'posterior_predictive_dir',
                       'posterior_predictive_draws', 'posterior_predictive_coverage',
-                      'posterior_predictive_series')
+                      'posterior_predictive_series', 'validation_results')
 #: The ones naming the workflow's inputs, copied in when they are outside the working dir.
 WORKFLOW_INPUT_KEYS = ('file', 'source', 'module_array', 'parameters', 'obs_data',
                        'params_for_id')

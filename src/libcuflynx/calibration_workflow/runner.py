@@ -112,10 +112,14 @@ POSTERIOR_PREDICTIVE_DIR = 'posterior_predictive'
 POSTERIOR_PREDICTIVE_SAMPLES = 100
 #: the error vectors a calibration step writes (param_id/plot_outputs.py), in its run directory
 ERROR_VECTOR_FILES = ('percent_error_vec.npy', 'error_vec_names.npy')
-SOBOL_INDICES_GLOB = 'all_outputs_n*_Sobol_indices.csv'
+#: what a calibration step's result keeps of each held-out item's validation (the series are in
+#: its ``validation_results`` file)
+VALIDATION_SUMMARY_KEYS = ('data_item_name', 'data_reference', 'operand', 'operation', 'unit',
+                           'data_type', 'n_points', 'rmse', 'nrmse', 'mean_abs_z', 'within_2std')
+SOBOL_INDICES_GLOB ='all_outputs_n*_Sobol_indices.csv'
 #: the result keys the study manifest lists as each kind's outputs
 STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'calibrated_model',
-                                'percent_error_vec', 'error_vec_names'),
+                                'percent_error_vec', 'error_vec_names', 'validation_results'),
                 'sensitivity': ('sensitivity_dir', 'sobol_indices', 'local_sensitivity_signed'),
                 'reduction': ('params_for_id',),
                 'emulation': ('emulator_dir',),
@@ -734,11 +738,14 @@ class _Run:
     def _calibration_outputs(self, step, outcome, generated):
         '''Rank 0: what a calibration step writes after its fit, with CA's own writers -- the
         observables at the best fit and their error vectors (``plot_outputs``, in the run
-        directory), and, when its model has a CellML, that model with the best fit
-        (``<step>_calibrated.cellml`` in the step directory). A failure is a warning: the fit
-        stands without them.'''
+        directory), the best fit against the obs_data's held-out prediction items
+        (``save_prediction_data``: ``validation_results.json`` in the run directory, and each
+        item's statistics under ``validation``), and, when its model has a CellML, that model
+        with the best fit (``<step>_calibrated.cellml`` in the step directory). A failure is a
+        warning: the fit stands without them.'''
         param_id = outcome.get('param_id')
-        out = {'percent_error_vec': None, 'error_vec_names': None, 'calibrated_model': None}
+        out = {'percent_error_vec': None, 'error_vec_names': None, 'calibrated_model': None,
+               'validation_results': None, 'validation': []}
         if param_id is None:
             return out
         case_dir = outcome['output_dir']
@@ -752,6 +759,19 @@ class _Run:
             # plot_outputs exits on a label it cannot draw
             warnings.warn(f'step "{step.id}": the observables at its best fit were not written: '
                           f'{exc}', UserWarning, stacklevel=2)
+        try:
+            from libcuflynx.param_id.validation import VALIDATION_RESULTS_FILE
+            param_id.save_prediction_data()
+            path = os.path.join(case_dir, VALIDATION_RESULTS_FILE)
+            if os.path.isfile(path):
+                with open(path, encoding='utf-8') as f:
+                    items = json.load(f)['items']
+                out['validation_results'] = path
+                out['validation'] = [{key: item.get(key) for key in VALIDATION_SUMMARY_KEYS}
+                                     for item in items]
+        except (Exception, SystemExit) as exc:
+            warnings.warn(f'step "{step.id}": its best fit was not validated against the '
+                          f'held-out data: {exc}', UserWarning, stacklevel=2)
         cellml = generated.get('flat_model_path') or (
             generated['model_path'] if str(generated['model_path']).endswith('.cellml')
             else None)

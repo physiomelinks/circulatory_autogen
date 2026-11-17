@@ -336,6 +336,8 @@ def test_a_cellml_calibration_recovers_the_values_and_writes_the_calibrated_cell
     percent = np.load(step['percent_error_vec'])
     names = list(np.load(step['error_vec_names']))
     assert len(percent) == len(names) == 4 and np.max(np.abs(percent)) < 2.0
+    # no held-out data in the obs_data: no validation is recorded
+    assert step['validation_results'] is None and step['validation'] == []
 
     # the target: the merged CellML in _target/, and beside the source the calibrated
     # parameters file and CellML
@@ -428,6 +430,34 @@ def test_a_sweep_of_a_cellml_model_runs_its_generated_python(lv, tmp_path):
     assert result['complete']
     step = _step(out, 'sweep')
     assert step['model_path'].endswith('sweep.py')
+
+
+@pytest.mark.integration
+def test_a_calibration_validates_its_best_fit_against_held_out_data(lv, tmp_path):
+    '''A prediction item with a value is held-out data: the step writes
+    validation_results.json, as cuflynx-plot does, and records each item's statistics.'''
+    obs = _read_json(os.path.join(lv, _OBS))
+    held = {key: value for key, value in obs['data_items'][1].items()
+            if key not in ('cost_type', 'plot_type', 'weight')}
+    held['data_item_name'] = 'y_max_held'
+    obs['prediction_items'] = [held]
+    _write_json(os.path.join(lv, _OBS), obs)
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(_write(lv, _raw([_fit()])), output_dir=out)
+    assert result['complete']
+
+    step = _step(out, 'fit')
+    assert step['validation_results'] == os.path.join(step['param_id_output_dir'],
+                                                      'validation_results.json')
+    (item,) = step['validation']
+    assert item['data_item_name'] == 'y_max_held' and item['n_points'] == 1
+    assert item['operation'] == 'max' and item['data_type'] == 'constant'
+    # the fit recovers the values the data was made at, so the held-out value is met
+    assert item['rmse'] < 0.01 * held['value'] and item['mean_abs_z'] < 1.0
+    assert 't' not in item
+    (written,) = _read_json(step['validation_results'])['items']
+    assert written['model'][0] == pytest.approx(held['value'], rel=0.01)
+    assert written['rmse'] == item['rmse']
 
 
 @pytest.mark.integration

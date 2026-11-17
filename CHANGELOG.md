@@ -231,6 +231,9 @@ number of vessels at a node (node sums #609, node rule D #617).
   (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
   calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
   identifiability or uq step its point (`at_source`).
+- A calibration step checks its best fit against the obs_data's held-out data (prediction
+  items with a `value`): `validation_results.json` in its run directory, named by
+  `validation_results` in `step_result.json`, with each item's statistics under `validation`.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
   `on_target` sweep), do not count towards "calibrated by more than one step", and the
