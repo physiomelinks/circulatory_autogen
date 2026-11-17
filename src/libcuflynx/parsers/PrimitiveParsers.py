@@ -1153,9 +1153,13 @@ def apply_modifier_identity_nominals(param_id_info, nominal_vals):
     thetas keep the first target exact -- the others are as close as one theta allows, which
     is the entry's own approximation, not this function's. Falls back to the operation's
     static ``identity`` metadata for records without probed coefficients (built by hand or
-    saved before the probe existed). Returns ``nominal_vals``, modified in place.
+    saved before the probe existed). An entry that gives its own ``theta`` has that instead.
+    Returns ``nominal_vals``, modified in place.
     """
     for mod in param_id_info.get("modifiers") or []:
+        if mod.get("theta") is not None:
+            nominal_vals[mod["index"]] = float(mod["theta"])
+            continue
         modifier = _modifier_name(mod)
         affine = mod.get("affine")
         baselines = mod.get("baselines")
@@ -1267,6 +1271,10 @@ PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
     # the parameters it modifies. ("Operations" act on *outputs*, in obs_data; what acts on
     # parameters is a modifier.)
     'modifies', 'modifier', 'inputs',
+    # A modifier entry's `theta` is where its calibrated value starts and what a local
+    # sensitivity is taken about; without it, the theta that leaves the modified parameters at
+    # their values in the model.
+    'theta',
 })
 
 
@@ -4856,6 +4864,8 @@ class ObsAndParamDataParser(object):
                 # time: a_i is the gradient chain-rule weight, and inverting at the first
                 # target's baseline gives theta's starting value.
                 "affine": None,
+                # The entry's `theta`: its nominal value in place of the identity.
+                "theta": entries[II].get("theta"),
             }
             for II in range(N_params) if entries[II].get("modifies")
         ]

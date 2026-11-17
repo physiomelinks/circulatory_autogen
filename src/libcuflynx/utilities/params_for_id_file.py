@@ -38,8 +38,8 @@ CONVERT_COMMAND = f'{UPGRADE_COMMAND} params-for-id'
 #: the columns that make a CSV a params_for_id CSV
 CSV_COLUMNS = ('vessel_name', 'param_name')
 #: the order an entry's keys are written in; any other key follows them
-ENTRY_KEYS = ('name', 'targets', 'modifies', 'modifier', 'inputs', 'min', 'max', 'param_type',
-              'name_for_plotting', 'prior', 'prior_params', 'unbounded', 'comment')
+ENTRY_KEYS = ('name', 'targets', 'modifies', 'modifier', 'inputs', 'theta', 'min', 'max',
+              'param_type', 'name_for_plotting', 'prior', 'prior_params', 'unbounded', 'comment')
 _JSON_NUMBER = re.compile(r'-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$')
 
 

@@ -244,6 +244,24 @@ def scale_value(parameter, scale, *, of, reason, units=None):
     return entry
 
 
+def set_theta(entry, theta, *, reason):
+    '''An entry of :meth:`WorkflowBuilder.add_set` with ``point=True``: the theta of a
+    params_for_id modifier entry, for the steps that take the set step as ``start_from`` or
+    ``result_from``. A modifier entry is calibrated as theta, which acts on the parameters it
+    modifies (``scale``: theta times each one's value in the model), so its point is a theta
+    and not a value of those parameters: they keep their values in the step's model.
+
+    Args:
+        entry: the modifier entry's ``name`` in the step's params_for_id.
+        theta: its theta.
+        reason: why (required; shown in the provenance).
+
+    Returns:
+        the entry, ``{'entry', 'theta', 'reason'}``.
+    '''
+    return {'entry': entry, 'theta': theta, 'reason': reason}
+
+
 def launcher_environment(environ):
     '''``environ`` without the variables an MPI launcher set for the job this process is in
     (it may be under mpiexec, or have initialised MPI as a singleton), which a new mpiexec must
@@ -678,7 +696,8 @@ class WorkflowBuilder:
 
         Args:
             id: the step's name (see :meth:`add_calibration`).
-            entries: a list of :func:`set_value` and :func:`scale_value` entries.
+            entries: a list of :func:`set_value`, :func:`scale_value` and, with ``point``,
+                :func:`set_theta` entries.
             point: the values are only a point for ``start_from``, ``result_from`` or
                 ``fixed_from``: they are not merged into the target.
             description, comment: free text.

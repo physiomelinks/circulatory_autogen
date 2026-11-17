@@ -170,7 +170,7 @@ def step_settings_digest(workflow, step):
     options, or the workflow's settings with the step's on top. Formatting and key order of the
     file do not change it.'''
     if step.kind == 'set':
-        return settings_digest(step.set_values)
+        return settings_digest(step.set_values + step.set_thetas)
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
     return settings_digest(workflow.step_settings(step))
@@ -336,6 +336,8 @@ class _Run:
         #: rank 0: ``{step id: {model name: row}}`` of the values a step's own parameters start
         #: at (start_from), set by _prepare
         self.start_points = {}
+        #: per step, the thetas its modifier entries start at or are analysed at
+        self.point_thetas = {}
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -558,6 +560,42 @@ class _Run:
                                        p.param) for p in own]
         return {p.model_name for p in own}
 
+    def own_modifiers(self, step, params_for_id):
+        '''``{entry name: the model names, in the step's model, of what it modifies}`` of the
+        modifier entries of ``params_for_id`` (the step's).'''
+        if not params_for_id:
+            return {}
+        from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+        resolved = self.resolved.steps[step.id]
+        info = ObsAndParamDataParser(
+            modifier_funcs_external_path=self.workflow.step_settings(step).get(
+                'modifier_funcs_external_path')).get_param_id_info(params_for_id)
+        modifiers = {}
+        for mod in info.get('modifiers') or []:
+            names = set()
+            for qname in mod['targets']:
+                vessel, _, param = str(qname).partition('/')
+                if resolved.renames_inputs:
+                    vessel = resolved.vessel_map.from_target(vessel) or vessel
+                names.add(CalibratedParameter(vessel=vessel, param=param).model_name)
+            modifiers[mod['name']] = names
+        return modifiers
+
+    def thetas_of(self, step, source, modifiers):
+        '''``{entry name: theta}`` that ``source``'s result gives the modifier entries
+        ``modifiers`` of ``step``: a set step's theta entries, or the thetas a calibration
+        found. A set step's theta for an entry the step does not have is an error.'''
+        result = self.require_current(source, step.id)
+        declared = {entry['entry']: entry['theta'] for entry in result.get('thetas') or []}
+        unknown = sorted(set(declared) - set(modifiers))
+        if unknown:
+            raise WorkflowError(f'step "{step.id}" is given the theta of {unknown} by '
+                                f'"{source}", and its params_for_id has no modifier entry of '
+                                f'that name (it has {sorted(modifiers)}).')
+        found = {mod['name']: mod['theta'] for mod in result.get('modifiers') or []}
+        found.update(declared)
+        return {name: float(theta) for name, theta in found.items() if name in modifiers}
+
     def _prepare(self, step, settings):
         '''Rank 0: a clean step directory and the step's model, generated with the values it is
         given (``fixed_from``, and ``result_from`` including the parameters it analyses), or
@@ -591,7 +629,20 @@ class _Run:
             # its own parameters start at the values of start_from; they are not fixed
             start = {n: row for n, row in self.fixed_values(step, [step.start_from],
                                                              own_only=True).items() if n in own}
-            if not start:
+        # A modifier entry's point is its theta, about the values its parameters have in the
+        # step's model: where the source gives that theta, the parameters keep those values.
+        thetas = {}
+        modifiers = self.own_modifiers(step, params_for_id)
+        for source, values in ((step.result_from, point), (step.start_from, start)):
+            if not source:
+                continue
+            for name, theta in self.thetas_of(step, source, modifiers).items():
+                thetas[name] = theta
+                for model_name in modifiers[name]:
+                    values.pop(model_name, None)
+        self.point_thetas[step.id] = thetas
+        if step.start_from:
+            if not start and not thetas:
                 raise WorkflowError(f'step "{step.id}" starts from "{step.start_from}", which '
                                     f'has no value of any parameter it calibrates.')
         self.start_points[step.id] = start
@@ -648,6 +699,10 @@ class _Run:
             source_path = params_for_id
             params_for_id = os.path.join(step_dir, f'{step.id}_params_for_id.json')
             _write_params_for_id_with_priors(source_path, params_for_id, priors, step.id)
+        if thetas:
+            source_path = params_for_id
+            params_for_id = os.path.join(step_dir, f'{step.id}_params_for_id.json')
+            _write_params_for_id_with_thetas(source_path, params_for_id, thetas, step.id)
         units = {k: v.get('units', '') for k, v in model_rows.items()}
         return generated, params_for_id, units, fixed, priors
 
@@ -804,9 +859,12 @@ class _Run:
         parameters started at.'''
         if not step.start_from:
             return {}
+        thetas = self.point_thetas.get(step.id)
         return {'start_from': {'step': step.start_from,
                                'values': [dict(row) for _, row in
-                                          sorted(self.start_points.get(step.id, {}).items())]}}
+                                          sorted(self.start_points.get(step.id, {}).items())],
+                               # the modifier entries that start at a theta of start_from
+                               **({'thetas': dict(thetas)} if thetas else {})}}
 
     def _run_sensitivity(self, step, settings):
         from libcuflynx.scripts.sensitivity_analysis_run_script import run_SA
@@ -921,17 +979,33 @@ class _Run:
 
     def _model_point(self, generated, params_for_id):
         '''Rank 0: ``(names, values)``: each params_for_id entry (its first member's
-        ``vessel/param``) and its value in the step's generated model.'''
-        from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+        ``vessel/param``) and its value in the step's generated model. A modifier entry's
+        value is its theta: the entry's ``theta`` (written from the step's ``result_from``),
+        else the one that leaves its parameters at the model's values.'''
+        from libcuflynx.parsers.PrimitiveParsers import PARAM_MODIFIERS, ObsAndParamDataParser
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         rows = {r['variable_name']: float(r['value'])
                 for r in read_parameter_rows(generated['parameters_path'])}
+        modifiers = {mod['index']: mod for mod in info.get('modifiers') or []}
         names, values = [], []
-        for qnames in info['param_names']:
+        for index, qnames in enumerate(info['param_names']):
             first = str(qnames[0] if isinstance(qnames, (list, tuple)) else qnames)
             vessel, _, param = first.partition('/')
             names.append(first)
-            values.append(rows[CalibratedParameter(vessel=vessel, param=param).model_name])
+            if index not in modifiers:
+                values.append(rows[CalibratedParameter(vessel=vessel, param=param).model_name])
+                continue
+            mod = modifiers[index]
+            theta = mod.get('theta')
+            if theta is None:
+                theta = (PARAM_MODIFIERS.get(mod.get('modifier')) or {}).get('identity')
+            if theta is None:
+                raise WorkflowError(
+                    f'{params_for_id}: the modifier entry "{mod["name"]}" '
+                    f'({mod.get("modifier")}) has no theta to be analysed at. Give one: '
+                    f'"result_from" a calibration that fitted it, or a point set step with '
+                    f'{{"entry": "{mod["name"]}", "theta": ...}}.')
+            values.append(float(theta))
         return names, values
 
     def _run_uq(self, step, settings):
@@ -1035,7 +1109,8 @@ class _Run:
         return self.on_root(save)
 
     def _run_set(self, step, settings):
-        return self.on_root(lambda: {'set': self._declared_values(step)})
+        return self.on_root(lambda: {'set': self._declared_values(step),
+                                     'thetas': [dict(entry) for entry in step.set_thetas]})
 
     def _target_values(self, step):
         '''``{model name: row}`` of the target as it stands, generated under the step's
@@ -1582,6 +1657,17 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)
     return pf.write_parameters_file(path or target.file('calibrated_parameters.json'), doc)
+
+
+def _write_params_for_id_with_thetas(source_path, out_path, thetas, step_id):
+    '''The step's own params_for_id with ``theta`` on each modifier entry named in ``thetas``
+    (``{entry name: theta}``): where the entry starts and what it is analysed about.'''
+    from libcuflynx.utilities import params_for_id_file as pfi
+    doc = pfi.read_params_for_id(source_path, f'step "{step_id}": ', keep_text=True)
+    entries = [dict(entry, theta=thetas[entry['name']])
+               if entry.get('modifies') and entry.get('name') in thetas else entry
+               for entry in doc.get('params') or []]
+    pfi.write_params_for_id(out_path, dict(doc, params=entries))
 
 
 def _write_params_for_id_with_priors(source_path, out_path, priors, step_id):

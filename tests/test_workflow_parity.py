@@ -23,6 +23,7 @@ from libcuflynx.calibration_workflow import (CellMLModel, StoredDistribution, Wo
                                              WorkflowError, cellml_model, load_workflow,
                                              pack_workflow, plan_workflow, resolve_workflow,
                                              run_calibration_workflow)
+from libcuflynx.calibration_workflow.builder import set_theta, set_value
 from libcuflynx.calibration_workflow.spec import parse_workflow
 from libcuflynx.calibration_workflow.generate import read_parameter_rows
 
@@ -438,6 +439,110 @@ def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     run_calibration_workflow(_write(lv, _raw([_fit()], settings)), output_dir=out)
     history = read_run_history(_step(out, 'fit')['param_id_output_dir'])
     assert np.asarray(history['param_history'])[0] == pytest.approx([5.0, 3.0], rel=1e-6)
+
+
+def _modifier_params(lv):
+    """The fixture's params_for_id with alpha calibrated through a scale modifier."""
+    params = _read_json(os.path.join(lv, _PARAMS))
+    params['params'][0] = {'name': 'alpha_scale', 'modifies': [_ALPHA], 'modifier': 'scale',
+                           'min': 0.2, 'max': 1.4}
+    return _write_json(os.path.join(lv, _PARAMS), params)
+
+
+@pytest.mark.unit
+def test_a_theta_entry_is_for_a_point_set_step(lv, tmp_path):
+    theta = set_theta('alpha_scale', 0.9, reason='slider position')
+    assert theta == {'entry': 'alpha_scale', 'theta': 0.9, 'reason': 'slider position'}
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'wf'), settings=copy.deepcopy(_FAST))
+    wf.add_set('sliders', [theta, set_value(_GAMMA, 2.8, reason='slider position')],
+               point=True)
+    step = load_workflow(wf.write()).step('sliders')
+    assert step.set_thetas == [theta]
+    assert [entry['parameter'] for entry in step.set_values] == [_GAMMA]
+
+    # a theta is not a value of the target: the step must be a point
+    with pytest.raises(WorkflowError, match='needs "point": true'):
+        load_workflow(_write(lv, _raw([{'id': 'sliders', 'kind': 'set', 'set': [theta]},
+                                       _fit(start_from='sliders')])))
+    for entry, match in [
+            (dict(theta, parameter=_ALPHA), 'entry'),
+            (dict(theta, value=1.0), 'entry'),
+            ({'entry': 'alpha_scale', 'reason': 'no theta'}, 'entry')]:
+        with pytest.raises(Exception, match=match):
+            load_workflow(_write(lv, _raw([{'id': 'sliders', 'kind': 'set', 'point': True,
+                                            'set': [entry]}, _fit(start_from='sliders')])))
+
+
+@pytest.mark.integration
+def test_a_modifier_entry_starts_and_is_analysed_at_a_theta(lv, tmp_path):
+    """A modifier entry's point is its theta. A step given one (a point set step's
+    set_theta, or a calibration's fitted theta) starts or analyses there, and the parameters
+    the entry modifies keep their values in the step's model, so theta means the same."""
+    _modifier_params(lv)
+    sliders = {'id': 'sliders', 'kind': 'set', 'point': True, 'set': [
+        set_theta('alpha_scale', 0.9, reason='slider position'),
+        set_value(_GAMMA, 2.8, reason='slider position')]}
+    quick = {'param_id_method': 'sp_minimize', 'do_ad': True,
+             'optimiser_options': {'num_calls_to_function': 3, 'cost_type': 'gaussian_MLE'}}
+    analysis = {'model': _model(), 'obs_data': _OBS, 'params_for_id': _PARAMS}
+    raw = _raw([
+        sliders,
+        _fit('quick', start_from='sliders', settings=quick),
+        _fit(),
+        dict(analysis, id='ia-sliders', kind='identifiability', result_from='sliders'),
+        dict(analysis, id='ia-fit', kind='identifiability', result_from='fit'),
+        dict(analysis, id='local', kind='sensitivity', result_from='sliders',
+             settings={'sa_options': {'method': 'local'}}),
+        dict(analysis, id='ia-own', kind='identifiability')],
+        dict(_FAST, ia_options={'method': 'Laplace'}))
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(_write(lv, raw), output_dir=out)
+    assert result['complete']
+    alpha = 'alpha_Lotka_Volterra_module'
+
+    def model_values(sid):
+        return _values(_step(out, sid)['generated']['parameters_path'])
+
+    assert _step(out, 'sliders')['thetas'] == [sliders['set'][0]]
+
+    # start_from: the first point is the theta, about alpha as the CellML has it
+    step = _step(out, 'quick')
+    assert step['start_from']['thetas'] == {'alpha_scale': 0.9}
+    assert [r['value'] for r in step['start_from']['values']] == [2.8]
+    assert model_values('quick')[alpha] == _OWN[_ALPHA]
+    from libcuflynx.param_id.run_history import read_run_history
+    history = read_run_history(step['param_id_output_dir'])
+    assert np.asarray(history['param_history'])[0] == pytest.approx([0.9, 2.8], rel=1e-6)
+
+    # result_from a set step: analysed at the theta
+    step = _step(out, 'ia-sliders')
+    assert step['at'] == [0.9, 2.8] and model_values('ia-sliders')[alpha] == _OWN[_ALPHA]
+    local = _step(out, 'local')
+    assert local['nominal']['values'] == [0.9, 2.8]
+    assert model_values('local')[alpha] == _OWN[_ALPHA]
+
+    # result_from a calibration: at the theta it fitted, not at theta 1 about the fitted alpha
+    fit = _step(out, 'fit')
+    step = _step(out, 'ia-fit')
+    assert step['at'] == pytest.approx(fit['best_fit'], rel=1e-12)
+    assert step['at'][0] == pytest.approx(_TRUE[_ALPHA] / _OWN[_ALPHA], rel=0.02)
+    assert model_values('ia-fit')[alpha] == _OWN[_ALPHA]
+    # the Laplace mean is the point it was given
+    assert step['laplace']['mean'] == pytest.approx(step['at'], rel=1e-9)
+
+    # no point given: the theta that leaves alpha as the model has it
+    assert _step(out, 'ia-own')['at'] == [1.0, _OWN[_GAMMA]]
+
+
+@pytest.mark.integration
+def test_a_theta_for_an_entry_the_step_does_not_have_is_refused(lv, tmp_path):
+    sliders = {'id': 'sliders', 'kind': 'set', 'point': True, 'set': [
+        set_theta('alpha_scale', 0.9, reason='slider position')]}
+    out = str(tmp_path / 'run')
+    with pytest.raises(Exception, match='no modifier entry of that name'):
+        run_calibration_workflow(_write(lv, _raw([sliders, _fit(start_from='sliders')])),
+                                 output_dir=out)
 
 
 @pytest.mark.integration

@@ -103,6 +103,10 @@
           },
           "description": "Modifier entries only: one value per input the modifier function declares, a qname for a \"float\" input or a non-empty list of qnames for a \"list\" input; the function receives their default values. Default: {} (required when the function declares inputs)."
         },
+        "theta": {
+          "type": "number",
+          "description": "Modifier entries only: the theta the entry starts at (a calibration's first point) and is analysed about (a local sensitivity). Default: the theta that leaves the modified parameters at their values in the model."
+        },
         "min": {
           "anyOf": [
             {
@@ -309,11 +313,16 @@
                   "required": [
                     "inputs"
                   ]
+                },
+                {
+                  "required": [
+                    "theta"
+                  ]
                 }
               ]
             }
           },
-          "description": "modifier and inputs apply to modifier entries only."
+          "description": "modifier, inputs and theta apply to modifier entries only."
         }
       ]
     }
