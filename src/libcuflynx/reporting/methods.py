@@ -719,7 +719,8 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'emulator_dir': step.emulator_dir, 'start_from': step.start_from,
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
-            'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
+            'set': step.set_values + step.set_thetas, 'sweep': step.sweep,
+            'on_target': step.on_target,
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
         if step.kind == 'sweep':

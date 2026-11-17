@@ -396,6 +396,10 @@ def _step_values(step_id, result):
     result = result or {}
     return ([_record_value(r, step_id) for r in result.get('calibrated', [])]
             + [_record_value(r, step_id) for r in result.get('set', [])]
+            # a set step's modifier thetas: not model values, named by their modifier entry
+            + [_value({'variable_name': flowchart.theta_name(t), 'value': t['theta'],
+                       'reason': t.get('reason', '')}, SET_BY_HAND, step_id)
+               for t in result.get('thetas', [])]
             + [_record_value(r, r.get('from_step')) for r in result.get('fixed', [])])
 
 
@@ -408,7 +412,8 @@ def _step_counts(result):
     others = [_value(r, _classified(r)) for r in rows
               if r['variable_name'] not in calibrated | fixed]
     counts = dict(_counts(others), calibrated=len(calibrated), fixed=len(fixed))
-    counts[SET_BY_HAND] += len((result or {}).get('set', []))
+    counts[SET_BY_HAND] += len((result or {}).get('set', [])) + \
+        len((result or {}).get('thetas', []))
     return counts
 
 
@@ -578,7 +583,8 @@ def provenance_graph(output_dir):
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
         if done and node['kind'] == 'values':
-            node['lines'] = [_set_record_line(r) for r in step_result.get('set', [])]
+            node['lines'] = [_set_record_line(r) for r in step_result.get('set', [])] + \
+                [flowchart.set_line(t) for t in step_result.get('thetas', [])]
             if by_id[step_id].get('point'):
                 node['lines'].append(flowchart.POINT_ONLY)
         if done and 'n_points' in step_result:

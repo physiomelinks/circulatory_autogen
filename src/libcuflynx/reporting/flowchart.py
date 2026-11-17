@@ -196,8 +196,16 @@ def _kind_line_sensitivity(settings):
     return f'{method.capitalize()} sensitivity analysis'
 
 
+def theta_name(entry):
+    '''What a set step's theta entry is the value of: the theta of a modifier entry.'''
+    return f'theta of {entry["entry"]}'
+
+
 def set_line(entry):
-    '''One entry of a set step, with its reason.'''
+    '''One entry of a set step, with its reason: a parameter's value or scale, or the theta of
+    a params_for_id modifier entry.'''
+    if 'entry' in entry:
+        return f'theta of `{entry["entry"]}` = {entry["theta"]}: {entry["reason"]}'
     how = (f'= {entry["value"]}' if 'value' in entry
            else f'scaled {entry["scale"]} times `{entry["of"]}`')
     return f'`{entry["parameter"]}` {how}: {entry["reason"]}'

@@ -1813,6 +1813,7 @@ def plan_workflow(source, module_library_dirs=None):
         if step.kind == 'set':
             entry['set'] = [dict(e, target_model_name=rs.target_model_name(p))
                             for e, p in zip(step.set_values, rs.parameters)]
+            entry['set'] += [dict(e) for e in step.set_thetas]
         if step.kind == 'sweep':
             entry['sweep'] = copy.deepcopy(step.sweep)
         steps.append(entry)
