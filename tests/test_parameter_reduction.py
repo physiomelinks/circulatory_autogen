@@ -17,6 +17,7 @@ from libcuflynx.parsers.PrimitiveParsers import analysis_options
 from libcuflynx.sensitivity_analysis.parameter_reduction import (
     PATH_OPTIONS, ParamReduction, PCASobolReduction, SobolReduction, SensitivityFilesError,
     run_param_reduction, sobol_run_files)
+from libcuflynx.sensitivity_analysis.sobolSA import jacobian_options
 from libcuflynx.utilities.params_for_id_file import write_params_for_id
 
 PARAMS = ['m/A', 'm/B', 'm/C', 'm/D']
@@ -30,10 +31,11 @@ def _toy_outputs(x):
 
 
 def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, std_scale=1.0,
-                     with_samples=True, with_jacobian=True, bounds=None, jacobian_points=8):
+                     with_samples=True, with_jacobian=True, bounds=None, jacobian=None):
     """A Sobol run of ``outputs_of`` in ``directory``, in sobolSA's file layout, with the local
     Jacobian sobolSA.run_local_jacobian saves (forward differences at the first
-    ``jacobian_points`` Saltelli base points), made by sobolSA's own methods."""
+    ``jacobian_points`` Saltelli base points, by default), made by sobolSA's own methods with
+    the sa_options ``jacobian``."""
     os.makedirs(directory, exist_ok=True)
     bounds = bounds or [[1.0, 2.0]] * len(params)
     problem = {'num_vars': len(params), 'names': params, 'bounds': bounds}
@@ -55,14 +57,15 @@ def _write_sobol_run(directory, outputs_of=_toy_outputs, params=PARAMS, n=256, s
         if with_jacobian:
             sa = _bare_sobol_sa(*zip(*bounds), lambda x: [outputs_of(x[None, :])[k][0][0]
                                                            for k in columns])
-            sa.jacobian_points = jacobian_points
-            jacobian = sa.run_local_jacobian(samples, values)
-            rows = sa.local_jacobian_rows
-            frame = pd.DataFrame(jacobian.reshape(-1, len(columns)), columns=columns)
-            frame.insert(0, 'Parameter', params * len(rows))
-            frame.insert(0, 'point', np.repeat(rows, len(params)))
+            sa.jacobian = jacobian_options(jacobian)
+            j = sa.run_local_jacobian(samples, values)
+            rows, steps = sa.local_jacobian_rows, sa.local_jacobian_steps
+            frame = pd.DataFrame(j.reshape(-1, len(columns)), columns=columns)
+            frame.insert(0, 'Parameter', params * (len(steps) * len(rows)))
+            frame.insert(0, 'point', np.tile(np.repeat(rows, len(params)), len(steps)))
+            frame.insert(0, 'step', np.repeat(steps, len(rows) * len(params)))
             frame.to_csv(f'{stem}_local_jacobian.csv', index=False)
-            meta = {'local_jacobian': {'points': rows.tolist(), 'log_step': 1e-2}}
+            meta = {'local_jacobian': {'points': rows.tolist(), 'steps': steps}}
         with open(os.path.join(directory, 'sobol_problem.json'), 'w') as f:
             json.dump({'names': params, 'bounds': bounds, 'num_samples': n,
                        'sample_type': 'saltelli', 'calc_second_order': True, **meta,
@@ -154,7 +157,9 @@ def test_options_are_the_param_reduction_options_descriptors():
         assert sobol_defaults[name] == descriptors[name]['default']
     # round trip, and the paths are ignored
     options = {'method': 'pca', 'n_params': 3, 'index_type': 'S1', 'min_mode_std': 2.0,
-               'variance_fraction': 0.9, 'min_index': 0.1, 'redundancy_check': False}
+               'variance_fraction': 0.9, 'min_index': 0.1, 'redundancy_check': False,
+               'redundancy_statistic': 'median', 'redundancy_converged_only': True,
+               'redundancy_convergence_tol': 0.2}
     assert ParamReduction.from_options(dict(options, sensitivity_dir='x')).as_dict() == options
     # an option of the other method at its default is fine (a filled-in form); changed, not
     assert ParamReduction.from_options({'method': 'pca', 'criterion': 'max'})
@@ -314,52 +319,138 @@ def _bare_sobol_sa(mins, maxs, model):
     from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA
     sa = sobol_SA.__new__(sobol_SA)
     sa.SA_info = {'param_mins': list(mins), 'param_maxs': list(maxs)}
-    sa.rank, sa.num_procs, sa.use_mpi, sa.jacobian_points = 0, 1, False, 8
+    sa.rank, sa.num_procs, sa.use_mpi = 0, 1, False
+    sa.jacobian = jacobian_options({})
     sa.generate_outputs_mpi = lambda points: np.array([model(p) for p in points])
     return sa
 
 
-@pytest.mark.unit
-def test_the_local_jacobian_is_taken_at_saltelli_base_points_scaled_to_each_range():
-    """One forward step per parameter at each of the first jacobian_points base points (the
-    rows starting each block of 2M + 2), each derivative times the parameter's range: in
-    ln(parameter), or, for bounds that straddle 0, in the parameter itself."""
-    mins, maxs = [-1.0, 0.5, -3.0], [1.0, 2.0, 1.0]
-    sa = _bare_sobol_sa(mins, maxs, lambda p: [3 * p[0] + 5 * p[2], np.log(p[1])])
-    sa.jacobian_points = 4
+LINEAR = (lambda p: [3 * p[0] + 5 * p[2], np.log(p[1])])
+MINS, MAXS = [-1.0, 0.5, -3.0], [1.0, 2.0, 1.0]
+
+
+def _linear_run(jacobian, n=16):
+    sa = _bare_sobol_sa(MINS, MAXS, LINEAR)
+    sa.jacobian = jacobian_options(jacobian)
     samples = saltelli.sample({'num_vars': 3, 'names': list('abc'),
-                               'bounds': list(zip(mins, maxs))}, 16, calc_second_order=True)
-    outputs = np.array([[3 * p[0] + 5 * p[2], np.log(p[1])] for p in samples])
-    jacobian = sa.run_local_jacobian(samples, outputs)
-    assert list(sa.local_jacobian_rows) == [0, 8, 16, 24]
-    assert jacobian.shape == (4, 3, 2)
-    for block in jacobian:   # linear in p0, p2 and in ln p1: the same at every point
+                               'bounds': list(zip(MINS, MAXS))}, n, calc_second_order=True)
+    outputs = np.array([LINEAR(p) for p in samples])
+    return sa, sa.run_local_jacobian(samples, outputs)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('jacobian', [
+    {'jacobian_points': 4},
+    {'jacobian_points': 4, 'jacobian_scheme': 'forward', 'jacobian_step': 1e-2},
+    {'jacobian_points': 4, 'jacobian_check_steps': True},
+    {'jacobian_location': 'centre'},
+    {'jacobian_location': 'centre', 'jacobian_scheme': 'forward'}])
+def test_the_local_jacobian_is_scaled_to_each_range_for_every_scheme(jacobian):
+    """Each derivative times the parameter's range: in ln(parameter), or, for bounds that
+    straddle 0, in the parameter itself; at the base points (rows starting each block of
+    2M + 2) or the centre (row -1), by central or forward differences, at one or two steps."""
+    sa, j = _linear_run(jacobian)
+    centre = jacobian.get('jacobian_location') == 'centre'
+    assert list(sa.local_jacobian_rows) == ([-1] if centre else [0, 8, 16, 24])
+    assert j.shape == (2 if jacobian.get('jacobian_check_steps') else 1,
+                       1 if centre else 4, 3, 2)
+    for block in j.reshape(-1, 3, 2):   # linear in p0, p2 and in ln p1: the same everywhere
         assert block[0] == pytest.approx([3 * 2, 0], abs=1e-9)        # 3 * (1 - -1)
         assert block[1] == pytest.approx([0, np.log(4)], abs=1e-9)    # ln 2 - ln 0.5
         assert block[2] == pytest.approx([5 * 4, 0], abs=1e-9)        # 5 * (1 - -3)
+    if centre:
+        assert sa.local_jacobian_bases[0] == pytest.approx([0.0, 1.0, -1.0])
 
 
 @pytest.mark.unit
 def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
     """The redundancy check, on by default, needs the local Jacobian, so every Sobol run makes
-    it, with or without use_MPI, from the run's own outputs at the base points."""
+    it, with or without use_MPI."""
     sa = _bare_sobol_sa([0.5, 0.5], [2.0, 2.0], lambda p: [p[0] * p[1]])
     samples = np.array([[1.0, 1.0]] * 6 + [[2.0, 0.5]] * 6)
     sa.generate_samples = lambda: samples
     sa.sobol_index = lambda outputs: ('S1', 'ST', 'S2')
     assert sa.run() == ('S1', 'ST', 'S2')
     assert list(sa.local_jacobian_rows) == [0, 6]
-    # d(p0 p1)/d ln p0 = p0 p1, times ln 4; forward step: off by h/2
-    assert sa.local_jacobian[:, 0, 0] == pytest.approx([np.log(4), np.log(4)], rel=1e-2)
+    # d(p0 p1)/d ln p0 = p0 p1, times ln 4
+    assert sa.local_jacobian[0, :, 0, 0] == pytest.approx([np.log(4), np.log(4)], rel=1e-6)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('value', [-1, 2.5, True, 'eight'])
-def test_jacobian_points_is_a_whole_number(value):
-    from libcuflynx.sensitivity_analysis.sobolSA import jacobian_points_option
-    assert jacobian_points_option({}) == 8 and jacobian_points_option({'jacobian_points': 0}) == 0
-    with pytest.raises(ValueError, match='jacobian_points'):
-        jacobian_points_option({'jacobian_points': value})
+@pytest.mark.parametrize('bad', [{'jacobian_points': -1}, {'jacobian_points': 2.5},
+                                 {'jacobian_points': True}, {'jacobian_location': 'middle'},
+                                 {'jacobian_scheme': 'backward'}, {'jacobian_step': 0},
+                                 {'jacobian_step': 1.5}, {'jacobian_check_steps': 'yes'}])
+def test_the_jacobian_options_are_checked(bad):
+    assert jacobian_options({}) == {'jacobian_points': 8, 'jacobian_location': 'base_points',
+                                    'jacobian_scheme': 'central', 'jacobian_step': 1e-3,
+                                    'jacobian_check_steps': False}
+    with pytest.raises(ValueError, match=list(bad)[0]):
+        jacobian_options(bad)
+
+
+@pytest.mark.unit
+def test_the_redundancy_statistic_and_converged_points(tmp_path):
+    """rms counts every point, median needs most; redundancy_converged_only leaves out the
+    points whose derivatives at the step and half of it disagree, and needs both steps."""
+    params = ['m/a', 'm/b', 'm/c']
+
+    def outputs(x):
+        a, b, c = x.T
+        return {'y1': (a * b, 0.05), 'y2': (a * b, 0.05), 'y3': (c, 0.05)}
+
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params=params)
+    run = _write_sobol_run(str(tmp_path / 'sa'), outputs_of=outputs, params=params,
+                           jacobian={'jacobian_check_steps': True})
+    for options in ({}, {'redundancy_statistic': 'median'},
+                    {'redundancy_converged_only': True}):
+        kept = [r['parameter'] for r in PCASobolReduction(**options).reduce(
+            run, source, str(tmp_path / 'out' / 'kept.json'))]
+        assert 'm/c' in kept and len(kept) == 2, options
+    report = json.loads((tmp_path / 'out' / 'param_reduction.json').read_text())
+    assert report['unconverged_points'] == [] and report['jacobian_points_used'] == 8
+
+    # rough in a above 1.75 (a ripple finer than the step): the derivatives there change
+    # between the step and half of it, so those points are left out, and a and b are one
+    # parameter again at the others
+    def rough(x):
+        a, b, c = x.T
+        ripple = np.where(a > 1.75, 0.2 * np.sin(4000 * a), 0.0)
+        return {'y1': (a * b, 0.05), 'y2': (a * b + ripple, 0.05), 'y3': (c, 0.05)}
+
+    run = _write_sobol_run(str(tmp_path / 'rough'), outputs_of=rough, params=params,
+                           jacobian={'jacobian_check_steps': True})
+    samples = pd.read_csv(os.path.join(run, 'all_outputs_n256_Sobol_samples.csv'))
+    rows = [8 * k for k in range(8) if samples.iloc[8 * k]['m/a'] > 1.75]
+    assert rows                                     # the design has such points
+    every = PCASobolReduction().reduce(run, source, str(tmp_path / 'r1' / 'kept.json'))
+    assert {'m/a', 'm/b'} <= {r['parameter'] for r in every}
+    with pytest.warns(UserWarning, match='left out'):
+        kept = PCASobolReduction(redundancy_converged_only=True).reduce(
+            run, source, str(tmp_path / 'r2' / 'kept.json'))
+    assert len({'m/a', 'm/b'} & {r['parameter'] for r in kept}) == 1
+    report = json.loads((tmp_path / 'r2' / 'param_reduction.json').read_text())
+    assert report['unconverged_points'] == rows
+
+    one_step = _write_sobol_run(str(tmp_path / 'sa1'), outputs_of=outputs, params=params)
+    with pytest.raises(SensitivityFilesError, match='jacobian_check_steps'):
+        PCASobolReduction(redundancy_converged_only=True).reduce(
+            one_step, source, str(tmp_path / 'out1' / 'kept.json'))
+
+
+@pytest.mark.unit
+def test_median_and_rms_differ_on_a_parameter_that_matters_at_few_points():
+    """A parameter unexplained at one point of eight: rms keeps it, median does not."""
+    by_point = np.zeros((8, 2, 1))
+    by_point[:, 0, 0] = 10.0             # a: 10 noise stds everywhere
+    by_point[0, 1, 0] = 5.0              # b: 5 at one point only, in its own direction
+    by_point = np.concatenate([by_point, np.zeros((8, 2, 1))], axis=2)
+    by_point[0, 1] = [0.0, 5.0]
+    names = ['a', 'b']
+    kept = {s: [r['parameter'] for r in PCASobolReduction(redundancy_statistic=s)
+                .choose_independent(by_point, [0, 1], names, np.ones(2), [0, 1])[0]]
+            for s in ('rms', 'median')}
+    assert kept == {'rms': ['a', 'b'], 'median': ['a']}
 
 
 @pytest.mark.unit

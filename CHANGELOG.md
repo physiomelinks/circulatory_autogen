@@ -506,12 +506,13 @@ the module, the port's variables, the 1D vessel and the 0D modules.
 - `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
   effect on the informative PCA modes over its prior range, beyond what the parameters already
   kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
-  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: forward differences
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
   at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
-  `jacobian_points` x M extra runs, about 1.4% of a 12-parameter run at `num_samples: 256`).
-  The redundancy is judged at each point (Gram-Schmidt per point, chosen by the root mean square
-  over the points), so a parameter flat at one point is still seen, products, ratios and
-  symmetries stay exactly redundant, and one redundant in only part of the box is kept. One parameter per informative mode
+  2 x `jacobian_points` x M extra runs, about 2.9% of a 12-parameter run at `num_samples: 256`;
+  `jacobian_location`, `jacobian_scheme`, `jacobian_step` and `jacobian_check_steps` choose
+  others). The redundancy is judged at each point, summarised over the points by
+  `redundancy_statistic` (`rms` or `median`), optionally leaving out points whose derivatives
+  change with the step (`redundancy_converged_only`). One parameter per informative mode
   (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
   parameters, and every parameter of a ratio or scaling symmetry.
 

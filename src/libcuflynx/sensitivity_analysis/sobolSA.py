@@ -57,22 +57,44 @@ SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
 #: weight), written beside the samples and outputs so a later analysis (a PCA parameter
 #: reduction) can recompute Sobol indices of any function of the outputs.
 SOBOL_PROBLEM_FILE = 'sobol_problem.json'
-#: The forward step of run_local_jacobian: in ln(parameter), or, for bounds that straddle 0, as
-#: a fraction of the parameter's range.
-LOCAL_JACOBIAN_LOG_STEP = 1e-2
-#: How many Saltelli base points run_local_jacobian differentiates at (sa_options.jacobian_points).
-DEFAULT_JACOBIAN_POINTS = 8
+#: The local derivatives a Sobol run takes for a PCA reduction's redundancy check
+#: (run_local_jacobian), as sa_options keys with their defaults:
+#:
+#: * ``jacobian_points`` -- how many Saltelli base points (the rows starting each block of
+#:   2M + 2) to differentiate at; 0 skips the derivatives;
+#: * ``jacobian_location`` -- ``base_points``, or ``centre`` for one point at the centre of the
+#:   box (the geometric mean of bounds that share a sign, else the midpoint);
+#: * ``jacobian_scheme`` -- ``central`` (2 runs per parameter and point) or ``forward`` (1);
+#: * ``jacobian_step`` -- the step, in ln(parameter), or, for bounds that straddle 0, as a
+#:   fraction of the parameter's range;
+#: * ``jacobian_check_steps`` -- also differentiate with half the step, so the reduction can
+#:   leave out points where the two disagree (``redundancy_converged_only``).
+JACOBIAN_DEFAULTS = {'jacobian_points': 8, 'jacobian_location': 'base_points',
+                     'jacobian_scheme': 'central', 'jacobian_step': 1e-3,
+                     'jacobian_check_steps': False}
 
 
-def jacobian_points_option(sa_options):
-    """``sa_options.jacobian_points`` (default DEFAULT_JACOBIAN_POINTS): how many Saltelli base
-    points run_local_jacobian differentiates at. 0 skips it, and with it a PCA reduction's
-    redundancy check."""
-    value = (sa_options or {}).get('jacobian_points', DEFAULT_JACOBIAN_POINTS)
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 0:
+def jacobian_options(sa_options):
+    """The JACOBIAN_DEFAULTS keys of ``sa_options``, defaults filled in, checked."""
+    options = {key: (sa_options or {}).get(key, default)
+               for key, default in JACOBIAN_DEFAULTS.items()}
+    points = options['jacobian_points']
+    if isinstance(points, bool) or not isinstance(points, (int, np.integer)) or points < 0:
         raise ValueError(f'sa_options.jacobian_points is a whole number, 0 or more, not '
-                         f'{value!r}.')
-    return int(value)
+                         f'{points!r}.')
+    for key, choices in (('jacobian_location', ('base_points', 'centre')),
+                         ('jacobian_scheme', ('central', 'forward'))):
+        if options[key] not in choices:
+            raise ValueError(f'sa_options.{key} is one of {list(choices)}, not '
+                             f'{options[key]!r}.')
+    step = options['jacobian_step']
+    if isinstance(step, bool) or not isinstance(step, (int, float)) or not 0 < step < 1:
+        raise ValueError(f'sa_options.jacobian_step is a number between 0 and 1, not '
+                         f'{step!r}.')
+    if not isinstance(options['jacobian_check_steps'], bool):
+        raise ValueError(f'sa_options.jacobian_check_steps is true or false, not '
+                         f'{options["jacobian_check_steps"]!r}.')
+    return dict(options, jacobian_points=int(points), jacobian_step=float(step))
 
 
 class sobol_SA():
@@ -128,7 +150,7 @@ class sobol_SA():
         self.sample_type = self.SA_info["sample_type"]
         # Prediction items with an operation as extra outputs (sa_options.include_prediction_items).
         self.include_prediction_items = prediction_features.include_prediction_items(SA_info)
-        self.jacobian_points = jacobian_points_option(SA_info)
+        self.jacobian = jacobian_options(SA_info)
         self._prediction_indices_cache = None
         self.prediction_info = None
         self.num_params = None
@@ -271,7 +293,7 @@ class sobol_SA():
         self.SA_info = self._create_SA_info(sa_options['sample_type'], sa_options['num_samples'])
         self.set_output_dir(sa_options['output_dir'])
         self.include_prediction_items = prediction_features.include_prediction_items(sa_options)
-        self.jacobian_points = jacobian_points_option(sa_options)
+        self.jacobian = jacobian_options(sa_options)
         self._prediction_indices_cache = None
 
     # ------------------------------------------------------------ prediction features
@@ -1019,13 +1041,14 @@ class sobol_SA():
         * ``all_outputs_n<N>_Sobol_outputs.csv`` -- one column per output, named as in the
           indices CSV;
         * ``all_outputs_n<N>_Sobol_local_jacobian.csv`` -- after :meth:`run_local_jacobian`, one
-          row per base point and parameter (columns ``point``, the base point's row in the
-          samples, and ``Parameter``): each output's derivative there, scaled to the
-          parameter's prior range;
+          row per step, point and parameter (columns ``step``, ``point``, the point's row in the
+          samples or -1 for the centre, and ``Parameter``): each output's derivative there,
+          scaled to the parameter's prior range;
         * ``sobol_problem.json`` -- the SALib problem (``names``, ``bounds``), ``num_samples``,
           ``sample_type``, ``calc_second_order``, ``failed_samples`` (see
-          :meth:`fill_failed_outputs`), the local Jacobian's ``points`` (rows), ``log_step`` and
-          ``failed_points`` (rows where a run failed), and
+          :meth:`fill_failed_outputs`), the local Jacobian's options (JACOBIAN_DEFAULTS),
+          ``points`` (rows), ``bases``, ``steps`` and ``failed_points`` (rows where a run
+          failed), and
           per output its ``kind`` and, for a constant data_item, its obs_data ``std`` and
           ``weight`` (None otherwise).
 
@@ -1042,9 +1065,12 @@ class sobol_SA():
         if jacobian is not None:
             paths['sobol_local_jacobian'] = f'{stem}_local_jacobian.csv'
             labels = list(self._param_labels())
-            table = pd.DataFrame(jacobian.reshape(-1, jacobian.shape[2]), columns=output_names)
-            table.insert(0, 'Parameter', labels * len(self.local_jacobian_rows))
-            table.insert(0, 'point', np.repeat(self.local_jacobian_rows, len(labels)))
+            n_steps, n_points = jacobian.shape[:2]
+            table = pd.DataFrame(jacobian.reshape(-1, jacobian.shape[3]), columns=output_names)
+            table.insert(0, 'Parameter', labels * (n_steps * n_points))
+            table.insert(0, 'point', np.tile(np.repeat(self.local_jacobian_rows, len(labels)),
+                                             n_steps))
+            table.insert(0, 'step', np.repeat(self.local_jacobian_steps, n_points * len(labels)))
             table.to_csv(paths['sobol_local_jacobian'], index=False)
         pd.DataFrame(samples, columns=self._param_labels()).to_csv(paths['sobol_samples'],
                                                                    index=False)
@@ -1074,10 +1100,12 @@ class sobol_SA():
                    'failed_samples': int(getattr(self, 'failed_samples', 0)), 'outputs': records}
         if jacobian is not None:
             problem['local_jacobian'] = {
+                **self.jacobian,
                 'points': [int(r) for r in self.local_jacobian_rows],
-                'log_step': LOCAL_JACOBIAN_LOG_STEP,
-                'failed_points': [int(r) for r, block in zip(self.local_jacobian_rows, jacobian)
-                                  if not np.all(np.isfinite(block))]}
+                'bases': self.local_jacobian_bases.tolist(),
+                'steps': [float(h) for h in self.local_jacobian_steps],
+                'failed_points': [int(r) for k, r in enumerate(self.local_jacobian_rows)
+                                  if not np.all(np.isfinite(jacobian[:, k]))]}
         with open(paths['sobol_problem'], 'w') as f:
             json.dump(problem, f, indent=1)
         return paths
@@ -1092,27 +1120,33 @@ class sobol_SA():
         return read_sobol_indices(os.path.join(self.output_dir, file_name))
  
     def local_jacobian_points(self, samples):
-        """``(rows, points)``: the first ``jacobian_points`` Saltelli base points (the rows of
-        ``samples`` that start each block of 2M + 2, which come from a Sobol sequence and so
-        spread over the box) and, for each, the point with each parameter stepped forward in
-        turn: times ``exp(h)``, ``h = LOCAL_JACOBIAN_LOG_STEP``, or, when its bounds straddle 0,
-        plus ``h * (max - min)``. ``points`` is ordered base point, then parameter."""
+        """``(rows, bases)``: where run_local_jacobian differentiates. With
+        ``jacobian_location: base_points``, the first ``jacobian_points`` Saltelli base points
+        (the rows of ``samples`` starting each block of 2M + 2, which come from a Sobol sequence
+        and so spread over the box) and their rows; with ``centre``, the centre of the box
+        (the geometric mean of bounds that share a sign, else the midpoint), row -1."""
         samples = np.asarray(samples, float)
-        n_params = samples.shape[1]
-        block = 2 * n_params + 2
-        rows = np.arange(min(self.jacobian_points, len(samples) // block)) * block
+        if not self.jacobian['jacobian_points']:
+            return np.array([], dtype=int), np.zeros((0, samples.shape[1]))
+        if self.jacobian['jacobian_location'] == 'centre':
+            lows, highs = self._bounds()
+            centre = np.where(lows * highs > 0, np.sign(highs) * np.sqrt(np.abs(lows * highs)),
+                              0.5 * (lows + highs))
+            return np.array([-1]), centre[None, :]
+        block = 2 * samples.shape[1] + 2
+        rows = np.arange(min(self.jacobian['jacobian_points'], len(samples) // block)) * block
+        return rows, samples[rows]
+
+    def stepped(self, base, i, step):
+        """``base`` with parameter ``i`` moved by ``step`` (negative: down): times
+        ``exp(step)``, or, when its bounds straddle 0, plus ``step * (max - min)``."""
         lows, highs = self._bounds()
-        straddles = ~(lows * highs > 0)
-        points = []
-        for row in rows:
-            for i in range(n_params):
-                point = samples[row].copy()
-                if straddles[i]:
-                    point[i] += LOCAL_JACOBIAN_LOG_STEP * (highs[i] - lows[i])
-                else:
-                    point[i] *= np.exp(LOCAL_JACOBIAN_LOG_STEP)
-                points.append(point)
-        return rows, np.array(points).reshape(len(rows) * n_params, n_params)
+        point = np.array(base, dtype=float)
+        if lows[i] * highs[i] > 0:
+            point[i] *= np.exp(step)
+        else:
+            point[i] += step * (highs[i] - lows[i])
+        return point
 
     def _bounds(self):
         return (np.asarray(self.SA_info['param_mins'], float),
@@ -1127,32 +1161,57 @@ class sobol_SA():
         with np.errstate(divide='ignore', invalid='ignore'):
             return np.where(same_sign, np.abs(np.log(np.abs(highs / lows))), 1.0)
 
+    def jacobian_steps(self):
+        h = self.jacobian['jacobian_step']
+        return [h, h / 2] if self.jacobian['jacobian_check_steps'] else [h]
+
     def run_local_jacobian(self, samples, outputs):
-        """Forward differences of the outputs at the first ``jacobian_points`` Saltelli base
-        points (local_jacobian_points; ``outputs`` are the Sobol run's own, NaN where a run
-        failed, so only ``jacobian_points * M`` runs are added, spread over the ranks as the
-        samples are). Each derivative is scaled to the parameter's whole prior range (times
+        """Local derivatives of the outputs for a PCA reduction's redundancy check, where
+        local_jacobian_points says, by ``jacobian_scheme`` differences of ``jacobian_step``
+        (and half of it with ``jacobian_check_steps``), spread over the ranks as the samples
+        are. ``outputs`` are the Sobol run's own (NaN where a run failed): a forward difference
+        at a base point uses them, so it costs ``jacobian_points * M`` runs per step, central
+        ones twice that. Each derivative is scaled to the parameter's whole prior range (times
         range_units), so it reads as the change in each output if the slope there held across
-        the range. Kept on rank 0 as ``self.local_jacobian`` (points x parameters x outputs,
-        NaN where a run failed) and ``self.local_jacobian_rows`` for
-        :meth:`save_sobol_samples_and_outputs`. A PCA parameter reduction compares these
-        effects point by point to tell parameters that move the data the same way (a product,
-        a ratio) apart: local derivatives keep that exact, which finite jumps between Saltelli
-        samples do not, and several points keep a parameter that is flat at one of them."""
-        rows, points = self.local_jacobian_points(samples)
+        the range.
+
+        Kept on rank 0 as ``self.local_jacobian`` (steps x points x parameters x outputs, NaN
+        where a run failed), with ``self.local_jacobian_rows``, ``self.local_jacobian_bases``
+        and ``self.local_jacobian_steps`` for :meth:`save_sobol_samples_and_outputs`. A PCA
+        parameter reduction compares these effects point by point to tell parameters that move
+        the data the same way (a product, a ratio) apart: local derivatives keep that exact,
+        which finite jumps between Saltelli samples do not."""
+        rows, bases = self.local_jacobian_points(samples)
         self.local_jacobian = None
         if not len(rows):
             return None
-        stepped = self.generate_outputs_mpi(points)
+        n_params = bases.shape[1]
+        central = self.jacobian['jacobian_scheme'] == 'central'
+        steps = self.jacobian_steps()
+        signs = (1, -1) if central else (1,)
+        points = [self.stepped(base, i, sign * h)
+                  for h in steps for base in bases for i in range(n_params) for sign in signs]
+        need_base = not central and rows[0] < 0
+        if need_base:
+            points = list(bases) + points
+        results = self.generate_outputs_mpi(np.array(points))
         if self.rank != 0:
             return None
-        n_params = points.shape[1]
-        base = np.asarray(outputs, dtype=float)[rows]
-        stepped = np.asarray(stepped, dtype=float).reshape(len(rows), n_params, -1)
-        units = self.range_units()
-        self.local_jacobian = ((stepped - base[:, None, :]) / LOCAL_JACOBIAN_LOG_STEP
-                               * units[None, :, None])
-        self.local_jacobian_rows = rows
+        results = np.asarray(results, dtype=float)
+        if need_base:
+            base_out, results = results[:len(bases)], results[len(bases):]
+        else:
+            base_out = np.asarray(outputs, dtype=float)[rows] if not central else None
+        results = results.reshape(len(steps), len(bases), n_params, len(signs), -1)
+        units = self.range_units()[None, None, :, None]
+        h = np.array(steps)[:, None, None, None]
+        if central:
+            jacobian = (results[..., 0, :] - results[..., 1, :]) / (2 * h)
+        else:
+            jacobian = (results[..., 0, :] - base_out[None, :, None, :]) / h
+        self.local_jacobian = jacobian * units
+        self.local_jacobian_rows, self.local_jacobian_bases = rows, bases
+        self.local_jacobian_steps = steps
         return self.local_jacobian
 
     def run(self):

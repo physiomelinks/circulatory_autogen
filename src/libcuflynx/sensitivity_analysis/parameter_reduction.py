@@ -268,10 +268,13 @@ class PCASobolReduction(ParamReduction):
 
     method = 'pca'
     OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index',
-               'redundancy_check')
+               'redundancy_check', 'redundancy_statistic', 'redundancy_converged_only',
+               'redundancy_convergence_tol')
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
-                 variance_fraction=1.0, min_index=0.05, redundancy_check=True):
+                 variance_fraction=1.0, min_index=0.05, redundancy_check=True,
+                 redundancy_statistic='rms', redundancy_converged_only=False,
+                 redundancy_convergence_tol=0.1):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
         self.index_type = _check_index_type(index_type)
@@ -282,6 +285,16 @@ class PCASobolReduction(ParamReduction):
         if not isinstance(redundancy_check, bool):
             raise ValueError(f'redundancy_check is true or false, not {redundancy_check!r}.')
         self.redundancy_check = redundancy_check
+        if redundancy_statistic not in ('rms', 'median'):
+            raise ValueError(f'redundancy_statistic is "rms" or "median", not '
+                             f'{redundancy_statistic!r}.')
+        self.redundancy_statistic = redundancy_statistic
+        if not isinstance(redundancy_converged_only, bool):
+            raise ValueError(f'redundancy_converged_only is true or false, not '
+                             f'{redundancy_converged_only!r}.')
+        self.redundancy_converged_only = redundancy_converged_only
+        self.redundancy_convergence_tol = float(_check_number(
+            'redundancy_convergence_tol', redundancy_convergence_tol, low=0.0))
         self._extra = {}
 
     # ------------------------------------------------------------------ analysis
@@ -385,27 +398,30 @@ class PCASobolReduction(ParamReduction):
                              'mode_std': float(np.sqrt(variances[k]))})
         return selected, skipped
 
-    @staticmethod
-    def rms_over_points(by_point):
-        """Each parameter's root mean square, over the points, of the length of its effect
-        (``by_point``: points x parameters x modes)."""
-        return np.sqrt(np.mean(np.sum(by_point ** 2, axis=2), axis=0))
+    def over_points(self, by_point):
+        """Each parameter's ``redundancy_statistic`` (root mean square or median), over the
+        points, of the length of its effect (``by_point``: points x parameters x modes)."""
+        lengths = np.sqrt(np.sum(by_point ** 2, axis=2))
+        if self.redundancy_statistic == 'median':
+            return np.median(lengths, axis=0)
+        return np.sqrt(np.mean(lengths ** 2, axis=0))
 
     def choose_independent(self, by_point, candidates, names, weighted, informative_idx):
         """``(selected, unexplained)``: greedy pivoted Gram-Schmidt, done at each point
         separately and chosen jointly. ``by_point`` is points x parameters x informative modes:
         each parameter's effect over its prior range, in noise stds, at each Jacobian point.
         Keep the candidate whose effect not explained by the kept parameters, at the same
-        point, has the largest root mean square over the points; remove its direction at each
+        point, has the largest ``redundancy_statistic`` (root mean square or median) over the
+        points; remove its direction at each
         point; stop when that is below ``min_mode_std`` or after ``n_params``. Explaining point
         by point lets the combination of kept parameters that reproduces a redundant one vary
         across the box, as it does for a scaling symmetry. ``unexplained`` is each parameter's
-        root mean square effect left once the kept ones are accounted for."""
+        effect left (the same statistic) once the kept ones are accounted for."""
         residual = np.array(by_point, dtype=float)
         selected, free = [], list(candidates)
-        total = self.rms_over_points(by_point)
+        total = self.over_points(by_point)
         while free and (self.n_params is None or len(selected) < self.n_params):
-            left = self.rms_over_points(residual)
+            left = self.over_points(residual)
             best = max(free, key=lambda i: left[i])
             if left[best] < self.min_mode_std:
                 break
@@ -419,7 +435,7 @@ class PCASobolReduction(ParamReduction):
             selected.append({'parameter': names[best], 'score': float(weighted[best]),
                              'mode': int(informative_idx[column]) + 1,
                              'new_effect': float(left[best]), 'effect': float(total[best])})
-        left = self.rms_over_points(residual)
+        left = self.over_points(residual)
         unexplained = {names[i]: float(left[i]) for i in range(len(names))
                        if names[i] not in {row['parameter'] for row in selected}}
         return selected, unexplained
@@ -474,24 +490,50 @@ class PCASobolReduction(ParamReduction):
     def _choose_with_redundancy_check(self, files, problem, names, scales, loadings,
                                       variances, informative, indices, params):
         table = pd.read_csv(files['local_jacobian'])
+        if 'step' not in table:
+            table.insert(0, 'step', 0.0)
+        steps = sorted(set(table['step']), reverse=True)
         points = list(dict.fromkeys(table['point']))
-        jacobian = np.stack([table[table['point'] == point].set_index('Parameter')
+
+        def at(step):
+            rows = table[table['step'] == step]
+            return np.stack([rows[rows['point'] == point].set_index('Parameter')
                              .loc[params, names].to_numpy(dtype=float) for point in points])
+
+        jacobian = at(steps[0])
         ok = np.all(np.isfinite(jacobian), axis=(1, 2))
+        if self.redundancy_converged_only and len(steps) < 2:
+            raise SensitivityFilesError(
+                f'redundancy_converged_only compares derivatives at two steps, and '
+                f'{files["local_jacobian"]} has one; rerun the Sobol analysis with '
+                f'sa_options.jacobian_check_steps: true.')
+        informative_idx = [k for k in np.argsort(-variances) if informative[k]]
+
+        def effects_of(j):
+            with np.errstate(divide='ignore', invalid='ignore'):
+                per_output = np.where(np.isfinite(scales) & (scales > 0), j / scales, 0.0)
+            return per_output @ loadings[informative_idx].T   # points x parameters x modes
+
+        unconverged = []
+        if self.redundancy_converged_only:
+            full, half = effects_of(np.nan_to_num(jacobian)), effects_of(np.nan_to_num(at(steps[1])))
+            change = np.linalg.norm(full - half, axis=2)
+            size = np.maximum(np.linalg.norm(full, axis=2), self.min_mode_std)
+            converged = np.all(change <= self.redundancy_convergence_tol * size, axis=1)
+            unconverged = [int(p) for p, c, good in zip(points, converged, ok) if good and not c]
+            ok &= converged
         if not ok.any():
             raise SensitivityFilesError(
-                f'a run failed at every local Jacobian point of {files["local_jacobian"]}, so '
-                f'the redundancy check has no effects to compare; rerun the Sobol analysis with '
-                f'more jacobian_points, or set redundancy_check: false.')
+                f'no local Jacobian point of {files["local_jacobian"]} can be used (a run failed, '
+                f'or the derivatives did not converge), so the redundancy check has no effects to '
+                f'compare; rerun the Sobol analysis with more jacobian_points, or set '
+                f'redundancy_check: false.')
         if not ok.all():
-            warnings.warn(f'a run failed at {int((~ok).sum())} of {len(points)} local Jacobian '
-                          f'points: the redundancy check uses the other {int(ok.sum())}.',
-                          stacklevel=3)
+            warnings.warn(f'{int((~ok).sum())} of {len(points)} local Jacobian points are left '
+                          f'out (a run failed, or the derivatives at the two steps disagree): the '
+                          f'redundancy check uses the other {int(ok.sum())}.', stacklevel=3)
         jacobian = jacobian[ok]
-        informative_idx = [k for k in np.argsort(-variances) if informative[k]]
-        with np.errstate(divide='ignore', invalid='ignore'):
-            per_output = np.where(np.isfinite(scales) & (scales > 0), jacobian / scales, 0.0)
-        by_point = per_output @ loadings[informative_idx].T   # points x parameters x modes
+        by_point = effects_of(jacobian)
         total = float(np.sum(variances[informative_idx])) or 1.0
         weighted = (variances[informative_idx, None] * indices[informative_idx]).sum(axis=0)
         weighted = weighted / total
@@ -500,12 +542,12 @@ class PCASobolReduction(ParamReduction):
         candidates = [i for i in range(len(params)) if largest[i] >= self.min_index]
         selected, unexplained = self.choose_independent(by_point, candidates, params, weighted,
                                                         informative_idx)
-        effects = self.rms_over_points(by_point)
+        effects = self.over_points(by_point)
         return selected, [], {
             'candidates': [params[i] for i in candidates],
             'effects': {params[i]: float(effects[i]) for i in range(len(params))},
             'unexplained_effects': unexplained,
-            'jacobian_points_used': int(len(jacobian))}
+            'jacobian_points_used': int(len(jacobian)), 'unconverged_points': unconverged}
 
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):
