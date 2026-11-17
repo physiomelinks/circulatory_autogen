@@ -536,3 +536,37 @@ def test_a_failed_sobol_sample_is_filled_from_its_own_outputs(
     ran = raw[[1, 2, 4, 5]].mean(axis=0)
     assert filled[0] == pytest.approx(ran) and filled[3] == pytest.approx(ran)
     assert manager.failed_samples == 2
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_casadi_sobol_outputs_are_one_number_per_sample_and_output(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """casadi_python's operation funcs return 1x1 matrices. Each Sobol output is one float, so
+    the outputs are a (samples, outputs) array SALib can index column by column."""
+    import numpy as np
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    if mpi_comm.Get_size() > 1:
+        pytest.skip('checks the outputs of one rank')
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment', 'input_param_file': '3compartment_parameters.json',
+        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'pre_time': 0.3,
+        'sim_time': 0.5, 'dt': 0.01, 'solver_info': {'method': 'bdf'},
+        'param_id_obs_path': retimed_obs_data(
+            os.path.join(resources_dir, '3compartment_obs_data.json'), 0.3, 0.5, temp_output_dir),
+        'param_id_output_dir': temp_output_dir, 'generated_models_dir': temp_generated_models_dir,
+        'sa_options': {'method': 'sobol', 'num_samples': 2, 'sample_type': 'saltelli',
+                       'output_dir': os.path.join(temp_output_dir, 'casadi_sobol')}})
+    assert generate_with_new_architecture(False, config), 'casadi_python generation failed'
+    config = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=True,
+                                                     do_generation_with_fit_parameters=False)
+    manager = SensitivityAnalysis.init_from_dict(config).SA_manager
+    manager.set_sa_options(config['sa_options'])
+    samples = manager.generate_samples()[:3]
+    outputs = manager.generate_outputs_mpi(samples)
+    as_array = np.asarray(outputs)
+    assert as_array.dtype == float and as_array.ndim == 2 and as_array.shape[0] == 3, \
+        (as_array.dtype, as_array.shape)
+    assert np.all(np.isfinite(as_array))
