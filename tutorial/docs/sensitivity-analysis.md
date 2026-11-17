@@ -186,18 +186,24 @@ direction, so they cannot tell that two parameters are interchangeable: when onl
 matters, `a` and `b` get the same large index on the same modes. The check needs, for each
 parameter, the direction it moves the data in, and compares those.
 
-**The derivatives.** Every Sobol run also takes local derivatives at the first
-`sa_options.jacobian_points` (default 8) Saltelli base points. These are the rows that start
-each block of 2M + 2 samples. They come from a Sobol sequence, so they spread over the prior
-box, and their outputs are already computed. At each point every parameter is stepped forward
-once, by 1% in ln(parameter), or by 1% of its range when its bounds straddle 0, so the run
-costs `jacobian_points` x M extra simulations, about `jacobian_points / (2 num_samples)` of the
-Sobol run: 96 runs next to 6656 (1.4%) for 12 parameters, `num_samples: 256` and the default 8
-points. Each
-derivative is multiplied by the parameter's prior range (`ln(max/min)`, or `max - min` for
-bounds that straddle 0), so it reads as how far the data would move if that slope held across
-the whole range. They are saved in `all_outputs_n<N>_Sobol_local_jacobian.csv`, one row per
-point and parameter.
+**The derivatives.** Every Sobol run also takes local derivatives, set by `sa_options`:
+
+| key | default | what it sets |
+|---|---|---|
+| `jacobian_points` | 8 | how many points; 0 skips the derivatives |
+| `jacobian_location` | `base_points` | `base_points`: the first `jacobian_points` Saltelli base points, the rows starting each block of 2M + 2 samples, which come from a Sobol sequence and so spread over the box; `centre`: one point at the centre of the box |
+| `jacobian_scheme` | `central` | `central` (2 runs per parameter and point) or `forward` (1, reusing the base point's own run) |
+| `jacobian_step` | 0.001 | the step in ln(parameter), or as a fraction of the range for bounds that straddle 0 |
+| `jacobian_check_steps` | false | also take them with half the step (twice the runs), for `redundancy_converged_only` |
+
+With the defaults a run costs `2 x jacobian_points x M` extra simulations, about
+`jacobian_points / num_samples` of the Sobol run: 192 next to 6656 (2.9%) for 12 parameters and
+`num_samples: 256`. Central differences are the default because a forward step's error is first
+order: in an oscillator a step shifts the phase, the error grows along the time course, and in
+the Goodwin benchmark it hid an exact symmetry. Each derivative is multiplied by the parameter's
+prior range (`ln(max/min)`, or `max - min` for bounds that straddle 0), so it reads as how far the
+data would move if that slope held across the whole range. They are saved in
+`all_outputs_n<N>_Sobol_local_jacobian.csv`, one row per step, point and parameter.
 
 **The effects.** At each point, each derivative is scaled to noise stds like the outputs in
 step 1 and projected onto the informative modes: a parameter's effect at that point, a vector
@@ -210,8 +216,19 @@ parameter with the largest, remove its direction at every point, and repeat unti
 is below `min_mode_std`. Because each point is explained by the kept parameters at that same
 point, the combination that reproduces a redundant parameter may change across the box, as it
 does for a scaling symmetry or for parameters entering as a sum. The report lists each
-parameter's `effects` (root mean square length before anything is removed) and the
+parameter's `effects` (the statistic before anything is removed) and the
 `unexplained_effects` of those not kept (what was left).
+
+Two `param_reduction_options` set how the points are combined:
+
+- `redundancy_statistic`: `rms` (the default) keeps a parameter that is unexplained at any
+  point, however few; `median` keeps it only if it is unexplained at most points, which ignores
+  a minority of points where the derivatives are poor, and also a parameter that matters in
+  less than half the box.
+- `redundancy_converged_only` (default false): leave out the points where the derivatives at
+  `jacobian_step` and at half of it differ by more than `redundancy_convergence_tol` (default
+  0.1) of the effect. It needs `jacobian_check_steps`, and the report lists the
+  `unconverged_points`.
 
 **Why local derivatives, at several points.**
 
@@ -224,11 +241,13 @@ parameter's `effects` (root mean square length before anything is removed) and t
   the centre of its range, and a derivative there alone would drop it. Across 8 points its
   effect is many noise stds, and it is kept.
 
-- *A redundancy that holds in only part of the box does not drop the parameter.* In the
-  Goodwin oscillator benchmark, `ai` is explained by `Ai` and `ki` at half the points and not at
-  the others, where `ai` is small next to `Ai`: if the truth lay there, the data could tell `ai`
-  apart, so it is kept. A derivative at the centre alone, which sits in the symmetric part,
-  dropped it.
+- *Points where the outputs are not smooth.* In the Goodwin benchmark `ai`, `Ai` and `ki` form
+  an exact scaling symmetry, so `ai` is explained by the other two at every point in exact
+  arithmetic. At six of eight points the derivatives show it (under 1 noise std left), but at
+  the two where `ai` is small next to `Ai` they do not settle as the step shrinks, and leave
+  tens of noise stds. With `rms` those two points keep `ai`; `median` or
+  `redundancy_converged_only` drop it. `benchmarks/param_reduction/compare_redundancy.py`
+  compares the settings on the benchmark models.
 
 **Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
 such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.

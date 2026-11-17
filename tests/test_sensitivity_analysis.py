@@ -117,9 +117,11 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
                                             'all_outputs_n16_Sobol_local_jacobian.csv'))
         rows = [10 * k for k in range(8)]          # blocks of 2M + 2 = 10 rows
         assert list(jacobian['point']) == [r for r in rows for _ in range(4)]
+        assert set(jacobian['step']) == {1e-3}      # central differences, one step
         assert list(jacobian['Parameter']) == list(indices['Parameter']) * 8
-        assert list(jacobian.columns[2:]) == list(outputs.columns)
-        assert np.all(np.isfinite(jacobian.iloc[:, 2:].to_numpy()))
+        assert list(jacobian.columns[3:]) == list(outputs.columns)
+        assert np.all(np.isfinite(jacobian.iloc[:, 3:].to_numpy()))
+        assert problem['local_jacobian']['jacobian_scheme'] == 'central'
         assert problem['local_jacobian']['points'] == rows
         assert problem['local_jacobian']['failed_points'] == []
         reduction_dir = os.path.join(output_dir, 'param_reduction')
