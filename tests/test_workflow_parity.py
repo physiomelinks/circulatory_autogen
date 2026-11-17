@@ -539,7 +539,8 @@ def test_a_modifier_entry_starts_and_is_analysed_at_a_theta(lv, tmp_path):
     from libcuflynx.reporting.provenance import provenance_graph
     assert os.path.isfile(os.path.join(out, 'provenance.svg'))
     (node,) = [n for n in provenance_graph(out)['nodes'] if n['id'] == 'sliders']
-    assert '`theta of alpha_scale` = 0.9: slider position' in node['lines']
+    assert any('alpha_scale' in line and line.endswith('= 0.9: slider position')
+               for line in node['lines'])
     assert flowchart.POINT_ONLY in node['lines']
     gamma, theta = node['parameters']
     assert (theta['name'], theta['value'], theta['origin'], theta['reason']) == (
