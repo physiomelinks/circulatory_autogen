@@ -12,12 +12,13 @@ next release; add to that section as you land a change.
   kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
   every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
   at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
-  at two steps, 4 x `jacobian_points` x M extra runs, about 5.8% of a 12-parameter run at
-  `num_samples: 256`; `jacobian_location`, `jacobian_scheme`, `jacobian_step` and
-  `jacobian_check_steps` choose others). The redundancy is judged at each point, leaving out
-  points whose derivatives change with the step (`redundancy_converged_only`, default on), and
-  summarised over the points by `redundancy_statistic` (`rms`, or `median`). The defaults come
-  from `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
+  with a step of 0.01 in ln(parameter), so 2 x `jacobian_points` x M extra runs, about 2.9% of
+  a 12-parameter run at `num_samples: 256`; `jacobian_location`, `jacobian_scheme`,
+  `jacobian_step` and `jacobian_check_steps` choose others). The redundancy is judged at each
+  point and summarised over the points by `redundancy_statistic` (`median`, or `rms`),
+  optionally leaving out points whose derivatives change with the step
+  (`redundancy_converged_only`). The defaults come from
+  `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
   (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
   parameters, and every parameter of a ratio or scaling symmetry.
 

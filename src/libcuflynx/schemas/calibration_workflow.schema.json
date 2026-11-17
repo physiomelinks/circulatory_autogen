@@ -298,12 +298,12 @@
         },
         "redundancy_statistic": {
           "enum": ["rms", "median"],
-          "default": "rms",
+          "default": "median",
           "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
         },
         "redundancy_converged_only": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "pca with redundancy_check: leave out Jacobian points whose derivatives at the step and half of it disagree; needs sa_options.jacobian_check_steps"
         },
         "redundancy_convergence_tol": {
