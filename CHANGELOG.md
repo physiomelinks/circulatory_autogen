@@ -184,7 +184,9 @@ number of vessels at a node (node sums #609, node rule D #617).
   `spec.CellMLModel`, the builder's `cellml_model()`). Its parameters are its constants, named
   `component/variable`. A step runs a copy with its values written in by the calibrated-model
   writer (below; flattened when the file has imports, checked after writing), as
-  `model_type: cellml`. `write_calibrated` writes `<stem>_calibrated_parameters.json` and
+  `model_type: cellml`, or with `model_type` `python`, `casadi_python` or `aadc_python` as the
+  Python generated from that copy (`spec.CELLML_MODEL_TYPES`; the values still go into the
+  CellML). `write_calibrated` writes `<stem>_calibrated_parameters.json` and
   `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
   parameters are where its fit starts (the model is generated with them, so they are x0). They

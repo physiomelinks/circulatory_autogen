@@ -158,13 +158,16 @@ def generate_external(model, work_dir, file_prefix, overrides=()):
                               'external_parameters_file': path}}
 
 
-def generate_cellml(model, work_dir, file_prefix, overrides=()):
-    '''A CellML model (a spec.CellMLModel) is not generated: this writes the values it runs with,
-    ``generated_models/<prefix>/<prefix>_parameters.json`` under ``work_dir`` -- its constants,
-    its parameters file's values over them, and ``overrides`` (rows named
+def generate_cellml(model, work_dir, file_prefix, overrides=(), model_type='cellml'):
+    '''A CellML model (a spec.CellMLModel) keeps its own equations: this writes the values it
+    runs with, ``generated_models/<prefix>/<prefix>_parameters.json`` under ``work_dir`` -- its
+    constants, its parameters file's values over them, and ``overrides`` (rows named
     ``component/variable``) over those -- and ``<prefix>.cellml`` beside it, the model
     (flattened when it has imports) with every value that differs from its own written in.
-    Returns as :func:`generate_parameterisation`.'''
+    A Python ``model_type`` (``spec.CELLML_MODEL_TYPES`` other than ``cellml``) also gets
+    ``<prefix>.py``, that CellML's code by ``PythonGenerator``, which is then the model the step
+    runs (``model_path``); the CellML stays ``flat_model_path``. Returns as
+    :func:`generate_parameterisation`.'''
     from libcuflynx.calibration_workflow.cellml_files import (read_cellml_constants,
                                                               write_cellml_with_values)
     from libcuflynx.calibration_workflow.resolve import read_cellml_parameters
@@ -196,9 +199,17 @@ def generate_cellml(model, work_dir, file_prefix, overrides=()):
             values[qname] = float(leaf['value'])
     model_path = os.path.join(model_dir, f'{file_prefix}.cellml')
     write_cellml_with_values(model.path, values, model_path, model.label())
-    return {'model_path': model_path, 'flat_model_path': model_path, 'parameters_path': path,
+    cellml_path = model_path
+    if model_type != 'cellml':
+        # imported here: only a Python model type needs the generator
+        from libcuflynx.generators.PythonGenerator import PythonGenerator
+        model_path = PythonGenerator(
+            cellml_path, output_dir=model_dir, module_name=file_prefix,
+            casadi_compat=(model_type == 'casadi_python'),
+            aadc_compat=(model_type == 'aadc_python')).generate()
+    return {'model_path': model_path, 'flat_model_path': cellml_path, 'parameters_path': path,
             'resources_dir': resources_dir, 'generated_models_dir': generated_models_dir,
-            'inp_data_dict': {'file_prefix': file_prefix, 'model_type': 'cellml'}}
+            'inp_data_dict': {'file_prefix': file_prefix, 'model_type': model_type}}
 
 
 def generate_model(model, work_dir, file_prefix, overrides=(), library_inputs=None,
@@ -211,7 +222,7 @@ def generate_model(model, work_dir, file_prefix, overrides=(), library_inputs=No
     if model.kind == 'external':
         return generate_external(model, work_dir, file_prefix, overrides)
     if model.kind == 'cellml':
-        return generate_cellml(model, work_dir, file_prefix, overrides)
+        return generate_cellml(model, work_dir, file_prefix, overrides, model_type)
     if model.kind == 'array':
         return generate_module_array(model, work_dir, file_prefix, overrides, library_inputs,
                                      model_type, solver, protocol=protocol)
