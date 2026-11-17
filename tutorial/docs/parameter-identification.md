@@ -1583,8 +1583,12 @@ Paths are relative to the workflow file. A **model** is one of:
   variables are not), and every component is a vessel. It is never generated: a step runs a
   flattened copy, `<step_id>/model/generated_models/<step_id>/<step_id>.cellml`, with the
   step's values written in, and `<step_id>_parameters.json` beside it lists every constant's
-  value. As for an external model, it is the target and every step's model, and it runs as
-  `model_type: cellml` (default solver `CVODE_myokit`; another `model_type` is refused).
+  value. As for an external model, it is the target and every step's model. It runs as
+  `model_type: cellml` (default solver `CVODE_myokit`), or, with `model_type` `python`,
+  `casadi_python` or `aadc_python` in the settings (the workflow's or a step's, with `solver`
+  and `solver_info` as for any model), as the Python generated from that copy,
+  `<step_id>.py` beside it; the values still go into the CellML. `cpp` and
+  `external_python` are refused.
   `write_calibrated` writes `<stem>_calibrated_parameters.json` and `<stem>_calibrated.cellml`
   beside it, and a pack copies it with the files it imports, at their paths relative to it.
 

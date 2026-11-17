@@ -121,8 +121,10 @@ def test_a_cellml_model_is_a_step_model_and_the_target(lv):
      'the target is the CellML model .* every step\'s model is that file'),
     (lambda raw: raw.update(target={'module_array': 'x_module_array.csv'}),
      'run a CellML model, so the target must be that file'),
-    (lambda raw: raw['settings'].update(model_type='python'),
-     'runs as model_type cellml, not \'python\''),
+    (lambda raw: raw['settings'].update(model_type='cpp'),
+     'runs as model_type cellml, python, casadi_python, aadc_python; not \'cpp\''),
+    (lambda raw: raw['steps'][0].update(settings={'model_type': 'external_python'}),
+     'step "fit": .* not \'external_python\''),
     (lambda raw: raw['steps'][0].update(model={'cellml_model_path': 'lv.py'}),
      'cellml_model_path'),
     (lambda raw: raw['steps'][0].update(model={'cellml_model_path': _MODEL,
@@ -378,6 +380,55 @@ def test_a_cellml_calibration_recovers_the_values_and_writes_the_calibrated_cell
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize('model_type, solver', [('python', 'solve_ivp'),
+                                                ('casadi_python', 'casadi_integrator')])
+def test_a_cellml_model_runs_as_its_generated_python(lv, tmp_path, model_type, solver):
+    '''A CellML target with a Python model_type: each step runs the Python generated from its
+    copy of the CellML, and the values still go into the CellML.'''
+    out = str(tmp_path / 'run')
+    settings = dict(copy.deepcopy(_FAST), model_type=model_type)
+    del settings['solver_info']
+    result = run_calibration_workflow(_write(lv, _raw([_fit()], settings=settings)),
+                                      output_dir=out, write_calibrated=True)
+    assert result['complete']
+    merged = {r['host_name']: r['value'] for r in result['merged_parameters']}
+    for name, value in _TRUE.items():
+        assert merged[name] == pytest.approx(value, rel=0.02)
+
+    step = _step(out, 'fit')
+    assert step['settings']['model_type'] == model_type
+    generated = step['generated']
+    assert step['model_path'] == os.path.join(out, 'fit', 'model', 'generated_models', 'fit',
+                                              'fit.py')
+    assert generated['inp_data_dict']['model_type'] == model_type
+    # the CellML the Python was generated from has the step's values
+    assert generated['flat_model_path'] == step['model_path'][:-len('.py')] + '.cellml'
+    assert _constants(generated['flat_model_path'])[_ALPHA] == _OWN[_ALPHA]
+    # the calibrated model is the CellML with the best fit
+    best = dict(zip([_ALPHA, _GAMMA], step['best_fit']))
+    assert step['calibrated_model'] == os.path.join(out, 'fit', 'fit_calibrated.cellml')
+    assert _constants(step['calibrated_model'])[_ALPHA] == pytest.approx(best[_ALPHA], rel=1e-9)
+    # the target: its Python, generated from the merged CellML beside it
+    target = result['target_model']['model_path']
+    assert target.endswith('.py')
+    assert _constants(target[:-len('.py')] + '.cellml')[_GAMMA] == pytest.approx(merged[_GAMMA])
+    assert _constants(result['calibrated_model_file'])[_GAMMA] == pytest.approx(merged[_GAMMA])
+
+
+def test_a_sweep_of_a_cellml_model_runs_its_generated_python(lv, tmp_path):
+    '''A sweep with model_type python and no solver named runs solve_ivp on the Python.'''
+    out = str(tmp_path / 'run')
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'wf'),
+                         settings={'model_type': 'python', 'dt': 0.01, 'sim_time': 1.0})
+    wf.add_sweep('sweep', parameters={_ALPHA: {'values': [4.0, 5.0]}},
+                 outputs=['Lotka_Volterra_module/x'])
+    result = wf.run(output_dir=out)
+    assert result['complete']
+    step = _step(out, 'sweep')
+    assert step['model_path'].endswith('sweep.py')
+
+
 def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.2, 'reason': 'near the fit'},

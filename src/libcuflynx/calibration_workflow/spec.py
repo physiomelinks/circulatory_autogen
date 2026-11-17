@@ -43,7 +43,8 @@ Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an
 * a CellML model, ``{"cellml_model_path": "model.cellml", "parameters": "values.json"}``
   (``parameters`` optional: a parameters file whose values replace the CellML's). Its parameters
   are its constants, named ``component/variable``. A step runs a flattened copy with its values
-  written in. A step with one needs the same file as the target.
+  written in, or with ``model_type`` python, casadi_python or aadc_python the Python generated
+  from that copy. A step with one needs the same file as the target.
 
 Paths are relative to the workflow file. A step may take the calibrated values of earlier steps
 as fixed parameter values (``fixed_from``) or, from steps that stored their posterior
@@ -216,6 +217,10 @@ class CellMLModel:
 #: the model kinds that are one file run as it is: a workflow with one has it as its target and
 #: as every step's model
 FILE_MODEL_KINDS = ('external', 'cellml')
+
+#: The model types a CellML file model runs as: itself, or the Python generated from it
+#: (``generate.generate_cellml``). ``cpp`` has no SimulationHelper, so no step can run it.
+CELLML_MODEL_TYPES = ('cellml', 'python', 'casadi_python', 'aadc_python')
 
 
 def array_prefix(path):
@@ -772,7 +777,7 @@ _FILE_MODEL_WORDS = {'external': ('the external Python model', 'external_model_p
 def _check_external_models(workflow):
     '''An external Python or a CellML model is run as it is, so its steps calibrate the target
     itself: the target is the same file, and every step that runs a model runs that file. A
-    CellML model runs as model_type cellml.'''
+    CellML model runs as one of CELLML_MODEL_TYPES.'''
     target = workflow.target
     steps = [s for s in workflow.steps if s.model is not None and not s.on_target]
     for kind, (words, key) in _FILE_MODEL_WORDS.items():
@@ -793,9 +798,10 @@ def _check_external_models(workflow):
         for where, settings in [('the workflow', workflow.settings)] + \
                 [(f'step "{s.id}"', workflow.step_settings(s)) for s in steps]:
             model_type = settings.get('model_type', 'cellml')
-            if model_type != 'cellml':
+            if model_type not in CELLML_MODEL_TYPES:
                 raise WorkflowError(f'{where}: the target is the CellML model {target.path}, '
-                                    f'which runs as model_type cellml, not {model_type!r}.')
+                                    f'which runs as model_type {", ".join(CELLML_MODEL_TYPES)}'
+                                    f'; not {model_type!r}.')
 
 
 def uq_options(settings):
