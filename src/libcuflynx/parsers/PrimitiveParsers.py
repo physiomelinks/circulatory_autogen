@@ -1858,6 +1858,12 @@ ANALYSIS_OPTIONS = {
             {'name': 'num_samples', 'type': 'int', 'default': 32, 'required': False,
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
+            # Read by sobol_SA.run_local_jacobian, for the PCA reduction's redundancy check.
+            {'name': 'jacobian_points', 'type': 'int', 'default': 8, 'required': False,
+             'description': ('For method "sobol": how many of the Saltelli base points the run '
+                             'also takes local derivatives at (forward differences, '
+                             'jacobian_points x M extra runs), for a "pca" parameter '
+                             "reduction's redundancy_check. 0 skips them.")},
             # Read by sobol_SA (both methods go through it for their options) and by
             # run_local_sensitivity. Off, the outputs are exactly the data_item features, as
             # they always were.
@@ -1975,8 +1981,8 @@ ANALYSIS_OPTIONS = {
              'description': ('For "pca": keep a parameter only if its effect on the informative '
                              'modes over its prior range, after removing what the parameters '
                              'already kept explain, is at least min_mode_std noise stds. The '
-                             'effects come from a local Jacobian the Sobol run saves (central '
-                             'differences at the centre of the box). Parameters that move the '
+                             'effects come from the local derivatives the Sobol run saves at '
+                             'sa_options.jacobian_points of its base points. Parameters that move the '
                              'data the same way (a product, a ratio, a scaling symmetry) are '
                              'then kept once. Off: one parameter per informative mode, which '
                              'does not reduce when the outputs are a time course with more modes '

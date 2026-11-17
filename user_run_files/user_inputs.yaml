@@ -168,6 +168,7 @@ sa_options:
   # Also report the obs_data prediction_items that are scalar features (an operation, not a series) as
   # extra outputs. Items without an operation are skipped with a warning.
   include_prediction_items: false
+  # jacobian_points: 8  # local derivatives at this many base points (jacobian_points*M runs), for the pca redundancy check
     # output_dir: /non/default/path
 
 # Parameter reduction: after the Sobol analysis (run_sensitivity_analysis.sh), choose the

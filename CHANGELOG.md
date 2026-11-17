@@ -10,9 +10,11 @@ next release; add to that section as you land a change.
 - `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
   effect on the informative PCA modes over its prior range, beyond what the parameters already
   kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
-  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences in
-  ln(parameter) at the centre of the box, 2M + 1 extra runs, about 1/num_samples more; a
-  parameter whose bounds straddle 0 takes an additive step there). One parameter per informative mode
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: forward differences
+  at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
+  `jacobian_points` x M extra runs, about 1.4% of a 12-parameter run at `num_samples: 256`).
+  Derivatives at several points keep a parameter that is flat at one of them, and keep products
+  and ratios exactly redundant. One parameter per informative mode
   (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
   parameters, and every parameter of a ratio or scaling symmetry.
 
