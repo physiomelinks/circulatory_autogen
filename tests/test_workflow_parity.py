@@ -441,6 +441,56 @@ def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     assert np.asarray(history['param_history'])[0] == pytest.approx([5.0, 3.0], rel=1e-6)
 
 
+@pytest.mark.integration
+def test_a_cellml_step_reads_names_as_the_engine_does(lv, tmp_path):
+    '''A params_for_id or set entry may name a CellML's constant by an alias the engine
+    resolves ("global/alpha" for "parameters_global/alpha"): the step sets, records and merges
+    the constant itself, as a direct run of the same files calibrates it.'''
+    def rewrite(name, old, new):
+        path = os.path.join(lv, name)
+        with open(path) as f:
+            text = f.read()
+        with open(path, 'w') as f:
+            f.write(text.replace(old, new))
+    # the fixture with its constants in a component named parameters_global
+    rewrite(_MODEL, 'Lotka_Volterra_module', 'parameters_global')
+    rewrite(_OBS, 'Lotka_Volterra_module/', 'parameters_global/')
+    rewrite(_PARAMS, 'Lotka_Volterra_module/', 'global/')
+    hand = {'id': 'hand', 'kind': 'set', 'point': True, 'set': [
+        set_value('global/gamma', 2.7, reason='near the fit')]}
+    local = {'id': 'local', 'kind': 'sensitivity', 'model': _model(), 'obs_data': _OBS,
+             'params_for_id': _PARAMS, 'result_from': 'hand',
+             'settings': {'sa_options': {'method': 'local'}}}
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(
+        _write(lv, _raw([hand, _fit(start_from='hand'), local])), output_dir=out,
+        write_calibrated=True)
+    assert result['complete']
+
+    step = _step(out, 'fit')
+    assert [(c['vessel'], c['param']) for c in step['calibrated']] == [
+        ('parameters_global', 'alpha'), ('parameters_global', 'gamma')]
+    # started at the set step's value of the constant
+    assert [(r['host_name'], r['value']) for r in step['start_from']['values']] == [
+        ('parameters_global/gamma', 2.7)]
+    merged = {r['host_name']: r['value'] for r in result['merged_parameters']}
+    assert merged['parameters_global/alpha'] == pytest.approx(4.0, rel=0.02)
+    assert merged['parameters_global/gamma'] == pytest.approx(2.5, rel=0.02)
+    assert _constants(result['calibrated_model_file'])['parameters_global/alpha'] == \
+        pytest.approx(merged['parameters_global/alpha'])
+
+    # an analysis is at the set step's value of the constant, and the model's of the other
+    local = _step(out, 'local')['nominal']
+    assert local['parameters'] == ['global/alpha', 'global/gamma']
+    assert local['values'] == [5.0, 2.7]
+
+    # a name that is none of the constant's names is refused, with the names tried
+    rewrite(_PARAMS, 'global/alpha', 'global/nope')
+    with pytest.raises(WorkflowError, match=r'names "global/nope", which is not a constant of '
+                                            r'the CellML model .*parameters_global/nope'):
+        resolve_workflow(load_workflow(os.path.join(lv, 'workflow.json')))
+
+
 def _modifier_params(lv):
     """The fixture's params_for_id with alpha calibrated through a scale modifier."""
     params = _read_json(os.path.join(lv, _PARAMS))

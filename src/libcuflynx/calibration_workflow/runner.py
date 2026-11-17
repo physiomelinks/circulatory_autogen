@@ -555,6 +555,7 @@ class _Run:
         calibrates or analyses.'''
         resolved = self.resolved.steps[step.id]
         own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
+        own = [resolved.in_model(p) for p in own]
         if resolved.renames_inputs:
             own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
                                        p.param) for p in own]
@@ -577,7 +578,8 @@ class _Run:
                 vessel, _, param = str(qname).partition('/')
                 if resolved.renames_inputs:
                     vessel = resolved.vessel_map.from_target(vessel) or vessel
-                names.add(CalibratedParameter(vessel=vessel, param=param).model_name)
+                names.add(resolved.in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name)
             modifiers[mod['name']] = names
         return modifiers
 
@@ -791,7 +793,9 @@ class _Run:
                 names = qnames if isinstance(qnames, (list, tuple)) else [qnames]
                 for qname, value in zip(names, entry_values):
                     vessel, _, param = str(qname).partition('/')
-                    parameter = CalibratedParameter(vessel=vessel, param=param)
+                    # as the step's model names it (a CellML's constant)
+                    parameter = resolved.in_model(CalibratedParameter(vessel=vessel, param=param))
+                    vessel, param = parameter.vessel, parameter.param
                     calibrated.append({
                         'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
@@ -887,7 +891,7 @@ class _Run:
             if method == 'local':
                 from libcuflynx.sensitivity_analysis.sensitivityAnalysis import LOCAL_SIGNED_FILE
                 # the analysis is about the model's values: result_from's, or its own
-                names, values = self._model_point(generated, params_for_id)
+                names, values = self._model_point(step, generated, params_for_id)
                 nominal = {'nominal': {'source': step.result_from or step.emulator_from or
                                        'model', 'parameters': names, 'values': values}}
                 signed = os.path.join(out_dir, LOCAL_SIGNED_FILE)
@@ -952,7 +956,7 @@ class _Run:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         # the analysis is at the result_from step's values, which the model was generated with,
         # or at the model's own
-        _, best = self.on_root(lambda: self._model_point(generated, params_for_id))
+        _, best = self.on_root(lambda: self._model_point(step, generated, params_for_id))
         inp = self._inp(step, settings, generated, params_for_id)
         inp['ia_options'] = settings['ia_options']
         self._run_stage(step, 'identifiability analysis', run_identifiability_analysis, inp,
@@ -977,7 +981,7 @@ class _Run:
 
         return self.on_root(finish)
 
-    def _model_point(self, generated, params_for_id):
+    def _model_point(self, step, generated, params_for_id):
         '''Rank 0: ``(names, values)``: each params_for_id entry (its first member's
         ``vessel/param``) and its value in the step's generated model. A modifier entry's
         value is its theta: the entry's ``theta`` (written from the step's ``result_from``),
@@ -993,7 +997,8 @@ class _Run:
             vessel, _, param = first.partition('/')
             names.append(first)
             if index not in modifiers:
-                values.append(rows[CalibratedParameter(vessel=vessel, param=param).model_name])
+                values.append(rows[self.resolved.steps[step.id].in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name])
                 continue
             mod = modifiers[index]
             theta = mod.get('theta')
@@ -1017,7 +1022,7 @@ class _Run:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         # the point is the result_from step's values, which the model was generated with, or
         # the model's own
-        names, at = self.on_root(lambda: self._model_point(generated, params_for_id))
+        names, at = self.on_root(lambda: self._model_point(step, generated, params_for_id))
         method = uq_method(settings)
         out_dir = os.path.join(self.step_dir(step.id), UQ_DIR)
         inp = self._inp(step, settings, generated, params_for_id)
