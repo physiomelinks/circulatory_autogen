@@ -308,6 +308,12 @@ Decided by Finbar Argus on 2026-11-13:
   `sweep_results` relative to the working directory and resolves them on read, as it does every
   step's other outputs.
 
+### Added — the Teusink benchmark calibrates on the batched C solvers
+
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
