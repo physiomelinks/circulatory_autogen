@@ -256,6 +256,38 @@ def default_output_dir(workflow):
     return os.path.join(os.getcwd(), 'workflow_output', workflow.name)
 
 
+def _member_values(step, param_id, info, values):
+    '''``(member_values, modifiers)`` of a calibration's ``values`` (one per params_for_id
+    entry): per entry, the value of each parameter it names, and a record of each modifier
+    entry. A ``targets`` entry gives its value to every parameter. A ``modifies`` entry's value
+    is theta, so its parameters get ``modifier(theta, baseline_i)`` by the engine's own
+    expansion, at the baselines ``param_id`` (the run's CVS0DParamID) resolved; the record is
+    ``{name, modifier, targets, theta, baselines, values}``.'''
+    from libcuflynx.parsers.PrimitiveParsers import expand_modifier_param_vals
+    names = [list(q) if isinstance(q, (list, tuple)) else [q] for q in info['param_names']]
+    if not info.get('modifiers'):
+        return [[float(value)] * len(q) for q, value in zip(names, values)], []
+    resolved = getattr(getattr(param_id, 'param_id', None), 'param_id_info', None)
+    if not resolved or len(resolved.get('param_names', ())) != len(names):
+        raise WorkflowStepError(step.id, 'its params_for_id has modifier entries, and the '
+                                         'calibration kept no baselines to give their '
+                                         'parameters values from.')
+    expanded = expand_modifier_param_vals(resolved, [float(v) for v in values])
+    by_index = {mod['index']: mod for mod in resolved['modifiers']}
+    member_values, modifiers = [], []
+    for index, (q, value) in enumerate(zip(names, expanded)):
+        if index not in by_index:
+            member_values.append([float(value)] * len(q))
+            continue
+        mod = by_index[index]
+        member_values.append([float(v) for v in value])
+        modifiers.append({'name': mod['name'], 'modifier': mod.get('modifier'),
+                          'targets': list(mod['targets']), 'theta': float(values[index]),
+                          'baselines': [float(b) for b in mod['baselines']],
+                          'values': member_values[-1]})
+    return member_values, modifiers
+
+
 def _write_json(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp'
@@ -696,8 +728,13 @@ class _Run:
                 samples = StoredDistribution.load(distribution_dir).samples
                 values, point_estimate = np.median(samples, axis=0), POINT_POSTERIOR_MEDIAN
             calibrated = []
-            for qnames, value in zip(info['param_names'], values):
-                for qname in (qnames if isinstance(qnames, (list, tuple)) else [qnames]):
+            # an entry's value is each of its parameters' value, except a modifier's, whose
+            # value is theta: its parameters have its function of theta at their baselines
+            member_values, modifiers = _member_values(step, outcome.get('param_id'), info,
+                                                      values)
+            for qnames, entry_values in zip(info['param_names'], member_values):
+                names = qnames if isinstance(qnames, (list, tuple)) else [qnames]
+                for qname, value in zip(names, entry_values):
                     vessel, _, param = str(qname).partition('/')
                     parameter = CalibratedParameter(vessel=vessel, param=param)
                     calibrated.append({
@@ -713,6 +750,7 @@ class _Run:
                 'point_estimate': point_estimate,
                 'best_fit': [float(v) for v in best],
                 'calibrated': calibrated,
+                'modifiers': modifiers,
                 'fixed': [dict(row) for _, row in sorted(fixed.items())],
                 'priors': [dict(prior.as_dict(), parameters=dist.names)
                            for prior, dist in priors],

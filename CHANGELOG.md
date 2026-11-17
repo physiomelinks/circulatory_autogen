@@ -57,6 +57,10 @@ next release; add to that section as you land a change.
   (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
   calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
   identifiability or uq step its point (`at_source`).
+- A calibration step whose params_for_id has a modifier entry records and merges the values
+  of the parameters it modifies, `modifier(theta, baseline)`, and records theta under
+  `modifiers`. It recorded theta as each parameter's value, so the merged target had theta in
+  place of the parameter.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
   `on_target` sweep), do not count towards "calibrated by more than one step", and the

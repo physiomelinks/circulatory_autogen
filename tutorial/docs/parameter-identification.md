@@ -1770,7 +1770,10 @@ observables at the best fit, with the error vectors `percent_error_vec.npy` and
 `error_vec_names.npy` (CA#341), in its run directory; and, when its model is a CellML,
 `<step_id>/<step_id>_calibrated.cellml`, the step's model with the best fit written in.
 `step_result.json` names them (`percent_error_vec`, `error_vec_names`, `calibrated_model`); a failure to write them is
-a warning, and the fit stands. A local sensitivity step records the point it linearised about
+a warning, and the fit stands. A params_for_id modifier entry is calibrated as its theta
+(`best_fit`), and the parameters it modifies take `modifier(theta, baseline)`: those values
+are what `calibrated`, the merged target and the calibrated CellML hold, and `modifiers` in
+the result records each entry's `theta`, `targets`, `baselines` and `values`. A local sensitivity step records the point it linearised about
 under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values)
 and its signed coefficients under `local_sensitivity_signed` (see
 [Local sensitivity files](sensitivity-analysis.md#local-sensitivity-files-method-local)), and an
