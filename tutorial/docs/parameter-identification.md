@@ -1619,7 +1619,7 @@ print(wf.result('fit')['best_fit'], wf.result('posterior')['distribution_dir'])
 | step `priors_from` | steps whose stored posterior becomes this step's prior (below) |
 | step `store_distribution` | sample the posterior by MCMC after the fit and store it |
 | step `start_from` | (calibration) a calibration or set step whose values of this step's own parameters are where its fit starts (below) |
-| step `emulator_dir` | (calibration, sensitivity, uq) an emulator trained outside the workflow, which the step runs on (below) |
+| step `emulator_dir` | (calibration, sensitivity, identifiability, uq) an emulator trained outside the workflow, which the step runs on (below) |
 | step `settings` | merged over the workflow's (one level deep, so `optimiser_options` add up) |
 
 A step runs after every step it takes something from (`fixed_from`, `priors_from` and the keys
@@ -1703,7 +1703,7 @@ The keys that pass something on, each naming one step of the kind shown:
 | `start_from` | calibration or set | its values of the parameters this calibration fits, as the point the fit starts from |
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
-| `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id |
+| `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id. The step's `result_from` point is only where the emulator is evaluated: it is not written into the step's model, which stays the one the emulator was trained on |
 | `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
 
 A calibration with **`start_from`** starts its fit at the values that step calibrated or set

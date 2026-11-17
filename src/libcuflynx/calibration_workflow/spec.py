@@ -93,8 +93,8 @@ SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulati
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
 _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
                                 'sweep', 'uq'),
-                 'emulator_from': ('calibration', 'sensitivity', 'uq'),
-                 'emulator_dir': ('calibration', 'sensitivity', 'uq'),
+                 'emulator_from': ('calibration', 'sensitivity', 'identifiability', 'uq'),
+                 'emulator_dir': ('calibration', 'sensitivity', 'identifiability', 'uq'),
                  'result_from': ('sensitivity', 'identifiability', 'sweep', 'uq'),
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation'),

@@ -627,12 +627,12 @@
         "emulator_from": {
           "type": "string",
           "minLength": 1,
-          "description": "an emulation step whose emulator this step runs on (calibration, sensitivity or uq), with that step's model; give the same model, obs_data and params_for_id as it"
+          "description": "an emulation step whose emulator this step runs on (calibration, sensitivity, identifiability or uq), with that step's model; give the same model, obs_data and params_for_id as it"
         },
         "emulator_dir": {
           "type": "string",
           "minLength": 1,
-          "description": "an emulator trained outside the workflow (a directory holding emulator_metadata.json), relative to this file, that this step runs on (calibration, sensitivity or uq); not with emulator_from. It must have been trained on this step's model, obs_data and params_for_id"
+          "description": "an emulator trained outside the workflow (a directory holding emulator_metadata.json), relative to this file, that this step runs on (calibration, sensitivity, identifiability or uq); not with emulator_from. It must have been trained on this step's model, obs_data and params_for_id"
         },
         "result_from": {
           "type": "string",

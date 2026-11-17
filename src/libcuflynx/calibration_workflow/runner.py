@@ -330,6 +330,8 @@ class _Run:
         #: rank 0: ``{step id: {model name: row}}`` of the values a step's own parameters start
         #: at (start_from), set by _prepare
         self.start_points = {}
+        #: per step on an emulator_dir, {model name: value} of the point it analyses
+        self.emulator_points = {}
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -620,7 +622,9 @@ class _Run:
                            'data_reference': f'the point analysed: calibration workflow '
                                              f'{self.workflow.name}, step {row["from_step"]}',
                            **_how_set(row)}
-                          for name, row in sorted(point.items())]
+                          # An emulator answers for the model it was trained on: the point of a
+                          # step on one is only where it is evaluated, and stays out of the model.
+                          for name, row in sorted(point.items()) if not step.emulator_dir]
             overrides += [{'variable_name': row['host_name'], 'units': row['units'],
                            'value': repr(float(row['value'])),
                            'data_reference': f'start of the fit: calibration workflow '
@@ -630,6 +634,9 @@ class _Run:
                 resolved, os.path.join(step_dir, 'model'), step.id,
                 under(resolved.base_rows, overrides), obs_data, self.resolved.library_inputs,
                 settings)
+        self.emulator_points[step.id] = ({name: float(row['value'])
+                                          for name, row in point.items()}
+                                         if step.emulator_dir else {})
         model_rows = {r['variable_name']: r
                       for r in read_parameter_rows(generated['parameters_path'])}
         for name, row in {**fixed, **point}.items():
@@ -817,7 +824,7 @@ class _Run:
             if method == 'local':
                 from libcuflynx.sensitivity_analysis.sensitivityAnalysis import LOCAL_SIGNED_FILE
                 # the analysis is about the model's values: result_from's, or its own
-                names, values = self._model_point(generated, params_for_id)
+                names, values = self._model_point(step, generated, params_for_id)
                 nominal = {'nominal': {'source': step.result_from or step.emulator_from or
                                        'model', 'parameters': names, 'values': values}}
                 signed = os.path.join(out_dir, LOCAL_SIGNED_FILE)
@@ -882,7 +889,7 @@ class _Run:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         # the analysis is at the result_from step's values, which the model was generated with,
         # or at the model's own
-        _, best = self.on_root(lambda: self._model_point(generated, params_for_id))
+        _, best = self.on_root(lambda: self._model_point(step, generated, params_for_id))
         inp = self._inp(step, settings, generated, params_for_id)
         inp['ia_options'] = settings['ia_options']
         self._run_stage(step, 'identifiability analysis', run_identifiability_analysis, inp,
@@ -912,13 +919,15 @@ class _Run:
 
         return self.on_root(finish)
 
-    def _model_point(self, generated, params_for_id):
+    def _model_point(self, step, generated, params_for_id):
         '''Rank 0: ``(names, values)``: each params_for_id entry (its first member's
-        ``vessel/param``) and its value in the step's generated model.'''
+        ``vessel/param``) and its value in the step's generated model, or, for a step on an
+        ``emulator_dir``, at its ``result_from`` point (which its model is not given).'''
         from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         rows = {r['variable_name']: float(r['value'])
                 for r in read_parameter_rows(generated['parameters_path'])}
+        rows.update(self.emulator_points.get(step.id, {}))
         names, values = [], []
         for qnames in info['param_names']:
             first = str(qnames[0] if isinstance(qnames, (list, tuple)) else qnames)
@@ -936,7 +945,7 @@ class _Run:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
         # the point is the result_from step's values, which the model was generated with, or
         # the model's own
-        names, at = self.on_root(lambda: self._model_point(generated, params_for_id))
+        names, at = self.on_root(lambda: self._model_point(step, generated, params_for_id))
         method = uq_method(settings)
         out_dir = os.path.join(self.step_dir(step.id), UQ_DIR)
         inp = self._inp(step, settings, generated, params_for_id)
