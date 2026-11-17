@@ -609,7 +609,8 @@ def plot_prediction_plots(plots, gt_df, prediction_info, protocol_info, model_va
     if not plots:
         return []
     import matplotlib
-    matplotlib.use('Agg')
+    from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+    use_agg_unless_interactive()
     import matplotlib.pyplot as plt
 
     groups = item_groups(gt_df, prediction_info)

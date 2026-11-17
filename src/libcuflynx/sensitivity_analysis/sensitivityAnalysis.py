@@ -10,7 +10,8 @@ from sys import exit
 import math as math
 import time
 import matplotlib
-matplotlib.use('Agg')
+from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
 from libcuflynx.utilities import paperPlotSetup
