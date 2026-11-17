@@ -248,14 +248,14 @@ class PCASobolReduction(ParamReduction):
        largest index over the informative modes is at least ``min_index``. A candidate's effect
        is its local derivative of the informative mode scores, scaled to its prior range and in
        noise stds, at each of the Sobol run's Jacobian points (sobolSA.run_local_jacobian:
-       forward differences at the first ``jacobian_points`` Saltelli base points), stacked over
-       the points and divided by sqrt(points), so its norm is the root mean square over them.
-       Greedily keep the candidate whose effect not already explained by the kept parameters
-       is largest (pivoted Gram-Schmidt), and stop when that unexplained effect is below
-       ``min_mode_std``: what it would add to the fit is inside the noise. Two parameters that
-       move the data the same way (a product, a ratio, a scaling symmetry) have parallel
-       derivatives at every point, so only one is kept, however many modes they drive; one
-       whose slope is flat at one point but not at others is still seen.
+       forward differences at the first ``jacobian_points`` Saltelli base points). Greedily
+       keep the candidate whose effect not explained by the kept parameters at the same point
+       has the largest root mean square over the points (pivoted Gram-Schmidt at each point,
+       choose_independent), and stop when that is below ``min_mode_std``: what it would add
+       to the fit is inside the noise. Two parameters that move the data the same way at every
+       point (a product, a ratio, a sum, a scaling symmetry) leave nothing at any point, so
+       only one is kept, however many modes they drive; one whose slope is flat at one point
+       but not at others is still seen.
     5. Without it: over the informative modes, largest first, keep the parameter not yet kept
        with the largest index for that mode, unless that index is below ``min_index`` (no free
        parameter drives the mode). This keeps one parameter per mode, so it reduces only when
@@ -385,28 +385,42 @@ class PCASobolReduction(ParamReduction):
                              'mode_std': float(np.sqrt(variances[k]))})
         return selected, skipped
 
-    def choose_independent(self, effects, candidates, names, weighted, informative_idx):
-        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt on ``effects`` (one row per
-        parameter: its effect on the informative modes over its prior range in noise stds, one
-        block of modes per Jacobian point), over the ``candidates``, stopping when the largest unexplained effect is below
-        ``min_mode_std`` or after ``n_params``. ``unexplained`` is each parameter's effect left
-        once the kept ones are accounted for."""
-        residual = np.array(effects, dtype=float)
+    @staticmethod
+    def rms_over_points(by_point):
+        """Each parameter's root mean square, over the points, of the length of its effect
+        (``by_point``: points x parameters x modes)."""
+        return np.sqrt(np.mean(np.sum(by_point ** 2, axis=2), axis=0))
+
+    def choose_independent(self, by_point, candidates, names, weighted, informative_idx):
+        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt, done at each point
+        separately and chosen jointly. ``by_point`` is points x parameters x informative modes:
+        each parameter's effect over its prior range, in noise stds, at each Jacobian point.
+        Keep the candidate whose effect not explained by the kept parameters, at the same
+        point, has the largest root mean square over the points; remove its direction at each
+        point; stop when that is below ``min_mode_std`` or after ``n_params``. Explaining point
+        by point lets the combination of kept parameters that reproduces a redundant one vary
+        across the box, as it does for a scaling symmetry. ``unexplained`` is each parameter's
+        root mean square effect left once the kept ones are accounted for."""
+        residual = np.array(by_point, dtype=float)
         selected, free = [], list(candidates)
+        total = self.rms_over_points(by_point)
         while free and (self.n_params is None or len(selected) < self.n_params):
-            norms = {i: float(np.linalg.norm(residual[i])) for i in free}
-            best = max(free, key=norms.get)
-            if norms[best] < self.min_mode_std:
+            left = self.rms_over_points(residual)
+            best = max(free, key=lambda i: left[i])
+            if left[best] < self.min_mode_std:
                 break
-            direction = residual[best] / norms[best]
-            residual -= np.outer(residual @ direction, direction)
+            for point in residual:
+                length = np.linalg.norm(point[best])
+                if length > 0:
+                    direction = point[best] / length
+                    point -= np.outer(point @ direction, direction)
             free.remove(best)
-            column = int(np.argmax(np.abs(effects[best]))) % len(informative_idx)
+            column = int(np.argmax(np.sum(by_point[:, best] ** 2, axis=0)))
             selected.append({'parameter': names[best], 'score': float(weighted[best]),
                              'mode': int(informative_idx[column]) + 1,
-                             'new_effect': norms[best],
-                             'effect': float(np.linalg.norm(effects[best]))})
-        unexplained = {names[i]: float(np.linalg.norm(residual[i])) for i in range(len(names))
+                             'new_effect': float(left[best]), 'effect': float(total[best])})
+        left = self.rms_over_points(residual)
+        unexplained = {names[i]: float(left[i]) for i in range(len(names))
                        if names[i] not in {row['parameter'] for row in selected}}
         return selected, unexplained
 
@@ -477,20 +491,19 @@ class PCASobolReduction(ParamReduction):
         informative_idx = [k for k in np.argsort(-variances) if informative[k]]
         with np.errstate(divide='ignore', invalid='ignore'):
             per_output = np.where(np.isfinite(scales) & (scales > 0), jacobian / scales, 0.0)
-        # points x parameters x informative modes -> parameters x (points * modes)
-        by_point = per_output @ loadings[informative_idx].T
-        effects = by_point.transpose(1, 0, 2).reshape(len(params), -1) / np.sqrt(len(jacobian))
+        by_point = per_output @ loadings[informative_idx].T   # points x parameters x modes
         total = float(np.sum(variances[informative_idx])) or 1.0
         weighted = (variances[informative_idx, None] * indices[informative_idx]).sum(axis=0)
         weighted = weighted / total
         largest = indices[informative_idx].max(axis=0) if informative_idx else \
             np.zeros(len(params))
         candidates = [i for i in range(len(params)) if largest[i] >= self.min_index]
-        selected, unexplained = self.choose_independent(effects, candidates, params, weighted,
+        selected, unexplained = self.choose_independent(by_point, candidates, params, weighted,
                                                         informative_idx)
+        effects = self.rms_over_points(by_point)
         return selected, [], {
             'candidates': [params[i] for i in candidates],
-            'effects': {params[i]: float(np.linalg.norm(effects[i])) for i in range(len(params))},
+            'effects': {params[i]: float(effects[i]) for i in range(len(params))},
             'unexplained_effects': unexplained,
             'jacobian_points_used': int(len(jacobian))}
 
