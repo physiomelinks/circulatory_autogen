@@ -262,3 +262,45 @@ def test_generated_model_with_ms_module_runs_at_model_time(tmp_path):
     x = np.asarray(helper.get_results([['decay/x']], flatten=True)).ravel()
     t = np.asarray(helper.get_time())
     np.testing.assert_allclose(x, 2.0 * np.exp(-0.5 * t), rtol=1e-4)
+
+
+DECAY_MS_CELLML = """\
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="decay_ms" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+  <units name="ms"><unit prefix="milli" units="second"/></units>
+  <units name="per_ms"><unit prefix="milli" units="second" exponent="-1"/></units>
+  <component name="environment">
+    <variable name="time" units="second" public_interface="out"/>
+  </component>
+  <component name="fast">
+    <variable name="t" units="ms" public_interface="in"/>
+    <variable name="k" units="per_ms" initial_value="0.002"/>
+    <variable name="x" units="dimensionless" initial_value="1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply></apply>
+    </math>
+  </component>
+  <connection><map_components component_1="environment" component_2="fast"/><map_variables variable_1="time" variable_2="t"/></connection>
+</model>
+"""
+
+
+def test_fsa_gradient_of_a_ms_module_matches_the_closed_form(tmp_path):
+    """The time-unit rescaling (#605) reaches the forward sensitivities, not only the states.
+
+    dx/dt = -k x with t in ms, run in model seconds: x = exp(-1000 k t), so
+    dx/dk = -1000 t x. Missing the factor in the sensitivity equations would give -t x.
+    """
+    path = tmp_path / 'decay_ms.cellml'
+    path.write_text(DECAY_MS_CELLML)
+    helper = get_simulation_helper(model_path=str(path), solver='CVODE_myokit',
+                                   model_type='cellml', dt=0.05, sim_time=1.0, pre_time=0.0,
+                                   solver_info={'rtol': 1e-8, 'atol': 1e-10})
+    assert not helper.enable_fsa(['fast/x'], ['fast/k'])
+    assert helper.run()
+    t = np.asarray(helper.get_time()).ravel()
+    x = np.asarray(helper.get_results([['fast/x']], flatten=True)).ravel()
+    np.testing.assert_allclose(x, np.exp(-2.0 * t), rtol=1e-6)
+    sensitivity = helper.get_sensitivities(['fast/x'], ['fast/k'])['fast/x']['fast/k']
+    np.testing.assert_allclose(sensitivity, -1000.0 * t * x, rtol=1e-4, atol=1e-8)

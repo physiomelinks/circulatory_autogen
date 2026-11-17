@@ -9,13 +9,12 @@ The sampling itself needs pymc and is exercised by the slow posterior-recovery t
 import numpy as np
 import pytest
 
+from _mpi_probes import _pymc_available
+
 from libcuflynx.param_id.pymc_backend import PyMCSampler, _INSTALL_HINT, _import_pymc
 
-pymc_installed = True
-try:
-    import pymc  # noqa: F401
-except ImportError:
-    pymc_installed = False
+# Probed on rank 0 only (see _mpi_probes): `import pymc` on every rank races in arviz.
+pymc_installed = _pymc_available()
 
 
 class _FakePosterior:

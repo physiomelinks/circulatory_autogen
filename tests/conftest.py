@@ -57,7 +57,10 @@ import shutil
 import pytest
 import numpy as np
 import random
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows, where the suite runs on one process and needs no lock
+    fcntl = None
 import io
 import contextlib
 import time
@@ -273,6 +276,25 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "one_rank_rank(idx): rank assigned to run an autogeneration test")
     config.addinivalue_line("markers", "misc_task: marks a one-rank miscellaneous integration test")
 
+    # CUFLYNX_REQUIRED_BACKENDS: a required backend's skip fails (tests/_required_backends.py).
+    import _required_backends
+    if not config.pluginmanager.is_registered(_required_backends):
+        config.pluginmanager.register(_required_backends, 'cuflynx_required_backends')
+
+
+def pytest_report_header(config):
+    """The backends and versions this run used (tests/_backend_info.py)."""
+    from _backend_info import header_lines
+    return header_lines()
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _record_backend_versions(record_testsuite_property):
+    """The same versions as the header, as junit testsuite properties."""
+    from _backend_info import backend_info
+    for name, value in backend_info().items():
+        record_testsuite_property(name, value or 'not installed')
+
 
 def pytest_sessionstart(session):
     """Record session start time for aggregated summaries."""
@@ -317,7 +339,7 @@ def pytest_runtest_setup(item):
     Serialize param_id/comparison/SA tests so only one runs at a time across workers/ranks.
     Uses a filesystem lock to coordinate even when xdist or MPI are involved.
     """
-    if not _has_serial_marker(item):
+    if not _has_serial_marker(item) or fcntl is None:
         return
     # Under MPI we need all ranks to enter the test concurrently; skip the lock when size>1
     comm = MPI.COMM_WORLD
@@ -846,11 +868,17 @@ def select_ci_shard(config, items, shards=None):
         config.hook.pytest_deselected(items=deselected)
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
+
+    Runs after pytest's own -m/-k deselection, so the one-rank totals count only the tests
+    that were kept. On more than one rank this hook drops the other ranks' one-rank tests
+    from ``items``; a deselection after that never subtracted them, and rank 0 waited
+    30 minutes per result file at the end of the run.
     """
     import os
 
@@ -906,10 +934,13 @@ def pytest_collection_modifyitems(config, items):
     # Mark param_id and comparison tests to run serially as one group under xdist
     for item in items:
         nodeid = item.nodeid
-        if "test_param_id" in nodeid or "compare_optimisers" in nodeid:
+        # By file, not by substring of the node id: test_param_id_external_recovers_params
+        # (in test_external_simulation_helper.py) needs no generated models.
+        test_file = os.path.basename(nodeid.split("::")[0])
+        if test_file == "test_param_id.py" or "compare_optimisers" in nodeid:
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
-        if "test_sensitivity_analysis" in nodeid:
+        if test_file == "test_sensitivity_analysis.py":
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
         if 'test_solvers' in nodeid:

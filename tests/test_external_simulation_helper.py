@@ -632,9 +632,8 @@ def test_fd_observable_sensitivities_on_an_external_model(base_user_inputs, temp
     """
     from libcuflynx.param_id.paramID import CVS0DParamID
 
-    if MPI.COMM_WORLD.Get_rank() != 0:
-        pytest.skip('single-rank check')
-
+    # On every rank, as a calibration runs: the param-id engine makes COMM_WORLD collectives,
+    # and running it on rank 0 alone left them unmatched, so the next MPI test deadlocked.
     config = _heat1d_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     # init_from_dict wants the *resolved* config: model_path, params_for_id_path and
     # param_id_obs_path are all derived by the parser.
