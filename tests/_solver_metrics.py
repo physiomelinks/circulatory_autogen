@@ -20,8 +20,6 @@ import numpy as np
 # over five runs: locally on SUNDIALS 7.7 (Myokit 1.39.1/casadi 3.7.2 and Myokit 1.40/casadi
 # 3.8.2/libOpenCOR) and in CI on SUNDIALS 6.4.1 (test 3.12 solver-matrix, test-min-deps). SUNDIALS
 # 6 vs 7 moved errors by up to 2x. A gate already under 10x the measured error is left as it was.
-# A run whose control_parasymp atrial onset shifts (heart vp_wCont, about one run in 10-25 on any
-# CVODE path) is ~1 off on every metric: no gate here absorbs that, and none is meant to.
 TOLERANCES = {
     # measured rms 6.5e-6 (3compartment), shift 1.0e-4 (3compartment), features 1.3e-5 (cvs_model_0d)
     'CVODE_myokit':      {'scaled_rms': 1e-5, 'shift_max': 1e-3, 'features': 1e-4},
@@ -48,7 +46,7 @@ COST_TOLERANCE = {'BE_batched_c': 5e-4}
 COST_TOLERANCE_DEFAULT = 5e-5
 
 # control_phys_asd's features from casadi_python against a converged CVODE_myokit run: measured
-# 1.1e-6. This model has the vp_wCont atrial clock too (see above).
+# 1.1e-6.
 DIVISION_GUARD = 2e-5
 
 # How far (in output steps) shift_tolerant_max may move a point to meet the reference.

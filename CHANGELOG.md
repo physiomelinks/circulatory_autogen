@@ -5,6 +5,37 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the built-in hearts compute their chamber phases from the beat phase
+
+- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
+  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
+  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
+  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
+  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
+  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
+  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
+  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
+  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
+  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
+  made the same change.
+- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
+  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
+  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
+  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
+  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
+  state changes by round-off at the onset.
+- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
+  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
 ### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
 
 The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
@@ -313,6 +344,12 @@ Decided by Finbar Argus on 2026-11-13:
 - The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
   `sweep_results` relative to the working directory and resolves them on read, as it does every
   step's other outputs.
+
+### Added — the Teusink benchmark calibrates on the batched C solvers
+
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
