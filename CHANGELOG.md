@@ -5,6 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
@@ -298,6 +307,12 @@ Decided by Finbar Argus on 2026-11-13:
 - The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
   `sweep_results` relative to the working directory and resolves them on read, as it does every
   step's other outputs.
+
+### Added — the Teusink benchmark calibrates on the batched C solvers
+
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
