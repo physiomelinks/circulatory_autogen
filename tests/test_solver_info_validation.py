@@ -539,7 +539,7 @@ def test_analysis_options_schema_well_formed():
     # which Sobol run to read and where the reduced params_for_id goes.
     assert names('param_reduction') == {
         'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
-        'variance_fraction', 'min_index', 'sensitivity_dir', 'output_dir'}
+        'variance_fraction', 'min_index', 'redundancy_check', 'sensitivity_dir', 'output_dir'}
     assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
