@@ -31,6 +31,7 @@ class FakeEngine:
         self.args = args
         self.kwargs = kwargs
         self.output_dir = kwargs.get("param_id_output_dir", ".")
+        self.uq_output_dir = self.output_dir
         self.param_id = object()
         FakeEngine.instances.append(self)
 
