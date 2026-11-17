@@ -74,10 +74,17 @@ SOBOL_PROBLEM_FILE = 'sobol_problem.json'
 #: * ``jacobian_step`` -- the step, in ln(parameter), or, for bounds that straddle 0, as a
 #:   fraction of the parameter's range;
 #: * ``jacobian_check_steps`` -- also differentiate with half the step, so the reduction can
-#:   leave out points where the two disagree (``redundancy_converged_only``).
+#:   leave out points where the two disagree (``redundancy_converged_only``, on by default).
+#:
+#: The defaults cost 4 x jacobian_points x M runs, about 2 x jacobian_points / num_samples of
+#: the Sobol run (5.8% for 12 parameters at num_samples 256). The study in
+#: benchmarks/param_reduction/compare_redundancy.py chose them: on the Goodwin oscillator,
+#: whose ai, Ai and ki are an exact scaling symmetry, 2 of 8 points have derivatives that do
+#: not converge as the step shrinks, and only leaving them out (or the median, or the centre
+#: point alone) drops one of the three.
 JACOBIAN_DEFAULTS = {'jacobian_points': 8, 'jacobian_location': 'base_points',
                      'jacobian_scheme': 'central', 'jacobian_step': 1e-3,
-                     'jacobian_check_steps': False}
+                     'jacobian_check_steps': True}
 
 
 def jacobian_options(sa_options):

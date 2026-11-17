@@ -158,7 +158,7 @@ def test_options_are_the_param_reduction_options_descriptors():
     # round trip, and the paths are ignored
     options = {'method': 'pca', 'n_params': 3, 'index_type': 'S1', 'min_mode_std': 2.0,
                'variance_fraction': 0.9, 'min_index': 0.1, 'redundancy_check': False,
-               'redundancy_statistic': 'median', 'redundancy_converged_only': True,
+               'redundancy_statistic': 'median', 'redundancy_converged_only': False,
                'redundancy_convergence_tol': 0.2}
     assert ParamReduction.from_options(dict(options, sensitivity_dir='x')).as_dict() == options
     # an option of the other method at its default is fine (a filled-in form); changed, not
@@ -384,7 +384,7 @@ def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
 def test_the_jacobian_options_are_checked(bad):
     assert jacobian_options({}) == {'jacobian_points': 8, 'jacobian_location': 'base_points',
                                     'jacobian_scheme': 'central', 'jacobian_step': 1e-3,
-                                    'jacobian_check_steps': False}
+                                    'jacobian_check_steps': True}
     with pytest.raises(ValueError, match=list(bad)[0]):
         jacobian_options(bad)
 

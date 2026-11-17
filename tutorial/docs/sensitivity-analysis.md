@@ -194,11 +194,11 @@ parameter, the direction it moves the data in, and compares those.
 | `jacobian_location` | `base_points` | `base_points`: the first `jacobian_points` Saltelli base points, the rows starting each block of 2M + 2 samples, which come from a Sobol sequence and so spread over the box; `centre`: one point at the centre of the box |
 | `jacobian_scheme` | `central` | `central` (2 runs per parameter and point) or `forward` (1, reusing the base point's own run) |
 | `jacobian_step` | 0.001 | the step in ln(parameter), or as a fraction of the range for bounds that straddle 0 |
-| `jacobian_check_steps` | false | also take them with half the step (twice the runs), for `redundancy_converged_only` |
+| `jacobian_check_steps` | true | also take them with half the step (twice the runs), for `redundancy_converged_only` |
 
-With the defaults a run costs `2 x jacobian_points x M` extra simulations, about
-`jacobian_points / num_samples` of the Sobol run: 192 next to 6656 (2.9%) for 12 parameters and
-`num_samples: 256`. Central differences are the default because a forward step's error is first
+With the defaults a run costs `4 x jacobian_points x M` extra simulations (two steps, two runs
+each), about `2 x jacobian_points / num_samples` of the Sobol run: 384 next to 6656 (5.8%) for
+12 parameters and `num_samples: 256`; `jacobian_check_steps: false` halves that. Central differences are the default because a forward step's error is first
 order: in an oscillator a step shifts the phase, the error grows along the time course, and in
 the Goodwin benchmark it hid an exact symmetry. Each derivative is multiplied by the parameter's
 prior range (`ln(max/min)`, or `max - min` for bounds that straddle 0), so it reads as how far the
@@ -225,10 +225,19 @@ Two `param_reduction_options` set how the points are combined:
   point, however few; `median` keeps it only if it is unexplained at most points, which ignores
   a minority of points where the derivatives are poor, and also a parameter that matters in
   less than half the box.
-- `redundancy_converged_only` (default false): leave out the points where the derivatives at
+- `redundancy_converged_only` (default true): leave out the points where the derivatives at
   `jacobian_step` and at half of it differ by more than `redundancy_convergence_tol` (default
   0.1) of the effect. It needs `jacobian_check_steps`, and the report lists the
   `unconverged_points`.
+
+The defaults (central differences at 8 base points, `rms` over the points whose derivatives
+converge) come from `benchmarks/param_reduction/compare_redundancy.py`, which runs every setting
+on the FitzHugh-Nagumo, Goodwin and Teusink benchmarks and compares the kept count with the
+Fisher information at the truth (`redundancy_comparison_results.md`). FitzHugh-Nagumo and
+Teusink give the same count under every setting. Goodwin is decided by the points below:
+`rms` over all points keeps one parameter too many. `median` and the centre point alone also
+give the right count there, but `median` drops a parameter that matters in less than half the
+box, and the centre point misses one that is flat at the centre.
 
 **Why local derivatives, at several points.**
 
@@ -245,9 +254,8 @@ Two `param_reduction_options` set how the points are combined:
   an exact scaling symmetry, so `ai` is explained by the other two at every point in exact
   arithmetic. At six of eight points the derivatives show it (under 1 noise std left), but at
   the two where `ai` is small next to `Ai` they do not settle as the step shrinks, and leave
-  tens of noise stds. With `rms` those two points keep `ai`; `median` or
-  `redundancy_converged_only` drop it. `benchmarks/param_reduction/compare_redundancy.py`
-  compares the settings on the benchmark models.
+  tens of noise stds. The default leaves those two points out as unconverged and drops `ai`;
+  `rms` over every point would keep it.
 
 **Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
 such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.
