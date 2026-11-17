@@ -1,4 +1,6 @@
 # The commit of physiomelinks/circulatory-autogen-modules the tests run against (see
 # tests/_module_library.py): its main branch.
 # CI checks this commit out; move it deliberately.
-ad7d5613253d5b9a9593ab135f5868304baaa83d
+# Draft pin: circulatory-autogen-modules migration/junction-removal (junction removal, with the
+# summing ports and renames.json entries). Move to its main once that merges.
+90ad6772accad066b0a24cbb63ae41c346fd19a1

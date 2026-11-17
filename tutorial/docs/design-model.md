@@ -67,7 +67,7 @@ Some examples of possible inputs
 |----------------|---------------------------------------------------------------------------------------------------------------|
 | name           | User defined, but it is better to use common names like 'heart', 'pvn', 'par', etc.                           |
 | module_subtype | 'vv', 'vp', 'pv', 'pp', 'pp_wCont', 'pp_wLocal', 'nn' (linked to module_subtype in the modules config JSON files) |
-| module_type    | 'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'split_junction', 'merge_junction', '2in2out_junction', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to module_type in the modules config JSON files)  |
+| module_type    | 'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to module_type in the modules config JSON files)  |
 | inp_instances  | name of the input instances, one (or more) of the names in the other rows                                    |
 | out_instances  | name of the output instances, one (or more) of the names in the other rows                                   |
 
@@ -259,11 +259,27 @@ compliant. Fix it by swapping subtypes so the end alone on its side is `v` and t
 port there takes several connections), for a module that is not a vessel by giving that port a
 `"sum"` entry, or by putting a lumped `vv` vessel between the lone end
 and the others, which then owns the node. A node with several ends on **both** sides cannot be
-owned by one end and is refused: join those vessels through a `2in2out_junction` (`vv`), which
-has a port per connection, or through a `vv` vessel they merge into and split from. Nodes with a
+owned by one end and is refused: join those vessels through a `vv` vessel they merge into and
+split from, whose inlet and outlet then each own a node. Nodes with a
 1D (`FV1D_vessel`) end are coupled by the 1D coupler and are not checked. See issue #616.
 `resources/generic_junction_test_open_loop_module_array.csv` follows the rule at every split;
 `generic_junction_test2_open_loop` is the same network with four of its splits mixed, and is refused.
+
+**Models made with the junction module types.** The module library had junction module types
+(`Min_junction`, `Nout_junction`, `MinNout_junction`, `split_junction`, `merge_junction`,
+`2in2out_junction`, their `_simple` and `venous_` variants, the microvasculature's
+`<vessel>_Min`/`_Nout`/`_Minlet`/`_Noutlet`/`_MinNout`, `flow_merge` and `flow_split`): vessels
+with a fixed number of numbered ports, or a summed port named `v_in_sum`/`v_out_sum`. It replaced
+them by the ordinary vessels, whose compliant end sums its node as above. Convert a model once, after
+`cuflynx-upgrade module-names`, with
+`cuflynx-upgrade junctions [resources_dir]/[file_prefix]_module_array.json --module-library-dir [library]/modules`.
+It retypes each junction to the version the library's `renames.json` names (the equations are the
+same), splits an `inlet_flow constant_2` into two `constant` sources, removes a `flow_merge` or
+`flow_split` and joins its neighbours, and renames what changed in `[file_prefix]_parameters.json`,
+`[file_prefix]_obs_data*.json` and `[file_prefix]_params_for_id*.json`: `v_in_sum` and `v_out_sum`
+become `v_in` and `v_out`, and a numbered port flow (`J/v_out_1`) becomes the inflow of the
+neighbour on that port (`s1/v`). It lists values the new version has no variable for, which it
+drops, and any name it could not map.
 
 ### Coupling to other models: the `api` block
 
