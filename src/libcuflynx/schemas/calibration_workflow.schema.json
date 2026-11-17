@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
   "title": "libcuflynx calibration workflow (calibration_workflow.json)",
-  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set or sweep; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set, sweep or uq; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, a module of a module library, an external Python model or a CellML model), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -108,6 +108,12 @@
         },
         {
           "$ref": "#/$defs/library_module"
+        },
+        {
+          "$ref": "#/$defs/external_model"
+        },
+        {
+          "$ref": "#/$defs/cellml_model"
         }
       ]
     },
@@ -164,6 +170,41 @@
           "description": "its parameters file; default <prefix>_parameters.json beside it"
         }
       }
+    },
+    "external_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_model_path"
+      ],
+      "properties": {
+        "external_model_path": {
+          "type": "string",
+          "pattern": "\\.py\\s*$",
+          "description": "a .py file defining SIM_HELPER, run as model_type external_python; its parameters are the class's component/variable names"
+        }
+      },
+      "description": "an external Python model. A step with one needs a target that is the same file; it is run with the step's values in an external_parameters_file and is never generated"
+    },
+    "cellml_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cellml_model_path"
+      ],
+      "properties": {
+        "cellml_model_path": {
+          "type": "string",
+          "pattern": "\\.cellml\\s*$",
+          "description": "a CellML file (its imports beside it, as it names them); its parameters are its constants, named component/variable"
+        },
+        "parameters": {
+          "type": "string",
+          "pattern": "\\.json\\s*$",
+          "description": "a parameters file ({component: {variable: {value, units}}}) whose values replace the CellML's"
+        }
+      },
+      "description": "a CellML model, run as model_type cellml. A step with one needs a target that is the same file; it runs a flattened copy with the step's values written in"
     },
     "library_module": {
       "type": "object",
@@ -308,7 +349,7 @@
           "properties": {
             "step": {
               "type": "string",
-              "description": "the step whose stored distribution is used (it must set store_distribution)"
+              "description": "the step whose stored distribution is used (a calibration with store_distribution, or a uq step)"
             },
             "kind": {
               "enum": [
@@ -492,11 +533,15 @@
         "id": {
           "type": "string",
           "pattern": "^[^/\\\\]+$",
-          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\"",
+          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\", nor a name the run's output directory uses itself: \"models\" (models generated for viewing), \"target\" (the target's view), \"_target\" (the generated target) or \"inputs\" (the study's copies of its inputs)",
           "not": {
             "enum": [
               ".",
-              ".."
+              "..",
+              "models",
+              "target",
+              "_target",
+              "inputs"
             ]
           }
         },
@@ -508,10 +553,11 @@
             "emulation",
             "identifiability",
             "set",
-            "sweep"
+            "sweep",
+            "uq"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -563,7 +609,7 @@
           "items": {
             "$ref": "#/$defs/prior"
           },
-          "description": "earlier steps whose stored distributions become priors here: their parameters are calibrated again in this step, with that prior"
+          "description": "earlier steps whose stored distributions become priors here: a calibration with store_distribution, or a uq step; their parameters are calibrated again in this step, with that prior"
         },
         "store_distribution": {
           "type": "boolean",
@@ -581,12 +627,22 @@
         "emulator_from": {
           "type": "string",
           "minLength": 1,
-          "description": "an emulation step whose emulator this step runs on (calibration or sensitivity), with that step's model; give the same model, obs_data and params_for_id as it"
+          "description": "an emulation step whose emulator this step runs on (calibration, sensitivity or uq), with that step's model; give the same model, obs_data and params_for_id as it"
+        },
+        "emulator_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "an emulator trained outside the workflow (a directory holding emulator_metadata.json), relative to this file, that this step runs on (calibration, sensitivity or uq); not with emulator_from. It must have been trained on this step's model, obs_data and params_for_id"
         },
         "result_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a calibration step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability or sweep: the analysis is at that result)"
+          "description": "a calibration or set step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability, uq or sweep: the analysis is at those values; without it, at the model's own)"
+        },
+        "start_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "(calibration) a calibration or set step whose values of this step's own parameters are where its fit starts: the step's model is generated with them, so they are the optimiser's initial point. They are not fixed, and do not reach the target"
         },
         "sensitivity_from": {
           "type": "string",
@@ -605,6 +661,11 @@
             "$ref": "#/$defs/set_entry"
           },
           "description": "a set step: the values it declares"
+        },
+        "point": {
+          "type": "boolean",
+          "default": false,
+          "description": "(set) the step's values are a point only, for start_from, result_from or fixed_from: they are not merged into the target and are not counted as calibrating it. An explicit key, so a workflow's meaning never depends on how its steps are used"
         },
         "sweep": {
           "type": "object",
@@ -710,6 +771,20 @@
             "required": [
               "set"
             ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "point"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "set"
+              }
+            }
           }
         },
         {

@@ -9,9 +9,13 @@ Layout of the packed directory::
                                   its parameters file (a file several steps share is packed
                                   once, under the first), and the parameters file's
                                   <name>_derivations.json with the CellML and Python files it
-                                  reads, at their paths relative to it
+                                  reads, at their paths relative to it; and the emulator
+                                  directory it names (emulator_dir)
     inputs/_target/               the target's module array and parameters file, with its
-                                  variable_mapping.csv if it has one
+                                  variable_mapping.csv if it has one; or, for an external
+                                  model, the .py and every file beside it; or, for a CellML
+                                  model, the CellML, the files it imports at their paths
+                                  relative to it, and its parameters file
     modules/                      each module version the workflow uses, laid out as in its
                                   library, and every units file of that library
                                   (modules/<n>/ for the n-th of several libraries)
@@ -75,6 +79,56 @@ class _Packer:
                            for f in names}
         else:
             self._copy(source, relative)
+        self.packed[real] = relative
+        return relative
+
+    def external(self, source):
+        '''Copy an external model -- the ``.py`` and every file beside it (not its
+        subdirectories, where runs may write), as a model may read data there -- into
+        ``inputs/_target/<directory>/``; the ``.py``'s path in the pack. Each file copied is the
+        pack's copy of it, so obs_data or a params_for_id beside the model is packed once.'''
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        directory = os.path.dirname(real)
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER, os.path.basename(directory))
+        for name in sorted(os.listdir(directory)):
+            path = os.path.join(directory, name)
+            if name.startswith('.') or not os.path.isfile(path):
+                continue
+            relative = os.path.join(home, name)
+            self._copy(path, relative)
+            self.packed.setdefault(os.path.realpath(path), relative)
+        return self.packed[real]
+
+    def cellml(self, source):
+        '''Copy a CellML model, and the files it imports at their paths relative to it, into
+        ``inputs/_target/`` (a CellML target is every step's model, so it is the pack's one
+        CellML model); the CellML's path in the pack.'''
+        from libcuflynx.calibration_workflow.cellml_files import cellml_imports
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        directory = os.path.dirname(real)
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER)
+        for path in [real] + cellml_imports(real):
+            relative = os.path.relpath(path, directory)
+            if relative.startswith(os.pardir):
+                raise ValueError(f'{source} imports {path}, outside its directory; keep the '
+                                 f'files a CellML model imports in its directory or below.')
+            self._copy(path, os.path.join(home, relative))
+            self.packed.setdefault(path, os.path.join(home, relative))
+        return self.packed[real]
+
+    def directory(self, source, owner):
+        '''Copy a directory into ``inputs/<owner>/<its name>/`` (once); its path in the
+        pack.'''
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        relative = os.path.join(INPUTS_DIR, owner, os.path.basename(os.path.normpath(source)))
+        for path in _visible_files(source):
+            self._copy(path, os.path.join(relative, os.path.relpath(path, source)))
         self.packed[real] = relative
         return relative
 
@@ -185,6 +239,13 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     def model(spec_model, owner):
         if spec_model.kind in ('library', 'selection'):
             return spec_model.as_dict()    # a selection's files are the target's
+        if spec_model.kind == 'external':
+            return {'external_model_path': packer.external(spec_model.path)}
+        if spec_model.kind == 'cellml':
+            packed = {'cellml_model_path': packer.cellml(spec_model.path)}
+            if spec_model.parameters:
+                packed['parameters'] = packer.file(spec_model.parameters, TARGET_OWNER)
+            return packed
         array = packer.file(spec_model.module_array, owner)
         packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}
@@ -214,6 +275,8 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
             raw_step['obs_data'] = packer.file(step.obs_data, step.id)
         if step.params_for_id:
             raw_step['params_for_id'] = packer.file(step.params_for_id, step.id)
+        if step.emulator_dir:
+            raw_step['emulator_dir'] = packer.directory(step.emulator_dir, step.id)
         if raw_step.get('settings'):
             settings(raw_step['settings'], step.settings)
 

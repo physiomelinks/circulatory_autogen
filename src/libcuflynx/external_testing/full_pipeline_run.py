@@ -39,14 +39,20 @@ POSTERIOR_SERIES_DRAWS = 4
 #: quick pass: they are the slow arm, and this is not measuring accuracy.
 EMULATOR_MODELS = 'RandomForest,PolynomialRegression,RadialBasisFunctions'
 
-#: What a full run leaves behind, relative to the run directory. Every reader
+#: What a full run leaves behind in the calibration's run directory. Every reader
 #: downstream -- the plotting script, CUFLynx -- depends on these names, so they
 #: are listed once here and asserted against rather than restated per test.
 EXPECTED_ARTEFACTS = (
     'best_param_vals.npy',
     'best_cost.npy',
     'param_names.csv',
+)
+
+#: What it leaves in the MCMC run's directory (``paramID.case_dir_name`` with ``mcmc``):
+#: the chain and the posterior predictive check made from it.
+EXPECTED_UQ_ARTEFACTS = (
     'mcmc_chain.npy',
+    'param_names.csv',
     'posterior_predictive.npz',
     'posterior_predictive_coverage.json',
 )
@@ -131,10 +137,10 @@ def build_full_pipeline_run(output_dir, resources_dir, generated_models_dir,
                             config=None, with_series=True):
     """Run every stage into ``output_dir`` and report what was produced.
 
-    Returns ``{'config', 'run_dir', 'artefacts', 'coverage', 'manifest'}``. ``run_dir`` is
-    where CA actually wrote, which is not ``output_dir`` -- it names the
-    directory after the method, prefix and obs file, and every reader has to find
-    it the same way.
+    Returns ``{'config', 'run_dir', 'uq_dir', 'artefacts', 'uq_artefacts', 'coverage',
+    'manifest'}``. ``run_dir`` is where CA wrote the calibration and ``uq_dir`` the MCMC run,
+    neither of them ``output_dir``: each is named after its method, the prefix and the obs
+    file (``paramID.case_dir_name``), and every reader has to find them the same way.
     """
     from libcuflynx.scripts.script_generate_with_new_architecture import (
         generate_with_new_architecture)
@@ -162,7 +168,7 @@ def build_full_pipeline_run(output_dir, resources_dir, generated_models_dir,
 
     # Calibration, then the chain, then identifiability -- run_param_id owns all
     # three, gated by the flags above.
-    run_param_id(dict(config))
+    outcome = run_param_id(dict(config))
 
     result = posterior_predictive(
         config, num_samples=POSTERIOR_DRAWS, use_emulator=False, save=True,
@@ -176,10 +182,13 @@ def build_full_pipeline_run(output_dir, resources_dir, generated_models_dir,
     from libcuflynx.utilities.cuflynx_study import manifest_path
 
     run_dir = _find_run_dir(output_dir)
+    uq_dir = outcome['uq_output_dir']
     return {
         'config': config,
         'run_dir': run_dir,
+        'uq_dir': uq_dir,
         'artefacts': present_artefacts(run_dir),
+        'uq_artefacts': present_artefacts(uq_dir, EXPECTED_UQ_ARTEFACTS),
         'coverage': result.coverage if result is not None else None,
         # The study manifest every stage above recorded itself in; CUFLynx opens the study
         # from this one file.
@@ -196,12 +205,12 @@ def _find_run_dir(output_dir):
     return output_dir
 
 
-def present_artefacts(run_dir):
-    """Which of the expected files are actually there, and which are not."""
+def present_artefacts(run_dir, expected=EXPECTED_ARTEFACTS):
+    """Which of the ``expected`` files are actually in ``run_dir``, and which are not."""
     if not run_dir or not os.path.isdir(run_dir):
-        return {'present': [], 'missing': list(EXPECTED_ARTEFACTS)}
+        return {'present': [], 'missing': list(expected)}
     present, missing = [], []
-    for name in EXPECTED_ARTEFACTS:
+    for name in expected:
         (present if os.path.isfile(os.path.join(run_dir, name)) else missing).append(name)
     if os.path.isfile(os.path.join(run_dir, SERIES_ARTEFACT)):
         present.append(SERIES_ARTEFACT)

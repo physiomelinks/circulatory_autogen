@@ -9,6 +9,8 @@ and needs only ``\\usetikzlibrary{arrows.meta}`` in the preamble;
 :mod:`libcuflynx.reporting.provenance` draws the same graph as SVG.
 '''
 
+import os
+
 from libcuflynx.reporting.latex_names import escape
 
 NODE_STYLES = {
@@ -129,12 +131,20 @@ def _model_name(model):
     if 'module_array' in model:
         from libcuflynx.calibration_workflow.spec import array_prefix
         return array_prefix(model['module_array'])
+    if 'external_model_path' in model:
+        return os.path.basename(model['external_model_path'])
+    if 'cellml_model_path' in model:
+        return os.path.basename(model['cellml_model_path'])
     return model['module_type']
 
 
 def _model_detail(model):
     if 'module_array' in model:
         return 'module array'
+    if 'external_model_path' in model:
+        return 'external Python model'
+    if 'cellml_model_path' in model:
+        return 'CellML model'
     return f'parameterisation `{model["parameterisation"]}`'
 
 
@@ -144,29 +154,46 @@ def model_line(model):
         return f'selection `{", ".join(model["select"])}` of the target'
     if 'module_array' in model:
         return f'model `{_model_name(model)}`'
+    if 'external_model_path' in model:
+        return f'external Python model `{_model_name(model)}`'
+    if 'cellml_model_path' in model:
+        return f'CellML model `{_model_name(model)}`'
     return f'`{model["module_type"]}`, parameterisation `{model["parameterisation"]}`'
 
 
 #: what an edge from each source key is labelled
 _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from': 'emulator',
                   'result_from': 'at its fit', 'sensitivity_from': 'indices',
-                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from'}
+                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from',
+                  'start_from': 'starts at its values'}
 #: the kinds whose values are merged into the target
 MERGED_KINDS = ('calibration', 'set')
+#: the line of a set step with ``"point": true``, whose values the target does not merge
+POINT_ONLY = 'point only, not in the target'
 
 
 def _kind_line(s):
     '''What a step that is not a calibration does, in one line.'''
     settings, kind = s.get('settings') or {}, s.get('kind')
-    if kind == 'sensitivity':
-        method = (settings.get('sa_options') or {}).get('method', 'sobol')
-        return f'{method.capitalize()} sensitivity analysis'
     if kind == 'emulation':
         return 'emulator trained'
+    on = ' on the emulator' if s.get('emulator_from') or s.get('emulator_dir') else ''
     if kind == 'identifiability':
         method = (settings.get('ia_options') or {}).get('method', 'Laplace')
         return f'{method} identifiability analysis'
-    return _method_label(settings) + (' on the emulator' if s.get('emulator_from') else '')
+    if kind == 'uq':
+        from libcuflynx.calibration_workflow.spec import uq_method
+        method = {'mcmc': 'MCMC', 'laplace': 'Laplace approximation'}.get(
+            uq_method(settings), uq_method(settings))
+        return f'{method} at {"its values" if s.get("result_from") else "the model values"}{on}'
+    if kind == 'sensitivity':
+        return _kind_line_sensitivity(settings) + on
+    return _method_label(settings) + on
+
+
+def _kind_line_sensitivity(settings):
+    method = (settings.get('sa_options') or {}).get('method', 'sobol')
+    return f'{method.capitalize()} sensitivity analysis'
 
 
 def set_line(entry):
@@ -239,6 +266,8 @@ def workflow_graph(steps):
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
+            if s.get('point'):
+                lines.append(POINT_ONLY)
         elif s.get('model') is None:
             lines = ['not run']
         elif kind == 'sweep':
@@ -274,7 +303,7 @@ def workflow_graph(steps):
     # they share
     merged_from = target.get('merged_from')
     for s in step_list:
-        if s.get('kind', 'calibration') in MERGED_KINDS and \
+        if s.get('kind', 'calibration') in MERGED_KINDS and not s.get('point') and \
                 (merged_from is None or s['id'] in merged_from):
             edges.append({'from': s['id'], 'to': '__target__', 'label': '',
                           'style': 'merge'})

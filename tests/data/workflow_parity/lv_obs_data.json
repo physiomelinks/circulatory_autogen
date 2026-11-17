@@ -1,0 +1,85 @@
+{
+ "protocol_info": {
+  "pre_times": [
+   0.0
+  ],
+  "sim_times": [
+   [
+    5.0
+   ]
+  ],
+  "params_to_change": {},
+  "comment": "Made at alpha = 4.0, gamma = 2.5 (beta = delta = 0.2, the CellML's), over 0 to 5.0 with dt 0.01."
+ },
+ "prediction_items": [],
+ "data_items": [
+  {
+   "data_item_name": "x_max",
+   "trace_name_for_plotting": "x_max",
+   "data_type": "constant",
+   "operation": "max",
+   "operands": [
+    "Lotka_Volterra_module/x"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": 28.1236482,
+   "std": 0.28123648,
+   "cost_type": "gaussian_MLE",
+   "experiment_idx": 0,
+   "subexperiment_idx": 0,
+   "plot_type": "horizontal"
+  },
+  {
+   "data_item_name": "y_max",
+   "trace_name_for_plotting": "y_max",
+   "data_type": "constant",
+   "operation": "max",
+   "operands": [
+    "Lotka_Volterra_module/y"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": 38.6793891,
+   "std": 0.38679389,
+   "cost_type": "gaussian_MLE",
+   "experiment_idx": 0,
+   "subexperiment_idx": 0,
+   "plot_type": "horizontal"
+  },
+  {
+   "data_item_name": "x_mean",
+   "trace_name_for_plotting": "x_mean",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "Lotka_Volterra_module/x"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": 13.76338517,
+   "std": 0.13763385,
+   "cost_type": "gaussian_MLE",
+   "experiment_idx": 0,
+   "subexperiment_idx": 0,
+   "plot_type": "horizontal"
+  },
+  {
+   "data_item_name": "y_mean",
+   "trace_name_for_plotting": "y_mean",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "Lotka_Volterra_module/y"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": 21.00937225,
+   "std": 0.21009372,
+   "cost_type": "gaussian_MLE",
+   "experiment_idx": 0,
+   "subexperiment_idx": 0,
+   "plot_type": "horizontal"
+  }
+ ]
+}

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Lotka-Volterra model with time-varying forcing inputs.
+
+Equations:
+  dx/dt = (alpha + u_alpha) * x  -  beta * x * y
+  dy/dt =  delta * x * y  -  (gamma + u_gamma) * y
+
+u_alpha and u_gamma are external forcing parameters.  They are constants by
+default (initial_value = 0) but can be driven by a Myokit TimeSeriesProtocol
+via the 'pace' binding.  This makes them suitable for multi-trace protocol
+experiments where different experiments pace different variables.
+
+Default parameters:
+  alpha = 5,  beta = 0.2,  delta = 0.2,  gamma = 3
+  x(0) = 20, y(0) = 10
+  u_alpha(0) = 0, u_gamma(0) = 0
+-->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="Lotka_Volterra_forced">
+
+  <!-- Time component -->
+  <component name="environment">
+    <variable name="time" units="second" interface="public"/>
+  </component>
+
+  <!-- Model component containing state variables, parameters, and forcing inputs -->
+  <component name="Lotka_Volterra_module">
+    <variable name="t"       units="second"      interface="public"/>
+    <!-- kinetic parameters -->
+    <variable name="alpha"   units="dimensionless" initial_value="5"/>
+    <variable name="beta"    units="dimensionless" initial_value="0.2"/>
+    <variable name="delta"   units="dimensionless" initial_value="0.2"/>
+    <variable name="gamma"   units="dimensionless" initial_value="3"/>
+    <!-- time-varying forcing inputs (can be paced via protocol traces) -->
+    <variable name="u_alpha" units="dimensionless" initial_value="0"/>
+    <variable name="u_gamma" units="dimensionless" initial_value="0"/>
+    <!-- state variables -->
+    <variable name="x"       units="dimensionless" initial_value="20"/>
+    <variable name="y"       units="dimensionless" initial_value="10"/>
+
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+
+      <!-- dx/dt = (alpha + u_alpha)*x - beta*x*y -->
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>t</ci></bvar>
+          <ci>x</ci>
+        </apply>
+        <apply>
+          <minus/>
+          <apply>
+            <times/>
+            <apply><plus/><ci>alpha</ci><ci>u_alpha</ci></apply>
+            <ci>x</ci>
+          </apply>
+          <apply>
+            <times/>
+            <ci>beta</ci>
+            <ci>x</ci>
+            <ci>y</ci>
+          </apply>
+        </apply>
+      </apply>
+
+      <!-- dy/dt = delta*x*y - (gamma + u_gamma)*y -->
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>t</ci></bvar>
+          <ci>y</ci>
+        </apply>
+        <apply>
+          <minus/>
+          <apply>
+            <times/>
+            <ci>delta</ci>
+            <ci>x</ci>
+            <ci>y</ci>
+          </apply>
+          <apply>
+            <times/>
+            <apply><plus/><ci>gamma</ci><ci>u_gamma</ci></apply>
+            <ci>y</ci>
+          </apply>
+        </apply>
+      </apply>
+
+    </math>
+  </component>
+
+  <!-- Connect environment time to the model -->
+  <connection component_1="environment" component_2="Lotka_Volterra_module">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+
+</model>

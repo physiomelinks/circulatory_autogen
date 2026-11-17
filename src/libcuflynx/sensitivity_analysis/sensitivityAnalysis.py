@@ -37,6 +37,10 @@ import math
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 
+#: the local SA's signed relative coefficients, d ln(feature) / d ln(param), rows labelled as
+#: the Sobol indices' outputs
+LOCAL_SIGNED_FILE = 'local_sensitivity_signed.csv'
+
 
 def sa_method_choices():
     """The sensitivity-analysis ``method`` values, read from the discoverable schema
@@ -313,14 +317,20 @@ class SensitivityAnalysis():
         through the ``sobol_SA`` sampling manager -- it goes through a ``CVS0DParamID`` engine
         and its ``get_observable_sensitivities`` accessor, exactly as ``IdentifiabilityAnalysis``
         wraps the engine for the Hessian. ``do_ad`` is forced on so the analytic sensitivity
-        path (CasADi jacobian / Myokit CVODES) is used.
+        path (CasADi jacobian / Myokit CVODES) is used. The ground truth and params for id are
+        those set on this object, else the files the config names (``param_id_obs_path``,
+        ``params_for_id_path``), which the engine reads itself.
         """
         if self._local_engine is not None:
             return self._local_engine
-        if self._inp_data_dict is None or self._obs_data_dict is None or self._params_for_id is None:
+        inp = self._inp_data_dict or {}
+        given = {'obs': self._obs_data_dict is not None or bool(inp.get('param_id_obs_path')),
+                 'params': self._params_for_id is not None or bool(inp.get('params_for_id_path'))}
+        if self._inp_data_dict is None or not all(given.values()):
             raise RuntimeError(
                 "Local SA needs the config, ground-truth data and params for id: build via "
-                "init_from_dict and call set_ground_truth_data / set_params_for_id first.")
+                "init_from_dict and call set_ground_truth_data / set_params_for_id first, or "
+                "name param_id_obs_path and params_for_id_path in the config.")
         self._local_engine = self._new_local_engine(self._obs_data_dict)
         return self._local_engine
 
@@ -329,8 +339,10 @@ class SensitivityAnalysis():
         inp = dict(self._inp_data_dict)
         inp['do_ad'] = True  # local SA is derivative-based
         engine = CVS0DParamID.init_from_dict(inp)
-        engine.set_ground_truth_data(obs_data_dict)
-        engine.set_params_for_id(self._params_for_id)
+        if obs_data_dict is not None:
+            engine.set_ground_truth_data(obs_data_dict)
+        if self._params_for_id is not None:
+            engine.set_params_for_id(self._params_for_id)
         return engine
 
     def run_local_sensitivity(self, sa_options=None):
@@ -339,9 +351,15 @@ class SensitivityAnalysis():
         Computes d(observable feature)/d(param) at the nominal parameter values -- the analytic,
         single-solve counterpart to the sampling-based Sobol SA -- via the backend-agnostic
         ``ParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
-        Myokit CVODES sensitivities for cellml + CVODE_myokit). On rank 0 it saves the
-        absolute and relative sensitivity matrices to CSV. The result is also available via
-        ``get_local_sensitivities()``.
+        Myokit CVODES sensitivities for cellml + CVODE_myokit). On rank 0 it saves to CSV the
+        absolute matrix (``local_sensitivity_absolute.csv``, dY/dp), the unsigned relative one
+        (``local_sensitivity_relative.csv``, |p| dY/dp / |Y|, 0.0 where Y = 0) and the signed
+        relative one (``LOCAL_SIGNED_FILE``, ``local_sensitivity_signed.csv``:
+        d ln Y / d ln p = (p / Y) dY/dp, NaN where Y = 0, where it is undefined). The first two
+        label their rows by the param-id engine's observable label; the signed file labels them
+        as the Sobol indices do (``sobolSA.output_labels``), so the two can share one heatmap.
+        Every file has an ``output`` column and one column per parameter (its entry label). The
+        result is also available via ``get_local_sensitivities()``.
 
         Args:
             sa_options: Optional options dict (see ``set_sa_options``).
@@ -370,6 +388,10 @@ class SensitivityAnalysis():
         # identity (scale -> 1.0), where every target sits at its resolved baseline.
         apply_modifier_identity_nominals(engine.param_id_info, nominal)
 
+        # The nominal features (Y, for the relative coefficients) before the sensitivities:
+        # CasADi's arm leaves the simulation helper symbolic.
+        feat_val = self._nominal_feature_values(engine, nominal)
+
         # 'auto' (the default) keeps the backend's own sensitivity; 'FD' opts into
         # central finite differences, the only local SA available on a backend with no
         # analytic arm (issue #338).
@@ -377,9 +399,6 @@ class SensitivityAnalysis():
             nominal,
             gradient_method=(self.sa_options or {}).get('gradient_method'),
             fd_rel_step=(self.sa_options or {}).get('fd_rel_step'))
-
-        # Nominal feature magnitudes for the dimensionless (relative) normalisation.
-        feat_mag = self._nominal_feature_magnitudes(engine, nominal, list(sens.keys()))
 
         # sa_options.include_prediction_items: the prediction items with an operation become
         # extra rows, labelled by data_item_name, after the data_item features.
@@ -389,14 +408,16 @@ class SensitivityAnalysis():
                 engine, nominal, sens)
             sens = dict(sens)
             sens.update(psens)
-            feat_mag.update({name: abs(float(v)) for name, v in pnominal.items()})
+            feat_val.update({name: float(v) for name, v in pnominal.items()})
 
         output_names = list(sens.keys())
         n_out, n_par = len(output_names), len(param_names)
         absolute = np.zeros((n_out, n_par))
         relative = np.zeros((n_out, n_par))
+        signed = np.full((n_out, n_par), np.nan)
         for i, oname in enumerate(output_names):
-            fmag = feat_mag.get(oname, 0.0)
+            y = feat_val.get(oname, np.nan)
+            fmag = abs(y) if np.isfinite(y) else 0.0
             for jj, pname in enumerate(param_names):
                 raw = sens[oname].get(pname, 0.0)
                 # None means the arm could not produce this one -- an FD parameter whose
@@ -409,6 +430,9 @@ class SensitivityAnalysis():
                 d = float(raw)
                 absolute[i, jj] = d
                 relative[i, jj] = d * abs(nominal[jj]) / fmag if fmag > 1e-30 else 0.0
+                # d ln Y / d ln p is undefined at Y = 0: NaN there
+                if fmag > 1e-30:
+                    signed[i, jj] = d * nominal[jj] / y
 
         self.local_sensitivities = {
             'param_names': list(param_names),
@@ -416,6 +440,11 @@ class SensitivityAnalysis():
             'nominal_param_vals': list(nominal),
             'absolute': absolute,     # d(feature)/d(param)
             'relative': relative,     # dimensionless |p| * d(feature)/d(param) / |feature|
+            'signed': signed,         # d ln(feature) / d ln(param), NaN where feature = 0
+            # the rows' labels in the Sobol indices' form, for the signed file
+            'signed_output_names': self._sobol_form_labels(engine, output_names,
+                                                           prediction_rows),
+            'nominal_feature_vals': [feat_val.get(o, np.nan) for o in output_names],
             'raw': sens,
         }
         if self.SA_manager.include_prediction_items:
@@ -430,6 +459,11 @@ class SensitivityAnalysis():
                                   index=output_names, columns=param_names)
                 df.index.name = 'output'
                 df.to_csv(os.path.join(out_dir, f'local_sensitivity_{key}.csv'))
+            df = pd.DataFrame(self.local_sensitivities['signed'],
+                              index=self.local_sensitivities['signed_output_names'],
+                              columns=param_names)
+            df.index.name = 'output'
+            df.to_csv(os.path.join(out_dir, LOCAL_SIGNED_FILE))
             self._record_in_study('local')
         return self.local_sensitivities
 
@@ -447,6 +481,7 @@ class SensitivityAnalysis():
         info = engine.prediction_info
         indices = prediction_features.prediction_feature_indices(
             info, engine.operation_funcs_dict, context='the local sensitivity analysis')
+        self._local_prediction_indices = list(indices)
         if not indices:
             return {}, {}, []
         names = prediction_features.prediction_feature_names(info, indices)
@@ -515,23 +550,63 @@ class SensitivityAnalysis():
         return {str(names[i]): sens[view._observable_label(i)]
                 for i in view.obs_info['const_idx_to_obs_idx']}
 
-    def _nominal_feature_magnitudes(self, engine, nominal, output_names):
-        """|feature| at the nominal params, keyed by observable label, for relative scaling."""
+    def _nominal_feature_values(self, engine, nominal):
+        """Each feature at the nominal params, keyed by observable label, for the relative
+        coefficients; empty when the nominal run fails (the coefficients are then 0.0 in the
+        unsigned file and NaN in the signed one)."""
         try:
             _, operands_list, _ = engine.get_cost_obs_and_pred_from_params(
                 nominal, reset=True, only_one_exp=0)
             const = np.asarray(engine.get_obs_output_dict(operands_list[0])['const'], dtype=float)
             c2o = engine.obs_info["const_idx_to_obs_idx"]
-            return {engine._observable_label(obs_i): abs(float(const[k]))
+            return {engine._observable_label(obs_i): float(const[k])
                     for k, obs_i in enumerate(c2o)}
         except Exception:
-            return {name: 0.0 for name in output_names}
+            return {}
+
+    def _sobol_form_labels(self, engine, output_names, prediction_rows):
+        """The label of each local SA row (``output_names``) as the Sobol indices name that
+        observable (``sobolSA.output_labels``): ``"<item_name_for_plotting> (Exp<e>, Sub<s>)"``,
+        made unique over the Sobol outputs as there, so a Sobol column and a signed row of one
+        observable have one label."""
+        from libcuflynx.param_id import prediction_features
+        from libcuflynx.sensitivity_analysis.sobolSA import observable_indices, output_labels
+        obs_info = engine.obs_info
+        pred_indices = list(getattr(self, '_local_prediction_indices', None) or [])
+        pred_labels, pred_ops = [], []
+        if pred_indices:
+            pred_labels = prediction_features.labels_with_segments(
+                engine.prediction_info, pred_indices, engine.protocol_info)
+            operations = (engine.prediction_info or {}).get('operations') or []
+            pred_ops = [operations[i] for i in pred_indices]
+        labels, sources = output_labels(obs_info, observable_indices(obs_info), pred_labels,
+                                        pred_ops)
+        by_obs = {index: label for label, (kind, index) in zip(labels, sources)
+                  if kind == 'data_item'}
+        by_prediction = dict(zip(prediction_rows, [label for label, (kind, _) in
+                                                   zip(labels, sources)
+                                                   if kind == 'prediction_item']))
+        by_local = {engine._observable_label(i): i for i in obs_info['const_idx_to_obs_idx']}
+        out = []
+        for name in output_names:
+            if name in by_prediction:
+                out.append(by_prediction[name])
+            elif name in by_local and by_local[name] in by_obs:
+                out.append(by_obs[by_local[name]])
+            elif name in by_local:
+                # an item the Sobol analysis does not report (zero weight): the same form
+                out.append(output_labels(obs_info, [by_local[name]])[0][0])
+            else:
+                out.append(name)
+        return out
 
     def get_local_sensitivities(self):
         """Return the last local-sensitivity result (or None if not run yet).
 
-        A dict with ``param_names``, ``output_names``, ``absolute`` and ``relative`` matrices
-        ([n_output x n_param]) and the ``raw`` {observable: {param: d(feature)/d(param)}}. This
+        A dict with ``param_names``, ``output_names``, ``absolute``, ``relative`` and
+        ``signed`` matrices ([n_output x n_param]), ``signed_output_names`` (the rows in the
+        Sobol label form), ``nominal_param_vals``, ``nominal_feature_vals`` and the ``raw``
+        {observable: {param: d(feature)/d(param)}}. This
         is the accessor external tools (e.g. CUFLynx) read to obtain the local sensitivities.
         """
         return self.local_sensitivities
