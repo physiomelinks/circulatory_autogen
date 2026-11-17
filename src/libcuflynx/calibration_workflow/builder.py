@@ -581,7 +581,8 @@ class WorkflowBuilder:
     def add_reduction(self, id, *, sensitivity_from, method='pca', n_params=None,
                       index_type=None, criterion=None, threshold=None, min_mode_std=None,
                       variance_fraction=None, min_index=None, redundancy_check=None,
-                      description=None, comment=None):
+                      redundancy_statistic=None, redundancy_converged_only=None,
+                      redundancy_convergence_tol=None, description=None, comment=None):
         """Add a reduction: choose the parameters a later step calibrates
         (its ``params_for_id_from``) from the Sobol indices of a sensitivity step.
 
@@ -600,6 +601,12 @@ class WorkflowBuilder:
                 variance (default 1, no cut).
             min_index: pca: skip a mode whose largest index is below this (default 0.05).
             redundancy_check: the check for parameters with the same effect on the outputs.
+            redundancy_statistic: pca with redundancy_check: ``'median'`` (default) or ``'rms'``
+                of a parameter's unexplained effect over the local Jacobian points.
+            redundancy_converged_only: pca with redundancy_check: leave out the points whose
+                derivatives change with the step (needs ``sa_options.jacobian_check_steps``).
+            redundancy_convergence_tol: the largest relative change between the two steps
+                (default 0.1).
             description, comment: free text.
 
         The options are written as the step's ``settings.param_reduction_options``; those
@@ -608,7 +615,10 @@ class WorkflowBuilder:
         options = {k: v for k, v in dict(
             method=method, n_params=n_params, index_type=index_type, criterion=criterion,
             threshold=threshold, min_mode_std=min_mode_std, variance_fraction=variance_fraction,
-            min_index=min_index, redundancy_check=redundancy_check).items() if v is not None}
+            min_index=min_index, redundancy_check=redundancy_check,
+            redundancy_statistic=redundancy_statistic,
+            redundancy_converged_only=redundancy_converged_only,
+            redundancy_convergence_tol=redundancy_convergence_tol).items() if v is not None}
         return self.add_step(id, kind='reduction', sensitivity_from=sensitivity_from,
                              settings={'param_reduction_options': options},
                              **_given({'description': description, 'comment': comment}))
