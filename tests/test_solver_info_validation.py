@@ -112,6 +112,19 @@ def test_the_ga_stopping_rules_are_listed_together():
     assert order.index('use_relative_cost_tolerance') < order.index('relative_cost_tolerance')
 
 
+@pytest.mark.parametrize('solver', sorted(SOLVER_INFO_FIELDS))
+def test_every_solver_lists_its_step_limits_before_its_tolerances(solver):
+    """Field order is form order, so a user switching solvers finds the settings where they
+    were: step limits first, then the tolerances, in every solver."""
+    steps = {'MaximumStep', 'MaximumNumberOfSteps', 'max_step', 'max_step_size', 'max_num_steps'}
+    tolerances = {'rtol', 'atol', 'reltol', 'abstol'}
+    order = [f['name'] for f in SOLVER_INFO_FIELDS[solver]]
+    step_at = [i for i, n in enumerate(order) if n in steps]
+    tol_at = [i for i, n in enumerate(order) if n in tolerances]
+    if step_at and tol_at:
+        assert max(step_at) < min(tol_at), order
+
+
 def test_solver_info_fields_schema_well_formed():
     """SOLVER_INFO_FIELDS lets a tool auto-populate the solver settings form; every solver that
     can be selected must have a well-formed field list, and it must be exposed on SOLVER_SCHEMA."""
