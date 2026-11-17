@@ -42,7 +42,8 @@ The working dir holds every input of the study as well as its outputs, so a zip 
                                 workflows/<wf> (a packed calibration workflow)
       inputs/user_inputs/user_inputs_<yymmdd>.yaml
                                 the resolved config of each day's runs, dated by its name
-      <method>_<prefix>_<obs>/  calibration and UQ runs
+      <method>_<prefix>_<obs>/  a calibration run (<method> its param_id_method)
+      mcmc_<prefix>_<obs>/      the MCMC run that followed it, in a directory of its own
       sensitivity/              Sobol and local sensitivity (the default sa_options output_dir)
 
 An input is copied when the manifest is written (rank 0), once per content, into a folder
@@ -864,8 +865,8 @@ def _upsert(entries, entry):
     """Put ``entry`` first, merged into any existing entry for the same directory.
 
     Newest first, because CUFLynx opens a study on its first declared run. ``analyses``
-    accumulates: one run directory holds both the calibration and the MCMC that followed
-    it, since both use the same ``<method>_<prefix>_<obs>`` name.
+    accumulates the methods run in one directory. A calibration and the MCMC that follows it
+    are two entries: each has a directory of its own (``paramID.case_dir_name``).
     """
     kept, merged = [], dict(entry)
     for existing in entries or []:

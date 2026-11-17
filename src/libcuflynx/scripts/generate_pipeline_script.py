@@ -12,6 +12,10 @@ them in the right order. This writes all of that into one folder:
     generated_models/<prefix>/   the CellML model
     resources/                   obs_data.json, params_for_id.json, any user funcs
 
+The bundle is the study's working dir (``utilities/cuflynx_study.py``): a run writes its
+results, the study manifest and ``inputs/`` into the bundle itself, laid out as CUFLynx lays
+out a working dir.
+
 ``run_pipeline.py`` is a *static* script: everything specific to a study lives in
 the yaml beside it, so the script stays readable and there is no generated code to
 audit. It finds its own configuration (the newest ``user_inputs_*.yaml`` next to
@@ -59,7 +63,13 @@ This folder is self-contained:
     user_inputs_<date>.yaml      the run configuration (edit the do_* flags here)
     generated_models/<prefix>/   the CellML model
     resources/                   obs_data.json + params_for_id.json
-    output/                      results are written here
+
+This folder is also the study's working dir, so a run writes here:
+    <prefix>_cuflynx_study.json  the study manifest, which CUFLynx opens the study from
+    <method>_<prefix>_<obs>/     the calibration (mcmc_<prefix>_<obs>/ the MCMC run)
+    <prefix>_calibrated.cellml   the model with the calibration's best fit written in
+    sensitivity/                 the sensitivity analysis
+    inputs/                      inputs a run made, such as the MCMC's obs_data
 
 Usage:
     python run_pipeline.py
@@ -86,7 +96,7 @@ def load_config():
     matches = sorted(glob.glob(os.path.join(HERE, "user_inputs_*.yaml")))
     if not matches:
         sys.exit("No user_inputs_*.yaml found next to this script.")
-    with open(matches[-1]) as fh:
+    with open(matches[-1], encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
@@ -206,7 +216,7 @@ def build_inp_data_dict(cfg, output_dir):
         "do_ad": bool(cfg.get("do_ad", False)),
         "optimiser_options": dict(cfg.get("optimiser_options", {})),
         "UQ_options": dict(cfg.get("UQ_options") or {}),
-        "sa_options": {**cfg.get("sa_options", {}), "output_dir": output_dir},
+        "sa_options": sa_options(cfg, output_dir),
         "DEBUG": False,
     }
     if cfg.get("param_id_obs_path"):
@@ -218,7 +228,7 @@ def build_inp_data_dict(cfg, output_dir):
         # only inp["pre_time"]/["sim_time"], so without this the simulation would run
         # an unwarmed, wrong-length window and its outputs wouldn't match the obs_data.
         try:
-            proto = obs_protocol_info(json.loads(open(inp["param_id_obs_path"]).read()))
+            proto = obs_protocol_info(json.loads(open(inp["param_id_obs_path"], encoding="utf-8").read()))
             pre = (proto.get("pre_times") or [None])[0]
             sim = (proto.get("sim_times") or [[None]])[0][0]
             if pre is not None:
@@ -258,16 +268,33 @@ def build_inp_data_dict(cfg, output_dir):
     return inp
 
 
-def mle_obs_data(obs_path, out_dir, cost_type="gaussian_MLE"):
-    """MCMC / Laplace need ln L = -cost, so write a copy of the obs_data with every
-    data_item's cost_type set to an MLE cost (mirrors uq_runner._mle_obs_path)."""
-    obs = json.loads(open(obs_path).read())
+def sa_options(cfg, working_dir):
+    """The yaml's sa_options with its output_dir in the working dir, as circulatory_autogen
+    sets it: ``<working dir>/sensitivity`` when none is given, a relative one under it, an
+    absolute one as it is."""
+    options = dict(cfg.get("sa_options") or {})
+    sensitivity = os.path.join(working_dir, "sensitivity")
+    given = options.get("output_dir")
+    if not given:
+        options["output_dir"] = sensitivity
+    elif not os.path.isabs(given):
+        options["output_dir"] = os.path.join(sensitivity, given)
+    return options
+
+
+def mle_obs_data(obs_path, working_dir, cost_type="gaussian_MLE"):
+    """MCMC / Laplace need ln L = -cost, so store a copy of the obs_data with every
+    data_item's cost_type set to an MLE cost, as an input of the working dir
+    (``inputs/obs_data/<stamp>/uq_obs_data.json``, as CUFLynx's UQ run stores it)."""
+    store_input = ca_from("utilities.cuflynx_study", "store_input")
+
+    obs = json.loads(open(obs_path, encoding="utf-8").read())
     for item in obs_data_items(obs):
         if isinstance(item, dict):
             item["cost_type"] = cost_type
-    out = os.path.join(out_dir, "uq_obs_data.json")
-    open(out, "w").write(json.dumps(obs))
-    return out
+    stored = store_input(working_dir, "obs_data", json.dumps(obs).encode("utf-8"),
+                         "uq_obs_data.json")
+    return os.path.join(working_dir, stored)
 
 
 def flat_param_names(param_id):
@@ -313,7 +340,7 @@ def save_uq_samples(out_dir, flat, qnames):
     bundle carries no summary format of CUFLynx's own devising.
     """
     np.save(os.path.join(out_dir, "uq_posterior_samples.npy"), np.asarray(flat, dtype=float))
-    with open(os.path.join(out_dir, "uq_param_names.csv"), "w", newline="") as fh:
+    with open(os.path.join(out_dir, "uq_param_names.csv"), "w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows([[name] for name in qnames])
 
 
@@ -325,8 +352,8 @@ def main():
         sys.path.insert(0, ca_src)
     cfg = load_config()
 
-    output_dir = os.path.join(HERE, "output")
-    os.makedirs(output_dir, exist_ok=True)
+    # This folder is the study's working dir: results, the manifest and inputs/ go here.
+    output_dir = HERE
     inp = build_inp_data_dict(cfg, output_dir)
 
     # python / casadi_python backends run a generated .py model: build it from the
@@ -411,6 +438,14 @@ def main():
         param_id.run()
         param_id.plot_outputs()
         best_param_vals = param_id.get_best_param_vals()
+        # <prefix>_calibrated.cellml in the working dir, written from the bundled CellML
+        # (model_path is the generated .py for a python or casadi_python run).
+        if hasattr(param_id, "write_calibrated_model"):
+            try:
+                param_id.write_calibrated_model(os.path.join(
+                    HERE, "generated_models", cfg["file_prefix"], cfg["model_file"]))
+            except Exception as exc:  # the calibration's results are saved already
+                print(f"  could not write the calibrated model: {exc}", flush=True)
         # Kept for UQ below: it wants exactly this engine, and building a
         # second one compiles the model again.
         calibrated = param_id
@@ -503,13 +538,12 @@ PLOTS_DIRNAME = "pyscript_plots"
 
 
 def _default_out():
-    """Where to look for run data, when nobody says.
+    """Where to look for run data, when nobody says: this folder.
 
-    Two layouts reach this script. run_pipeline.py writes into `output/` beside
-    it, so that is preferred. But CUFLynx also drops these scripts straight into
-    the outputs directory the user chose, where the run data is in
-    circulatory_autogen's own `<method>_<model>_<hash>_obs_data/` folders and
-    there is no `output/` at all.
+    run_pipeline.py writes into the folder it is in (the study's working dir), and CUFLynx
+    drops these scripts into the working dir the user chose; either way the run data is in
+    circulatory_autogen's own `<method>_<prefix>_<obs>/` folders here. A bundle that holds
+    an `output/` folder of results is read from that folder.
     """
     from_env = os.environ.get("CUFLYNX_OUTPUT_DIR")
     if from_env:
@@ -997,8 +1031,8 @@ def mcmc_chain():
     """The raw chain, ``(steps, walkers, params)``, or None."""
     import numpy as np
 
-    path = os.path.join(OUT, "mcmc_chain.npy")
-    if not os.path.isfile(path):
+    path = find("mcmc_chain.npy")
+    if not path:
         return None
     chain = np.load(path, allow_pickle=True)
     return chain if chain.ndim == 3 else None
@@ -1022,8 +1056,8 @@ def posterior_predictive():
     """What ``posterior_predictive.save()`` wrote, or None if the check was not run."""
     import numpy as np
 
-    path = os.path.join(OUT, "posterior_predictive.npz")
-    if not os.path.isfile(path):
+    path = find("posterior_predictive.npz")
+    if not path:
         return None
     with np.load(path, allow_pickle=True) as data:
         return {key: data[key] for key in data.files}
@@ -1037,8 +1071,8 @@ def posterior_series():
     """
     import numpy as np
 
-    path = os.path.join(OUT, "posterior_predictive_series.npz")
-    if not os.path.isfile(path):
+    path = find("posterior_predictive_series.npz")
+    if not path:
         return None
     try:
         with np.load(path, allow_pickle=True) as data:
@@ -1062,11 +1096,11 @@ def posterior_series():
 
 def posterior_predictive_coverage():
     """The coverage summary written beside the samples, or None."""
-    path = os.path.join(OUT, "posterior_predictive_coverage.json")
-    if not os.path.isfile(path):
+    path = find("posterior_predictive_coverage.json")
+    if not path:
         return None
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             return json.load(handle)
     except (OSError, ValueError):
         return None
@@ -1074,11 +1108,13 @@ def posterior_predictive_coverage():
 
 def parameter_names():
     """Names for the calibrated parameters, in chain column order."""
-    path = os.path.join(OUT, "param_names.csv")
-    if not os.path.isfile(path):
+    chain = find("mcmc_chain.npy")
+    path = os.path.join(os.path.dirname(chain), "param_names.csv") if chain else None
+    path = path if path and os.path.isfile(path) else find("param_names.csv")
+    if not path:
         return None
     try:
-        with open(path, newline="") as handle:
+        with open(path, newline="", encoding="utf-8") as handle:
             rows = [row[0].strip() for row in csv.reader(handle) if row and row[0].strip()]
         return rows or None
     except OSError:
@@ -1784,14 +1820,6 @@ def _panel_functions(obs_data):
     return "\n\n\n".join(blocks)
 
 
-def render_pipeline_script() -> str:
-    """The standalone pipeline driver (reads the sibling dated yaml)."""
-    return PIPELINE_SCRIPT
-
-
-PLOT_UTILITIES_NAME = "plot_utilities.py"
-
-
 PLOT_UTILITIES_NAME = 'plot_utilities.py'
 PLOTTING_SCRIPT_NAME = 'plot_outputs.py'
 
@@ -1934,6 +1962,11 @@ def write_pipeline_bundle(inp_data_dict, output_dir, today=None):
     for key in _MACHINE_PATH_KEYS:
         cfg.pop(key, None)
     cfg['resources_dir'] = 'resources'
+    # An absolute sensitivity output dir is a place on this machine; without it the bundle's
+    # sensitivity analysis writes to sensitivity/ in the bundle, its working dir.
+    sa = cfg.get('sa_options')
+    if isinstance(sa, dict) and os.path.isabs(str(sa.get('output_dir') or '')):
+        cfg['sa_options'] = {k: v for k, v in sa.items() if k != 'output_dir'}
 
     # A trained emulator is an input like any other when the bundle is meant to
     # reproduce a run that used one; an absolute dir would not survive the move.
@@ -1959,12 +1992,12 @@ def write_pipeline_bundle(inp_data_dict, output_dir, today=None):
             written.append('emulator/')
 
     yaml_name = 'user_inputs_%s.yaml' % dated_suffix(today)
-    with open(os.path.join(output_dir, yaml_name), 'w') as file:
+    with open(os.path.join(output_dir, yaml_name), 'w', encoding='utf-8') as file:
         yaml.safe_dump(cfg, file, default_flow_style=False, sort_keys=False)
     written.insert(0, yaml_name)
 
     script_path = os.path.join(output_dir, PIPELINE_SCRIPT_NAME)
-    with open(script_path, 'w') as file:
+    with open(script_path, 'w', encoding='utf-8') as file:
         file.write(render_pipeline_script())
     os.chmod(script_path, 0o755)
     written.insert(1, PIPELINE_SCRIPT_NAME)
@@ -1988,7 +2021,7 @@ def write_pipeline_bundle(inp_data_dict, output_dir, today=None):
             (PLOT_UTILITIES_NAME, render_plot_utilities()),
             (PLOTTING_SCRIPT_NAME, render_plotting_script(obs_document))):
         path = os.path.join(output_dir, name)
-        with open(path, 'w') as file:
+        with open(path, 'w', encoding='utf-8') as file:
             file.write(contents)
         os.chmod(path, 0o755)
         written.insert(2, name)

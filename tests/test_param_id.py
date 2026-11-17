@@ -3321,12 +3321,15 @@ def test_parse_obs_data_json_series_std_required_for_npy_paths(tmp_path):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
+@pytest.mark.parametrize('copy_inputs', [True, False], ids=['working_dir', 'no_copy'])
 def test_param_id_archives_input_files(resources_dir, temp_output_dir,
-                                       generated_cellml_model_factory, mpi_comm):
-    """CVS0DParamID archives the params_for_id and obs_data inputs into the run
-    output_dir with a _yymmdd_HHMMSS timestamp, so a user can see exactly which
-    inputs produced a run (issue #233)."""
+                                       generated_cellml_model_factory, mpi_comm, copy_inputs):
+    """The params_for_id and obs_data of a run are kept, so a user can see exactly which
+    inputs produced it (issue #233): in the working dir's inputs/, listed in index.json,
+    or -- when inputs are not copied there -- in the run output_dir with a _yymmdd_HHMMSS
+    timestamp. Never both, which would be a second, unindexed copy."""
     import re
+    from libcuflynx.utilities import cuflynx_study
 
     rank = mpi_comm.Get_rank()
     model_path = generated_cellml_model_factory('3compartment', '3compartment_parameters.json')
@@ -3342,24 +3345,36 @@ def test_param_id_archives_input_files(resources_dir, temp_output_dir,
         'param_id_obs_path': obs_path,
         'resources_dir': resources_dir,
         'param_id_output_dir': temp_output_dir,
+        'cuflynx_study_copy_inputs': copy_inputs,
         'solver_info': {'solver': 'CVODE_myokit', 'MaximumStep': 0.001},
         'dt': 0.01, 'sim_time': 2.0, 'pre_time': 20.0, 'DEBUG': False,
     })
 
-    if rank == 0:
-        out = runner.output_dir
-        files = os.listdir(out)
-        params_copies = [f for f in files
-                         if re.fullmatch(r'3compartment_params_for_id_\d{6}_\d{6}\.json', f)]
-        obs_copies = [f for f in files
-                      if re.fullmatch(r'3compartment_obs_data_\d{6}_\d{6}\.json', f)]
-        assert params_copies, f"no timestamped params_for_id copy in {out}: {files}"
-        assert obs_copies, f"no timestamped obs_data copy in {out}: {files}"
-        # Archived copies must match the source inputs byte-for-byte.
-        with open(os.path.join(out, params_copies[0])) as fa, open(params_for_id_path) as fb:
-            assert fa.read() == fb.read()
-        with open(os.path.join(out, obs_copies[0])) as fa, open(obs_path) as fb:
-            assert fa.read() == fb.read()
+    if rank != 0:
+        return
+    out = runner.output_dir
+    files = os.listdir(out)
+    copies = {
+        kind: [f for f in files if re.fullmatch(rf'3compartment_{kind}_\d{{6}}_\d{{6}}\.json', f)]
+        for kind in ('params_for_id', 'obs_data')}
+    sources = {'params_for_id': params_for_id_path, 'obs_data': obs_path}
+
+    if copy_inputs:
+        assert not any(copies.values()), f"inputs archived in {out} as well: {files}"
+        index = {v['kind']: v for v in cuflynx_study.read_index(temp_output_dir)}
+        for kind, src in sources.items():
+            assert kind in index, f"no {kind} in inputs/index.json: {list(index)}"
+            stored = os.path.join(temp_output_dir, index[kind]['folder'], index[kind]['file'])
+            assert os.path.commonpath([stored, os.path.join(temp_output_dir, 'inputs')]) \
+                == os.path.join(temp_output_dir, 'inputs')
+            with open(stored) as fa, open(src) as fb:
+                assert fa.read() == fb.read()
+    else:
+        for kind, src in sources.items():
+            assert copies[kind], f"no timestamped {kind} copy in {out}: {files}"
+            # Archived copies must match the source inputs byte-for-byte.
+            with open(os.path.join(out, copies[kind][0])) as fa, open(src) as fb:
+                assert fa.read() == fb.read()
 
 
 def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
