@@ -3,4 +3,4 @@
 # CI checks this commit out; move it deliberately.
 # Draft pin: circulatory-autogen-modules migration/junction-removal (junction removal, with the
 # summing ports and renames.json entries). Move to its main once that merges.
-9e4abae3206e0d0be8e5d898c3a5f5a40930f3ef
+90ad6772accad066b0a24cbb63ae41c346fd19a1
