@@ -225,6 +225,11 @@ number of vessels at a node (node sums #609, node rule D #617).
   the file as `local_sensitivity_signed`.
 - **`emulator_dir`** on a calibration, sensitivity or uq step: an emulator trained outside the
   workflow, in place of `emulator_from`; hashed into the step's inputs and packed.
+- **An identifiability step on an emulator:** `emulator_from` or `emulator_dir` (the builder's
+  `add_identifiability(emulator_from=, emulator_dir=)`), for a Laplace analysis or a profile
+  likelihood; `cuflynx-identifiability` reads `use_emulator` as a calibration does. The
+  `result_from` point of a step on an `emulator_dir` is no longer written into its model,
+  which made the emulator stale.
 - An identifiability step's `result_from` is optional (the analysis is then at the model's
   values), and `result_from` may name a set step.
 - After a calibration step, the observables at its best fit and the error vectors

@@ -814,6 +814,49 @@ def test_a_step_runs_on_an_emulator_trained_outside_the_workflow(lv, tmp_path):
     assert merged[_ALPHA] == pytest.approx(_TRUE[_ALPHA], rel=0.1)
 
 
+@pytest.mark.integration
+def test_an_identifiability_step_runs_on_an_emulator(lv, tmp_path, monkeypatch):
+    '''emulator_dir on an identifiability step: its Laplace analysis and its profile
+    likelihood evaluate the emulator, not the model.'''
+    pytest.importorskip('autoemulate')
+    from libcuflynx.external_testing.workflow_library import EMULATOR_SETTINGS
+    settings = dict(_FAST, emulator_settings=EMULATOR_SETTINGS)
+    first = str(tmp_path / 'first')
+    emulate = {'id': 'emulate', 'kind': 'emulation', 'model': _model(), 'obs_data': _OBS,
+               'params_for_id': _PARAMS}
+    run_calibration_workflow(_write(lv, _raw([emulate], settings), 'train.json'),
+                             output_dir=first)
+    trained = _step(first, 'emulate')['emulator_dir']
+
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'wf'), settings=settings)
+    hand = wf.add_set('hand', [set_value(_ALPHA, 4.0, reason='the true value'),
+                               set_value(_GAMMA, 2.5, reason='the true value')], point=True)
+    files = {'obs_data': os.path.join(lv, _OBS), 'params_for_id': os.path.join(lv, _PARAMS)}
+    wf.add_identifiability('laplace', result_from=hand, emulator_dir=trained,
+                           ia_options={'method': 'Laplace'}, **files)
+    wf.add_identifiability(
+        'profile', result_from=hand, emulator_dir=trained, **files,
+        ia_options={'method': 'profile_likelihood', 'num_points': 5, 'range_factor': 0.05,
+                    'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10}})
+    # the model itself must not be simulated by either analysis
+    from libcuflynx.solver_wrappers import myokit_helper
+
+    def no_model_run(self, *args, **kwargs):
+        raise AssertionError('the step simulated the model, not the emulator')
+    monkeypatch.setattr(myokit_helper.SimulationHelper, 'run', no_model_run)
+    out = str(tmp_path / 'run')
+    assert wf.run(output_dir=out)['complete']
+
+    for sid in ('laplace', 'profile'):
+        step = _step(out, sid)
+        assert step['inputs']['emulator']['path'] == trained
+        assert step['at'] == [4.0, 2.5] and step['at_source'] == 'hand'
+    assert np.all(np.asarray(_step(out, 'laplace')['laplace']['std']) > 0)
+    profiles = _step(out, 'profile')['profile_likelihood']['profiles']
+    assert [p['parameter'] for p in profiles] == [_ALPHA, _GAMMA]
+
+
 @pytest.mark.unit
 def test_an_emulator_dir_is_an_input_and_is_packed(lv, tmp_path):
     from libcuflynx.calibration_workflow.runner import _get_comm, _Run

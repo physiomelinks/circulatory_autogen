@@ -663,8 +663,9 @@ class WorkflowBuilder:
         return self.add_step(id, kind='emulation', **given)
 
     def add_identifiability(self, id, *, obs_data, params_for_id, ia_options, result_from=None,
-                            model=None, fixed_from=(), vessel=None, submodule=None,
-                            vessel_map=None, settings=None, description=None, comment=None):
+                            model=None, fixed_from=(), emulator_from=None, emulator_dir=None,
+                            vessel=None, submodule=None, vessel_map=None, settings=None,
+                            description=None, comment=None):
         """Add an identifiability analysis of ``params_for_id`` at a step's values.
 
         Args:
@@ -673,6 +674,8 @@ class WorkflowBuilder:
                 required), written into the step's settings.
             result_from: the calibration or set step whose values the analysis is at.
                 Default: the model's own values.
+            emulator_from, emulator_dir: the emulator the analysis runs on, as for
+                :meth:`add_calibration` (``emulator_from`` not with ``result_from``).
 
         The other arguments, what is returned and when files are written are as for
         :meth:`add_calibration`.
