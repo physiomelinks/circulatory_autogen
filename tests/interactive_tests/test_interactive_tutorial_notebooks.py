@@ -42,12 +42,14 @@ SKIPPED_CELLS = {}
 QUICK_SETTINGS = {
     # The hybrid 0D-1D run takes about 4 minutes per simulated second: two "periods" of 10 ms
     # (the coupler saves from the second-last period on) still exercise generation, both builds,
-    # the coupling and the plots of its output. Each workflow step generates its own copy of the
-    # arm model (screen, fit, and the fit's model for ProtocolRunner), so Section B keeps the
-    # warm-up and the Sobol samples small: 2 samples are 16 runs of the three parameters, and
-    # 28 calls are one generation of the genetic algorithm's population.
+    # the coupling and the plots of its output. The workflow generates four copies of the
+    # arm model (screen, fit, the fit's model for ProtocolRunner, and the merged _target/), so
+    # Section B keeps the warm-up and the Sobol samples small: 2 samples are 16 runs of the three
+    # parameters, and 28 calls are one generation of the genetic algorithm's population.
+    # Section C is off in the notebook as shipped (8-13 minutes); the tests turn it on.
     "generation_and_calibration.ipynb": dict(num_warmup_periods=4, sa_num_samples=2, ga_num_calls=28,
-                                             hybrid_num_periods=2, hybrid_period_s=0.01),
+                                             run_section_c=True, hybrid_num_periods=2,
+                                             hybrid_period_s=0.01),
     "workflow_quickstart.ipynb": dict(warmup_time_s=6.0, sa_num_samples=4, ga_num_calls=30,
                                       emulator_train_samples=16),
     # own_image_path is added by the test: a tiny synthetic segmentation.
@@ -57,9 +59,10 @@ QUICK_SETTINGS = {
     ),
 }
 
-#: The full run only turns off what this machine cannot do: the Fiji GUI, and Ilastik.
+#: The full run only turns off what this machine cannot do: the Fiji GUI, and Ilastik. It turns
+#: on Section C of the main notebook, which is off as shipped.
 FULL_SETTINGS = {
-    "generation_and_calibration.ipynb": {},
+    "generation_and_calibration.ipynb": dict(run_section_c=True),
     "workflow_quickstart.ipynb": {},
     "image_to_hemodynamics_model.ipynb": dict(
         install_requirements=False, open_fiji=False, run_ilastik_batch_processing=False,
@@ -100,7 +103,9 @@ def _prepare(nb, name: str, settings: dict):
 def _execute(name: str, settings: dict, workdir: Path, user_dir: Path, cell_timeout: int,
              monkeypatch, set_user_dir: bool = True) -> tuple[object, float]:
     """Run every cell of ``workdir/name``; return the executed notebook and the seconds taken."""
-    nb = _prepare(nbformat.read(workdir / name, as_version=4), name, settings)
+    nb = nbformat.read(workdir / name, as_version=4)
+    nbformat.validate(nb)  # as checked in: a valid notebook, every cell with an id
+    nb = _prepare(nb, name, settings)
 
     # A kernel for the interpreter running the tests, found through JUPYTER_PATH.
     kernel_dir = user_dir / "jupyter"
@@ -196,7 +201,7 @@ def _check_quickstart_outputs(user_dir: Path):
     assert (run / "predict" / "sweep" / "sweep_results.npz").exists()
     assert (run / "calibrated_target.png").exists()
     assert (run / "provenance.svg").exists()
-    assert any(directory.parent.glob("3compartment_quickstart_packed_*/calibration_workflow.json"))
+    assert (directory.parent / "3compartment_quickstart_packed" / "calibration_workflow.json").exists()
 
 
 def _run_calibration_notebook(name, check, settings, cell_timeout, budget, tmp_path, monkeypatch):
