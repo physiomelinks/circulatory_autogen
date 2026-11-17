@@ -462,6 +462,38 @@ def test_a_calibration_validates_its_best_fit_against_held_out_data(lv, tmp_path
 
 
 @pytest.mark.integration
+def test_a_modifier_entry_gives_its_parameters_values_not_theta(lv, tmp_path):
+    '''A params_for_id modifier entry is calibrated as theta. The step records, merges and
+    writes its parameters' values, modifier(theta, baseline), and records theta beside them.'''
+    params = _read_json(os.path.join(lv, _PARAMS))
+    params['params'][0] = {'name': 'alpha_scale', 'modifies': [_ALPHA], 'modifier': 'scale',
+                           'min': 0.2, 'max': 1.4}
+    _write_json(os.path.join(lv, _PARAMS), params)
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(_write(lv, _raw([_fit()])), output_dir=out,
+                                      write_calibrated=True)
+    assert result['complete']
+
+    step = _step(out, 'fit')
+    theta = step['best_fit'][0]
+    # alpha is 5.0 in the CellML and the data was made at 4.0
+    assert theta == pytest.approx(_TRUE[_ALPHA] / _OWN[_ALPHA], rel=0.02)
+    calibrated = {f"{c['vessel']}/{c['param']}": c['value'] for c in step['calibrated']}
+    assert calibrated[_ALPHA] == pytest.approx(theta * _OWN[_ALPHA], rel=1e-12)
+    assert calibrated[_GAMMA] == step['best_fit'][1]
+    assert step['modifiers'] == [{'name': 'alpha_scale', 'modifier': 'scale',
+                                  'targets': [_ALPHA], 'theta': theta,
+                                  'baselines': [_OWN[_ALPHA]],
+                                  'values': [calibrated[_ALPHA]]}]
+    # the merged target and both calibrated CellML files have alpha, not theta
+    merged = {r['host_name']: r['value'] for r in result['merged_parameters']}
+    assert merged[_ALPHA] == calibrated[_ALPHA]
+    assert _constants(step['calibrated_model'])[_ALPHA] == pytest.approx(calibrated[_ALPHA])
+    assert _constants(result['calibrated_model_file'])[_ALPHA] == pytest.approx(
+        calibrated[_ALPHA])
+
+
+@pytest.mark.integration
 def test_start_from_is_the_first_point_the_optimiser_evaluates(lv, tmp_path):
     hand = {'id': 'hand', 'kind': 'set', 'set': [
         {'parameter': _ALPHA, 'value': 4.2, 'reason': 'near the fit'},

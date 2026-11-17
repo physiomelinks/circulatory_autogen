@@ -237,6 +237,10 @@ number of vessels at a node (node sums #609, node rule D #617).
 - An identifiability step with `ia_options.method: profile_likelihood` records its profiles:
   `profile_likelihood_dir`, and under `profile_likelihood` each parameter's file, the value
   profiled about, its cost and its 95% interval.
+- A calibration step whose params_for_id has a modifier entry records and merges the values
+  of the parameters it modifies, `modifier(theta, baseline)`, and records theta under
+  `modifiers`. It recorded theta as each parameter's value, so the merged target had theta in
+  place of the parameter.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
   `on_target` sweep), do not count towards "calibrated by more than one step", and the

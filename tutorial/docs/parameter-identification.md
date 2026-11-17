@@ -1780,7 +1780,11 @@ a warning, and the fit stands. When the obs_data has held-out data (prediction i
 `value`), the step also checks the best fit against it, as `cuflynx-plot` does: it writes
 `validation_results.json` in its run directory (`validation_results` in the result) and
 records each item's statistics under `validation` (`data_item_name`, `n_points`, `rmse`,
-`nrmse`, `mean_abs_z`, `within_2std`, ...; the series are in the file). A local sensitivity step records the point it linearised about
+`nrmse`, `mean_abs_z`, `within_2std`, ...; the series are in the file).
+A params_for_id modifier entry is calibrated as its theta
+(`best_fit`), and the parameters it modifies take `modifier(theta, baseline)`: those values
+are what `calibrated`, the merged target and the calibrated CellML hold, and `modifiers` in
+the result records each entry's `theta`, `targets`, `baselines` and `values`. A local sensitivity step records the point it linearised about
 under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values)
 and its signed coefficients under `local_sensitivity_signed` (see
 [Local sensitivity files](sensitivity-analysis.md#local-sensitivity-files-method-local)), and an
