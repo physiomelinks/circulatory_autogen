@@ -66,7 +66,7 @@ runs it on all three models and adds the table to the job summary.
 | `fitzhugh_nagumo` | FitzHugh-Nagumo (non-stiff, multi-modal) | Myokit | yes |
 | `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | Myokit/CasADi | yes (slow, ~20+ min) |
 | `goodwin` | Goodwin 1965 oscillator — **external CellML from the Physiome Model Repository** (non-stiff, multimodal) | Myokit | yes (fast) |
-| `teusink` | Teusink 2000 yeast glycolysis — **external PMR CellML** (14 metabolite states, 90 constants, stiff regions); recovers 4 enzyme `v_max` values | Myokit | yes (fast) |
+| `teusink` | Teusink 2000 yeast glycolysis — **external PMR CellML** (14 metabolite states, 90 constants, stiff regions); recovers 4 enzyme `v_max` values; multi-start FD also on `CVODES_batched_c` and `BE_batched_c` | Myokit, batched C | yes (fast) |
 
 ### External CellML models (Goodwin)
 
@@ -237,6 +237,12 @@ python benchmarks/batched_solver_scaling.py --cells 2,16,128 --threads 1,4 --myo
 Setup, not the run, is what limits N: each solver flattens, analyses and compiles the whole colony, which
 takes about four times as long at each doubling of N (80 s at 64 cells, over 5 minutes at 128). `--jobs` builds
 the libraries several at a time before timing; built libraries are cached in the results folder.
+
+The batched solvers are also in the calibration benchmarks, so they run in CI and in the parallel-scaling
+study (`--scaling`): `teusink` calibrates with multi-start finite differences on `CVODES_batched_c` (rtol = atol
+= 1e-9, as the Myokit rows) and `BE_batched_c` (rtol 1e-6), next to `multi_start (FD)` on `CVODE_myokit`. Each
+rank runs one thread, so the core count is the MPI rank count, and the ranks share one build folder (the first
+builds the library under a lock). `CVODES_batched_c` needs SUNDIALS 6 or later (`SUNDIALS_DIR`).
 
 Results go to `benchmarks/_results/batched_solver_scaling/` (`results.json`, `results.md`); the last run's are in
 `results/batched_solver_scaling.md`.
