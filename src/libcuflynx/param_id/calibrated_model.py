@@ -6,6 +6,8 @@ dir (its ``param_id_output_dir``), where the study manifest finds it as the stud
 calibration engine; :func:`write_calibrated_model` takes the parts, for a caller holding them
 without one.
 """
+import os
+
 import numpy as np
 
 from libcuflynx.parsers.PrimitiveParsers import expand_modifier_param_vals
@@ -48,5 +50,6 @@ def write_calibrated_model(cellml_path, param_id_info, best_param_vals, output_p
     find).
     """
     names, values = calibrated_parameter_values(param_id_info, best_param_vals)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     change_parameter_values_and_save(cellml_path, names, values, output_path)
     return output_path

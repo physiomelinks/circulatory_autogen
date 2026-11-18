@@ -371,3 +371,64 @@ def test_the_utilities_read_the_trace_file():
     utils = gps.render_plot_utilities()
     assert "def posterior_series(" in utils
     assert "posterior_predictive_series.npz" in utils
+
+
+# --- encoding ------------------------------------------------------------------------
+# The bundle's scripts contain non-ASCII characters (em dashes). On Windows a bare open()
+# uses the locale's code page (cp1252), so the scripts were written in cp1252 and Python
+# then refused to run them ("Non-UTF-8 code starting with '\x97'").
+
+def _opens_without_encoding(tree):
+    missing = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "open"):
+            continue
+        mode = ""
+        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+            mode = node.args[1].value
+        for k in node.keywords:
+            if k.arg == "mode" and isinstance(k.value, ast.Constant):
+                mode = k.value.value
+        if "b" in str(mode):
+            continue
+        if not any(k.arg == "encoding" for k in node.keywords):
+            missing.append(node.lineno)
+    return missing
+
+
+@pytest.mark.unit
+def test_the_generator_opens_every_text_file_as_utf8():
+    with open(gps.__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    assert _opens_without_encoding(tree) == []
+
+
+@pytest.mark.unit
+def test_the_rendered_scripts_open_every_text_file_as_utf8():
+    for name, source in (("run_pipeline.py", gps.render_pipeline_script()),
+                         ("plot_utilities.py", gps.render_plot_utilities()),
+                         ("plot_outputs.py", gps.render_plotting_script())):
+        assert _opens_without_encoding(ast.parse(source)) == [], name
+
+
+@pytest.mark.unit
+def test_the_bundle_is_utf8_under_a_cp1252_default(study, tmp_path, monkeypatch):
+    """Run the real writer with Windows' default text encoding."""
+    import builtins
+    real_open = builtins.open
+
+    def cp1252_default(file, mode="r", *args, **kwargs):
+        if "b" not in mode and "encoding" not in kwargs and len(args) < 2:
+            kwargs["encoding"] = "cp1252"
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(gps, "open", cp1252_default, raising=False)
+    out = tmp_path / "bundle"
+    written = gps.write_pipeline_bundle(study, str(out))
+
+    scripts = [n for n in written if n.endswith(".py") and not n.startswith("resources/")]
+    assert gps.PIPELINE_SCRIPT_NAME in scripts
+    for name in scripts:
+        raw = (out / name).read_bytes()
+        compile(raw, str(out / name), "exec")

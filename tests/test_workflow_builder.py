@@ -7,6 +7,7 @@ of libcuflynx.external_testing.workflow_library (y = 2 p^2 for lin_a; z = 2 p_A^
 chain), whose optima are known in closed form.
 """
 import inspect
+import re
 import json
 import linecache
 import os
@@ -16,9 +17,9 @@ import pytest
 
 from libcuflynx.calibration_workflow import (WorkflowBuilder, WorkflowError, library_module,
                                              load_workflow, module_array, pack_workflow, prior,
-                                             scale_value, select, set_value)
+                                             scale_value, selection, set_value)
 from libcuflynx.calibration_workflow.builder import function_source
-from libcuflynx.calibration_workflow.runner import STEP_RESULT, workflow_status
+from libcuflynx.calibration_workflow.runner import MODELS_DIR, STEP_RESULT, workflow_status
 from libcuflynx.external_testing.workflow_library import (EMULATOR_SETTINGS, IA_OPTIONS,
                                                           OPTIMISER_SETTINGS, SA_OPTIONS,
                                                           STD_A, STD_C, UQ_OPTIONS, Y_A, Z_C,
@@ -199,7 +200,7 @@ def test_paths_are_relative_to_the_workflow_and_helpers_give_schema_fragments(li
     wf.add_calibration('a', model=module_array('a_only_module_array.json',
                                                 'a_only_parameters.json'),
                        obs_data='data/a_obs.json', params_for_id='data/a_params.json')
-    wf.add_calibration('sel', model=select('C'), obs_data='data/chain_obs.json',
+    wf.add_calibration('sel', model=selection('C'), obs_data='data/chain_obs.json',
                        params_for_id='data/chain_params.json', fixed_from=['a'])
     raw = wf.to_dict()
     arrays = os.path.relpath(library['arrays'], wf.directory)
@@ -210,10 +211,11 @@ def test_paths_are_relative_to_the_workflow_and_helpers_give_schema_fragments(li
     assert raw['steps'][1]['model'] == {'select': ['C']}
     assert raw['steps'][1]['obs_data'] == os.path.join(arrays, 'data', 'chain_obs.json')
     assert prior('fit') == 'fit'
-    # select() is the package's helper; the module of the same name still imports
-    assert select('a', 'b') == select(['a', 'b']) == {'select': ['a', 'b']}
-    from libcuflynx.calibration_workflow.select import write_step_inputs
-    assert callable(write_step_inputs)
+    assert selection('a', 'b') == selection(['a', 'b']) == {'select': ['a', 'b']}
+    # the package's attribute select is its submodule, which the helper's name leaves alone
+    import libcuflynx.calibration_workflow as package
+    import libcuflynx.calibration_workflow.select as select_module
+    assert package.select is select_module
     workflow = wf.check()
     assert workflow.step('a').obs_data == os.path.join(library['arrays'], 'data', 'a_obs.json')
 
@@ -232,6 +234,322 @@ def test_a_step_is_checked_when_it_is_added_and_the_workflow_when_written(librar
         wf.write()
     wf.remove_step('late')
     wf.write()
+
+
+@pytest.mark.unit
+def test_no_step_is_named_as_a_name_the_run_directory_uses(library, tmp_path):
+    """B13: models/, _target/ and inputs/ are the run's own folders and "target" is the
+    target's view, so neither the builder nor the schema takes them as a step id."""
+    from libcuflynx.calibration_workflow.builder import _RESERVED_IDS
+    from libcuflynx.calibration_workflow.runner import TARGET_DIR, TARGET_VIEW
+    from libcuflynx.utilities.cuflynx_study import INPUTS_DIR
+    assert _RESERVED_IDS == {MODELS_DIR, TARGET_DIR, TARGET_VIEW, INPUTS_DIR}
+    schema = load_schema(CALIBRATION_WORKFLOW_SCHEMA)
+    wf = _chain(library, tmp_path / 'wf')
+    raw = wf.to_dict()
+    for name in sorted(_RESERVED_IDS):
+        assert name in schema['$defs']['step']['properties']['id']['not']['enum']
+        with pytest.raises(WorkflowError, match=f'a step cannot be named "{name}"'):
+            wf.add_calibration(name, obs_data='x.json', params_for_id='y.json')
+        written = json.loads(json.dumps(raw))
+        written['steps'][0]['id'] = name
+        with pytest.raises(WorkflowError):
+            load_workflow(written)
+    assert wf.steps == ['fit_a', 'rest']
+
+
+@pytest.mark.unit
+def test_step_ids_give_distinct_file_names_on_every_file_system(library, tmp_path):
+    """B9: an id goes into file names as the workflow name does, and ids whose files or
+    directories would be one are refused when they are added."""
+    wf = _chain(library, tmp_path / 'wf')
+    obs_data, entries = _obs('y_a', 'mod/y', Y_A, STD_A), _entries('mod', 'p', 0.2, 5.0)
+    model = library_module('lin_a', 'v1', 'fit_a')
+    wf.add_calibration('a:b fit?', model=model, obs_data=obs_data, params_for_id=entries)
+    assert wf.to_dict()['steps'][-1]['params_for_id'] == 'data/a_b_fit_params_for_id.json'
+    for refused, why in (('Fit_A', 'differs from the step "fit_a" only by case'),
+                         ('a_b*fit', 'both give the file name "a_b_fit"'),
+                         ('x' * 81, 'has 81 characters; at most 80'),
+                         ('', 'non-empty string'), (3, 'non-empty string')):
+        with pytest.raises(WorkflowError, match=re.escape(why)):
+            wf.add_calibration(refused, model=model, obs_data=obs_data, params_for_id=entries)
+    assert wf.steps == ['fit_a', 'rest', 'a:b fit?']
+    wf.add_calibration('x' * 80, model=model, obs_data=obs_data, params_for_id=entries)
+    wf.add_calibration('fit_a', model=model, obs_data=obs_data,
+                       params_for_id=_entries('mod', 'p', 0.1, 5.0))     # replacing itself
+    wf.write()
+    assert os.path.isfile(os.path.join(wf.directory, 'data', 'a_b_fit_params_for_id.json'))
+
+
+@pytest.mark.unit
+def test_a_file_of_the_users_in_data_is_not_written_over(library, tmp_path):
+    """B4: a step may name its own file in data/; the builder does not write a dict there."""
+    wf = _chain(library, tmp_path / 'wf')
+    mine = os.path.join(wf.directory, 'data', 'fit_a_obs_data.json')
+    os.makedirs(os.path.dirname(mine))
+    with open(mine, 'w') as f:
+        json.dump(_obs('mine', 'mod/y', 1.0, 1.0), f, default=float)
+    wf.add_calibration('other', model=library_module('lin_a', 'v1', 'fit_a'), obs_data=mine,
+                       params_for_id=_entries('mod', 'p', 0.1, 5.0))
+    with pytest.raises(WorkflowError, match='step "other" names .*fit_a_obs_data.json as its '
+                                            'obs_data.*step "fit_a"'):
+        wf.write()
+    with open(mine) as f:
+        assert json.load(f)['data_items'][0]['data_item_name'] == 'mine'
+
+
+@pytest.mark.unit
+def test_empty_option_dicts_none_settings_and_the_default_model(library, tmp_path):
+    """B3, B10: an empty options dict is a dict; add_step defaults the model as the others
+    do and takes settings=None; emulator_settings is optional."""
+    wf = _chain(library, tmp_path / 'wf')
+    inputs = dict(obs_data=_obs('z_c', 'mod__C/z', Z_C, STD_C),
+                  params_for_id=_entries('mod__C', 'q', 0.1, 10.0))
+    wf.add_sensitivity('sa', sa_options={}, **inputs)
+    wf.add_emulation('emu', emulator_settings={}, **inputs)
+    wf.add_emulation('emu_default', **inputs)
+    wf.add_identifiability('ia', ia_options={}, result_from='rest', **inputs)
+    wf.add_step('raw', settings=None, description=None, **inputs)
+    steps = {s['id']: s for s in wf.to_dict()['steps']}
+    assert steps['sa']['settings'] == {'sa_options': {}}
+    assert steps['emu']['settings'] == {'emulator_settings': {}}
+    assert 'settings' not in steps['emu_default'] and 'settings' not in steps['raw']
+    assert steps['ia']['settings'] == {'ia_options': {}}
+    target = library_module('chain', 'v1', 'rest')
+    assert all(steps[s]['model'] == target for s in ('sa', 'emu', 'emu_default', 'ia', 'raw'))
+    # the kinds that run no model, and a sweep on the target, get none
+    wf.add_step('by_hand', kind='set', set=[set_value('mod__C/q', 1.0, reason='a test')])
+    wf.add_step('grid', kind='sweep', on_target=True, sweep={'parameters': {'mod__C/q': [1, 2]}})
+    steps = {s['id']: s for s in wf.to_dict()['steps']}
+    assert 'model' not in steps['by_hand'] and 'model' not in steps['grid']
+
+
+@pytest.mark.unit
+def test_pandas_values_are_written_and_a_nan_is_refused(library, tmp_path):
+    """B11, B12: pandas values are converted as numpy ones are; JSON has no NaN."""
+    pd = pytest.importorskip('pandas')
+    from libcuflynx.calibration_workflow.builder import jsonable
+    assert jsonable({'v': pd.Series([1.0, 2.0]), 'i': pd.Index([1, 2]),
+                     'a': pd.Series([0.5]).to_numpy()}) == {'v': [1.0, 2.0], 'i': [1, 2],
+                                                            'a': [0.5]}
+    wf = _chain(library, tmp_path / 'wf')
+    obs_data = _obs('y_a', 'mod/y', Y_A, STD_A)
+    obs_data['data_items'][0].update(data_type='series', obs_dt=0.5,
+                                     value=pd.Series([1.0, 2.0]), std=pd.Series([0.1, 0.1]))
+    wf.add_calibration('fit_a', model=library_module('lin_a', 'v1', 'fit_a'), obs_data=obs_data,
+                       params_for_id=_entries('mod', 'p', 0.1, 5.0))
+    wf.write()
+    with open(os.path.join(wf.directory, 'data', 'fit_a_obs_data.json')) as f:
+        assert json.load(f)['data_items'][0]['value'] == [1.0, 2.0]
+    for bad in (float('nan'), np.float64('inf')):
+        with pytest.raises(WorkflowError, match=r'step "fit_a": obs_data holds '
+                                                r'data_items\[0\]\.value \((nan|inf)\)'):
+            wf.add_calibration('fit_a', model=library_module('lin_a', 'v1', 'fit_a'),
+                               obs_data=_obs('y_a', 'mod/y', bad, STD_A),
+                               params_for_id=_entries('mod', 'p', 0.1, 5.0))
+    with pytest.raises(WorkflowError, match=r'params_for_id holds params\[0\]\.min \(nan\)'):
+        wf.add_calibration('fit_a', model=library_module('lin_a', 'v1', 'fit_a'),
+                           obs_data=_obs('y_a', 'mod/y', Y_A, STD_A),
+                           params_for_id={'version': 1, 'params': [
+                               {'targets': ['mod/p'], 'min': float('nan'), 'max': 5.0}]})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('writer', ['builder', 'funcs_file'])
+def test_two_processes_writing_one_file_do_not_share_a_temporary_file(tmp_path, monkeypatch,
+                                                                      writer):
+    """B6: ranks that build and write the same workflow at once each write through a
+    temporary file of their own. Here a second process writes the file while the first is
+    between writing its temporary file and renaming it."""
+    from libcuflynx.calibration_workflow import builder
+    from libcuflynx.utilities import user_funcs_file
+    path = str(tmp_path / 'data' / 'file.py')
+    sources = {'f': 'def f(x):\n    return x\n'}
+    if writer == 'builder':
+        def write():
+            return builder._write_if_changed(path, 'content\n')
+    else:
+        def write():
+            return user_funcs_file.write_funcs_file(path, 'operation', sources)
+    replace, pid, depth = os.replace, os.getpid(), []
+
+    def replace_after_another_process_wrote(src, dst):
+        if not depth:
+            depth.append(1)
+            monkeypatch.setattr(os, 'getpid', lambda: pid + 1)
+            write()                                  # the other rank, start to finish
+            monkeypatch.setattr(os, 'getpid', lambda: pid)
+        return replace(src, dst)
+    monkeypatch.setattr(os, 'replace', replace_after_another_process_wrote)
+    write()
+    assert depth and os.listdir(tmp_path / 'data') == ['file.py']
+
+
+@pytest.mark.unit
+def test_the_launched_mpiexec_keeps_the_users_mpi_settings():
+    """B7: run(ranks=N) starts mpiexec from a process that may itself be under a launcher.
+    The variables of that job are left out; what the user set is passed on."""
+    from libcuflynx.calibration_workflow.builder import launcher_environment
+    users = {'OMPI_ALLOW_RUN_AS_ROOT': '1', 'OMPI_ALLOW_RUN_AS_ROOT_CONFIRM': '1',
+             'OMPI_MCA_rmaps_base_oversubscribe': 'true', 'OMPI_MCA_btl': 'self,vader',
+             'OMPI_MCA_orte_tmpdir_base': '/scratch',
+             'PRTE_MCA_rmaps_default_mapping_policy': ':oversubscribe',
+             'HYDRA_HOST_FILE': '/hosts', 'HYDRA_LAUNCHER': 'ssh', 'I_MPI_PIN': '0',
+             'OPAL_PREFIX': '/opt/ompi', 'MPIEXEC_TIMEOUT': '60', 'PATH': '/usr/bin'}
+    of_the_job = {'OMPI_COMM_WORLD_RANK': '0', 'OMPI_COMM_WORLD_SIZE': '2',
+                  'OMPI_MCA_orte_hnp_uri': 'x', 'OMPI_MCA_orte_local_daemon_uri': 'x',
+                  'OMPI_MCA_ess': 'pmi', 'OMPI_MCA_ess_base_jobid': '1',
+                  'OMPI_MCA_orte_ess_num_procs': '2', 'OMPI_MCA_pmix': '^s1',
+                  'OMPI_MCA_initial_wdir': '/', 'OMPI_UNIVERSE_SIZE': '2',
+                  'OMPI_APP_CTX_NUM_PROCS': '2', 'OMPI_FIRST_RANKS': '0', 'OMPI_ARGV': 'x',
+                  'OMPI_COMMAND': 'python', 'OMPI_FILE_LOCATION': '/tmp/x',
+                  'OMPI_NUM_APP_CTX': '1', 'PMIX_RANK': '0', 'PMIX_NAMESPACE': 'x',
+                  'PMIX_SERVER_URI41': 'x', 'PMI_RANK': '0', 'PMI_FD': '5', 'PMI_SIZE': '2',
+                  'HYDI_CONTROL_FD': '6'}
+    assert launcher_environment({**users, **of_the_job}) == users
+
+
+@pytest.mark.unit
+def test_run_refuses_bad_ranks_and_a_missing_mpiexec_with_a_message(library, tmp_path,
+                                                                     monkeypatch):
+    """B8."""
+    wf = _chain(library, tmp_path / 'wf')
+    for ranks in ('2', 0, -1, 2.0, True):
+        with pytest.raises(WorkflowError, match='ranks is the number of MPI ranks'):
+            wf.run(ranks=ranks)
+    with pytest.raises(WorkflowError, match='a progress callable needs ranks=1'):
+        wf.run(ranks=2, progress=print)
+    monkeypatch.setenv('PATH', str(tmp_path))
+    with pytest.raises(WorkflowError, match=r'run\(ranks=2\) needs mpiexec, which is not on '
+                                            r'the PATH'):
+        wf.run(ranks=2)
+    assert not os.path.exists(wf.output_dir)
+
+
+@pytest.mark.unit
+def test_settings_are_checked_where_they_are_given(library, tmp_path):
+    """A misspelt setting is refused by the constructor and by update_settings, not later."""
+    target = library_module('chain', 'v1', 'rest')
+    with pytest.raises(WorkflowError, match=r"\['param_id_metod'\] is not a setting"):
+        WorkflowBuilder('typo', target=target, directory=tmp_path / 'wf',
+                        settings={'param_id_metod': 'CMA-ES'})
+    with pytest.raises(WorkflowError, match='calibration workflow'):
+        WorkflowBuilder('  ', target=target, directory=tmp_path / 'wf')
+    wf = _chain(library, tmp_path / 'wf')
+    before = wf.to_dict()
+    with pytest.raises(WorkflowError, match=r"\['dtt'\] is not a setting"):
+        wf.update_settings(dtt=1, dt=0.5)
+    assert wf.to_dict() == before                        # nothing of a refused call is kept
+    wf.update_settings(optimiser_options={'seed': 7})
+    assert wf.settings['optimiser_options'] == {**OPTIMISER_SETTINGS['optimiser_options'],
+                                                'seed': 7}
+    wf.update_settings(dt=None)
+    assert 'dt' not in wf.settings
+    # one library given as a string is one library
+    one = WorkflowBuilder('one', target=target, directory=tmp_path / 'one',
+                          module_library_dirs=library['modules'])
+    assert one.module_library_dirs == [library['modules']] and one.target == target
+
+
+@pytest.mark.unit
+def test_check_names_what_a_run_still_needs(library, tmp_path):
+    """1.7: no module library for a model that names library modules, and the settings the
+    calibration method requires, are reported by check() and plan(), by name."""
+    arrays = library['arrays']
+    wf = WorkflowBuilder('needs', target=module_array(os.path.join(arrays,
+                                                                   'chain_module_array.json')),
+                         directory=tmp_path / 'wf')
+    with pytest.raises(WorkflowError, match='has no steps yet'):
+        wf.check()
+    wf.add_calibration('c', obs_data=_obs('z_c', 'C/z', Z_C, STD_C),
+                       params_for_id=_entries('C', 'q', 0.1, 10.0))
+    for check in (wf.check, wf.plan, wf.run):
+        with pytest.raises(WorkflowError) as refused:
+            check()
+        message = str(refused.value)
+        assert 'cannot run yet' in message
+        assert 'pass module_library_dirs=[' in message and 'chain_module_array.json' in message
+        assert "no optimiser_options ['num_calls_to_function'], which genetic_algorithm (the " \
+               "param_id_method when none is set) requires" in message
+    assert not os.path.exists(wf.output_dir)
+    wf.write()                        # the file itself is complete: a library can be given
+    #                                   on the command line
+    ready = WorkflowBuilder('needs', target=wf.target, directory=tmp_path / 'wf',
+                            module_library_dirs=[library['modules']],
+                            settings={'param_id_method': 'genetic_algorithm', 'DEBUG': True,
+                                      'debug_optimiser_options': {'num_calls_to_function': 9}})
+    ready.add_calibration('c', obs_data=_obs('z_c', 'C/z', Z_C, STD_C),
+                          params_for_id=_entries('C', 'q', 0.1, 10.0))
+    assert ready.check().name == 'needs'
+    ready.update_settings(DEBUG=False)
+    with pytest.raises(WorkflowError, match='which genetic_algorithm requires'):
+        ready.check()
+    ready.update_settings(param_id_method='CMA-ES')
+    ready.check()
+
+
+@pytest.mark.unit
+def test_the_genetic_algorithm_without_a_budget_says_so():
+    """The engine's own message, for a workflow run without the builder."""
+    from libcuflynx.param_id import optimisers
+    source = inspect.getsource(optimisers)
+    assert "needs optimiser_options.num_calls_to_function" in source
+
+
+@pytest.mark.unit
+def test_relative_paths_are_written_with_forward_slashes_on_every_platform():
+    from libcuflynx.calibration_workflow.builder import _forward_slashes
+    assert _forward_slashes('..\\lib\\arrays\\chain_module_array.json', sep='\\') == \
+        '../lib/arrays/chain_module_array.json'
+    assert _forward_slashes('../lib/a b.json') == '../lib/a b.json'
+
+
+@pytest.mark.unit
+def test_the_api_page_lists_every_public_member_and_each_has_a_docstring():
+    page = os.path.join(os.path.dirname(__file__), '..', 'tutorial', 'docs', 'api',
+                        'calibration-workflow.md')
+    with open(page) as f:
+        text = f.read()
+    listed = re.search(r'WorkflowBuilder\n    options:\n      members:\n((?:        - \w+\n)+)',
+                       text).group(1)
+    listed = [line.strip()[2:] for line in listed.splitlines()]
+    public = [name for name in vars(WorkflowBuilder) if not name.startswith('_')]
+    assert sorted(listed) == sorted(public)
+    for name in public:
+        assert len(inspect.getdoc(getattr(WorkflowBuilder, name)) or '') > 20, name
+    for attribute in ('directory (str)', 'path (str)', 'settings (dict)'):
+        assert attribute in inspect.getdoc(WorkflowBuilder)
+
+
+@pytest.mark.unit
+def test_repr_and_load_of_a_directory(library, tmp_path):
+    wf = _chain(library, tmp_path / 'wf')
+    wf.add_operation(double_mean)
+    text = repr(wf)
+    assert text.splitlines()[0] == (f'<WorkflowBuilder "chain_built": target chain/v1/rest, '
+                                    f'2 steps, in {wf.directory}>')
+    assert '  fit_a (calibration): not run' in text and 'operation functions: double_mean' in text
+    path = wf.write()
+    assert WorkflowBuilder.load(wf.directory).to_dict() == WorkflowBuilder.load(path).to_dict()
+    with pytest.raises(WorkflowError, match='there is no workflow file'):
+        WorkflowBuilder.load(tmp_path / 'nowhere')
+    with open(path, 'w') as f:
+        f.write('{')
+    with pytest.raises(WorkflowError, match='is not valid JSON'):
+        WorkflowBuilder.load(path)
+
+
+@pytest.mark.unit
+def test_progress_lines_say_what_happened_to_a_step_that_did_not_run(capsys):
+    from libcuflynx.scripts.calibration_workflow_run_script import _print_progress
+    for fields in ({'has_result': False}, {'has_result': True, 'current': True},
+                   {'has_result': True, 'current': False}, {}):
+        _print_progress({'event': 'step_skipped', 'step': 's', **fields})
+    assert capsys.readouterr().out.splitlines() == [
+        '[workflow] step s: not run',
+        '[workflow] step s: done and current, not run again',
+        '[workflow] step s: reusing its earlier result',
+        '[workflow] step s: reusing its earlier result']
 
 
 @pytest.mark.unit
@@ -381,6 +699,306 @@ def test_a_function_is_written_with_what_it_needs_and_registers_as_an_operation(
     assert again.funcs_source() == source
 
 
+def _funcs_builder(tmp_path, name='funcs'):
+    wf = WorkflowBuilder(name, target=library_module('lin_a', 'v1', 'fit_a'),
+                         directory=tmp_path / 'wf')
+    wf.add_calibration('fit_a', obs_data='x.json', params_for_id='y.json')
+    return wf
+
+
+def extra_mean(x, series_output=False):
+    return x if series_output else np.mean(x)
+
+
+@pytest.mark.unit
+def test_a_second_builder_regenerates_a_functions_file_nobody_edited(tmp_path):
+    """Running a script again, or Restart & Run All (1.1): the file carries the checksum of
+    what was generated, so a builder that never saw it may write it again."""
+    from libcuflynx.utilities.user_funcs_file import CHECKSUM_PREFIX, is_unedited
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    with open(funcs) as f:
+        first = f.read()
+    assert first.count(CHECKSUM_PREFIX) == 1 and is_unedited(first)
+
+    again = _funcs_builder(tmp_path)
+    again.add_operation(double_mean)            # the same file: nothing to refuse
+    again.write()
+    with open(funcs) as f:
+        assert f.read() == first
+    # and with other functions: the unedited file is replaced
+    third = _funcs_builder(tmp_path)
+    third.add_operation(double_mean, extra_mean)
+    third.write()
+    with open(funcs) as f:
+        text = f.read()
+    assert 'def extra_mean' in text and is_unedited(text)
+    # the original builder lacks extra_mean, which the file now holds: it is refused
+    # until told to replace the file
+    with pytest.raises(WorkflowError, match=r"\['extra_mean'\].*overwrite=True"):
+        wf.write()
+    wf.write(overwrite=True)
+    with open(funcs) as f:
+        assert f.read() == first
+
+
+@pytest.mark.unit
+def test_a_functions_file_edited_by_hand_is_refused_with_an_instruction_that_works(tmp_path):
+    """1.2: the refusal names overwrite=True, and add_operation(f, overwrite=True) or
+    write(overwrite=True) then goes through."""
+    from libcuflynx.utilities.user_funcs_file import is_unedited
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    with open(funcs, 'a') as f:
+        f.write('\n\ndef by_hand(x):\n    return x\n')
+    with open(funcs) as f:
+        assert not is_unedited(f.read())
+    message = (re.escape(funcs) + r' was edited by hand.*wf\.add_operation\(f, overwrite=True\)'
+               r'.*wf\.write\(overwrite=True\)')
+    for refused in (wf.write, wf.status, lambda: wf.add_operation(extra_mean),
+                    lambda: _funcs_builder(tmp_path).add_operation(extra_mean)):
+        with pytest.raises(WorkflowError, match=message):
+            refused()
+        with open(funcs) as f:
+            assert 'def by_hand' in f.read()             # not overwritten
+    # adding what gives the file as it is on disk is never refused
+    wf.add_operation(double_mean, overwrite=True)
+    wf.write()
+    with open(funcs) as f:
+        text = f.read()
+    assert 'def by_hand' not in text and is_unedited(text)
+
+    # write(overwrite=True) does the same
+    with open(funcs, 'a') as f:
+        f.write('\n# a note\n')
+    with pytest.raises(WorkflowError, match='was edited by hand'):
+        wf.add_operation(extra_mean)
+    wf.add_operation(extra_mean, overwrite=True)
+    with open(funcs) as f:
+        assert '# a note' in f.read()                    # add_operation writes nothing
+    wf.write()
+    with open(funcs) as f:
+        assert '# a note' not in f.read()
+    # a file no builder wrote is refused the same way
+    with open(funcs, 'w') as f:
+        f.write('def mine(x):\n    return x\n')
+    with pytest.raises(WorkflowError, match=message):
+        _funcs_builder(tmp_path).add_operation(double_mean)
+    fresh = _funcs_builder(tmp_path)
+    fresh.add_operation(double_mean, overwrite=True)
+    fresh.write()
+    assert fresh.functions() == ['double_mean']
+
+
+@pytest.mark.unit
+def test_a_fresh_builder_does_not_drop_functions_another_writer_added(tmp_path):
+    """A functions file with a valid checksum that holds a function this builder lacks (added
+    through write_funcs_file) is refused; a re-run with the same functions is not."""
+    from libcuflynx.utilities.user_funcs_file import write_funcs_file
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    # the same functions again (a notebook re-run after a restart), and more, need no overwrite
+    for functions in ((double_mean,), (double_mean, extra_mean)):
+        again = _funcs_builder(tmp_path)
+        again.add_operation(*functions)
+        again.write()
+    sources, imports = read_funcs_file(funcs, 'operation')
+    sources['dialog_op'] = '@series_to_constant\ndef dialog_op(x, series_output=False):\n' \
+                           '    return np.max(x)\n'
+    write_funcs_file(funcs, 'operation', sources, imports)
+    fresh = _funcs_builder(tmp_path)
+    fresh.add_operation(double_mean, extra_mean)       # adding never refuses: a later add may supply it
+    with pytest.raises(WorkflowError, match=r"\['dialog_op'\].*overwrite=True"):
+        fresh.write()
+    assert 'dialog_op' in read_funcs_file(funcs, 'operation')[0]
+    fresh.add_operation(double_mean, extra_mean, overwrite=True)
+    fresh.write()
+    assert 'dialog_op' not in read_funcs_file(funcs, 'operation')[0]
+
+
+@pytest.mark.unit
+def test_a_function_added_by_a_later_cell_is_not_refused_when_an_earlier_cell_adds(tmp_path):
+    """Restart & Run All: an early cell adds A, a later one adds my_max; the file already holds
+    both from the last run. Nothing is refused until write(), by when both are added."""
+    first = _funcs_builder(tmp_path)
+    first.add_operation(double_mean, extra_mean)
+    first.write()
+    funcs = first.settings['operation_funcs_external_path']
+    fresh = _funcs_builder(tmp_path)
+    fresh.add_operation(double_mean)                   # does not raise
+    fresh.add_operation(extra_mean)
+    fresh.write()                                      # no overwrite needed
+    assert set(read_funcs_file(funcs, 'operation')[0]) == {'double_mean', 'extra_mean'}
+
+
+@pytest.mark.unit
+def test_load_keeps_a_hand_edited_functions_file_and_never_drops_its_statements(tmp_path):
+    """1.3: load() reads a hand-edited file's functions and may rewrite it, but not when the
+    file holds statements a rewrite would drop (a constant, a class)."""
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    with open(funcs, 'a') as f:
+        f.write('\n\ndef by_hand(x):\n    return x\n')
+    again = WorkflowBuilder.load(wf.directory)           # the directory, or the file
+    assert again.functions() == ['double_mean', 'by_hand']
+    again.add_operation(extra_mean)
+    again.write()
+    with open(funcs) as f:
+        assert 'def by_hand' in f.read() and again.functions()[-1] == 'extra_mean'
+
+    with open(funcs) as f:
+        text = f.read()
+    text = text.replace('CUFLYNX_OPERATIONS', 'GAIN = 2.0  # mine\n\nclass Shape:\n    pass\n\n'
+                        'CUFLYNX_OPERATIONS')
+    with open(funcs, 'w') as f:
+        f.write(text)
+    loaded = WorkflowBuilder.load(wf.path)
+    loaded.write()                                       # nothing to rewrite: the file stays
+    assert loaded.status is not None
+    with open(funcs) as f:
+        assert f.read() == text
+    with pytest.raises(WorkflowError, match=r'GAIN = 2\.0  # mine \(line \d+\); class Shape: '
+                                            r'\(line \d+\)'):
+        loaded.remove_operation('by_hand')
+        loaded.write()
+    with open(funcs) as f:
+        assert f.read() == text
+    loaded.write(overwrite=True)
+    with open(funcs) as f:
+        assert 'GAIN' not in f.read()
+
+
+@pytest.mark.unit
+def test_cuflynx_reads_and_rewrites_a_file_with_the_checksum_line(tmp_path):
+    """CUFLynx's funcs dialog (apps/api/user_funcs.py) reads a file by its list marker and its
+    top-level defs and rewrites it with write_funcs_file: the checksum line is a comment to
+    both, and the rewritten file carries its own."""
+    import ast
+    from libcuflynx.utilities.user_funcs_file import (LIST_MARKERS, is_unedited,
+                                                      unkept_statements, write_funcs_file)
+    wf = _funcs_builder(tmp_path)
+    wf.add_operation(double_mean, extra_mean)
+    wf.write()
+    funcs = wf.settings['operation_funcs_external_path']
+    with open(funcs) as f:
+        text = f.read()
+    tree = ast.parse(text)                               # as CUFLynx's _parse_existing does
+    order = [ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+             and n.targets[0].id == LIST_MARKERS['operation']][0]
+    assert order == ['double_mean', 'extra_mean']
+    assert [n.name for n in tree.body if isinstance(n, ast.FunctionDef)] == order
+    assert unkept_statements(funcs, 'operation') == []
+    sources, imports = read_funcs_file(funcs, 'operation')
+    write_funcs_file(funcs, 'operation', {'extra_mean': sources['extra_mean']}, imports)
+    with open(funcs) as f:
+        rewritten = f.read()
+    assert is_unedited(rewritten) and 'def double_mean' not in rewritten
+    # with Windows line ends the checksum still holds
+    assert is_unedited(rewritten.replace('\n', '\r\n'))
+    # so a builder may regenerate what CUFLynx wrote
+    wf.add_operation(double_mean)
+    wf.write()
+
+
+@pytest.mark.unit
+def test_functions_are_added_all_or_none_removed_and_listed(tmp_path):
+    """B5: a call that fails on one function adds none, and does not name a file."""
+    wf = _funcs_builder(tmp_path)
+    with pytest.raises(WorkflowError, match='lambda'):
+        wf.add_operation(double_mean, lambda x: x)
+    assert wf.functions() == [] and 'operation_funcs_external_path' not in wf.settings
+    assert wf.funcs_source() is None
+    with pytest.raises(WorkflowError, match=r"takes a function, not a name \('mean'\)"):
+        wf.add_operation('mean')
+    wf.add_operation(double_mean, extra_mean)
+    assert wf.functions() == ['double_mean', 'extra_mean'] and wf.functions('cost') == []
+    wf.remove_operation('double_mean')
+    assert wf.functions() == ['extra_mean'] and 'def double_mean' not in wf.funcs_source()
+    with pytest.raises(WorkflowError, match=r"no operation function \['double_mean'\]"):
+        wf.remove_operation(double_mean)
+    wf.remove_operation(extra_mean)
+    assert 'operation_funcs_external_path' not in wf.settings
+    assert 'operation_funcs_external_path' not in wf.to_dict().get('settings', {})
+
+
+K_SESSION = 3.0
+
+
+class SessionType:
+    pass
+
+
+def default_from_the_session(x, k=K_SESSION, series_output=False):
+    return x if series_output else k * np.mean(x)
+
+
+def annotated_with_a_session_type(x: SessionType, series_output=False) -> SessionType:
+    return x if series_output else np.mean(x)
+
+
+def default_from_a_module(x, k=np.pi, *, scale: float = os.sep, series_output=False):
+    return x if series_output else k * np.mean(x)
+
+
+@pytest.mark.unit
+def test_a_default_or_annotation_using_a_session_name_is_refused(tmp_path):
+    """B1: the def statement evaluates its defaults and annotations where the file is
+    imported, so the names in them are needed there too."""
+    with pytest.raises(WorkflowError, match="'K_SESSION' is a float defined in this session"):
+        function_source(default_from_the_session)
+    with pytest.raises(WorkflowError, match="'SessionType' is a type defined in this session"):
+        function_source(annotated_with_a_session_type)
+    source, imports = function_source(default_from_a_module)
+    assert imports == ['import os']
+    path = tmp_path / 'ops.py'
+    from libcuflynx.utilities.user_funcs_file import write_funcs_file
+    write_funcs_file(str(path), 'operation', {'default_from_a_module': source}, imports)
+    namespace = {}
+    exec(compile(path.read_text(), str(path), 'exec'), namespace)
+    assert namespace['default_from_a_module'](np.ones(3)) == pytest.approx(np.pi)
+
+
+SUBMODULE_CELL = """
+import numpy as np
+import wsgiref.util
+import xml.dom.minidom as minidom
+import email
+
+def through_its_package(x, series_output=False):
+    wsgiref.util.FileWrapper, minidom.parseString, email.mime.text.MIMEText
+    return x if series_output else np.mean(x)
+"""
+
+
+@pytest.mark.unit
+def test_a_submodule_used_through_its_package_is_imported(tmp_path):
+    """B2: ``import pkg`` does not load ``pkg.sub``; the file imports the submodule."""
+    import email.mime.text  # noqa: F401 - loaded, so the session's ``email`` has it
+    import subprocess
+    import sys
+    cell = _cell(SUBMODULE_CELL, name='<ipython-input-3-00aa00aa00aa>')
+    source, imports = function_source(cell['through_its_package'])
+    assert imports == ['import email', 'import email.mime.text', 'import wsgiref',
+                       'import wsgiref.util', 'import xml.dom.minidom as minidom']
+    from libcuflynx.utilities.user_funcs_file import write_funcs_file
+    path = write_funcs_file(str(tmp_path / 'ops.py'), 'operation',
+                            {'through_its_package': source}, imports)
+    done = subprocess.run(
+        [sys.executable, '-c', 'import runpy, sys; import numpy as np; '
+         'print(runpy.run_path(sys.argv[1])["through_its_package"](np.ones(3)))', path],
+        capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == '1.0'
+
+
 @pytest.mark.unit
 def test_functions_that_cannot_live_in_a_file_are_refused(tmp_path):
     wf = WorkflowBuilder('funcs', target=library_module('lin_a', 'v1', 'fit_a'),
@@ -440,6 +1058,83 @@ def test_run_only_from_step_and_edited_dicts_make_their_steps_stale(library, tmp
     assert images and all(os.path.isfile(p) for p in images)
     model = wf.model('rest')
     assert os.path.isfile(model['model_path'])
+    # generated in the run's models/ folder, which no step's output can be
+    assert model['model_path'].startswith(os.path.join(wf.output_dir, MODELS_DIR, 'rest') + os.sep)
+
+
+@pytest.mark.integration
+def test_run_keeps_the_steps_that_are_done_and_current(library, tmp_path, capsys):
+    """1.5: run() with no only/from_step runs what has not run or is stale, and says which
+    steps it kept; force=True runs everything. result() reads what a step recorded."""
+    from libcuflynx.scripts import calibration_workflow_run_script as cli
+    wf = _chain(library, tmp_path / 'wf')
+    with pytest.raises(WorkflowError, match=f'step "fit_a" has not run into '
+                                            f'{re.escape(wf.output_dir)}'):
+        wf.result('fit_a')
+    events = []
+    wf.run(only='fit_a', progress=events.append)
+    # a step that never ran is not said to be reused
+    assert [(e['step'], e['has_result']) for e in events if e['event'] == 'step_skipped'] == [
+        ('rest', False)]
+
+    def ran(**kwargs):
+        events.clear()
+        result = wf.run(progress=events.append, **kwargs)
+        assert result['complete']
+        return ([e['step'] for e in events if e['event'] == 'step_started'],
+                [e['step'] for e in events if e['event'] == 'step_skipped' and e['current']])
+
+    assert ran() == (['rest'], ['fit_a'])
+    finished = {s: v['finished'] for s, v in wf.status()['steps'].items()}
+    values = {s: _calibrated(wf, s) for s in wf.steps}
+    assert ran() == ([], ['fit_a', 'rest'])
+    assert {s: v['finished'] for s, v in wf.status()['steps'].items()} == finished
+    assert {s: _calibrated(wf, s) for s in wf.steps} == values
+
+    # the default progress prints one line for each step kept
+    capsys.readouterr()
+    wf.run()
+    out = capsys.readouterr().out
+    assert '[workflow] step fit_a: done and current, not run again' in out
+    assert '[workflow] step rest: done and current, not run again' in out
+
+    # the result a step recorded
+    fit_a = wf.result('fit_a')
+    assert fit_a['kind'] == 'calibration' and fit_a['values'] == {'mod/p': values['fit_a']}
+    assert fit_a['best_cost'] == wf.status()['steps']['fit_a']['best_cost']
+    assert fit_a['step_dir'] == str(wf.step_dir('fit_a'))
+    assert os.path.isdir(fit_a['param_id_output_dir'])
+    with pytest.raises(WorkflowError, match='has no step "nope"'):
+        wf.result('nope')
+
+    # an edited step and the steps after it run again; the ones before are kept
+    wf.add_calibration('rest', obs_data=_obs('z_c', 'mod__C/z', Z_C, 2 * STD_C),
+                       params_for_id=_entries('mod__C', 'q', 0.1, 10.0), fixed_from='fit_a')
+    assert ran() == (['rest'], ['fit_a'])
+    # the command line's --stale-only is the same; without it every step runs
+    assert cli.build_parser().parse_args([wf.path, '--stale-only']).stale_only
+    assert not cli.build_parser().parse_args([wf.path]).stale_only
+    assert ran(force=True) == (['fit_a', 'rest'], [])
+    assert _calibrated(wf, 'fit_a') == pytest.approx(values['fit_a'], rel=1e-12)
+
+
+@pytest.mark.integration
+def test_result_of_a_reduction_names_the_chosen_parameters(library, tmp_path):
+    wf = WorkflowBuilder('reduced', target=library_module('chain', 'v1', 'rest'),
+                         directory=tmp_path / 'wf', module_library_dirs=[library['modules']],
+                         settings=OPTIMISER_SETTINGS)
+    wf.add_sensitivity('screen', obs_data=_obs('z_c', 'mod__C/z', Z_C, STD_C),
+                       params_for_id=_entries('mod__C', 'q', 0.1, 10.0)
+                       + _entries('mod__A', 'p', 1.9, 2.1), sa_options=SA_OPTIONS)
+    wf.add_reduction('keep', sensitivity_from='screen', method='sobol', n_params=1)
+    wf.run(progress=False)
+    keep = wf.result('keep')
+    assert keep['kind'] == 'reduction' and len(keep['parameters']) == 1
+    assert keep['parameters'] == [row['parameter'] for row in keep['selected']]
+    assert os.path.isfile(keep['params_for_id']) and os.path.isfile(keep['report'])
+    assert os.path.isdir(wf.result('screen')['sensitivity_dir'])
+    with pytest.raises(WorkflowError, match='is a reduction step; plot_step plots'):
+        wf.plot_step('keep')
 
 
 @pytest.mark.integration
