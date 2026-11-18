@@ -622,7 +622,8 @@ def test_a_modifier_entry_starts_and_is_analysed_at_a_theta(lv, tmp_path):
     raw = _raw([
         sliders,
         _fit('quick', start_from='sliders', settings=quick),
-        _fit(),
+        # fit takes from quick, so its values replace quick's: unrelated, the two are refused
+        _fit(fixed_from=['quick']),
         dict(analysis, id='ia-sliders', kind='identifiability', result_from='sliders'),
         dict(analysis, id='ia-fit', kind='identifiability', result_from='fit'),
         dict(analysis, id='local', kind='sensitivity', result_from='sliders',
