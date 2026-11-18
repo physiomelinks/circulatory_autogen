@@ -153,6 +153,8 @@ next release; add to that section as you land a change.
   params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
   written as files under `data/` beside the workflow. The result is an ordinary workflow file
   that the command line and CUFLynx run and `pack_workflow` packs.
+  A run's first line names the steps it runs and those it keeps (done and current), or says
+  that nothing is left to run and how to run every step again (`wf.run(force=True)`).
   See "Building a workflow in Python" in the parameter-identification docs, and the
   "Calibration workflows" page of the API reference.
 - `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
@@ -163,8 +165,9 @@ next release; add to that section as you land a change.
 - `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
   script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
   remove and list them. The file's header records a checksum of what was generated: a builder
-  regenerates a file nobody edited (in a later session too) and refuses one edited by hand or
-  written by something else, until `add_operation(f, overwrite=True)` or
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand,
+  written by something else, or (when writing) holding functions it does not have (another
+  writer added them), until `add_operation(f, overwrite=True)` or
   `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
   refuses to rewrite a file whose other top-level statements (a constant, a class) it would
   drop.
