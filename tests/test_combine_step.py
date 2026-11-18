@@ -47,7 +47,9 @@ def _parse(library, raw):
 
 
 def _resolve(library, raw):
-    return resolve_workflow(_parse(library, raw))
+    '''Resolved as a run of every step resolves it: a parameter the target is given by
+    unrelated steps is refused.'''
+    return resolve_workflow(_parse(library, raw), target_overlap='error')
 
 
 def _combine(step_id, combine_from, method='best_fit'):
@@ -190,6 +192,87 @@ def test_unrelated_calibrations_of_a_parameter_need_a_combine_step(library):
     with pytest.raises(WorkflowError, match="\"q_mod__C\" by 'best' and 'mean'"):
         _resolve(library, _raw(library, [fit_a, poor, good, _combine('best', ['poor', 'good']),
                                          _combine('mean', ['poor', 'good'], 'mean')]))
+
+
+@pytest.mark.unit
+def test_reading_and_planning_warn_where_a_run_of_every_step_refuses(library):
+    """The target is merged for use by a run of more than one step, so that is where two
+    values of one parameter are refused. Reading, the plan and the status only warn, and the
+    plan carries the message."""
+    fit_a, poor, good = _two_fits(library)
+    workflow = _parse(library, _raw(library, [fit_a, poor, good]))
+    with pytest.warns(UserWarning, match="\"q_mod__C\" by 'poor' and 'good'.*Until then the "
+                                         "value of the later step in run order is used"):
+        resolved = resolve_workflow(workflow)
+    assert 'the target chain/v1/rest is given 1 parameter(s)' in resolved.target_overlap
+    with pytest.warns(UserWarning, match='do not take from each other'):
+        plan = plan_workflow(workflow)
+    assert plan['target_overlap'] == resolved.target_overlap
+    settled = _raw(library, [fit_a, poor, good, _combine('best', ['poor', 'good'])])
+    assert plan_workflow(_parse(library, settled))['target_overlap'] is None
+
+
+@pytest.mark.unit
+def test_unrelated_set_steps_of_one_parameter_warn(library):
+    """A value set by hand never clashes, but two set steps that do not take from each other
+    setting one parameter is likely a mistake: a warning names the one that is used."""
+    fit_a, rest = _read_json(library['chain_rest'])['steps']
+
+    def hand(step_id, **entry):
+        return {'id': step_id, 'kind': 'set', 'set': [
+            dict({'parameter': 'mod__A/p', 'reason': 'a guess'}, **entry)]}
+
+    raw = _raw(library, [hand('first', value=1.0), hand('second', value=2.0),
+                         dict(rest, fixed_from=['first', 'second'])])
+    with pytest.warns(UserWarning) as caught:
+        _resolve(library, raw)
+    messages = [str(w.message) for w in caught if 'set steps' in str(w.message)]
+    assert len(messages) == 2      # the target, and rest
+    assert 'the target chain/v1/rest is given 1 parameter(s) by set steps that do not take ' \
+           'from each other: "p_mod__A" by \'first\' and \'second\' (the value of \'second\', ' \
+           'the later in run order, is used)' in messages[0]
+    assert 'step "rest" is given 1 parameter(s) by set steps' in messages[1]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', category=UserWarning)
+        # one scales the other's value, or one is all there is: no warning
+        _resolve(library, _raw(library, [hand('first', value=1.0),
+                                         hand('second', scale=2.0, of='first'),
+                                         dict(rest, fixed_from=['second'])]))
+        _resolve(library, _raw(library, [fit_a, hand('second', value=2.0),
+                                         dict(rest, fixed_from=['second'])]))
+
+
+@pytest.mark.integration
+def test_a_second_calibration_runs_alone_before_its_combine_step_is_added(library, tmp_path):
+    """As a front end adds steps: the second fit of q is run alone, which goes through with a
+    warning and merges the later value; a run of every step is refused before anything runs;
+    the combine step settles it."""
+    fit_a, poor, good = _two_fits(library)
+    out = str(tmp_path / 'out')
+    run_calibration_workflow(_write(library, _raw(library, [fit_a, poor])), output_dir=out)
+
+    path = _write(library, _raw(library, [fit_a, poor, good]))
+    with pytest.warns(UserWarning, match='do not take from each other'):
+        result = run_calibration_workflow(path, output_dir=out, only='good')
+    merged = {r['parameterisation_name']: r for r in result['merged_parameters']}
+    assert merged['C/q']['from_step'] == 'good'
+    assert merged['C/q']['value'] == pytest.approx(Q_C, rel=1e-3)
+
+    finished = _read_json(os.path.join(out, 'good', 'step_result.json'))['finished']
+    for keys in ({}, {'stale_only': True}, {'only': 'good', 'write_calibrated': True}):
+        with pytest.raises(WorkflowError, match="\"q_mod__C\" by 'poor' and 'good'"):
+            run_calibration_workflow(path, output_dir=out, **keys)
+    assert _read_json(os.path.join(out, 'good', 'step_result.json'))['finished'] == finished
+
+    path = _write(library, _raw(library, [fit_a, poor, good,
+                                          _combine('best', ['poor', 'good'])]))
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', category=UserWarning)
+        resolve_workflow(_parse(library, _read_json(path)))
+    result = run_calibration_workflow(path, output_dir=out, stale_only=True)
+    merged = {r['parameterisation_name']: r for r in result['merged_parameters']}
+    assert merged['C/q']['from_step'] == 'best' and result['complete']
 
 
 @pytest.mark.unit

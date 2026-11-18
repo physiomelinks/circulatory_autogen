@@ -336,6 +336,9 @@ class _Run:
         self.start_points = {}
         #: per step on an emulator_dir, {model name: value} of the point it analyses
         self.emulator_points = {}
+        #: 'error' or 'warn': what the merge does when unrelated steps give the target one
+        #: parameter (resolve.check_merged_once)
+        self.target_overlap = 'warn'
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -1388,7 +1391,7 @@ class _Run:
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id, **_how_set(record)}
-        check_merged_once(self.workflow, claimed)
+        check_merged_once(self.workflow, claimed, on_clash=self.target_overlap)
         complete = all(r and r.get('status') == 'done' for r in results.values())
         target = self.resolved.target
         workflow_result = {
@@ -1580,7 +1583,7 @@ def write_calibrated_parameters_to(source, output_dir, path, module_library_dirs
                             f'in {output_dir} (not run, or their inputs changed since); run '
                             f'them before writing the calibrated parameters.')
     result = _read_json(result_path)
-    resolved = resolve_workflow(workflow)
+    resolved = resolve_workflow(workflow, target_overlap='error')
     return write_calibrated_parameters(resolved.target, result['merged_parameters'],
                                        workflow.name, path=path,
                                        library_inputs=resolved.library_inputs,
@@ -1703,7 +1706,10 @@ def _write_params_for_id_with_priors(source_path, out_path, priors, step_id):
 
 def plan_workflow(source, module_library_dirs=None):
     '''What running the workflow would do, without running anything: the order, each step's
-    files, where its values land in the target, and what it is given by earlier steps.'''
+    files, where its values land in the target, and what it is given by earlier steps.
+    ``target_overlap`` is the message a run of every step would refuse the workflow with when
+    steps that do not take from each other give the target one parameter (also a UserWarning
+    here), else None.'''
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
     steps = []
@@ -1762,7 +1768,8 @@ def plan_workflow(source, module_library_dirs=None):
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
-            'module_library_dirs': workflow.module_library_dirs, 'steps': steps}
+            'module_library_dirs': workflow.module_library_dirs, 'steps': steps,
+            'target_overlap': resolved.target_overlap}
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,
@@ -1800,9 +1807,16 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
         return plan_workflow(workflow)
 
     comm = _get_comm(comm)
-    resolved = resolve_workflow(workflow)
+    # Steps that do not take from each other giving the target one parameter are refused where
+    # the target is merged for use: a run of more than one step, an on_target sweep, the
+    # calibrated parameters. A run of one other step goes through with a warning, so a second
+    # calibration can be run before the combine step that settles it is added.
+    target_overlap = 'warn' if only and not workflow.step(only).on_target \
+        and not write_calibrated else 'error'
+    resolved = resolve_workflow(workflow, target_overlap=target_overlap)
     output_dir = os.path.abspath(output_dir or default_output_dir(workflow))
     run = _Run(resolved, output_dir, comm, progress)
+    run.target_overlap = target_overlap
     order = workflow.topological_order()
     if only:
         to_run = [workflow.step(only)]

@@ -244,7 +244,7 @@ def test_a_parameter_calibrated_by_unrelated_steps_is_refused(library):
     theirs, with no warning."""
     import warnings
     with pytest.raises(WorkflowError) as refused:
-        resolve_workflow(load_workflow(_with_joint_step(library)))
+        resolve_workflow(load_workflow(_with_joint_step(library)), target_overlap='error')
     message = str(refused.value)
     assert 'the target twin/v1/split is given 2 parameter(s)' in message
     assert '"p_mod__A" by \'fit_a\' and \'joint\'' in message
