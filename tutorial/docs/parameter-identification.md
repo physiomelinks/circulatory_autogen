@@ -1682,6 +1682,10 @@ A step's `kind` is `calibration` unless it says otherwise. `sensitivity`, `emula
 `cuflynx-identifiability` run, on the step's model, obs_data and params_for_id. Only the values
 of calibrations and `set` steps are merged into the target.
 
+A step can run on a [surrogate](surrogates.md) in place of the model: on an emulator, named by
+the step's `emulator_from` or `emulator_dir` (below), or on a reduced-order model, which is the
+step's `model` (an external Python model).
+
 | `kind` | What it does | Needs | Takes from |
 |---|---|---|---|
 | `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `start_from`, `emulator_from`, `params_for_id_from` |

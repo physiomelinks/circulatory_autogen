@@ -550,6 +550,13 @@ def test_analysis_options_schema_well_formed():
     # do_emulation fits the surrogate, use_emulator makes the analyses evaluate it (#333).
     assert ANALYSIS_OPTIONS['emulation']['use_flag'] == 'use_emulator'
     assert {m.get('use_flag') for m in ANALYSIS_OPTIONS.values()} == {None, 'use_emulator'}
+    # An emulator is one kind of surrogate: a front end shows it as 'Emulator' under the
+    # heading 'Surrogate'. No other mode has a group, and the keys keep the emulator's name.
+    emulation = ANALYSIS_OPTIONS['emulation']
+    assert (emulation['label'], emulation['group'], emulation['group_label']) == (
+        'Emulator', 'surrogate', 'Surrogate')
+    assert emulation['options_key'] == 'emulator_settings'
+    assert {m.get('group') for m in ANALYSIS_OPTIONS.values()} == {None, 'surrogate'}
 
 
 def _option(mode, name):

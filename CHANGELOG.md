@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — "surrogate" is the heading over emulators and reduced-order models
+
+- **Docs:** a *Surrogates* section with two pages under it, *Emulators* (the existing page) and
+  *Reduced-order models (ROMs)*: a ROM runs as an `external_python` model, also as a workflow
+  step's model.
+- **`ANALYSIS_OPTIONS['emulation']`** has `group: 'surrogate'` and `group_label: 'Surrogate'`,
+  and its `label` is `'Emulator'` (it was `'Emulator (surrogate model)'`), so a front end can
+  show the emulator under a Surrogate heading.
+- No key, command, package or result key is renamed: `do_emulation`, `use_emulator`,
+  `emulator_settings`, `emulator_from`, `emulator_dir`, the `emulation` step kind and
+  `cuflynx-train-emulator` are unchanged, and no file needs upgrading.
+
 ### Added — calibration workflows can express a GUI study
 
 - **A CellML model as a workflow's target and steps' model:**
