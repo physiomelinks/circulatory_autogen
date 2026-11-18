@@ -447,5 +447,5 @@ emulator_settings:
   physics-sanity, plotting and emulator round-trip tests you can copy for your own model.
 * [Parameter Identification](parameter-identification.md) and
   [Sensitivity Analysis](sensitivity-analysis.md) — the pipelines this backend plugs into.
-* [Emulators (Surrogate Models)](emulators.md) — when a surrogate of your solver is worth
+* [Emulators](emulators.md) — when a surrogate of your solver is worth
   training.

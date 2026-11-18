@@ -46,7 +46,10 @@ nav:
   - Parameter Identification: parameter-identification.md
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
-  - Emulators (Surrogate Models): emulators.md
+  - Surrogates:
+      - Overview: surrogates.md
+      - Emulators: emulators.md
+      - Reduced-order models (ROMs): reduced-order-models.md
   - Writing up a model and its calibration: methods-latex.md
   - Deriving parameters from experimental data: parameter-derivations.md
   - "Example: 3Compartment Model": example-3compartment-model.md

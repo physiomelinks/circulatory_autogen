@@ -177,6 +177,19 @@ number of vessels at a node (node sums #609, node rule D #617).
 - `workflow_model(..., 'target')` takes the obs_data, params_for_id and results of the last
   calibration on the target that has run, not the first, and marks merged values set by hand
   with their `origin` and `reason`.
+
+### Changed — "surrogate" is the heading over emulators and reduced-order models
+
+- **Docs:** a *Surrogates* section with two pages under it, *Emulators* (the existing page) and
+  *Reduced-order models (ROMs)*: a ROM runs as an `external_python` model, also as a workflow
+  step's model.
+- **`ANALYSIS_OPTIONS['emulation']`** has `group: 'surrogate'` and `group_label: 'Surrogate'`,
+  and its `label` is `'Emulator'` (it was `'Emulator (surrogate model)'`), so a front end can
+  show the emulator under a Surrogate heading.
+- No key, command, package or result key is renamed: `do_emulation`, `use_emulator`,
+  `emulator_settings`, `emulator_from`, `emulator_dir`, the `emulation` step kind and
+  `cuflynx-train-emulator` are unchanged, and no file needs upgrading.
+
 ### Added — calibration workflows can express a GUI study
 
 - **A CellML model as a workflow's target and steps' model:**

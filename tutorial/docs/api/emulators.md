@@ -1,8 +1,9 @@
-# Emulators (surrogate models)
+# Emulators
 
 `EmulatorTrainer` fits a surrogate of the model's scalar observable features, and
 `EmulatorBundle` is the saved artefact plus the checks that decide whether it may be
-used. See [Emulators](../emulators.md) for the workflow.
+used. See [Emulators](../emulators.md) for the workflow, and [Surrogates](../surrogates.md) for
+the other kind of surrogate, a reduced-order model.
 
 ::: libcuflynx.emulators.emulator_trainer.EmulatorTrainer
     options:

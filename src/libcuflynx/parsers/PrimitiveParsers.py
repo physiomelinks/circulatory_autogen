@@ -2104,8 +2104,13 @@ ANALYSIS_OPTIONS = {
     # solver named by `solver`; `use_flag` (use_emulator) makes calibration, SA, MCMC and IA
     # evaluate the trained emulator instead of that solver. They are independent -- training
     # once and then using it across several runs is the normal shape (#333).
+    # `group` / `group_label` name the heading a front end shows this mode under: an emulator
+    # is one kind of surrogate (a reduced-order model, run as an external_python model, is the
+    # other and has no settings here).
     'emulation': {
-        'label': 'Emulator (surrogate model)',
+        'label': 'Emulator',
+        'group': 'surrogate',
+        'group_label': 'Surrogate',
         'enable_flag': 'do_emulation',
         'use_flag': 'use_emulator',
         'options_key': 'emulator_settings',
