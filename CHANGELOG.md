@@ -21,6 +21,13 @@ next release; add to that section as you land a change.
   name the step does not calibrate or set is refused with the names it has. A step id alone
   still fixes every value. A front end can tell from
   `$defs.step.properties.fixed_from.items` accepting an object.
+- **A `combine` step kind:** `{"kind": "combine", "combine_from": [ids], "combine": {"method":
+  "best_fit" | "mean"}}` gives one value per parameter from several calibration, set or combine
+  steps: the values of the calibration with the lowest cost (calibrations of the same obs_data,
+  `cost_type` and parameters), or each parameter's mean. Later steps take from it
+  (`fixed_from`, `start_from`, `result_from`, a scale), and the target takes its values in
+  place of its inputs'. The builder's `add_combine()`. A front end can tell from `combine` in
+  `$defs.step.properties.kind.enum`.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
   parameters are where its fit starts (the model is generated with them, so they are x0). They
   are not fixed. The builder's `add_calibration(start_from=)`.
@@ -74,10 +81,23 @@ next release; add to that section as you land a change.
   profiled about, its cost and its 95% interval.
 - **`"point": true` on a set step:** its values are only a point for `start_from`,
   `result_from` or `fixed_from`. They are not merged into the target (nor given to an
-  `on_target` sweep), do not count towards "calibrated by more than one step", and the
+  `on_target` sweep), so they give the target no second value of a parameter, and the
   provenance diagram labels the step "point only, not in the target". The builder's
   `add_set(..., point=True)`. An explicit key, so a hand-written workflow's meaning never
   depends on how its steps are used.
+
+### Changed — a parameter is given by one step
+
+- Two calibration (or combine) steps that give the target, or a step, the same parameter and
+  do not take from each other are a `WorkflowError`, naming the parameter, the steps and what
+  they give it to; a `combine` step settles it. This replaces the "calibrated by more than one
+  step" warning: a step that takes from the other, directly or through other steps, replaces
+  its value with no warning, as does a set step. A step given a parameter by a step and by one
+  that took from it (`fixed_from`, `result_from`) gets the later one's value, where it was
+  "given two different fixed values" before. A step fitting a reduction's choice is checked at
+  the merge, once the reduction has run. **Migration:** a workflow that calibrated a parameter
+  in two unrelated steps and relied on the later one winning now names that: give the later
+  step `"fixed_from"` or `"start_from"` the earlier one, or add a combine step.
 
 ### Fixed
 
@@ -90,10 +110,9 @@ next release; add to that section as you land a change.
   files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,
   ground-truth data and params for id": its engine now reads those files itself.
 
-- "Calibrated by more than one step" warned about every candidate a step fitting a reduction's
-  choice (`params_for_id_from`) might calibrate. Such a step is checked once the reduction has
-  run, against what it kept; a set step replacing a calibrated value gets no `priors_from`
-  advice.
+- A parameter given by more than one step was checked against every candidate a step fitting a
+  reduction's choice (`params_for_id_from`) might calibrate. Such a step is checked once the
+  reduction has run, against what it kept.
 - A sensitivity, identifiability or uq step's `fixed` (in `step_result.json` and the
   `workflow_model` view) listed its own parameters' values from `result_from`. They are the
   point it analyses (`at`, or a local analysis's `nominal`), not fixed values; the view's model

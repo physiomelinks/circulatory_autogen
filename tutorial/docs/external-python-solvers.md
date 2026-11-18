@@ -264,9 +264,9 @@ cuflynx-calibration-workflow funcs_user/example_model_external/heat1d_calibratio
     --output-dir heat1d_run --write-calibrated
 ```
 
-It recovers `k ≈ 0.25` and `u_D ≈ 0.1` in under a minute. It warns that `u_D` is calibrated by
-more than one step: `refine` replaces the value `boundary` set. `tests/test_workflow_external_python.py`
-runs every step kind on this model.
+It recovers `k ≈ 0.25` and `u_D ≈ 0.1` in under a minute. `refine` takes from `fit-k`, which
+takes from `boundary`, so its `u_D` and `k` replace theirs.
+`tests/test_workflow_external_python.py` runs every step kind on this model.
 
 ## The simple case first: an ODE with scipy
 

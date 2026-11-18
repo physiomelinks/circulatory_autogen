@@ -25,6 +25,7 @@ plan and read a workflow file however it was written.
         - add_identifiability
         - add_uq
         - add_set
+        - add_combine
         - add_sweep
         - add_step
         - remove_step

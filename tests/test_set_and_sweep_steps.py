@@ -244,8 +244,8 @@ def test_a_point_step_is_neither_merged_nor_a_second_calibration(library):
     with warnings.catch_warnings():
         warnings.simplefilter('error')
         resolve_workflow(workflow)      # A/p is fit_a's and the point's: no warning
-    raw['steps'][-1].pop('point')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        # a set step replaces a calibrated value with no warning either
+        raw['steps'][-1].pop('point')
         resolve_workflow(_parse(library, raw))
 
 
@@ -254,7 +254,7 @@ def test_a_scale_of_a_sweep_or_an_unknown_step_is_refused(library):
     raw = _raw(library)
     raw['steps'] += [_sweep_step(raw), _set_step(entries=[
         {'parameter': 'mod__A/p', 'scale': 2.0, 'of': 'scan', 'reason': REASON}])]
-    with pytest.raises(WorkflowError, match='takes a calibration or set step'):
+    with pytest.raises(WorkflowError, match='takes a calibration or set or combine step'):
         _parse(library, raw)
     raw['steps'][-1]['set'][0]['of'] = 'nope'
     with pytest.raises(WorkflowError, match='unknown step "nope"'):
@@ -266,7 +266,7 @@ def test_a_sweep_cannot_pass_values_on(library):
     raw = _raw(library)
     raw['steps'].append(_sweep_step(raw))
     raw['steps'][1]['fixed_from'] = ['scan']
-    with pytest.raises(WorkflowError, match='a sweep step; it takes a calibration or set step'):
+    with pytest.raises(WorkflowError, match='a sweep step; it takes a calibration or set or combine step'):
         _parse(library, raw)
 
 
@@ -358,8 +358,7 @@ def test_a_scale_multiplies_a_steps_value_or_the_inherited_one(library, tmp_path
         {'parameter': 'mod__C/k', 'scale': 3.0, 'of': 'inherited', 'reason': REASON},
         {'parameter': 'mod__C/q', 'value': 4.0, 'reason': REASON}])]
     raw['steps'][1]['fixed_from'] = ['fit_a']
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=str(tmp_path / 'out'))
+    result = run_calibration_workflow(_write(library, raw), output_dir=str(tmp_path / 'out'))
     merged = _merged(result)
     assert merged['A/p']['value'] == pytest.approx(2.0 * np.sqrt(Y_A / 2), rel=1e-4)
     assert merged['C/k']['value'] == 3.0
@@ -512,8 +511,7 @@ def test_a_sweep_on_the_target_runs_with_the_merged_values(library, tmp_path):
         'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
         'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
     out = str(tmp_path / 'out')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    result = run_calibration_workflow(_write(library, raw), output_dir=out)
     assert _merged(result)['A/p']['value'] == 1.5
 
     step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
@@ -544,8 +542,7 @@ def test_a_sweep_on_the_target_ignores_values_a_step_was_only_given(library, tmp
         'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
         'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
     out = str(tmp_path / 'out')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    result = run_calibration_workflow(_write(library, raw), output_dir=out)
     assert result['order'] == ['fit_a', 'hand', 'rest', 'scan']
     assert _merged(result)['A/p']['value'] == 1.5
 

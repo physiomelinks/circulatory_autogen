@@ -554,10 +554,11 @@
             "identifiability",
             "set",
             "sweep",
-            "uq"
+            "uq",
+            "combine"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. combine: gives one value per parameter from several calibration, set or combine steps (combine_from, combine), for fixed_from and the target in place of theirs. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set, combine or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -614,7 +615,7 @@
                 "properties": {
                   "step": {
                     "type": "string",
-                    "description": "the calibration or set step whose values are fixed"
+                    "description": "the calibration, set or combine step whose values are fixed"
                   },
                   "parameters": {
                     "type": "array",
@@ -631,7 +632,7 @@
             ]
           },
           "uniqueItems": true,
-          "description": "calibration or set steps whose values are fixed in this step's model: a step id (every value it calibrated or set, and the values it was given as fixed), or {step, parameters} for only some of its own values; this step runs after them"
+          "description": "calibration, set or combine steps whose values are fixed in this step's model: a step id (every value it calibrated or set, and the values it was given as fixed), or {step, parameters} for only some of its own values; this step runs after them"
         },
         "priors_from": {
           "type": "array",
@@ -648,7 +649,7 @@
         "on_target": {
           "type": "boolean",
           "default": false,
-          "description": "(sweep) run on the target with every calibration's and set step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every calibration and set step"
+          "description": "(sweep) run on the target with every calibration's, set step's and combine step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every such step"
         },
         "settings": {
           "type": "object"
@@ -666,12 +667,12 @@
         "result_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a calibration or set step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability, uq or sweep: the analysis is at those values; without it, at the model's own)"
+          "description": "a calibration, set or combine step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability, uq or sweep: the analysis is at those values; without it, at the model's own)"
         },
         "start_from": {
           "type": "string",
           "minLength": 1,
-          "description": "(calibration) a calibration or set step whose values of this step's own parameters are where its fit starts: the step's model is generated with them, so they are the optimiser's initial point. They are not fixed, and do not reach the target"
+          "description": "(calibration) a calibration, set or combine step whose values of this step's own parameters are where its fit starts: the step's model is generated with them, so they are the optimiser's initial point. They are not fixed, and do not reach the target"
         },
         "sensitivity_from": {
           "type": "string",
@@ -695,6 +696,31 @@
           "type": "boolean",
           "default": false,
           "description": "(set) the step's values are a point only, for start_from, result_from or fixed_from: they are not merged into the target and are not counted as calibrating it. An explicit key, so a workflow's meaning never depends on how its steps are used"
+        },
+        "combine_from": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "a combine step: the calibration, set or combine steps whose values it combines; it runs after them, and its values replace theirs in later steps and in the target"
+        },
+        "combine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "best_fit",
+                "mean"
+              ],
+              "default": "best_fit",
+              "description": "best_fit: every value of the calibration with the lowest cost; the steps are calibrations of the same obs_data, with the same cost_type and the same parameters. mean: each parameter's mean over the steps that give it"
+            }
+          },
+          "description": "a combine step: how it gives one value per parameter"
         },
         "sweep": {
           "type": "object",
@@ -804,6 +830,52 @@
         },
         {
           "if": {
+            "properties": {
+              "kind": {
+                "const": "combine"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "combine_from",
+              "combine"
+            ],
+            "description": "A combine step needs combine_from (the steps it combines) and combine (its method)."
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "combine_from"
+                ]
+              },
+              {
+                "required": [
+                  "combine"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "combine"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "description": "combine_from and combine are for a combine step."
+          }
+        },
+        {
+          "if": {
             "required": [
               "point"
             ]
@@ -871,6 +943,7 @@
                 "enum": [
                   "reduction",
                   "set",
+                  "combine",
                   "sweep"
                 ]
               }
@@ -902,7 +975,7 @@
                 "params_for_id_from"
               ]
             },
-            "description": "A step that is not a reduction, set or sweep names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+            "description": "A step that is not a reduction, set, combine or sweep names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
           }
         }
       ]

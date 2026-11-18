@@ -105,14 +105,17 @@ def test_every_schema_step_key_is_an_argument_of_the_builder():
                                                            'add_cost_func', 'add_modifier_func')]
     keywords = set().union(*(_keywords(m) for m in adders))
     # the keys a method sets from its own arguments: kind (add_step), set (add_set's
-    # entries) and sweep (add_sweep's design, outputs, parameters, zip, checked below)
+    # entries), combine (add_combine's method) and sweep (add_sweep's design, outputs,
+    # parameters, zip, checked below)
     keywords |= {'kind'} & _keywords(WorkflowBuilder.add_step)
     keywords |= {'set'} if 'entries' in _keywords(WorkflowBuilder.add_set) else set()
     keywords |= {'sweep'} if 'parameters' in _keywords(WorkflowBuilder.add_sweep) else set()
+    keywords |= {'combine'} if 'method' in _keywords(WorkflowBuilder.add_combine) else set()
     defs = schema['$defs']
     for where, keys in (('step', defs['step']['properties']),
                         ('param_reduction_options', defs['param_reduction_options']['properties']),
-                        ('sweep', defs['step']['properties']['sweep']['properties'])):
+                        ('sweep', defs['step']['properties']['sweep']['properties']),
+                        ('combine', defs['step']['properties']['combine']['properties'])):
         missing = sorted(set(keys) - keywords)
         assert not missing, f'schema {where} keys with no builder argument: {missing}'
 
@@ -156,6 +159,7 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
     wf.add_set('by_hand', [set_value('C/k', 1.0, reason='the gain is one'),
                            scale_value('A/p', 1.1, of='fit_a', reason='ten percent more')])
     wf.add_set('start', [set_value('C/k', 2.0, reason='slider position')], point=True)
+    wf.add_combine('both', ['fit_a', 'again'], method='mean')
     wf.add_sweep('sweep_k', parameters={'C/k': [0.9, 1.1]}, outputs=['C/z'],
                  settings={'sim_time': 1.0}, fixed_from=['fit'])
     wf.add_sweep('on_target', on_target=True, parameters={'C/k': {'values': [1.0]}},
@@ -188,6 +192,8 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
     assert steps['start'] == {'id': 'start', 'kind': 'set', 'point': True, 'set': [
         {'parameter': 'C/k', 'value': 2.0, 'reason': 'slider position'}]}
     assert 'point' not in steps['by_hand']
+    assert steps['both'] == {'id': 'both', 'kind': 'combine', 'combine_from': ['fit_a', 'again'],
+                             'combine': {'method': 'mean'}}
     assert steps['sweep_k']['sweep'] == {'outputs': ['C/z'], 'parameters': {'C/k': [0.9, 1.1]}}
     assert steps['on_target'] == {'id': 'on_target', 'kind': 'sweep',
                                   'obs_data': os.path.relpath(obs, wf.directory),
@@ -199,7 +205,7 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
     workflow = load_workflow(path)
     assert [s.kind for s in workflow.steps] == [
         'calibration', 'sensitivity', 'reduction', 'emulation', 'calibration', 'calibration',
-        'identifiability', 'set', 'set', 'sweep', 'sweep']
+        'identifiability', 'set', 'set', 'combine', 'sweep', 'sweep']
     assert workflow.step('fit_a').obs_data == os.path.join(wf.directory, 'data',
                                                            'fit_a_obs_data.json')
     assert WorkflowBuilder.load(path).to_dict() == raw
@@ -1182,8 +1188,9 @@ def test_a_notebook_operation_reaches_the_run_and_editing_its_file_makes_steps_s
     wf.add_operation(double_mean, cell['half_mean'], cell['_peak_count'])
     wf.add_calibration('double', obs_data=_obs('y_a', 'mod/y', Y_A, STD_A, 'double_mean'),
                        params_for_id=_entries('mod', 'p', 0.1, 5.0))
+    # half takes from double, so its p replaces double's: unrelated, the two would be refused
     wf.add_calibration('half', obs_data=_obs('y_a', 'mod/y', Y_A, STD_A, 'half_mean'),
-                       params_for_id=_entries('mod', 'p', 0.1, 5.0))
+                       params_for_id=_entries('mod', 'p', 0.1, 5.0), start_from='double')
     wf.run(progress=False)
     assert _calibrated(wf, 'double') == pytest.approx(np.sqrt(Y_A / 4), rel=1e-4)
     assert _calibrated(wf, 'half') == pytest.approx(np.sqrt(Y_A), rel=1e-4)
