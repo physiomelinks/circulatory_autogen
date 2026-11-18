@@ -280,7 +280,7 @@ def test_calibrated_values_are_written_where_asked_and_nowhere_else(library, tmp
     assert open(_template_file(library)).read() == template
     assert open(_sys_file(library)).read() == target
     written = parameters_file.read_parameters_file(out)['sys']
-    assert written['C']['q']['value'] == '3' and written['C']['k']['value'] == '4'
+    assert float(written['C']['q']['value']) == 3.0 and float(written['C']['k']['value']) == 4.0
     assert written['C']['q']['data_reference'].startswith('calibrated by workflow w, step sys-c')
     assert written['A'] == _sys_instance(library, 'A')
     assert not [n for n in os.listdir(library['arrays']) if 'calibrated' in n]
