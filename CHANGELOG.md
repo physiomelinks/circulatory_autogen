@@ -206,6 +206,13 @@ number of vessels at a node (node sums #609, node rule D #617).
   (`calibrated_model.constant_named`, the first of `model_qname_candidates` the model has).
   Such a name was refused as "not a constant of the CellML model", though a direct run of
   the same files calibrated it.
+- **`fixed_from` with a parameter subset:** an entry may be
+  `{"step": "<id>", "parameters": [...]}` (the builder's `fixed()`), which fixes only those of
+  the values the step calibrated or set, named as its model names them (as `priors_from`'s
+  `parameters`); its other values, and the values it was itself given, are not passed on. A
+  name the step does not calibrate or set is refused with the names it has. A step id alone
+  still fixes every value. A front end can tell from
+  `$defs.step.properties.fixed_from.items` accepting an object.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
   parameters are where its fit starts (the model is generated with them, so they are x0). They
   are not fixed. The builder's `add_calibration(start_from=)`.

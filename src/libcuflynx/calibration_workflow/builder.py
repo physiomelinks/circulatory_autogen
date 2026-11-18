@@ -207,6 +207,22 @@ def prior(step, kind=None, inflate=None, parameters=None):
     return out
 
 
+def fixed(step, parameters=None):
+    '''A ``fixed_from`` entry: the values of an earlier step, fixed in this step's model.
+
+    Args:
+        step: the calibration or set step.
+        parameters: only these of the values it calibrated or set (model names in that step).
+            Default: every value, and the values it was itself given as fixed.
+
+    Returns:
+        the step id, or ``{'step', 'parameters'}``.
+    '''
+    if parameters is None:
+        return step
+    return {'step': step, 'parameters': list(parameters)}
+
+
 def set_value(parameter, value, *, reason, units=None):
     '''An entry of :meth:`WorkflowBuilder.add_set`: a value set by hand.
 
@@ -548,8 +564,9 @@ class WorkflowBuilder:
                 (:meth:`add_reduction`) whose chosen parameters are calibrated.
             model: the model the step runs on: a module array path, :func:`module_array`,
                 :func:`library_module` or :func:`selection`. Default: the target.
-            fixed_from: calibration or set step ids (one, or a list) whose values are fixed
-                in this step's model; this step runs after them.
+            fixed_from: calibration or set step ids, or :func:`fixed` entries for only some
+                of a step's values (one, or a list), whose values are fixed in this step's
+                model; this step runs after them.
             priors_from: step ids or :func:`prior` entries whose stored distributions become
                 this step's priors (those steps set ``store_distribution``).
             store_distribution: after the fit, sample the posterior by MCMC (needs the

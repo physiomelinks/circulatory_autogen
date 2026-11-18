@@ -59,6 +59,8 @@ plan and read a workflow file however it was written.
 
 ::: libcuflynx.calibration_workflow.builder.selection
 
+::: libcuflynx.calibration_workflow.builder.fixed
+
 ::: libcuflynx.calibration_workflow.builder.prior
 
 ::: libcuflynx.calibration_workflow.builder.set_value

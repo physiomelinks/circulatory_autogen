@@ -25,7 +25,7 @@ as the same file).
 '''
 
 from libcuflynx.calibration_workflow.builder import (WorkflowBuilder, cellml_model,
-                                                     external_model, library_module,
+                                                     external_model, fixed, library_module,
                                                      module_array, prior, scale_value,
                                                      selection, set_theta, set_value)
 from libcuflynx.calibration_workflow.distributions import StoredDistribution
@@ -49,7 +49,7 @@ __all__ = ['ALLOWED_SETTINGS', 'PRIOR_KINDS', 'WORKFLOW_FILE_NAME', 'CellMLModel
            'ModuleArray',
            'Selection', 'StoredDistribution', 'Target', 'UnsetParametersError', 'Workflow',
            'WorkflowBuilder', 'WorkflowError', 'WorkflowStepError',
-           'cellml_model', 'external_model', 'generate_model', 'generate_parameterisation',
+           'cellml_model', 'external_model', 'fixed', 'generate_model', 'generate_parameterisation',
            'library_module', 'load_workflow', 'load_workflow_run', 'module_array',
            'pack_workflow', 'plan_workflow', 'prior', 'resolve_workflow', 'scale_value',
            'selection', 'set_theta', 'set_value',

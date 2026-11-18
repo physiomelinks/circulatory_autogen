@@ -15,7 +15,8 @@ import os
 import numpy as np
 import pytest
 
-from libcuflynx.calibration_workflow import (WorkflowBuilder, WorkflowError, library_module,
+from libcuflynx.calibration_workflow import (WorkflowBuilder, WorkflowError, fixed,
+                                             library_module,
                                              load_workflow, module_array, pack_workflow, prior,
                                              scale_value, selection, set_value)
 from libcuflynx.calibration_workflow.builder import function_source
@@ -225,6 +226,12 @@ def test_paths_are_relative_to_the_workflow_and_helpers_give_schema_fragments(li
     assert raw['steps'][1]['model'] == {'select': ['C']}
     assert raw['steps'][1]['obs_data'] == os.path.join(arrays, 'data', 'chain_obs.json')
     assert prior('fit') == 'fit'
+    assert fixed('a') == 'a'
+    assert fixed('a', ['p_A']) == {'step': 'a', 'parameters': ['p_A']}
+    wf.add_calibration('sel', model=selection('C'), obs_data='data/chain_obs.json',
+                       params_for_id='data/chain_params.json', fixed_from=fixed('a', ['p_A']))
+    assert wf.to_dict()['steps'][1]['fixed_from'] == [{'step': 'a', 'parameters': ['p_A']}]
+    assert wf.check().step('sel').fixed_parameters == {'a': ('p_A',)}
     assert selection('a', 'b') == selection(['a', 'b']) == {'select': ['a', 'b']}
     # the package's attribute select is its submodule, which the helper's name leaves alone
     import libcuflynx.calibration_workflow as package

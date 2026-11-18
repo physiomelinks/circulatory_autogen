@@ -689,10 +689,39 @@
         "fixed_from": {
           "type": "array",
           "items": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "a step id: every value it calibrated or set, and the values it was given as fixed"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "step",
+                  "parameters"
+                ],
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "description": "the calibration or set step whose values are fixed"
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "only these of the values the step calibrated or set (model names in that step); its other values, and the values it was given as fixed, are not given"
+                  }
+                }
+              }
+            ]
           },
           "uniqueItems": true,
-          "description": "calibration or set steps whose values, and the values they were given as fixed, are fixed in this step's model; this step runs after them"
+          "description": "calibration or set steps whose values are fixed in this step's model: a step id (every value it calibrated or set, and the values it was given as fixed), or {step, parameters} for only some of its own values; this step runs after them"
         },
         "priors_from": {
           "type": "array",

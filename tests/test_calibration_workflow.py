@@ -1430,3 +1430,98 @@ def test_new_style_reduction_set_and_sweep_steps_validate_together(library):
     workflow = parse_workflow(raw, path=library['chain_analysed'])
     assert [workflow.step(i).kind for i in ('reduce', 'hand', 'dose')] == [
         'reduction', 'set', 'sweep']
+
+
+def _hand_then_rest(library, fixed_from):
+    """chain/rest with a point set step giving A's p and C's gain k, and ``rest`` fixing
+    ``fixed_from`` of it: with k = 1.44 fixed q fits (Z_C - Y_A) / 1.44, without it Z_C - Y_A."""
+    raw = _raw(library)
+    rest = raw['steps'][1]
+    rest['fixed_from'] = fixed_from
+    raw['steps'] = [{'id': 'hand', 'kind': 'set', 'point': True, 'set': [
+        {'parameter': 'mod__A/p', 'value': float(np.sqrt(Y_A / 2)), 'reason': 'the fit of A'},
+        {'parameter': 'mod__C/k', 'value': 1.44, 'reason': 'a gain to leave out'}]}, rest]
+    path = os.path.join(library['chain/rest'], 'hand.json')
+    _write_json(path, raw)
+    return path
+
+
+@pytest.mark.unit
+def test_fixed_from_with_parameters_fixes_only_those_values(library, tmp_path):
+    subset = [{'step': 'hand', 'parameters': ['p_mod__A']}]
+    path = _hand_then_rest(library, subset)
+    workflow = load_workflow(path)
+    assert workflow.step('rest').fixed_from == ['hand']
+    assert workflow.step('rest').sources()['fixed_from'] == ['hand']
+    assert workflow.step('rest').depends_on == ['hand']
+    plan = {s['id']: s for s in plan_workflow(path)['steps']}
+    assert plan['rest']['fixed_from'] == [{'from_step': 'hand', 'model_name': 'p_mod__A',
+                                           'in_step': 'p_mod__A'}]
+
+    from libcuflynx.calibration_workflow import workflow_model
+    out = str(tmp_path / 'subset')
+    run_calibration_workflow(path, output_dir=out)
+    rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
+    assert [f['model_name'] for f in rest['fixed']] == ['p_mod__A']
+    assert rest['calibrated'][0]['value'] == pytest.approx(np.sqrt(Z_C - Y_A), rel=1e-3)
+    view = workflow_model(path, 'rest', output_dir=out, work_dir=str(tmp_path / 'views'))
+    assert [f['model_name'] for f in view['fixed']] == ['p_mod__A']
+
+    # the string form still fixes every value: k too, so q fits another value
+    out = str(tmp_path / 'all')
+    run_calibration_workflow(_hand_then_rest(library, ['hand']), output_dir=out)
+    rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
+    assert sorted(f['model_name'] for f in rest['fixed']) == ['k_mod__C', 'p_mod__A']
+    assert rest['calibrated'][0]['value'] == pytest.approx(np.sqrt((Z_C - Y_A) / 1.44), rel=1e-3)
+
+
+@pytest.mark.unit
+def test_fixed_from_with_parameters_gives_no_value_the_source_was_itself_given(library,
+                                                                                tmp_path):
+    """A subset names the source's own values: what the source was given as fixed is not
+    passed on, and cannot be named."""
+    raw = _raw(library)
+    fit_a, rest = raw['steps']
+    again = dict(rest, id='again', fixed_from=[{'step': 'rest', 'parameters': ['q_mod__C']}])
+    raw['steps'] = [fit_a, rest, again]
+    path = os.path.join(library['chain/rest'], 'again.json')
+    _write_json(path, raw)
+    out = str(tmp_path / 'run')
+    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        run_calibration_workflow(path, output_dir=out)
+    # again calibrates q itself, so the one value it asked for is not fixed, and p of fit_a
+    # (which rest was given) does not come through rest
+    assert _read_json(os.path.join(out, 'again', 'step_result.json'))['fixed'] == []
+    assert [f['model_name'] for f in
+            _read_json(os.path.join(out, 'rest', 'step_result.json'))['fixed']] == ['p_mod__A']
+
+    again['fixed_from'] = [{'step': 'rest', 'parameters': ['p_mod__A']}]
+    with pytest.raises(WorkflowError, match=r"fixes \['p_mod__A'\] from \"rest\", which \"rest\" "
+                                            r"does not calibrate or set.*\['q_mod__C'\]"):
+        resolve_workflow(parse_workflow(raw, path=path))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('fixed_from, message', [
+    ([{'step': 'hand', 'parameters': ['nope']}],
+     r"fixes \['nope'\] from \"hand\", which \"hand\" does not calibrate or set. Its values, as "
+     r"its model names them: \['k_mod__C', 'p_mod__A'\]"),
+    (['hand', {'step': 'hand', 'parameters': ['p_mod__A']}], '"fixed_from" lists step "hand" twice'),
+    ([{'step': 'hand'}], "'parameters' is a required property"),
+    ([{'step': 'hand', 'parameters': []}], 'should be non-empty|is too short'),
+    ([{'step': 'nope', 'parameters': ['p_mod__A']}], 'unknown step "nope"'),
+])
+def test_a_fixed_from_subset_is_checked(library, fixed_from, message):
+    path = _hand_then_rest(library, fixed_from)
+    with pytest.raises(WorkflowError, match=message):
+        resolve_workflow(load_workflow(path))
+
+
+@pytest.mark.unit
+def test_the_schema_says_a_fixed_from_entry_may_be_an_object():
+    """What a front end reads to know a parameter subset can be written."""
+    items = load_schema(CALIBRATION_WORKFLOW_SCHEMA)['$defs']['step']['properties'][
+        'fixed_from']['items']
+    forms = {form['type']: form for form in items['oneOf']}
+    assert set(forms) == {'string', 'object'}
+    assert forms['object']['required'] == ['step', 'parameters']
