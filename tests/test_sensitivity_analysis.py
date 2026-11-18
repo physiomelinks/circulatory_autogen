@@ -263,23 +263,24 @@ def test_local_observable_sensitivities_match_fd(
     c2o = engine.obs_info["const_idx_to_obs_idx"]
     labels = [engine._observable_label(obs_i) for obs_i in c2o]
 
-    # The FD reference is only meaningful where the feature actually moves across the bracket by
-    # more than the integrator can reproduce. CVODE here runs at rtol/atol 1e-9, so a feature
-    # that changes by ~1e-8 relative between the two evaluations is being measured against its
-    # own solver noise. Measured on d(mean heart/u_la)/d(aortic_root/C), which moves only 4.4e-8
-    # relative across the default h: the FD reads 2.21e6 against an analytic 3.89e6, and as h
-    # shrinks further it degrades monotonically and changes sign at h=1e-4. At a well-conditioned
-    # h (3e-2 .. 1e-1) the same FD returns 3.88e6-3.93e6, agreeing with the analytic value to 1%.
+    # The FD reference is only meaningful where the feature moves across the bracket by more than
+    # the integrator can reproduce. CVODE here runs at rtol/atol 1e-9, so a feature that changes
+    # by ~1e-8 relative between the two evaluations is measured against its own solver noise.
+    # d(mean heart/u_la)/d(aortic_root/C) is the hard pair: at a step of 1e-3 relative it moves
+    # ~1e-7 and the FD reads 2e6-6e6 (it depends on the heart's clock form) against an analytic
+    # 3.89e6. At FD_STEP = 3e-2 relative every pair moves by more than 1e-6 and agrees with the
+    # analytic value to 1% (3.92e6 for that pair; 1e-1 gives the same), while the parameters stay
+    # close enough to nominal for a central difference.
     #
-    # Guarding on abs(fd) does not catch this -- a nanoscale numerator over a nanoscale step is a
-    # large number, so the noise-dominated FD here is ~1e6, far above any threshold on the
-    # derivative itself. The quantity that is small is the *signal*, so guard on that.
+    # Guarding on abs(fd) does not catch noise -- a nanoscale numerator over a nanoscale step is a
+    # large number. The quantity that is small is the *signal*, so guard on that as well.
+    FD_STEP = 3e-2  # relative to the nominal value
     FEATURE_SIGNAL_FLOOR = 1e-7  # relative change across the 2h bracket; ~10x the 1e-8 noise
     f0 = features_at(nominal)
     checked = 0
     skipped_for_noise = []
     for jcol, pname in enumerate(param_names):
-        h = 1e-3 * abs(nominal[jcol]) if nominal[jcol] != 0 else 1e-6
+        h = FD_STEP * abs(nominal[jcol]) if nominal[jcol] != 0 else 1e-6
         vp = nominal.copy(); vp[jcol] += h
         vm = nominal.copy(); vm[jcol] -= h
         fp, fm = features_at(vp), features_at(vm)
