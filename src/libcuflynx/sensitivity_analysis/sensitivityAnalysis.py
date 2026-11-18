@@ -399,6 +399,10 @@ class SensitivityAnalysis():
             nominal,
             gradient_method=(self.sa_options or {}).get('gradient_method'),
             fd_rel_step=(self.sa_options or {}).get('fd_rel_step'))
+        # CasADi's arm leaves the simulation helper symbolic (AD mode); the prediction rows'
+        # nominal run below needs it numeric again.
+        if hasattr(engine.sim_helper, 'reset_and_clear'):
+            engine.sim_helper.reset_and_clear()
 
         # sa_options.include_prediction_items: the prediction items with an operation become
         # extra rows, labelled by data_item_name, after the data_item features.
@@ -496,17 +500,18 @@ class SensitivityAnalysis():
         method = (self.sa_options or {}).get('gradient_method')
         psens = None
         if not getattr(engine, 'emulates_features', False) and str(method or '').upper() != 'FD':
+            # The nominal features before the analytic arm: CasADi's leaves the simulation
+            # helper symbolic.
+            _, values = prediction_features.simulate_features(engine, nominal, info, indices)
+            if values is None:
+                raise RuntimeError('Local sensitivity nominal simulation failed to converge.')
+            pnominal = dict(zip(names, values))
             psens = self._analytic_prediction_sensitivities(engine, info, indices, nominal, method)
         if psens is None:
             # the same step the FD arm of the data_item rows reads
             fd_rel_step = (self.sa_options or {}).get('fd_rel_step') or 1e-3
             psens, pnominal = prediction_features.feature_sensitivities(
                 engine, nominal, info, indices, h=float(fd_rel_step))
-        else:
-            _, values = prediction_features.simulate_features(engine, nominal, info, indices)
-            if values is None:
-                raise RuntimeError('Local sensitivity nominal simulation failed to converge.')
-            pnominal = dict(zip(names, values))
         # A prediction's name is unique among data_item_names, but a data_item's *label* is
         # free text; never let a prediction row overwrite a data_item row.
         rows, out, values = [], {}, {}
