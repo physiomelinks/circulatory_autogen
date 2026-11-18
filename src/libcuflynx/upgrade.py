@@ -11,6 +11,7 @@ refuses the file and names the command here that converts it::
     cuflynx-upgrade parameters <parameters CSV | *_modules_config.json | directory>...
     cuflynx-upgrade supermodule-instances <*_module_array .json|.csv>... --module-library-dir <dir>
     cuflynx-upgrade params-for-id <params_for_id CSV | directory>...
+    cuflynx-upgrade junctions <*_module_array .json|.csv>... --module-library-dir <dir>
 
 Each converts its files in place (a ``_vessel_array`` file is renamed; a parameters CSV becomes
 the ``.json`` beside it) and prints what it changed. Convert a model's module configs and module
@@ -67,6 +68,10 @@ What each converts:
   ``targets`` the row's vessels' ``<vessel>/<param_name>`` (a nested ``heart__lv`` as its path,
   ``heart/lv/E``), its ``prior_*`` columns under ``prior_params``; a directory: every CSV
   below it with vessel_name and param_name columns.
+* ``junctions``: a model off the module library's removed junction module types, onto ordinary
+  vessels whose ports sum over a node: its module array, its ``<prefix>_parameters.json`` and its
+  ``<prefix>_obs_data*.json``/``<prefix>_params_for_id*.json`` (``junction_upgrade.py``; the
+  library's ``renames.json`` says what replaces each junction). Run it after ``module-names``.
 * ``parameter-names``: ``{variable}_{vessel}`` parameter names to ``<vessel>/<variable>``, and
   names joined with a single ``_`` across nested levels to ``__`` (see
   ``scripts/migrate_parameter_names.py``).
@@ -808,10 +813,20 @@ def main(argv=None):
                              "write each supermodule instance's values into a model's "
                              "parameters file, from its version"),
                             ('params-for-id', 'convert params_for_id CSVs (or a directory\'s) '
-                                              'to JSON')):
+                                              'to JSON'),
+                            ('junctions', 'move models off the junction module types, onto '
+                                          'vessels whose ports sum over a node')):
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument('paths', nargs='+')
         sub.add_argument('--dry-run', action='store_true', help='print, do not write')
+        if name == 'junctions':
+            sub.add_argument('--module-library-dir', dest='module_library_dirs', action='append',
+                             default=[], metavar='DIR',
+                             help='a module library (repeatable; its modules/ directory), whose '
+                                  'renames.json says what replaces each junction; default: '
+                                  '$CUFLYNX_MODULE_LIBRARY')
+            sub.add_argument('--external-modules-dir', metavar='DIR',
+                             help="the model's external_modules_dir")
         if name in ('module-config', 'supermodule-instances'):
             sub.add_argument('--module-library-dir', dest='module_library_dirs', action='append',
                              default=[], metavar='DIR',
@@ -855,6 +870,11 @@ def main(argv=None):
             changed += bool(upgrade_parameters(path, args.dry_run))
         elif args.command == 'params-for-id':
             changed += bool(upgrade_params_for_id(path, args.dry_run))
+        elif args.command == 'junctions':
+            from libcuflynx.junction_upgrade import upgrade_junctions
+            dirs = args.module_library_dirs or [d for d in os.environ.get(
+                'CUFLYNX_MODULE_LIBRARY', '').split(os.pathsep) if d]
+            changed += bool(upgrade_junctions(path, dirs, args.external_modules_dir, args.dry_run))
         else:
             changed += bool(upgrade_obs_data(path, *_times(args), dry_run=args.dry_run))
     print(f'{changed} of {len(args.paths)} file(s) {"would be " if args.dry_run else ""}changed.')
