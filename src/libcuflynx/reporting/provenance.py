@@ -457,7 +457,8 @@ def provenance_graph(output_dir):
     project_git, libcellml_version}, counts,
     nodes, edges}``. ``counts`` says how the values of the target were set (``MARKS``). A node is
     ``{id, kind, title, lines, mark, status, stale, counts, parameters, inputs}``, with ``kind``
-    source, step, analysis, values or target; an edge is ``{from, to, label, style}``.
+    source, step, analysis, values or target; a modify step's also has ``modules``
+    (``resolve.modified_modules``). An edge is ``{from, to, label, style}``.
     '''
     from libcuflynx.calibration_workflow.runner import load_workflow_run
     run = load_workflow_run(output_dir)
@@ -505,6 +506,10 @@ def provenance_graph(output_dir):
                     counts=_step_counts(step_result) if done else {},
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
+        if done and step_result.get('modules') is not None:
+            # a modify step: the modules it brought in, changed or removed, for a viewer to
+            # list and open (phlynx_archive: the export PhLynx opens, where the library has one)
+            node['modules'] = step_result['modules']
         if done and node['kind'] == 'values' and node['parameters']:
             # a set step's values; a modify step's node keeps its changes
             node['lines'] = [_described(v) for v in node['parameters']]

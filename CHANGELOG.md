@@ -15,6 +15,9 @@ next release; add to that section as you land a change.
   `<step>/<step>_module_array.json` and `<step>_parameters.json`. A modified target's calibrated
   parameters get `<step>_module_array.json` beside them. The provenance diagram and the methods
   text show each change with its reason.
+- The step's result, its provenance box and its view list the `modules` it brought in, changed or
+  removed, each with its module config and, where the library keeps one, the PhLynx export of
+  that version (`phlynx_archive`), so a viewer can open each module in PhLynx.
 - Why: a model calibrated earlier (a whole-body model fitted to a patient) can gain a module (a
   haemoglobin compartment) inside a workflow, without re-fitting or copying files by hand, and the
   record of the run says what was changed and why.

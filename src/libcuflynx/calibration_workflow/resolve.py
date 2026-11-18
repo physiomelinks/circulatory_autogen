@@ -117,6 +117,43 @@ class ResolvedArray:
         return [p for p in paths if p]
 
 
+#: where a module library keeps a version's PhLynx export, beside its module config:
+#: ``results/<module_type>_<version>_phlynx.omex`` (the archive PhLynx opens)
+PHLYNX_ARCHIVE = os.path.join('results', '{module_type}_{version}_phlynx.omex')
+NO_PHLYNX_SUPERMODULE = 'a supermodule has no PhLynx form'
+NO_PHLYNX_ARCHIVE = 'the module library holds no PhLynx export of this version'
+
+
+def phlynx_archive(entry, supermodules=()):
+    '''``(path, None)`` of the PhLynx export of the module version with config ``entry``, or
+    ``(None, why)`` when it has none: a supermodule, a module outside a library, or a version
+    the library has not exported.'''
+    key = (entry.get('module_type'), entry.get('module_subtype'))
+    if key in supermodules or is_supermodule_entry(entry):
+        return None, NO_PHLYNX_SUPERMODULE
+    if not entry.get('config_path'):
+        return None, NO_PHLYNX_ARCHIVE
+    path = os.path.join(os.path.dirname(entry['config_path']),
+                        PHLYNX_ARCHIVE.format(module_type=key[0], version=key[1]))
+    return (path, None) if os.path.isfile(path) else (None, NO_PHLYNX_ARCHIVE)
+
+
+def modified_modules(resolved, step):
+    '''The modules modify step ``step`` brings in, changes or removes (``ModifiedArray.modules``),
+    each with where the module library has it: ``config_path`` (its module config),
+    ``phlynx_archive`` (the export PhLynx opens, None when there is none) and ``phlynx_note``
+    (why there is none). ``resolved`` is the ResolvedWorkflow.'''
+    out = []
+    for module in step.model.modules:
+        key = (module['module_type'], module['version'])
+        entry = resolved.supermodules.get(key) or resolved.components.get(key) or {}
+        archive, note = phlynx_archive(dict(entry, module_type=key[0], module_subtype=key[1]),
+                                       resolved.supermodules)
+        out.append(dict(module, config_path=entry.get('config_path'),
+                        phlynx_archive=archive, phlynx_note=note))
+    return out
+
+
 def _submodule_configs(entry, components, supermodules):
     paths = []
     for sub in entry.get('submodules', []):

@@ -53,7 +53,7 @@ from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
                                                            parameters_from_info)
 from libcuflynx.calibration_workflow.generate import (UnsetModelParameters, generate_model,
                                                       read_parameter_rows)
-from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
+from libcuflynx.calibration_workflow.resolve import (CalibratedParameter, modified_modules,
                                                      read_calibrated_parameters,
                                                      resolve_workflow)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
@@ -714,6 +714,7 @@ class _Run:
             if os.path.isdir(step_dir):
                 shutil.rmtree(step_dir)
             return {'changes': copy.deepcopy(step.changes),
+                    'modules': modified_modules(self.resolved, step),
                     **write_modified_model(step.model, step_dir)}
         return self.on_root(write)
 
@@ -1301,6 +1302,7 @@ def plan_workflow(source, module_library_dirs=None):
         if step.kind == 'modify':
             entry['changes'] = copy.deepcopy(step.changes)
             entry['records'] = [r['name'] for r in step.model.records]
+            entry['modules'] = modified_modules(resolved, step)
         if rs.selection is not None:
             # what the selection runs as: its library module at one instance, or the cut array
             entry['selection'] = (
@@ -1543,8 +1545,13 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     def existing(path):
         return path if path and os.path.isfile(path) else None
 
+    modify = kind == 'step' and own_step.kind == 'modify'
     return {
-        'view': view, 'kind': kind, 'model': model.as_dict(),
+        'view': view, 'kind': kind,
+        'model': step_model_dict(own_step) if modify else model.as_dict(),
+        # a modify step: the modules it brings in, changes or removes, and its changes
+        **({'modules': modified_modules(resolved, own_step),
+            'changes': copy.deepcopy(own_step.changes)} if modify else {}),
         'step_id': own_step.id if has_own else None,
         'place': place,
         'model_path': generated['model_path'],

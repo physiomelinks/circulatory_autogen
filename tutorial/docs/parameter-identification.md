@@ -1456,6 +1456,13 @@ are `<step_id>_calibrated_parameters.json` beside the parameters file it changed
 overwritten). In the provenance diagram the step is a box of changes made by hand, each with its
 reason.
 
+The step's result, its box in `provenance_graph.json` and its view (`workflow_model`) list the
+`modules` it brought in, changed or removed: each record's `action`, module, version and
+parameterisation, what a changed one was (`previous`), its `reasons`, its `config_path` in the
+module library, and `phlynx_archive`, the version's PhLynx export where the library keeps one
+(`<version>/results/<module_type>_<version>_phlynx.omex`; `phlynx_note` says why not). A viewer
+lists them when the box is clicked and opens each in PhLynx from that archive.
+
 A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
 entry names a parameter as the target does, and gives a `reason`:
 

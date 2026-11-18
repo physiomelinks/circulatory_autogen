@@ -101,6 +101,30 @@ def test_changes_remove_change_connect_and_disconnect_records(library):
     assert model.removed == ('A',)
     # a removed record's values go with it
     assert 'A' not in model.parameters_document({'A': {'p': {}}, 'C': {'q': {}}})
+    # the modules brought in, changed or removed, one per record, each with its reasons
+    assert [(m['name'], m['action'], m['module_type'], m['reasons']) for m in model.modules] == [
+        ('C', 'added', 'lin_c', ['C reads the output of A']),
+        ('B', 'added', 'lin_b', ['a second source', 'its values']),
+        ('A', 'removed', 'lin_a', ['A is replaced by B'])]
+
+
+@pytest.mark.unit
+def test_a_changed_module_says_what_it_was_and_where_phlynx_can_open_it(library):
+    # the library keeps a version's PhLynx export with its results
+    archive = os.path.join(library['modules'], 'lin_b', 'versions', 'v1', 'results',
+                           'lin_b_v1_phlynx.omex')
+    os.makedirs(os.path.dirname(archive))
+    open(archive, 'wb').close()
+    changes = [ADD_C, {'change': {'name': 'A', 'module_type': 'lin_b'}, 'reason': 'B for A'}]
+    plan = plan_workflow(_parse(library, _raw(library, changes)))['steps'][0]
+    added, changed = plan['modules']
+    assert (added['name'], added['action'], added['version']) == ('C', 'added', 'v1')
+    assert added['config_path'].endswith('lin_c_v1_modules_config.json')
+    assert added['phlynx_archive'] is None and 'no PhLynx export' in added['phlynx_note']
+    assert (changed['name'], changed['action'], changed['module_type']) == ('A', 'changed', 'lin_b')
+    assert changed['previous'] == {'module_type': 'lin_a', 'version': 'v1',
+                                   'parameterisation': 'default'}
+    assert changed['phlynx_archive'] == archive and changed['phlynx_note'] is None
 
 
 @pytest.mark.unit
@@ -222,6 +246,14 @@ def test_a_modified_model_keeps_its_values_and_its_new_module_gets_the_library_s
     nodes = {n['id']: n for n in graph['nodes']}
     assert nodes['add_c']['kind'] == 'values'
     assert any('C reads the output of A' in line for line in nodes['add_c']['lines'])
+    # the block lists the module brought in, as the step's result and its view do
+    assert [(m['name'], m['action'], m['module_type']) for m in nodes['add_c']['modules']] == [
+        ('C', 'added', 'lin_c')]
+    assert modify['modules'] == nodes['add_c']['modules']
+    from libcuflynx.calibration_workflow import workflow_model
+    view = workflow_model(path, 'add_c', output_dir=out, work_dir=str(tmp_path / 'view'))
+    assert view['modules'] == modify['modules'] and os.path.isfile(view['model_path'])
+    assert view['model']['module_array'].endswith('a_only_module_array.json')
     assert {'from': 'add_c', 'to': 'fit_c', 'label': 'model'}.items() <= next(
         e for e in graph['edges'] if (e['from'], e['to']) == ('add_c', 'fit_c')).items()
 

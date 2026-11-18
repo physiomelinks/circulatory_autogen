@@ -334,8 +334,83 @@
           "items": {
             "$ref": "#/$defs/input"
           }
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/module"
+          },
+          "description": "a modify step: the modules it brought in, changed or removed"
         }
       }
+    },
+    "module": {
+      "type": "object",
+      "required": [
+        "name",
+        "action",
+        "module_type",
+        "version",
+        "reasons"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "the record of the module array"
+        },
+        "action": {
+          "enum": [
+            "added",
+            "changed",
+            "removed"
+          ]
+        },
+        "module_type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "parameterisation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previous": {
+          "type": "object",
+          "description": "a changed record: the module_type, version and parameterisation it had"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the reason of each change made to the record"
+        },
+        "config_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the module's config in the module library"
+        },
+        "phlynx_archive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the module version's PhLynx export (an .omex PhLynx opens), null when the library has none"
+        },
+        "phlynx_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "why there is no phlynx_archive"
+        }
+      },
+      "description": "one module a modify step brought in, changed or removed"
     },
     "edge": {
       "type": "object",

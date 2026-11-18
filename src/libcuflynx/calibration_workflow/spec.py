@@ -178,11 +178,16 @@ class ModifiedArray(ModuleArray):
     (``base``, a ModuleArray or another step's ModifiedArray) with its changes made. Its
     parameters are the base's parameters file (``parameters``; ``module_array`` is the base's
     file), less the entries of the records it ``removed``. A record added has no entry there, so
-    generation gives it the values of its parameterisation in the module library.'''
+    generation gives it the values of its parameterisation in the module library.
+
+    ``modules`` are the modules the step brings in, changes or removes, one per record:
+    ``{name, action ('added', 'changed' or 'removed'), module_type, version, parameterisation,
+    reasons, previous}`` (``previous``: what a changed record was).'''
     step: str = ''
     base: object = field(default=None, compare=False)
     records: list = field(default_factory=list, compare=False)
     removed: tuple = field(default=(), compare=False)
+    modules: list = field(default_factory=list, compare=False)
 
     @property
     def prefix(self):
@@ -504,6 +509,18 @@ def apply_changes(base, step, where=''):
         raise WorkflowError(f'{label}: a modify step changes a module array, not '
                             f'{base.label()}.')
     by_name = {r['name']: r for r in records}
+    modules = {}
+
+    def note(item, action, reason, previous=None):
+        '''The module at record ``item`` as this step brings it in, changes or removes it.'''
+        entry = modules.setdefault(item['name'], {'name': item['name'], 'action': action,
+                                                  'reasons': []})
+        if previous is not None:
+            entry.setdefault('previous', previous)
+        if action == 'removed' or entry['action'] == 'removed':
+            entry['action'] = action      # removed last, or added again after a removal
+        entry.update(_module_of(item))
+        entry['reasons'].append(reason)
 
     def record(name, n):
         if name not in by_name:
@@ -540,16 +557,19 @@ def apply_changes(base, step, where=''):
                 link(other, new['name'], n, True)
             for other in value.get('out_instances', []):
                 link(new['name'], other, n, True)
+            note(new, 'added', change['reason'])
         elif operation == 'remove':
-            records.remove(record(value, n))
-            del by_name[value]
+            note(record(value, n), 'removed', change['reason'])
+            records.remove(by_name.pop(value))
             for other in records:
                 for key in ('inp_instances', 'out_instances'):
                     other[key] = [name for name in other[key] if name != value]
             removed.append(value)
         elif operation == 'change':
-            record(value['name'], n).update(
-                {key: value[key] for key in CHANGEABLE_RECORD_KEYS if key in value})
+            changed = record(value['name'], n)
+            previous = _module_of(changed)
+            changed.update({key: value[key] for key in CHANGEABLE_RECORD_KEYS if key in value})
+            note(changed, 'changed', change['reason'], previous)
         else:
             link(value['from'], value['to'], n, operation == 'connect')
     root = base
@@ -557,7 +577,13 @@ def apply_changes(base, step, where=''):
         root = root.base
     return ModifiedArray(module_array=root.module_array, parameters=root.parameters,
                          step=step.id, base=base, records=records,
-                         removed=tuple(dict.fromkeys(removed)))
+                         removed=tuple(dict.fromkeys(removed)), modules=list(modules.values()))
+
+
+def _module_of(record):
+    '''The module a module-array record is: its type, version and parameterisation.'''
+    return {'module_type': record['module_type'], 'version': record['module_subtype'],
+            'parameterisation': record.get('parameterisation')}
 
 
 def _path(value, base_dir):
