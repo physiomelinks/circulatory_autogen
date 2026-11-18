@@ -67,7 +67,7 @@ DRAWN_VALUES = 6
 DRAWN_STEP_VALUES = 4
 
 _SOURCE_KEYS = ('fixed_from', 'priors_from', 'emulator_from', 'result_from', 'sensitivity_from',
-                'params_for_id_from', 'start_from')
+                'params_for_id_from', 'start_from', 'combine_from')
 _MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', DERIVED: 'derived',
                 INHERITED: 'inherited', SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified',
                 MIXED: 'mixed'}
@@ -137,14 +137,15 @@ def _graph_steps(run):
         result = run['steps'].get(raw.get('id'))
         sources = _sources(raw)
         if raw.get('on_target'):
-            # given every calibration's and set step's values, as the target is
+            # given every calibration's, set step's and combine step's values, as the target is
             sources['fixed_from'] = [s['id'] for s in workflow.get('steps', [])
                                      if s.get('kind', 'calibration') in flowchart.MERGED_KINDS
                                      and not s.get('point')]
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
-            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from') else ids[0])
+            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from', 'combine_from')
+                     else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
             'emulator_dir': raw.get('emulator_dir'),
@@ -156,7 +157,7 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
-            'set': raw.get('set'), 'sweep': raw.get('sweep'),
+            'set': raw.get('set'), 'sweep': raw.get('sweep'), 'combine': raw.get('combine'),
             'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point'))})
     return steps
 

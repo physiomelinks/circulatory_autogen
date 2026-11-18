@@ -1418,7 +1418,7 @@ wf.result('chain')['values']    # {'C/q': 3.0}
 ```
 
 `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`, `add_identifiability`,
-`add_uq`, `add_set` and `add_sweep` make the [step kinds](#step-kinds). Their keyword arguments are the
+`add_uq`, `add_set`, `add_combine` and `add_sweep` make the [step kinds](#step-kinds). Their keyword arguments are the
 step's keys from [The file](#the-file); the options a kind takes in its `settings` are an
 argument of their own (`sa_options=`, `ia_options=`, `uq_options=`, `emulator_settings=`, and for a reduction
 `method=`, `n_params=`, ...). `add_step(id, kind=..., **keys)` takes any step as its raw keys.
@@ -1699,7 +1699,7 @@ libcuflynx wrote one) is refused: run the workflow again.
 A step's `kind` is `calibration` unless it says otherwise. `sensitivity`, `emulation` and
 `identifiability` run the analyses `cuflynx-sensitivity`, `cuflynx-train-emulator` and
 `cuflynx-identifiability` run, on the step's model, obs_data and params_for_id. Only the values
-of calibrations and `set` steps are merged into the target.
+of calibrations, `set` steps and `combine` steps are merged into the target.
 
 A step can run on a [surrogate](surrogates.md) in place of the model: on an emulator, named by
 the step's `emulator_from` or `emulator_dir` (below), or on a reduced-order model, which is the
@@ -1714,16 +1714,18 @@ step's `model` (an external Python model).
 | `identifiability` | Identifiability analysis (Laplace or a profile likelihood) at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
 | `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
 | `set` | declares values or scales by hand, each with a reason; with `"point": true` they are only a point for other steps and never reach the target | `set`; no model or files | the calibration or set steps it scales |
+| `combine` | gives one value per parameter from several steps: the values of the calibration with the lowest cost (`best_fit`), or each parameter's mean (`mean`). Its values are used in place of theirs, in later steps and in the target ([below](#one-value-per-parameter)) | `combine_from`, `combine`; no model or files | the calibration, set or combine steps it combines |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
 
 The keys that pass something on, each naming one step of the kind shown:
 
 | Key | Names a | What this step gets |
 |---|---|---|
-| `fixed_from` | calibration or set | its values, fixed in this step's model (above) |
+| `fixed_from` | calibration, set or combine | its values, fixed in this step's model (above) |
 | `priors_from` | calibration with `store_distribution`, or uq | its posterior, as a prior (below) |
-| `result_from` | calibration or set | its values, including those of the parameters this step analyses: a local sensitivity, identifiability analysis or uq step is then at that point. Without it, they are at the model's own values |
-| `start_from` | calibration or set | its values of the parameters this calibration fits, as the point the fit starts from |
+| `result_from` | calibration, set or combine | its values, including those of the parameters this step analyses: a local sensitivity, identifiability analysis or uq step is then at that point. Without it, they are at the model's own values |
+| `start_from` | calibration, set or combine | its values of the parameters this calibration fits, as the point the fit starts from |
+| `combine_from` | calibration, set or combine (two or more) | a combine step's inputs: the values it gives one of per parameter |
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
 | `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id. The step's `result_from` point is only where the emulator is evaluated: it is not written into the step's model, which stays the one the emulator was trained on |
@@ -1847,8 +1849,8 @@ calibrated parameters file, and are never reported as calibrated.
 
 A set step with **`"point": true`** declares a point only: a place to start a fit
 (`start_from`) or to analyse at (`result_from`, or `fixed_from`). Its values are not merged into
-the target, and a parameter it shares with a calibration is not "calibrated by more than one
-step". The provenance diagram marks it set by hand, labelled "point only, not in the target".
+the target, so it gives the target no value of a parameter it shares with a calibration. The
+provenance diagram marks it set by hand, labelled "point only, not in the target".
 CUFLynx writes its slider positions, nominal points and best-fit points this way. The key is
 explicit, rather than inferred from how other steps use the step, so a workflow's meaning does
 not change when a step is added. The builder's `add_set(..., point=True)`.
@@ -1988,14 +1990,46 @@ The other checks: a step's files exist; a library module exists in the library, 
 target; a target written as a library module names its parameter set with `parameterisation`
 (`instance` is an error). The schema is `libcuflynx/schemas/calibration_workflow.schema.json`.
 
-A parameter may be calibrated by more than one step. The later step (in run order) wins: its
-value is the one merged into the target, and a step calibrates a parameter itself even when
-`fixed_from` would give it a value. A warning lists each such parameter, because the later
-calibration replaces the earlier one rather than building on it. To update an earlier
-calibration with new data instead, take the parameter out of the later step's params_for_id
-and list the earlier step in its `priors_from` (below), so the earlier posterior becomes the
-prior. A step fitting a reduction's choice (`params_for_id_from`) is checked once the
-reduction has run, against what it kept, not against every candidate.
+#### One value per parameter
+
+The target, and every step, is given one value of a parameter. When two steps give the same
+parameter:
+
+- **One takes from the other**, directly or through other steps (`fixed_from`, `start_from`,
+  `priors_from`, ...): the later one's value replaces the earlier one's, with no warning. A
+  step calibrates a parameter itself even when `fixed_from` would give it a value. So `nka`,
+  then `whole_cell` with `"fixed_from": ["nka"]`, may both fit the same scale: `whole_cell`'s
+  is used. To update an earlier calibration with new data rather than replace it, take the
+  parameter out of the later step's params_for_id and list the earlier step in its
+  `priors_from` (below), so the earlier posterior becomes the prior.
+- **One is a `set` step**: a value set by hand replaces a calibrated one with no warning, and
+  the provenance marks it set by hand. Between a set step and a step it does not take from,
+  the later in run order is used.
+- **Neither takes from the other** (two calibrations, or combine steps): an error, which
+  names the parameter, the steps and what they give it to (the target, or a step through its
+  `fixed_from` or `result_from`). Add a `combine` step, which is its own box in the diagram:
+
+```json
+{"id": "best", "kind": "combine", "combine_from": ["from_low", "from_high"],
+ "combine": {"method": "best_fit"}}
+```
+
+A combine step gives one value for every parameter its inputs give. Later steps take from it
+(`fixed_from`, `start_from`, `result_from`, a set step's scale), and the target takes its
+values in place of its inputs'. It runs no model. Its `step_result.json` lists the values
+under `calibrated`, each with `combined_from` (the inputs that gave it).
+
+- **`best_fit`** takes every value from the calibration with the lowest cost (`chosen_from`;
+  `costs` has each input's). Costs are comparable only between calibrations of the same
+  obs_data with the same `cost_type`, so anything else is refused; the inputs calibrate the
+  same parameters. Use it for fits of one problem from several starting points.
+- **`mean`** gives each parameter the mean over the inputs that give it. The inputs may be
+  set steps, and need not give the same parameters.
+
+A step fitting a reduction's choice (`params_for_id_from`) is checked once the reduction has
+run, against what it kept, not against every candidate: the error then comes at the merge,
+with every step's result kept, so a run with `--stale-only` after adding the combine step
+runs only that step. The builder's `add_combine(id, combine_from, method=)`.
 
 ### Outputs
 

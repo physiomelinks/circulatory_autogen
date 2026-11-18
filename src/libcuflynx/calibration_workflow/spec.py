@@ -25,12 +25,16 @@ one of :data:`STEP_KINDS` (default ``calibration``):
   ``result_from`` or ``fixed_from``, and never reach the target. A point step may also give
   the theta of a params_for_id modifier entry (``{"entry", "theta", "reason"}``), which a
   step with that entry starts or is analysed at;
+* ``combine`` -- gives one value per parameter from several calibration, set or combine steps
+  (``combine_from``): those of the calibration with the lowest cost (``"method": "best_fit"``)
+  or each parameter's mean (``"mean"``). It runs no model. Its values pass on and reach the
+  target as a calibration's do, in place of its inputs';
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
   values go no further: no step takes from it and it does not reach the target. With
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
   as the target merges them (a later step wins), after all of those steps.
 
-Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an ordinary run: a
+Every kind but ``reduction``, ``set``, ``combine`` and ``sweep`` names the three inputs of an ordinary run: a
 ``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep names a ``model``, and an
 ``obs_data`` file when its protocol or features come from one. A model is either
 
@@ -82,17 +86,22 @@ PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
-              'sweep', 'uq')
+              'sweep', 'uq', 'combine')
 DEFAULT_KIND = 'calibration'
 #: the kinds that name no model, and read no files of their own
-_NO_MODEL_KINDS = ('reduction', 'set')
+_NO_MODEL_KINDS = ('reduction', 'set', 'combine')
+#: how a combine step gives one value per parameter, the first the default
+COMBINE_METHODS = ('best_fit', 'mean')
+#: the kinds whose values pass on to later steps and reach the target
+VALUE_KINDS = ('calibration', 'set', 'combine')
 #: what a set step's scale ``of`` names to scale the target's own value
 INHERITED_BASE = 'inherited'
 #: the source keys of a step and the kinds of step each may name
-SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulation',),
-                'result_from': ('calibration', 'set'), 'sensitivity_from': ('sensitivity',),
-                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set'),
-                'start_from': ('calibration', 'set'), 'priors_from': ('calibration', 'uq')}
+SOURCE_KINDS = {'fixed_from': VALUE_KINDS, 'emulator_from': ('emulation',),
+                'result_from': VALUE_KINDS, 'sensitivity_from': ('sensitivity',),
+                'params_for_id_from': ('reduction',), 'scale_from': VALUE_KINDS,
+                'start_from': VALUE_KINDS, 'priors_from': ('calibration', 'uq'),
+                'combine_from': VALUE_KINDS}
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
 _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
                                 'sweep', 'uq'),
@@ -278,6 +287,8 @@ class Step:
     # params_for_id has a modifier entry of that name
     set_thetas: list = field(default_factory=list)
     point: bool = False            # (set) its values are a point only, not merged into the target
+    combine_from: list = field(default_factory=list)  # (combine) the steps it combines
+    combine: dict = field(default_factory=dict)      # (combine) its options: method
     sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
     on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
@@ -294,6 +305,8 @@ class Step:
         scaled = scale_sources(self.set_values)
         if scaled:
             out['scale_from'] = scaled
+        if self.combine_from:
+            out['combine_from'] = list(self.combine_from)
         return out
 
 
@@ -349,6 +362,13 @@ class Workflow:
             done.add(step.id)
             remaining.remove(step)
         return order
+
+    def ancestors(self):
+        '''``{step id: ids of every step it takes from}``, directly or through other steps.'''
+        out = {}
+        for step in self.topological_order():
+            out[step.id] = set(step.depends_on).union(*(out[d] for d in step.depends_on))
+        return out
 
 
 
@@ -449,12 +469,12 @@ def _check_external_figures(workflow, where):
 
 
 #: the kinds whose values an on_target sweep is given, as the target merges them
-TARGET_SOURCE_KINDS = ('calibration', 'set')
+TARGET_SOURCE_KINDS = VALUE_KINDS
 
 
 def _place_target_sweeps(workflow):
-    '''An on_target sweep runs on the target, taking every calibration's and set step's values
-    (not a point step's, which the target does not merge).'''
+    '''An on_target sweep runs on the target, taking every calibration's, set step's and combine
+    step's values (not a point step's, which the target does not merge).'''
     sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS and not s.point]
     for step in workflow.steps:
         if step.on_target:
@@ -571,9 +591,12 @@ def _step(value, where, base_dir):
     if refs['start_from'] and refs['emulator_from']:
         raise WorkflowError(f'{label}: a step on an emulator ("emulator_from") runs on the '
                             f'emulation step\'s model as it was given, so it has no "start_from".')
-    # A reduction step's options are settings.param_reduction_options; set and sweep steps
-    # carry theirs under their own key.
-    for options_key in ('set', 'sweep'):
+    # A reduction step's options are settings.param_reduction_options; set, sweep and combine
+    # steps carry theirs under their own key.
+    if (kind == 'combine') != ('combine_from' in value):
+        raise WorkflowError(f'{label}: "combine_from" (the steps combined) is for a combine '
+                            f'step, and a combine step needs it.')
+    for options_key in ('set', 'sweep', 'combine'):
         if (kind == options_key) != (options_key in value):
             raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
                                 f'step, and a {options_key} step needs it.')
@@ -585,8 +608,9 @@ def _step(value, where, base_dir):
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
                                      'vessel', 'vessel_map') if k in value)
         if present:
-            reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
-                     else 'declares values for the target')
+            reads = {'reduction': 'reads a sensitivity step\'s results',
+                     'set': 'declares values for the target',
+                     'combine': 'combines the values of other steps'}[kind]
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
     if 'point' in value and kind != 'set':
         raise WorkflowError(f'{label}: "point" is for a set step, not a {kind} step.')
@@ -603,6 +627,14 @@ def _step(value, where, base_dir):
         return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
                     depends_on=scale_sources(entries), set_values=entries, set_thetas=thetas,
                     point=value.get('point', False), description=value.get('description', '') or '')
+    if kind == 'combine':
+        if 'settings' in value:
+            raise WorkflowError(f'{label}: a combine step runs nothing and has no "settings".')
+        combine_from = [s.strip() for s in value['combine_from']]
+        return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
+                    depends_on=list(combine_from), combine_from=combine_from,
+                    combine={'method': value['combine'].get('method', COMBINE_METHODS[0])},
+                    description=value.get('description', '') or '')
     if kind == 'reduction':
         settings = dict(value.get('settings') or {})
         other = sorted(set(settings) - {'param_reduction_options'})
@@ -760,6 +792,8 @@ def check_workflow(workflow):
             _check_set_step(workflow, step)
         if step.kind == 'sweep':
             _check_sweep_step(workflow, step)
+        if step.kind == 'combine':
+            _check_combine_step(workflow, step)
 
     for step in workflow.steps:
         prior_steps = [p.step for p in step.priors_from]
@@ -873,6 +907,41 @@ def _check_set_step(workflow, step):
             any(s.id == INHERITED_BASE for s in workflow.steps):
         raise WorkflowError(f'set step "{step.id}" scales the value "{INHERITED_BASE}", which is '
                             f'also a step id here; rename that step.')
+
+
+def cost_type(settings):
+    '''The cost function of a calibration with these (merged) settings: its
+    ``optimiser_options.cost_type``, ``debug_optimiser_options`` over them when DEBUG is set.'''
+    options = dict(settings.get('optimiser_options') or {})
+    if settings.get('DEBUG'):
+        options.update(settings.get('debug_optimiser_options') or {})
+    return options.get('cost_type')
+
+
+def _check_combine_step(workflow, step):
+    '''A combine step names each input once. ``best_fit`` compares costs, which are comparable
+    only between calibrations of the same obs_data with the same cost function.'''
+    twice = sorted({s for s in step.combine_from if step.combine_from.count(s) > 1})
+    if twice:
+        raise WorkflowError(f'combine step "{step.id}": "combine_from" lists {twice} more than '
+                            f'once.')
+    if step.combine['method'] != 'best_fit':
+        return
+    inputs = [workflow.step(s) for s in step.combine_from]
+    others = [f'"{s.id}" (a {s.kind} step)' for s in inputs if s.kind != 'calibration']
+    if others:
+        raise WorkflowError(f'combine step "{step.id}" takes the best fit of calibrations, which '
+                            f'have a cost; {", ".join(others)} has none. Combine calibration '
+                            f'steps, or use "method": "mean".')
+    for what, of in (('obs_data', lambda s: s.obs_data),
+                     ('cost_type', lambda s: cost_type(workflow.step_settings(s)))):
+        found = {s.id: of(s) for s in inputs}
+        if len(set(found.values())) > 1:
+            raise WorkflowError(
+                f'combine step "{step.id}" takes the best fit of {list(found)}, but their '
+                f'{what} differ ({found}). Costs are comparable only between calibrations of '
+                f'the same obs_data with the same cost_type; use "method": "mean", or calibrate '
+                f'them against the same data.')
 
 
 def _check_sweep_step(workflow, step):

@@ -12,11 +12,11 @@ A step's values reach the target, and other steps, through a vessel map (``namin
 * a selection of the target's instances is one of these (``select.resolve_selection``).
 '''
 
+import json
 import os
-import warnings
 from dataclasses import dataclass, field
 
-from libcuflynx.calibration_workflow import naming
+from libcuflynx.calibration_workflow import naming, spec
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
 from libcuflynx.calibration_workflow.spec import WorkflowError
@@ -379,6 +379,8 @@ def resolve_workflow(workflow):
         if step.kind == 'set':
             resolved[step.id] = _resolve_set_step(step, target, claimed)
             continue
+        if step.kind == 'combine':
+            continue      # after the steps it combines, below
         selection = None
         if step.model.kind == 'selection':
             selection = resolve_selection(step, target, components, supermodules)
@@ -441,7 +443,11 @@ def resolve_workflow(workflow):
                 # a reduction's candidates are not what it calibrates: the run checks those
                 claimed.setdefault(name, []).append(step.id)
         resolved[step.id] = resolved_step
-    _warn_recalibrated(workflow, {n: ids for n, ids in claimed.items() if len(ids) > 1})
+    for step in workflow.topological_order():
+        if step.kind == 'combine':
+            resolved[step.id] = _resolve_combine_step(workflow, step, resolved, target, claimed)
+    resolved = {step.id: resolved[step.id] for step in workflow.steps}
+    check_given_once(workflow, claimed, f'the target {workflow.target.label()}')
 
     result = ResolvedWorkflow(workflow=workflow, target=target, steps=resolved,
                               config_files=sources.config_files, library_inputs=inputs,
@@ -467,6 +473,7 @@ def resolve_workflow(workflow):
         for source, names in step.fixed_parameters.items():
             _check_fixed_subset(step, source, names, resolved[source],
                                 result.map_between(source, step.id))
+    _check_steps_given_once(result)
     return result
 
 
@@ -635,44 +642,120 @@ def _library_vessel(path, target, step):
                         f'{sorted("/".join(p) for p in target.paths)}).')
 
 
-def _warn_recalibrated(workflow, claimed, stacklevel=3):
-    '''One UserWarning for the target parameters ``{name: [step ids]}`` that several steps
-    calibrate or set. The merge takes them in run order, so the last step's value is used.'''
-    if not claimed:
+def _resolve_combine_step(workflow, step, resolved, target, claimed):
+    '''A combine step's parameters: every parameter its inputs give, named as the target names
+    them. Its map is the target's own. It gives the target each of them (the run checks those
+    that only a step fitting a reduction's choice gives).'''
+    out = ResolvedStep(step=step, model=None, parameters=[], target=target,
+                       vessel_map=naming.Renamed({}, target.vessels))
+    given = {}      # {target model name: [input ids]}
+    for source in step.combine_from:
+        rs = resolved[source]
+        for parameter in rs.parameters:
+            in_target = CalibratedParameter(rs.to_target(parameter.vessel), parameter.param)
+            given.setdefault(in_target.model_name, []).append(source)
+            if len(given[in_target.model_name]) == 1:
+                out.parameters.append(in_target)
+    # a calibration fitting a reduction's choice gives what it kept, known when it has run
+    known = not any(workflow.step(s).params_for_id_from for s in step.combine_from)
+    if step.combine['method'] == 'best_fit' and known:
+        partly = {name: ids for name, ids in sorted(given.items())
+                  if len(ids) != len(step.combine_from)}
+        if partly:
+            raise WorkflowError(
+                f'combine step "{step.id}" takes the best fit of {step.combine_from}, which '
+                f'must calibrate the same parameters, but only some of them calibrate '
+                f'{partly}. Use "method": "mean", or give the steps the same params_for_id.')
+    for name, ids in given.items():
+        if not all(workflow.step(s).params_for_id_from for s in ids):
+            claimed.setdefault(name, []).append(step.id)
+    return out
+
+
+def given_twice(workflow, givers):
+    '''The steps of ``givers`` (ids of the steps that give one parameter to one receiver) whose
+    values clash, or []. A step's value is replaced by that of a step that takes from it,
+    directly or through other steps, and a set step's value never clashes: among set steps and
+    unrelated steps the later in run order is used. So the clash is more than one calibration
+    or combine step left when the replaced ones are taken out.'''
+    ancestors = workflow.ancestors()
+    left = [g for g in dict.fromkeys(givers)
+            if not any(g in ancestors[other] for other in givers)]
+    left = [g for g in left if workflow.step(g).kind != 'set']
+    return left if len(left) > 1 else []
+
+
+def check_given_once(workflow, givers_by_name, receiver):
+    '''A WorkflowError when ``receiver`` (words: the target, or a step) is given a parameter of
+    ``givers_by_name`` (``{name: [step ids]}``) by steps that clash (:func:`given_twice`).'''
+    clashes = {name: given_twice(workflow, ids) for name, ids in sorted(givers_by_name.items())}
+    clashes = {name: ids for name, ids in clashes.items() if ids}
+    if not clashes:
         return
-    order = [s.id for s in workflow.topological_order()]
-    lines = []
-    last_kinds = set()
-    for name, ids in sorted(claimed.items()):
-        ids = sorted(ids, key=order.index)
-        last_kinds.add(workflow.step(ids[-1]).kind)
-        lines.append(f'"{name}" by {", then ".join(repr(i) for i in ids)} '
-                     f'(the value of {ids[-1]!r} is used)')
-    advice = []
-    if last_kinds - {'set'}:
-        advice.append(
-            'To update an earlier calibration with new data rather than replace it, calibrate '
-            'Bayesianly: remove the parameter from the later step\'s params_for_id and list the '
-            'earlier step in its "priors_from" (with "store_distribution": true on the earlier '
-            'step), so the earlier posterior becomes the later step\'s prior.')
-    if 'set' in last_kinds:
-        advice.append('A set step\'s value replaces the calibrated one; to keep the calibrated '
-                      'value, remove the parameter from the set step.')
-    warnings.warn(
-        f'calibration workflow "{workflow.name}": {len(lines)} parameter(s) of '
-        f'{workflow.target.label()} are calibrated by more than one step, and the later '
-        f'step replaces the earlier: ' + '; '.join(lines) + '. ' + ' '.join(advice),
-        UserWarning, stacklevel=stacklevel)
+    lines = '; '.join(f'"{name}" by {" and ".join(repr(i) for i in ids)}'
+                      for name, ids in clashes.items())
+    example = next(iter(clashes.values()))
+    raise WorkflowError(
+        f'calibration workflow "{workflow.name}": {receiver} is given {len(clashes)} '
+        f'parameter(s) by steps that do not take from each other: {lines}. One value must be '
+        f'chosen: let one step take from the other (e.g. "fixed_from" or "start_from"), so the '
+        f'later one replaces it, or add a combine step that gives one value from them '
+        f'("kind": "combine", "combine_from": {json.dumps(example)}, "combine": {{"method": '
+        f'"best_fit"}} or "mean"); its values are used in place of theirs.')
 
 
-def warn_reduced_recalibrated(workflow, claimed):
-    '''The check `resolve_workflow` leaves to the run for a step fitting a reduction's
-    choice: ``claimed`` (``{name: [step ids]}``, every value the merge took) narrowed to the
-    names such a step calibrated and another step also gave.'''
-    _warn_recalibrated(workflow, {
+def _check_steps_given_once(result):
+    '''A WorkflowError when a step is given one parameter by steps that clash: through its
+    ``fixed_from`` (a plain id passes on what that step was given too) and ``result_from``. What
+    a step fitting a reduction's choice gives is known when it has run, so the run checks it.'''
+    workflow, resolved = result.workflow, result.steps
+    # a parameter is (vessel, param) in a step's model; a step is not given a parameter it
+    # calibrates or analyses itself (a sweep is given the values it sweeps about)
+    own = {s.id: {(p.vessel, p.param): p.model_name for p in resolved[s.id].parameters}
+           for s in workflow.steps if s.kind != 'sweep'}
+    passes = {}     # {step id: {(vessel, param) in the step: [owner ids]}}
+
+    def received(step):
+        out = {}
+        for source in step.fixed_from + ([step.result_from] if step.result_from else []):
+            givers = passes[source]
+            if source in step.fixed_parameters:
+                givers = {key: [source] for key, name in own[source].items()
+                          if name in step.fixed_parameters[source]}
+            vessel_of = result.map_between(source, step.id)
+            for (vessel, param), owners in givers.items():
+                vessel = vessel_of(vessel)
+                if vessel is not None:
+                    out.setdefault((vessel, param), []).extend(owners)
+        return out
+
+    for step in workflow.topological_order():
+        if step.on_target:
+            continue        # given what the target is, which is checked as the target
+        given = {key: owners for key, owners in received(step).items()
+                 if key not in own.get(step.id, ())}
+        if step.kind in spec.VALUE_KINDS:
+            mine = () if step.params_for_id_from else own[step.id]
+            passes[step.id] = {**given, **{key: [step.id] for key in mine}}
+        check_given_once(workflow, {naming.model_name(*key): owners
+                                    for key, owners in given.items()}, f'step "{step.id}"')
+
+
+def check_merged_once(workflow, claimed):
+    '''The check :func:`resolve_workflow` leaves to the run for a step fitting a reduction's
+    choice: ``claimed`` (``{target name: [step ids]}``, every value the merge took) narrowed to
+    the names such a step calibrated. A combine step that has not run yet counts as giving what
+    its inputs gave.'''
+    claimed = {name: list(ids) for name, ids in claimed.items()}
+    for step in workflow.topological_order():
+        if step.kind == 'combine':
+            for ids in claimed.values():
+                if step.id not in ids and set(ids) & set(step.combine_from):
+                    ids.append(step.id)
+    check_given_once(workflow, {
         name: ids for name, ids in claimed.items()
-        if len(ids) > 1 and any(workflow.step(i).params_for_id_from for i in ids)},
-        stacklevel=4)
+        if any(workflow.step(i).params_for_id_from for i in ids)},
+        f'the target {workflow.target.label()}')
 
 
 def read_calibrated_parameters(params_for_id_path, where=''):

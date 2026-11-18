@@ -165,9 +165,17 @@ def model_line(model):
 _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from': 'emulator',
                   'result_from': 'at its fit', 'sensitivity_from': 'indices',
                   'params_for_id_from': 'parameters', 'scale_from': 'scaled from',
-                  'start_from': 'starts at its values'}
+                  'start_from': 'starts at its values', 'combine_from': 'combined'}
 #: the kinds whose values are merged into the target
-MERGED_KINDS = ('calibration', 'set')
+MERGED_KINDS = ('calibration', 'set', 'combine')
+#: what a combine step's method does, for its box
+COMBINE_LINES = {'best_fit': 'best fit of', 'mean': 'mean of'}
+
+
+def combine_line(combine, combine_from):
+    '''What a combine step does, in one line: ``best fit of a, b``.'''
+    method = (combine or {}).get('method', 'best_fit')
+    return f'{COMBINE_LINES.get(method, method)} {", ".join(combine_from or [])}'
 #: the line of a set step with ``"point": true``, whose values the target does not merge
 POINT_ONLY = 'point only, not in the target'
 
@@ -254,12 +262,13 @@ def workflow_graph(steps):
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
-    step) ``reduction``, ``set`` or ``sweep`` where a step has them, plus ``model`` (the
+    step) ``reduction``, ``set`` or ``sweep``, and (a combine step) ``combine`` and
+    ``combine_from``, where a step has them, plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
-    target, by default every calibration and set step) in a final dict with ``'id': None``. A
+    target, by default every calibration, set and combine step) in a final dict with ``'id': None``. A
     model is a library module ``{module_type, version, parameterisation}``, ``{module_array}`` or
-    ``{select}``; a reduction or set step has none, and any other step given ``'model': None``
+    ``{select}``; a reduction, set or combine step has none, and any other step given ``'model': None``
     has not run.'''
     *step_list, target = steps
     nodes, edges = [], []
@@ -276,6 +285,8 @@ def workflow_graph(steps):
             lines = [set_line(entry) for entry in s.get('set') or []]
             if s.get('point'):
                 lines.append(POINT_ONLY)
+        elif kind == 'combine':
+            lines = [combine_line(s.get('combine'), s.get('combine_from'))]
         elif s.get('model') is None:
             lines = ['not run']
         elif kind == 'sweep':
@@ -288,7 +299,8 @@ def workflow_graph(steps):
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
-                      'kind': {'calibration': 'step', 'set': 'values'}.get(kind, 'analysis')})
+                      'kind': {'calibration': 'step', 'combine': 'step',
+                               'set': 'values'}.get(kind, 'analysis')})
         if s.get('on_target'):
             # it runs on the merged target, which the merge edges already draw
             edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
@@ -307,8 +319,8 @@ def workflow_graph(steps):
                             f'{_count(target["n_merged"] - n_set, "calibrated value")}']
                            + ([f'{_count(n_set, "value")} set by hand'] if n_set else []),
                   'kind': 'target'})
-    # every calibration and set step is merged into the target; a later one wins a parameter
-    # they share
+    # every calibration, set and combine step is merged into the target; a later one wins a
+    # parameter they share
     merged_from = target.get('merged_from')
     for s in step_list:
         if s.get('kind', 'calibration') in MERGED_KINDS and not s.get('point') and \

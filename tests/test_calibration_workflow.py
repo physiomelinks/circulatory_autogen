@@ -228,9 +228,9 @@ def _library_step(library, step_id, module_type, name):
             'params_for_id': os.path.join(directory, f'{name}_params_for_id.json')}
 
 
-def _with_joint_step(library):
+def _with_joint_step(library, **keys):
     raw = _raw(library, 'twin_split')
-    raw['steps'].append(_library_step(library, 'joint', 'twin', 'joint'))
+    raw['steps'].append(dict(_library_step(library, 'joint', 'twin', 'joint'), **keys))
     path = os.path.join(library['twin/split'], 'recalibrated_workflow.json')
     with open(path, 'w') as f:
         json.dump(raw, f)
@@ -238,20 +238,27 @@ def _with_joint_step(library):
 
 
 @pytest.mark.unit
-def test_a_parameter_calibrated_twice_warns_and_points_to_priors(library):
-    with pytest.warns(UserWarning) as caught:
+def test_a_parameter_calibrated_by_unrelated_steps_is_refused(library):
+    """joint calibrates p of A and of B, as fit_a and fit_b do, and takes from neither: the
+    target would be given two values of each. A step that takes from the others replaces
+    theirs, with no warning."""
+    import warnings
+    with pytest.raises(WorkflowError) as refused:
         resolve_workflow(load_workflow(_with_joint_step(library)))
-    message = str(caught[0].message)
-    assert '2 parameter(s)' in message
-    assert '"p_mod__A" by \'fit_a\', then \'joint\' (the value of \'joint\' is used)' in message
-    assert '"priors_from"' in message
+    message = str(refused.value)
+    assert 'the target twin/v1/split is given 2 parameter(s)' in message
+    assert '"p_mod__A" by \'fit_a\' and \'joint\'' in message
+    assert '"p_mod__B" by \'fit_b\' and \'joint\'' in message
+    assert '"kind": "combine", "combine_from": ["fit_a", "joint"]' in message
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(load_workflow(_with_joint_step(library, fixed_from=['fit_a', 'fit_b'])))
 
 
 @pytest.mark.integration
 def test_the_later_calibration_of_a_parameter_is_merged(library, tmp_path):
-    with pytest.warns(UserWarning, match='more than one step'):
-        result = run_calibration_workflow(_with_joint_step(library),
-                                          output_dir=str(tmp_path / 'run'))
+    result = run_calibration_workflow(_with_joint_step(library, fixed_from=['fit_a', 'fit_b']),
+                                      output_dir=str(tmp_path / 'run'))
     assert result['complete']
     sources = {r['parameterisation_name']: r['from_step'] for r in result['merged_parameters']}
     assert sources == {'A/p': 'joint', 'B/p': 'joint'}
@@ -263,9 +270,7 @@ def test_a_step_calibrates_a_parameter_it_would_be_given_fixed(library, tmp_path
     params = os.path.join(library['chain/rest'], 'rest_params_for_id.json')
     write_params_for_id(params, params_for_id_entries(params) + [
         {'targets': ['mod/A/p'], 'min': 0.1, 'max': 5.0, 'name_for_plotting': 'p_mod__A'}])
-    with pytest.warns(UserWarning, match='more than one step'):
-        result = run_calibration_workflow(library['chain_rest'],
-                                          output_dir=str(tmp_path / 'run'))
+    result = run_calibration_workflow(library['chain_rest'], output_dir=str(tmp_path / 'run'))
     sources = {r['parameterisation_name']: r['from_step'] for r in result['merged_parameters']}
     assert sources == {'A/p': 'rest', 'C/q': 'rest'}
     step = _read_json(str(tmp_path / 'run' / 'rest' / 'step_result.json'))
@@ -1225,10 +1230,11 @@ def test_an_identifiability_step_gets_the_user_operation_its_obs_data_names(libr
     assert ia_result['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
 
 
-def test_a_value_a_reduction_kept_and_a_set_step_replaced_is_warned_after_the_run(library,
-                                                                                 tmp_path):
+@pytest.mark.unit
+def test_a_value_a_reduction_kept_is_checked_after_the_run(library, tmp_path):
     """Whether a step fitting a reduction's choice calibrates a parameter is known only once the
-    reduction ran, so the merge warns; a set step replacing it gets no priors_from advice."""
+    reduction ran, so the merge checks it. A set step replaces the value with no warning; an
+    unrelated calibration of it is refused, and a combine step of the two settles it."""
     import warnings
     from libcuflynx.calibration_workflow.resolve import resolve_workflow
     raw = _raw(library, 'chain_analysed')
@@ -1236,16 +1242,32 @@ def test_a_value_a_reduction_kept_and_a_set_step_replaced_is_warned_after_the_ru
         {'parameter': 'mod__C/q', 'value': 2.5, 'reason': 'the slider position'}]})
     path = os.path.join(library['chain/screened'], 'by_hand.json')
     _write_json(path, raw)
+    out = str(tmp_path / 'run')
     with warnings.catch_warnings():
-        warnings.simplefilter('error')
+        warnings.simplefilter('error', category=UserWarning)
         resolve_workflow(parse_workflow(raw, path=path))   # q is only a candidate of fit here
-    with pytest.warns(UserWarning, match='calibrated by more than one step') as caught:
-        result = run_calibration_workflow(path, output_dir=str(tmp_path / 'run'))
-    message = next(str(w.message) for w in caught if 'more than one step' in str(w.message))
-    # q alone: p_A was a candidate of fit, which the reduction left out
-    assert "by 'fit', then 'by_hand'" in message and ': 1 parameter(s)' in message
-    assert 'priors_from' not in message and 'remove the parameter from the set step' in message
+    result = run_calibration_workflow(path, output_dir=out)
     assert _merged(result)['C/q'] == 2.5
+
+    # q alone clashes: p_A was a candidate of fit, which the reduction left out
+    raw['steps'][-1] = dict(_library_step(library, 'other', 'chain', 'rest'),
+                            fixed_from=['fit_a'])
+    _write_json(path, raw)
+    resolve_workflow(parse_workflow(raw, path=path))
+    with pytest.raises(WorkflowError, match=r'is given 1 parameter\(s\) by steps that do not '
+                                            r'take from each other: "q_mod__C" by \'fit\' and '
+                                            r'\'other\''):
+        run_calibration_workflow(path, output_dir=out, stale_only=True)
+    assert not os.path.isfile(os.path.join(out, 'workflow_result.json')) or \
+        'other' not in _read_json(os.path.join(out, 'workflow_result.json'))['order']
+
+    raw['steps'].append({'id': 'both', 'kind': 'combine', 'combine_from': ['fit', 'other'],
+                         'combine': {'method': 'mean'}})
+    _write_json(path, raw)
+    result = run_calibration_workflow(path, output_dir=out, stale_only=True)
+    steps = {s: _read_json(os.path.join(out, s, 'step_result.json')) for s in ('fit', 'other')}
+    assert _merged(result)['C/q'] == pytest.approx(
+        np.mean([steps[s]['calibrated'][0]['value'] for s in steps]))
 
 
 @pytest.mark.unit
@@ -1487,8 +1509,7 @@ def test_fixed_from_with_parameters_gives_no_value_the_source_was_itself_given(l
     path = os.path.join(library['chain/rest'], 'again.json')
     _write_json(path, raw)
     out = str(tmp_path / 'run')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        run_calibration_workflow(path, output_dir=out)
+    run_calibration_workflow(path, output_dir=out)
     # again calibrates q itself, so the one value it asked for is not fixed, and p of fit_a
     # (which rest was given) does not come through rest
     assert _read_json(os.path.join(out, 'again', 'step_result.json'))['fixed'] == []

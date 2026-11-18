@@ -66,7 +66,7 @@ from libcuflynx.calibration_workflow.generate import (UnsetModelParameters, gene
 from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      read_calibrated_parameters,
                                                      resolve_workflow,
-                                                     warn_reduced_recalibrated)
+                                                     check_merged_once)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
@@ -129,6 +129,7 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'cali
                 'emulation': ('emulator_dir',),
                 'identifiability': ('laplace', 'profile_likelihood_dir'),
                 'set': (),
+                'combine': (),
                 'sweep': ('sweep_dir', 'sweep_results'),
                 'uq': ('uq_output_dir', 'distribution_dir', 'posterior_predictive_dir',
                        'posterior_predictive_draws', 'posterior_predictive_coverage',
@@ -174,11 +175,13 @@ def settings_digest(settings):
 
 
 def step_settings_digest(workflow, step):
-    '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
-    options, or the workflow's settings with the step's on top. Formatting and key order of the
+    '''The digest a step's ``settings`` input records: a set step's entries, a combine step's
+    inputs and options, a reduction's options, or the workflow's settings with the step's on top. Formatting and key order of the
     file do not change it.'''
     if step.kind == 'set':
         return settings_digest(step.set_values + step.set_thetas)
+    if step.kind == 'combine':
+        return settings_digest({'combine_from': step.combine_from, 'combine': step.combine})
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
     return settings_digest(workflow.step_settings(step))
@@ -332,7 +335,8 @@ def _read_json(path):
 
 
 def given_values(result):
-    '''The records of what a step's result passes on: what it calibrated or set by hand.'''
+    '''The records of what a step's result passes on: what it calibrated, combined or set by
+    hand.'''
     return result['calibrated'] + result.get('set', [])
 
 
@@ -438,8 +442,9 @@ class _Run:
         return {**inputs, SETTINGS_INPUT: settings, **self.library_input()}
 
     def _model_free_inputs(self, step):
-        '''The inputs of a reduction (its options; the rest are its sensitivity step's) or a set
-        step (its entries, and the target's values when it scales them).'''
+        '''The inputs of a reduction (its options; the rest are its sensitivity step's), a
+        combine step (its inputs and options) or a set step (its entries, and the target's values
+        when it scales them).'''
         inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
                                    'sha256': step_settings_digest(self.workflow, step)}}
         if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
@@ -498,7 +503,8 @@ class _Run:
         '''``{model name in this step: row}`` from every step in ``sources``: its calibrated
         values, those it set by hand and, unless ``own_only``, the values it was itself given
         as fixed. A source in ``subsets`` (``{step id: its model names}``) gives only those of
-        its calibrated and set values.'''
+        its calibrated and set values. A value given by two steps is the later one's
+        (:meth:`later_value`).'''
         subsets = subsets or {}
         values = {}
         for source in sources:
@@ -516,23 +522,43 @@ class _Run:
                     continue
                 name = naming.model_name(vessel, record['param'])
                 origin = record.get('from_step', source)
-                if name in values and not np.isclose(values[name]['value'], record['value'],
-                                                      rtol=1e-12, atol=0.0):
-                    raise WorkflowError(
-                        f'step "{step.id}" is given two different fixed values for "{name}": '
-                        f'{values[name]["value"]} (from "{values[name]["from_step"]}") and '
-                        f'{record["value"]} (from "{origin}").')
-                values[name] = {'vessel': vessel,
-                                'param': record['param'], 'model_name': name,
-                                'host_name': naming.host_row_name(vessel, record['param']),
-                                'value': record['value'], 'units': record.get('units', ''),
-                                'from_step': origin, **_how_set(record)}
+                row = {'vessel': vessel,
+                       'param': record['param'], 'model_name': name,
+                       'host_name': naming.host_row_name(vessel, record['param']),
+                       'value': record['value'], 'units': record.get('units', ''),
+                       'from_step': origin, **_how_set(record)}
+                values[name] = self.later_value(step, values.get(name), row)
             if left_out:
                 model = step.model.label() if step.model else self.workflow.target.label()
                 warnings.warn(f'step "{step.id}": {len(left_out)} value(s) of "{source}" are '
                               f'not fixed, because {model} has no such vessel: '
                               f'{sorted(left_out)}.', UserWarning, stacklevel=2)
         return values
+
+    def later_value(self, step, old, new):
+        '''Which of two rows giving ``step`` one parameter is used (``old`` may be None): that
+        of the step that takes from the other's step, directly or through other steps; else,
+        when one is a set step's, that of the later step in run order. Two different values
+        from other unrelated steps are a WorkflowError (resolve.given_twice).'''
+        if old is None or old['from_step'] == new['from_step']:
+            return new
+        first, second = old['from_step'], new['from_step']
+        if not hasattr(self, '_ancestors'):
+            self._ancestors = self.workflow.ancestors()
+            self._run_order = [s.id for s in self.workflow.topological_order()]
+        if first in self._ancestors[second]:
+            return new
+        if second in self._ancestors[first]:
+            return old
+        if 'set' not in (self.workflow.step(first).kind, self.workflow.step(second).kind) and \
+                not np.isclose(old['value'], new['value'], rtol=1e-12, atol=0.0):
+            raise WorkflowError(
+                f'step "{step.id}" is given two different values for "{new["model_name"]}": '
+                f'{old["value"]} (from "{first}") and {new["value"]} (from "{second}"), and '
+                f'neither step takes from the other. Add a combine step that gives one value '
+                f'from them ("kind": "combine", "combine_from": {json.dumps([first, second])}) '
+                f'and take from that.')
+        return new if self._run_order.index(second) > self._run_order.index(first) else old
 
     def priors(self, step):
         '''``[(PriorSource, StoredDistribution named in this step)]``.'''
@@ -561,6 +587,7 @@ class _Run:
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
                'identifiability': self._run_identifiability, 'set': self._run_set,
+               'combine': self._run_combine,
                'sweep': self._run_sweep, 'uq': self._run_uq}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
@@ -663,7 +690,10 @@ class _Run:
             # result_from's values of the step's own parameters are the point it analyses (its
             # result records them as ``at`` or ``nominal``); the rest are fixed
             for name, row in self.fixed_values(step, [step.result_from]).items():
-                (point if name in own else fixed)[name] = row
+                if name in own:
+                    point[name] = row
+                else:
+                    fixed[name] = self.later_value(step, fixed.get(name), row)
         start = {}
         if step.start_from:
             # its own parameters start at the values of start_from; they are not fixed
@@ -1247,6 +1277,64 @@ class _Run:
                    if source is not None else {})})
         return records
 
+    def _run_combine(self, step, settings):
+        return self.on_root(lambda: self._combined_values(step))
+
+    def _combined_values(self, step):
+        '''The result of a combine step: one record per parameter its inputs give, in the shape
+        of a calibrated value named as the target names it, with ``combined_from`` (the inputs
+        that gave the parameter) and, for ``best_fit``, ``chosen_from``.'''
+        step_dir = self.step_dir(step.id)
+        if os.path.isdir(step_dir):
+            shutil.rmtree(step_dir)
+        os.makedirs(step_dir)
+        method = step.combine['method']
+        given = {}      # {target model name: [(input id, record)]}
+        results = {}
+        for source in step.combine_from:
+            results[source] = self.require_current(source, step.id)
+            for record in given_values(results[source]):
+                given.setdefault(record['target_model_name'], []).append((source, record))
+        out = {'method': method, 'combine_from': list(step.combine_from)}
+        if method == 'best_fit':
+            partly = {name: [s for s, _ in rows] for name, rows in sorted(given.items())
+                      if len(rows) != len(step.combine_from)}
+            if partly:
+                raise WorkflowStepError(
+                    step.id, f'it takes the best fit of {step.combine_from}, which must '
+                             f'calibrate the same parameters, but only some of them calibrated '
+                             f'{partly}.')
+            costs = {source: results[source].get('best_cost') for source in step.combine_from}
+            missing = sorted(source for source, cost in costs.items() if cost is None)
+            if missing:
+                raise WorkflowStepError(step.id, f'{missing} recorded no cost to compare.')
+            chosen = min(step.combine_from, key=lambda source: costs[source])
+            out.update(chosen_from=chosen, best_cost=costs[chosen], costs=costs)
+        records = []
+        for name, rows in sorted(given.items()):
+            source, record = next((row for row in rows if row[0] == out.get('chosen_from')),
+                                  rows[0])
+            units = sorted({r.get('units', '') for _, r in rows})
+            if len(units) > 1:
+                raise WorkflowStepError(step.id, f'its inputs give "{name}" in different '
+                                                 f'units: {units}.')
+            value = record['value'] if method == 'best_fit' else \
+                float(np.mean([r['value'] for _, r in rows]))
+            vessel = self.resolved.steps[source].to_target(record['vessel'])
+            combined = {
+                'vessel': vessel, 'param': record['param'], 'model_name': name,
+                'target_model_name': name, 'target_host_name': record['target_host_name'],
+                'target_parameterisation_name': record['target_parameterisation_name'],
+                'value': float(value), 'units': units[0],
+                'combined_from': [s for s, _ in rows]}
+            if method == 'best_fit':
+                combined['chosen_from'] = source
+            elif all(r.get('origin') == SET_BY_HAND for _, r in rows):
+                combined.update(origin=SET_BY_HAND, reason='the mean of the values set by hand '
+                                f'in steps {", ".join(s for s, _ in rows)}')
+            records.append(combined)
+        return dict(out, calibrated=records)
+
     def _run_sweep(self, step, settings):
         resolved = self.resolved.steps[step.id]
         where = f'sweep step "{step.id}"'
@@ -1453,7 +1541,7 @@ class _Run:
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id, **_how_set(record)}
-        warn_reduced_recalibrated(self.workflow, claimed)
+        check_merged_once(self.workflow, claimed)
         complete = all(r and r.get('status') == 'done' for r in results.values())
         target = self.resolved.target
         workflow_result = {
@@ -1811,6 +1899,12 @@ def plan_workflow(source, module_library_dirs=None):
             'store_distribution': step.store_distribution,
             'settings': workflow.step_settings(step) if step.model is not None else {},
         }
+        if step.kind == 'combine':
+            entry['combine_from'] = list(step.combine_from)
+            entry['combine'] = dict(step.combine, gives=[
+                {'target_model_name': rs.target_model_name(p),
+                 'target_parameterisation_name': rs.target_parameterisation_name(p)}
+                for p in rs.parameters])
         for key in ('emulator_from', 'emulator_dir', 'result_from', 'start_from',
                     'sensitivity_from', 'params_for_id_from'):
             if getattr(step, key):

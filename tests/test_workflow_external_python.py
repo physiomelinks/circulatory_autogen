@@ -315,8 +315,7 @@ def test_each_optimiser_recovers_k(example, tmp_path, method):
 @pytest.mark.slow
 def test_a_stored_posterior_is_the_prior_of_the_refinement(example, tmp_path):
     out = str(tmp_path / 'run')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(example, _raw(example)), output_dir=out)
+    result = run_calibration_workflow(_write(example, _raw(example)), output_dir=out)
     assert result['order'] == ['boundary', 'fit-k', 'refine']
 
     # the MCMC of fit-k has its own run directory, beside the calibration's
@@ -350,8 +349,7 @@ def test_the_provenance_and_the_manifest_of_the_shipped_workflow_say_what_ran(ex
     from libcuflynx.utilities.cuflynx_study import read_study
     out = str(tmp_path / 'run')
     path = _write(example, _raw(example))
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        run_calibration_workflow(path, output_dir=out)
+    run_calibration_workflow(path, output_dir=out)
 
     graph = _read_json(os.path.join(out, 'provenance_graph.json'))
     nodes = {n['id']: n for n in graph['nodes']}
@@ -422,8 +420,7 @@ def test_sensitivity_reduction_identifiability_and_a_target_sweep(example, tmp_p
          'sweep': {'outputs': ['heat/T_p1'], 'parameters': {'heat/k': {'values': [0.2, 0.25]}}}},
     ]
     out = str(tmp_path / 'run')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(example, raw), output_dir=out)
+    result = run_calibration_workflow(_write(example, raw), output_dir=out)
     assert result['complete']
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
 
@@ -453,7 +450,8 @@ def test_sensitivity_reduction_identifiability_and_a_target_sweep(example, tmp_p
 def test_a_calibration_on_an_emulator_of_the_external_model(example, tmp_path):
     pytest.importorskip('autoemulate')
     from libcuflynx.external_testing.workflow_library import EMULATOR_SETTINGS
-    raw = _fit_k(example)
+    # without fit-k: two calibrations of k that do not take from each other are refused
+    raw = _raw(example, ['boundary'], dict(_FAST, param_id_method='CMA-ES'))
     # The library's settings are a quadratic for its linear models. The probe means are not
     # quadratic in k over [0.05, 1]: probe 3 doubles up to k = 0.25 and then falls. So an
     # interpolating RBF, with 64 samples (13 held out across the range, not 6 on the flat part)
@@ -468,8 +466,7 @@ def test_a_calibration_on_an_emulator_of_the_external_model(example, tmp_path):
          'params_for_id': k_only, 'emulator_from': 'emulate'},
     ]
     out = str(tmp_path / 'run')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(example, raw), output_dir=out)
+    result = run_calibration_workflow(_write(example, raw), output_dir=out)
     assert os.path.isdir(_read_json(os.path.join(out, 'emulate', 'step_result.json'))
                          ['emulator_dir'])
     merged = {r['parameterisation_name']: r for r in result['merged_parameters']}

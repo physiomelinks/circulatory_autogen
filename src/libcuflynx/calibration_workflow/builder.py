@@ -86,7 +86,7 @@ _USER_ENV = ('OMPI_MCA_orte_tmpdir_base', 'OMPI_MCA_orte_default_hostfile',
 #: TARGET_DIR, cuflynx_study.INPUTS_DIR); the schema refuses them too
 _RESERVED_IDS = frozenset({'models', 'target', '_target', 'inputs'})
 #: the kinds of step that name no model (spec._NO_MODEL_KINDS)
-_NO_MODEL_KINDS = ('reduction', 'set')
+_NO_MODEL_KINDS = ('reduction', 'set', 'combine')
 #: the calibration method of a step whose settings name none (the parser's default)
 DEFAULT_PARAM_ID_METHOD = 'genetic_algorithm'
 #: the longest step id: it names the step's directory and files
@@ -96,7 +96,7 @@ _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'para
               'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
               'store_distribution', 'on_target', 'settings', 'emulator_from', 'emulator_dir',
               'result_from', 'start_from', 'sensitivity_from', 'params_for_id_from', 'set',
-              'point', 'sweep')
+              'point', 'combine_from', 'combine', 'sweep')
 #: the keys of a model that are paths, relative to the workflow file when written
 _MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path', 'cellml_model_path')
 #: the keys of a step that are paths, relative to the workflow file when written
@@ -740,6 +740,27 @@ class WorkflowBuilder:
                              **_given({'point': point, 'description': description,
                                        'comment': comment}))
 
+    def add_combine(self, id, combine_from, *, method='best_fit', description=None,
+                    comment=None):
+        """Add a combine step: one value per parameter from several steps that give the same
+        parameters and do not take from each other. Later steps and the target take its
+        values in place of theirs.
+
+        Args:
+            id: the step's name (see :meth:`add_calibration`).
+            combine_from: the ids of the calibration, set or combine steps combined (two or
+                more).
+            method: ``'best_fit'``: the values of the calibration with the lowest cost (the
+                steps are calibrations of the same obs_data, with the same cost_type and
+                parameters). ``'mean'``: each parameter's mean over the steps that give it.
+            description, comment: free text.
+
+        Returns ``id``.
+        """
+        return self.add_step(id, kind='combine', combine_from=list(combine_from),
+                             combine={'method': method},
+                             **_given({'description': description, 'comment': comment}))
+
     def add_sweep(self, id, *, parameters, model=None, on_target=False, obs_data=None,
                   design=None, outputs=None, zip=None, fixed_from=(), result_from=None,
                   vessel=None, submodule=None, vessel_map=None, settings=None,
@@ -777,7 +798,7 @@ class WorkflowBuilder:
         Args:
             id: the step's name (see :meth:`add_calibration`).
             kind: ``'calibration'``, ``'sensitivity'``, ``'reduction'``, ``'emulation'``,
-                ``'identifiability'``, ``'uq'``, ``'set'`` or ``'sweep'``.
+                ``'identifiability'``, ``'uq'``, ``'set'``, ``'combine'`` or ``'sweep'``.
             **raw: the step's keys. ``obs_data`` and ``params_for_id`` take what
                 :meth:`add_calibration` takes; ``model`` defaults to the target for the
                 kinds that run a model (not for a sweep with ``on_target``); a key given

@@ -447,6 +447,7 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'emulation': ('emulator training', 'emulator trainings'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
+              'combine': ('combination of steps', 'combinations of steps'),
               'sweep': ('parameter sweep', 'parameter sweeps'),
               'uq': ('uncertainty quantification', 'uncertainty quantifications')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
@@ -471,7 +472,7 @@ def _step_section(step, symbols, entries=()):
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) in ('reduction', 'set'):
+    if _kind(step) in ('reduction', 'set', 'combine'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
@@ -621,6 +622,18 @@ def _step_intro(step):
     if _kind(step) == 'set':
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
         return 'This step sets values by hand: ' + '; '.join(lines) + '.'
+    if _kind(step) == 'combine':
+        inputs = _join([escape(s) for s in step['combine_from']])
+        result = step.get('result') or {}
+        if step['combine'].get('method') == 'mean':
+            return (f'This step gives each parameter the mean of its values in steps {inputs}; '
+                    'its values replace theirs in later steps and in the target.')
+        text = (f'This step takes the values of the calibration with the lowest cost among '
+                f'steps {inputs}; its values replace theirs in later steps and in the target.')
+        if result.get('chosen_from'):
+            text += (f' It took those of step {escape(result["chosen_from"])} '
+                     f'(cost {_number(result["best_cost"])}).')
+        return text
     m = step['model']
     if 'module_array' in m:
         what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
@@ -721,6 +734,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
             'set': step.set_values + step.set_thetas, 'sweep': step.sweep,
             'on_target': step.on_target,
+            'combine': step.combine, 'combine_from': list(step.combine_from),
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
         if step.kind == 'sweep':
@@ -747,7 +761,9 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     calibrations = [s for s in steps if s['kind'] == 'calibration']
     n_merged = sum(len(results[s['id']]['calibrated']) for s in calibrations
                    if results[s['id']]) or sum(len(s['params']) for s in calibrations)
-    latest = {record['target_model_name']: s['id'] for s in calibrations
+    # a combine step's records are calibrated values too, and it runs after its inputs
+    latest = {record['target_model_name']: s['id'] for s in steps
+              if s['kind'] in ('calibration', 'combine')
               for record in (results[s['id']] or {}).get('calibrated', [])}
     nodes, edges = flowchart.workflow_graph(
         graph_steps + [{'id': None, 'model': workflow.target.as_dict(), 'n_merged': n_merged,
@@ -770,7 +786,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                 name = rs.target_model_name(parameter)
                 set_by_hand[name] = (step.id, entry['reason'])
                 calibrated.pop(name, None)
-        if step.kind != 'calibration':
+        if step.kind not in ('calibration', 'combine'):
             continue
         result = results.get(step.id)
         if result:
