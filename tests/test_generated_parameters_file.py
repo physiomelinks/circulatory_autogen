@@ -182,10 +182,12 @@ def test_a_value_identified_by_parameter_id_is_marked_calibrated():
     from types import SimpleNamespace
     from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
     fields = ('variable_name', 'units', 'const_type', 'value', 'data_reference', 'origin',
-              'reason')
-    rows = [('R_T0_Systemic_T', 'J_s_per_m6', 'constant', '1.5e8', 'derived', 'derived', ''),
-            ('T', 'second', 'global_constant', '1.0', 't', 'set_by_hand', 'a one second cycle'),
-            ('C_T', 'm3_per_Pa', 'constant', '1e-8', 'c', 'measured', '')]
+              'reason', 'fixed_constants')
+    rows = [('R_T0_Systemic_T', 'J_s_per_m6', 'constant', '1.5e8', 'derived', 'derived', '',
+             '[{"derivation": "R_T0", "name": "k", "value": 2.5, "units": ""}]'),
+            ('T', 'second', 'global_constant', '1.0', 't', 'set_by_hand', 'a one second cycle',
+             ''),
+            ('C_T', 'm3_per_Pa', 'constant', '1e-8', 'c', 'measured', '', '')]
     array = np.array(rows, dtype=[(f, 'U80') for f in fields])
     generator = object.__new__(CVS0DCellMLGenerator)
     generator.model = SimpleNamespace(parameters_array=array, param_id_date='261106',
@@ -196,8 +198,19 @@ def test_a_value_identified_by_parameter_id_is_marked_calibrated():
     for name, value in (('R_T0_Systemic_T', 2e8), ('T', 0.9)):
         row = by_name[name]
         assert (float(row['value']), row['origin'], row['reason']) == (value, 'calibrated', '')
+        assert row['fixed_constants'] == ''
         assert row['data_reference'] == '261106_identified'
     assert (by_name['C_T']['origin'], by_name['C_T']['value']) == ('measured', '1e-8')
+
+
+@pytest.mark.unit
+def test_a_calibrated_leaf_drops_the_derivation_and_its_fixed_constants():
+    leaf = {'value': 1, 'units': 'm', 'data_reference': 'd', 'origin': 'derived',
+            'derivation': 'R_T0', 'reason': 'r', 'fixed_constants': '[]', 'sourced': 'x'}
+    out = parameters_file.calibrated_leaf(leaf, 2, 'by wf')
+    assert out == {'value': 2, 'units': 'm', 'data_reference': 'by wf', 'origin': 'calibrated',
+                   'sourced': 'x'}
+    assert 'fixed_constants' in leaf                     # the argument is not changed
 
 
 @pytest.mark.integration

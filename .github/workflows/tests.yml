@@ -18,8 +18,6 @@ env:
 jobs:
   # Jobs are listed fastest first (measured on CI), so with few runners free the quick checks
   # start, and report a failure, before the long ones.
-  # Job to run full test suite if OpenCOR is available (optional)
-  # This can be enabled if OpenCOR is set up in CI environment
   # The released CUFLynx desktop app, driven against this checkout.
   #
   # CUFLynx ships a frozen binary with a libcuflynx bundled inside it, frozen at whatever
@@ -480,6 +478,155 @@ jobs:
         python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi --tb=short \
           --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
 
+  # The `mpi`-marked tests outside the param-id files: prediction features, emulator training,
+  # profile likelihood end to end, the working-directory and plot checks. The `test` jobs
+  # deselect `mpi`, and the param-id jobs name their files, so before this job none of these ran
+  # anywhere. tests/test_ci_shards.py::test_every_mpi_test_runs_in_some_ci_job fails if an
+  # `mpi`-marked file is left out again. Sharded by tests/ci_shards.json, suite mpi-rest.
+  test-mpi-rest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, emulators]
+    name: test-mpi-rest (${{ matrix.shard }})
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        # [emulation] stops at 3.12 (autoemulate), and the emulator-training tests need it.
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # See test-uq: the CPU-only torch index, and build-constraints.txt for harmonic on 3.10.
+        pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+          --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,uq,emulation]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    # Two ranks, as these tests are meant to run: every rank takes part in the param-id,
+    # sensitivity and sampling collectives and rank 0 checks the results. A test that drives
+    # such an object from rank 0 alone leaves its collectives unmatched and the next test
+    # deadlocks, which only a multi-rank run shows.
+    - name: Run the remaining MPI tests
+      env:
+        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,autoemulate
+      run: |
+        mpiexec -n 2 python -m pytest tests/ -m "mpi and not full_scale_model" --with-mpi \
+          --ignore=tests/test_param_id.py --ignore=tests/test_sensitivity_analysis.py \
+          --ignore=tests/test_profile_likelihood.py --ignore=tests/executable \
+          --ci-shard "mpi-rest:${{ matrix.shard }}" -v --tb=short --durations=0 \
+          --junitxml=junit-mpi-rest.xml
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-mpi-rest-${{ matrix.shard }}
+        path: junit-mpi-rest.xml
+
+  # The oldest backend versions pyproject.toml allows, on the oldest Python: version-dependent
+  # behaviour (CasADi's JIT, Myokit's FSA) is covered on both sides only by this job together
+  # with the latest-version `test` jobs. tests/min-deps-constraints.txt holds the pins, and
+  # tests/test_ci_shards.py checks them against pyproject.toml's floors.
+  # Two shards, as the simulation and solver-matrix groups of the `test` job: together they take
+  # ~11 minutes of tests, over the 10-minute target for one job.
+  test-min-deps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [simulation, solver-matrix]
+    name: test-min-deps (${{ matrix.shard }})
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies at their floors
+      run: |
+        python -m pip install --upgrade pip
+        pip install -c tests/min-deps-constraints.txt -e ".[dev]"
+        python -c "import casadi, myokit, libcellml; print('casadi', casadi.__version__, 'myokit', myokit.__version__)"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Cache the solver-matrix references
+      if: matrix.shard == 'solver-matrix'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/cuflynx-test-references
+        key: solver-references-min-deps-${{ hashFiles('tests/test_solver_matrix.py', 'tests/_reference_solutions.py', 'tests/min-deps-constraints.txt') }}
+        restore-keys: solver-references-min-deps-
+
+    - name: Run the ${{ matrix.shard }} tests
+      env:
+        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,cmake,sundials
+        CUFLYNX_TEST_CACHE: /home/runner/.cache/cuflynx-test-references
+      run: |
+        pytest tests/ -v -m "not mpi" \
+          --ci-shard "main:${{ matrix.shard }}" --tb=short --durations=20 \
+          --junitxml=junit-min-deps.xml
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-min-deps-${{ matrix.shard }}
+        path: junit-min-deps.xml
+
+  # The batched C solvers built by MSVC, as CUFLynx's Windows app builds them (#615, #627).
+  # Without SUNDIALS here, so CVODES_batched_c's tests skip; BE_batched_c is built and run.
+  test-windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    # cl.exe and the Windows SDK on PATH, for CMake's Visual Studio toolchain.
+    - uses: ilammy/msvc-dev-cmd@v1
+
+    # Without [dev]: its mpi4py needs an MS-MPI SDK, and nothing here runs on more than one rank.
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e . pytest
+
+    - name: Run the batched C solver tests
+      env:
+        CUFLYNX_REQUIRED_BACKENDS: myokit,cmake
+      run: |
+        python -m pytest tests/test_batched_c_solver.py tests/test_cvodes_batched_c_solver.py `
+          -p no:xdist -v --tb=short --durations=10 --junitxml=junit-windows.xml
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-windows
+        path: junit-windows.xml
+
   test:
     runs-on: ubuntu-24.04
     # Each shard is meant to take under ~10 minutes. The timeout is a backstop, not a budget:
@@ -495,7 +642,7 @@ jobs:
         # tests/test_ci_shards.py checks that this list covers every group of the suite. `cpp`
         # holds the C++ generator, external-coupling and batched C solver tests (~5 min on CI).
         # `misc` takes the slowest files that would otherwise be in `rest`, about half its time.
-        shard: [rest, autogeneration, module-arrays, simulation, cpp, misc]
+        shard: [rest, autogeneration, module-arrays, simulation, cpp, misc, solver-matrix]
         # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
         # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
         # gets or failed to resolve at all -- testing a configuration the dependency tree no
@@ -508,6 +655,13 @@ jobs:
         # and tests/test_python_matrix.py, which asserts it rather than leaving it to be
         # rediscovered as a resolution failure.
         python-version: ["3.10", "3.11", "3.12"]
+        # The solver matrix (tests/test_solver_matrix.py) runs once, on the newest Python; the
+        # min-deps job runs it again at the oldest supported backend versions.
+        exclude:
+          - python-version: "3.10"
+            shard: solver-matrix
+          - python-version: "3.11"
+            shard: solver-matrix
     name: test (${{ matrix.python-version }}, ${{ matrix.shard }})
 
     steps:
@@ -555,8 +709,19 @@ jobs:
         pip install -e ".[dev]"
     
     - uses: ./.github/actions/install-system-deps
+
+    # The solver matrix's converged references (tests/_reference_solutions.py). Each file is
+    # named by a hash of its model, settings and Myokit/SUNDIALS versions, so a stale file is
+    # never read; the key only decides when the folder is saved again.
+    - name: Cache the solver-matrix references
+      if: matrix.shard == 'solver-matrix'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/cuflynx-test-references
+        key: solver-references-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('tests/test_solver_matrix.py', 'tests/_reference_solutions.py') }}
+        restore-keys: solver-references-${{ runner.os }}-py${{ matrix.python-version }}-
     
-    - name: Run tests (Myokit-first, skip OpenCOR-only)
+    - name: Run tests
       id: pytest
       env:
         CUFLYNX_MODULE_LIBRARY: ${{ github.workspace }}/_module_library/modules
@@ -564,11 +729,25 @@ jobs:
         CUFLYNX_REQUIRE_MODULE_LIBRARY: "1"
         PHLYNX_DIR: ${{ github.workspace }}/_phlynx
         CUFLYNX_REQUIRE_PHLYNX: "1"
+        # A test that skips because one of these is missing fails (tests/_required_backends.py):
+        # this job installs them all, so such a skip means an install broke, not that the
+        # test does not apply. `.[dev]` installs libopencor on Python 3.12 only, so every 3.12
+        # shard requires it: its need_libopencor tests and CVODE_libopencor rows must run there.
+        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,mpi4py,cmake,sundials${{ matrix.python-version == '3.12' && ',libopencor' || '' }}
+        CUFLYNX_TEST_CACHE: /home/runner/.cache/cuflynx-test-references
       run: |
-        # Run non-MPI suite, excluding OpenCOR-specific tests.
-        pytest tests/ -v -m "not need_opencor and not mpi" --ci-shard "main:${{ matrix.shard }}" \
+        # Run the non-MPI suite. The need_libopencor tests run where `.[dev]` installed
+        # libopencor (Python 3.12) and skip elsewhere.
+        pytest tests/ -v -m "not mpi" --ci-shard "main:${{ matrix.shard }}" \
           --tb=short --junitxml=junit.xml
     
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-test-${{ matrix.python-version }}-${{ matrix.shard }}
+        path: junit.xml
+
     - name: Parse test results
       if: always()
       run: |
@@ -639,38 +818,43 @@ jobs:
           echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
           echo "| **Pass Rate** | **$PASS_RATE%** |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Note: OpenCOR-specific tests are marked need_opencor and excluded in this job." >> $GITHUB_STEP_SUMMARY
-          echo "> CI runs the Myokit-first suite and fails on real test failures." >> $GITHUB_STEP_SUMMARY
+          echo "> CVODE_libopencor tests (need_libopencor) run on Python 3.12 and skip on older versions." >> $GITHUB_STEP_SUMMARY
         fi
 
-  test-with-opencor:
+  # CVODE_libopencor and the solver-comparison benchmark (benchmarks/solver_comparison.py).
+  # libOpenCOR's wheels need Python 3.12 or later.
+  test-libopencor:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    if: false  # Disabled by default - enable if OpenCOR is available in CI
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
-    
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-    
+        pip install -e ".[dev,libopencor]"
+        python -c "import libopencor; print('libOpenCOR', libopencor.version_string())"
+
     - uses: ./.github/actions/install-system-deps
-    
-    - name: Download and setup OpenCOR
+
+    - name: Run the libOpenCOR tests
+      env:
+        # A broken libopencor install fails these tests instead of skipping them green.
+        CUFLYNX_REQUIRED_BACKENDS: myokit,casadi,libopencor
       run: |
-        # This would need to be customized based on OpenCOR availability
-        echo "OpenCOR setup would go here"
-        # wget OpenCOR and extract
-        # Set up OpenCOR Python shell path
-    
-    - name: Run full test suite
+        pytest tests/test_libopencor_solver.py tests/test_protocol_state_continuity.py \
+          tests/test_solver_comparison_benchmark.py tests/test_backend_import_errors.py \
+          tests/test_experiment_time.py -v --tb=short --durations=10
+
+    - name: Run the solver comparison
       run: |
-        # Run all tests with OpenCOR Python shell
-        # This requires OpenCOR to be available
-        echo "Full test suite would run here"
+        python benchmarks/solver_comparison.py --backends myokit,libopencor,casadi \
+          --out solver_comparison
+        cat solver_comparison/solver_comparison.md >> $GITHUB_STEP_SUMMARY

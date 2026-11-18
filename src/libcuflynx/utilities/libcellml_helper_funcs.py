@@ -167,6 +167,9 @@ def c_code_with_one_variables_array(code, header):
         if info:
             entries += tagged(info.group(1), variable_type)
             code = code.replace(info.group(0), "@VARIABLE_INFO@" if "@VARIABLE_INFO@" not in code else "")
+    # A model with no variables still gets one placeholder entry (VARIABLE_COUNT is 0, so it is never read): an empty
+    # initialiser is not standard C, and MSVC hits an internal compiler error on it.
+    entries = entries or ['{"", "", "", CONSTANT}']
     code = code.replace("@VARIABLE_INFO@", "const VariableInfo VARIABLE_INFO[] = {\n"
                         + ",\n".join(f"    {e}" for e in entries) + "\n};\n\n")
     create = re.search(r"double \* createStatesArray\(\)\n\{.*?\n\}\n\n", code, re.S).group(0)

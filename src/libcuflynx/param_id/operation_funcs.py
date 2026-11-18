@@ -12,6 +12,8 @@ import math
 import os
 import sys
 
+import numpy as np
+
 from libcuflynx.param_id.differentiable import differentiable
 from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
 from libcuflynx.utilities.obs_data_helpers import obs_item_names
@@ -22,9 +24,31 @@ def series_to_constant(func):
     return func
 
 
+def exact_tangent(rule):
+    """Give an operation its exact derivative along a direction in its operands.
+
+    ``rule(operands, tangents, **kwargs)`` returns d(operation)/d(theta) when each operand moves
+    by its tangent: operands and tangents are lists of numpy traces, kwargs the operation's own
+    keyword arguments. The Myokit FSA gradient (param_id/fsa_backend.py) uses it with the CVODES
+    sensitivities as tangents, e.g. d max/d theta = S[argmax]. An operation without one is
+    differenced along the sensitivity instead, which a max or min near a tie can get wrong. An
+    operation that replaces a built-in name does not inherit its rule.
+    """
+    def mark(func):
+        func.exact_tangent = rule
+        return func
+    return mark
+
+
+def _window(x, start_frac, end_frac):
+    """The slice the ``*_in_range`` operations reduce over."""
+    return slice(int(start_frac * (len(x) - 1)), int(end_frac * (len(x) - 1)))
+
+
 mb = make_math_backend("numpy")
 
 
+@exact_tangent(lambda xs, ts: ts[0][np.argmax(xs[0])])
 @differentiable
 @series_to_constant
 def max(x, series_output=False):
@@ -33,6 +57,7 @@ def max(x, series_output=False):
     return mb.max(x)
 
 
+@exact_tangent(lambda xs, ts: ts[0][np.argmin(xs[0])])
 @differentiable
 @series_to_constant
 def min(x, series_output=False):
@@ -41,6 +66,7 @@ def min(x, series_output=False):
     return mb.min(x)
 
 
+@exact_tangent(lambda xs, ts: np.mean(ts[0]))
 @differentiable
 @series_to_constant
 def mean(x, series_output=False):
@@ -49,6 +75,7 @@ def mean(x, series_output=False):
     return mb.mean(x)
 
 
+@exact_tangent(lambda xs, ts: ts[0][np.argmax(xs[0])] - ts[0][np.argmin(xs[0])])
 @differentiable
 @series_to_constant
 def max_minus_min(x, series_output=False):
@@ -57,21 +84,25 @@ def max_minus_min(x, series_output=False):
     return mb.max_minus_min(x)
 
 
+@exact_tangent(lambda xs, ts: ts[0] + ts[1])
 @differentiable
 def addition(x1, x2):
     return x1 + x2
 
 
+@exact_tangent(lambda xs, ts: ts[0] - ts[1])
 @differentiable
 def subtraction(x1, x2):
     return x1 - x2
 
 
+@exact_tangent(lambda xs, ts: ts[0] * xs[1] + xs[0] * ts[1])
 @differentiable
 def multiplication(x1, x2):
     return x1 * x2
 
 
+@exact_tangent(lambda xs, ts: (ts[0] * xs[1] - xs[0] * ts[1]) / xs[1] ** 2)
 @differentiable
 def division(x1, x2):
     return x1 / x2
@@ -308,6 +339,7 @@ def register_core_operations(registry, backend):
     exclude = frozenset(
         {
             "series_to_constant",
+            "exact_tangent",
             "register_core_operations",
             "build_operation_funcs_dict",
             "get_operation_funcs_dict_for_mode",
@@ -330,7 +362,7 @@ def register_core_operations(registry, backend):
 
 # Decorator/hook helper names an external operation-funcs file might define locally (mirroring
 # operation_funcs_user.py); excluded so they are not registered as operations.
-_EXTERNAL_OP_EXCLUDE = frozenset({"series_to_constant", "register_user_operations"})
+_EXTERNAL_OP_EXCLUDE = frozenset({"series_to_constant", "exact_tangent", "register_user_operations"})
 
 
 def build_operation_funcs_dict(backend, external_path=None):

@@ -22,12 +22,97 @@ import warnings
 
 import numpy as np
 
+from libcuflynx.param_id.operation_funcs import resolve_operation_kwargs
 from libcuflynx.parsers.PrimitiveParsers import modifier_weights_by_index, param_entry_labels
 
 # Dict key under which a combined (per-entry) sensitivity is handed to
 # perturb_operands_along_sensitivity -- the perturbation machinery is unchanged and looks the
 # trace up by name, so the combined trace travels under a name no model variable can have.
 _THETA_KEY = '<theta>'
+
+# Relative step of the central differences along the sensitivity S, used where there is no
+# exact rule (see exact_obs_tangent): along S in the operand traces when an operation has no
+# exact_tangent, and along the exact feature derivative for the cost. Neither involves the
+# solver, so there is no integration noise to step over, and a cost quadratic in its features
+# is differenced exactly at any step. The step has to stay small enough that the argmax/argmin
+# of a max/min feature does not move to another output point: two peaks of a trace can be
+# within 4e-5 of each other (Lotka_Volterra's y: 51.8036 at t=0.59 and 51.8055 at t=4.08).
+# Roundoff in the difference is ~eps * cost / (h * gradient), negligible at this step.
+_DIRECTIONAL_REL_STEP = 1e-6
+
+
+def _directional_step(pj):
+    """The directional-difference step for a parameter at value pj."""
+    return _DIRECTIONAL_REL_STEP * abs(pj) if pj != 0.0 else _DIRECTIONAL_REL_STEP
+
+
+def exact_obs_tangent(pid, operands, sens, exp_idx=None, sub_idx=None, obs=None):
+    """d(observables)/d(theta) by each operation's exact_tangent rule, or None.
+
+    ``operands`` is the operand traces of segment (exp_idx, sub_idx) -- None for the whole
+    study -- and ``sens[var][_THETA_KEY]`` the sensitivity of operand ``var`` along theta.
+    Returns ``(obs, tangent)``: the observables of ``get_obs_output_dict`` (``obs`` when given)
+    and their derivatives in the same 'const'/'series' layout. Only the segment's own items
+    count, as the others are constant placeholders here. None when one of those has no exact
+    rule -- an operation without ``exact_tangent``, a frequency item, a string in its
+    operation_kwargs, or a series whose derivative is not the shape of the series -- and the
+    caller differences along S instead.
+    """
+    info = pid.obs_info
+    funcs = pid.operation_funcs_dict
+    const_t, series_t = [], []
+    for JJ, operand_arrays in enumerate(operands):
+        data_type = info["data_types"][JJ]
+        xs = [np.asarray(a, dtype=float) for a in operand_arrays]
+        op = info["operations"][JJ]
+        if not pid._item_belongs_to_segment(JJ, exp_idx, sub_idx):
+            t = np.zeros_like(xs[0]) if data_type == 'series' else 0.0
+        elif data_type == 'frequency':
+            return None
+        else:
+            ts = []
+            for var, x in zip(info["operands"][JJ], xs):
+                s_trace = sens.get(var, {}).get(_THETA_KEY)
+                t = np.zeros_like(x)
+                if s_trace is not None:
+                    L = min(x.shape[0], np.asarray(s_trace).shape[0])
+                    t[:L] = np.asarray(s_trace, dtype=float)[:L]
+                ts.append(t)
+            if op is None:
+                t = ts[0]
+            else:
+                rule = getattr(funcs[op], 'exact_tangent', None)
+                raw = info["operation_kwargs"][JJ] if rule is not None else None
+                raw = raw if isinstance(raw, dict) else {}
+                if rule is None or any(isinstance(v, str) for v in raw.values()):
+                    return None
+                kwargs = resolve_operation_kwargs(raw, funcs[op], operation_name=op,
+                                                  num_operands=len(xs))
+                t = rule(xs, ts, **kwargs)
+        if data_type == 'constant':
+            const_t.append(float(t))
+        elif data_type == 'series':
+            series_t.append(np.asarray(t, dtype=float))
+    if obs is None:
+        with pid.evaluating_segment(exp_idx, sub_idx):
+            obs = pid.get_obs_output_dict(operands)
+    for base, t in zip(obs['series'] or [], series_t):
+        if np.shape(base) != np.shape(t):
+            return None
+    tangent = {'const': np.array(const_t) if const_t else None,
+               'series': series_t or None}
+    return obs, tangent
+
+
+def _step_obs(obs, tangent, h):
+    """The observables moved by h along their tangent."""
+    out = dict(obs)
+    if obs['const'] is not None:
+        out['const'] = np.asarray(obs['const'], dtype=float) + h * tangent['const']
+    if obs['series'] is not None:
+        out['series'] = [np.asarray(o, dtype=float) + h * t
+                         for o, t in zip(obs['series'], tangent['series'])]
+    return out
 
 
 def operand_sensitivities(sim_helper, dependent_names, param_names, sensitivities=None):
@@ -70,9 +155,9 @@ def observable_feature_sensitivities(pid, param_vals):
 
     Returns ``{observable_label: {param_label: d(feature)/d(param)}}`` -- the same shape as the
     CasADi arm -- so the two backends report the identical quantity. FSA gives the exact operand
-    sensitivity S = d(operand)/d(param); the feature (max/min/mean/...) is re-evaluated on
-    ``operands +/- h*S`` and central-differenced, so d(feature)/d(param) reuses the existing
-    operation/observable code with no re-simulation, exactly as get_jac_cost does for the cost.
+    sensitivity S = d(operand)/d(param); each feature's derivative is its operation's
+    exact_tangent rule applied to S (d max/dp = S[argmax]) when every operation has one, and
+    otherwise the feature re-evaluated on ``operands +/- h*S`` and central-differenced.
     Single sub-experiment only (the SA local path); the multi-sub carry stays in get_jac_cost.
 
     This is the Myokit arm of ``ParamID.get_observable_sensitivities``. Sensitivities
@@ -109,19 +194,23 @@ def observable_feature_sensitivities(pid, param_vals):
     has_sensitivity = (set(pid.sim_helper._fsa_eligible_param_names or [])
                        | set(getattr(pid.sim_helper, '_fsa_chain_rule_map', None) or {}))
 
+    nominal_obs = pid.get_obs_output_dict(operands)
     const_to_obs = pid.obs_info["const_idx_to_obs_idx"]
     out = {pid._observable_label(obs_idx): {} for obs_idx in const_to_obs}
     for j, label in enumerate(labels):
         if not entry_has_sensitivity(pid, j, has_sensitivity):
             continue
         entry_sens = combined_entry_sensitivities(pid, sens, j)
-        pj = float(param_vals[j])
-        h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
-        pert_p = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, h)
-        pert_m = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, -h)
-        const_p = np.asarray(pid.get_obs_output_dict(pert_p)['const'], dtype=float)
-        const_m = np.asarray(pid.get_obs_output_dict(pert_m)['const'], dtype=float)
-        d_feature = (const_p - const_m) / (2.0 * h)
+        exact = exact_obs_tangent(pid, operands, entry_sens, obs=nominal_obs)
+        if exact is not None:
+            d_feature = exact[1]['const']
+        else:
+            h = _directional_step(float(param_vals[j]))
+            pert_p = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, h)
+            pert_m = perturb_operands_along_sensitivity(pid, operands, entry_sens, _THETA_KEY, -h)
+            const_p = np.asarray(pid.get_obs_output_dict(pert_p)['const'], dtype=float)
+            const_m = np.asarray(pid.get_obs_output_dict(pert_m)['const'], dtype=float)
+            d_feature = (const_p - const_m) / (2.0 * h)
         for k, obs_idx in enumerate(const_to_obs):
             out[pid._observable_label(obs_idx)][label] = float(d_feature[k])
     return out
@@ -242,12 +331,13 @@ def get_jac_cost(pid, param_vals, return_cost=False):
     solve) -- it is identical to ``get_cost_from_params(p)``. This lets L-BFGS-B get both
     the value and the gradient from one CVODES solve per point instead of two.
 
-    FSA gives S = d(operand_trace)/dp for every eligible parameter. Rather than
-    differentiate each observable operation and cost term by hand, we perturb the
-    operand traces along S (operand + h*S ≈ operand(p+h)) and re-evaluate the *existing*
-    cost path get_cost_from_operands; the finite difference over h is dJ/dp exactly (S is
-    the true trace derivative), reusing every operation / weight / std / cost function
-    with no duplication. An entry containing any FSA-ineligible member gets a central
+    FSA gives S = d(operand_trace)/dp for every eligible parameter. When every operation of
+    the sub-experiment has an exact_tangent rule, the observables' derivatives come from those
+    rules (d max/dp = S[argmax], d mean/dp = mean(S), ...; see exact_obs_tangent) and the cost
+    (cost_calc, with every weight / std / cost function) is central-differenced along them,
+    which is exact for a cost quadratic in its observables. Otherwise the operand traces are
+    stepped along S (operand + h*S) and the cost path get_cost_from_operands is
+    central-differenced. An entry containing any FSA-ineligible member gets a central
     finite difference over the full cost instead.
 
     Grouped and modifier entries are exact: theta's perturbation runs along the combined
@@ -311,6 +401,8 @@ def get_jac_cost(pid, param_vals, return_cost=False):
             # init-value chain-rule params, synthesised identically (see operand_sensitivities).
             sens = operand_sensitivities(
                 pid.sim_helper, pid._fsa_dependent_names, flat_names, sensitivities=sens_arr)
+            with pid.evaluating_segment(exp_idx, sub_idx):
+                nominal_obs = pid.get_obs_output_dict(operands)
 
             for j in range(n_params):
                 if not entry_has_sensitivity(pid, j, has_sensitivity):
@@ -320,19 +412,27 @@ def get_jac_cost(pid, param_vals, return_cost=False):
                 # an ungrouped parameter). The directional-difference machinery below is
                 # unchanged; the three cases fall out of the weights fixed at ensure_setup.
                 entry_sens = combined_entry_sensitivities(pid, sens, j)
-                pj = float(param_vals[j])
-                # Central directional difference along the exact sensitivity S. The step acts
-                # on fixed operand traces (not the solver), so it is immune to integration
-                # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
-                # while staying small enough that argmax/argmin of max/min observables is
-                # stable and linear operations (mean) are reproduced exactly.
-                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
-                pert_p = perturb_operands_along_sensitivity(
-                    pid, operands, entry_sens, _THETA_KEY, h)
-                pert_m = perturb_operands_along_sensitivity(
-                    pid, operands, entry_sens, _THETA_KEY, -h)
-                raw_p = float(pid.get_cost_from_operands(pert_p, exp_idx=exp_idx, sub_idx=sub_idx))
-                raw_m = float(pid.get_cost_from_operands(pert_m, exp_idx=exp_idx, sub_idx=sub_idx))
+                # Exact feature derivatives where every operation has a rule, then a central
+                # difference of the cost along them; otherwise a central difference along S in
+                # the operand traces. See _DIRECTIONAL_REL_STEP for the step.
+                h = _directional_step(float(param_vals[j]))
+                exact = exact_obs_tangent(pid, operands, entry_sens, exp_idx, sub_idx,
+                                          obs=nominal_obs)
+                if exact is not None:
+                    obs, tangent = exact
+                    raw_p = float(pid.cost_calc(_step_obs(obs, tangent, h),
+                                                exp_idx=exp_idx, sub_idx=sub_idx))
+                    raw_m = float(pid.cost_calc(_step_obs(obs, tangent, -h),
+                                                exp_idx=exp_idx, sub_idx=sub_idx))
+                else:
+                    pert_p = perturb_operands_along_sensitivity(
+                        pid, operands, entry_sens, _THETA_KEY, h)
+                    pert_m = perturb_operands_along_sensitivity(
+                        pid, operands, entry_sens, _THETA_KEY, -h)
+                    raw_p = float(pid.get_cost_from_operands(
+                        pert_p, exp_idx=exp_idx, sub_idx=sub_idx))
+                    raw_m = float(pid.get_cost_from_operands(
+                        pert_m, exp_idx=exp_idx, sub_idx=sub_idx))
                 grad[j] += (raw_p - raw_m) / (2.0 * h)
 
     grad /= denom

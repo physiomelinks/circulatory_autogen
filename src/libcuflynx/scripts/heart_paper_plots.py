@@ -30,7 +30,7 @@ generated_models_dir_path = default_generated_models_dir()
 from libcuflynx.param_id.paramID import CVS0DParamID
 from libcuflynx.utilities.utility_funcs import obj_to_string
 import traceback
-from libcuflynx.solver_wrappers.opencor_helper import *
+from libcuflynx.solver_wrappers.libopencor_helper import *
 
 if __name__ == '__main__':
 

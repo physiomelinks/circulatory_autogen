@@ -797,3 +797,36 @@ def test_a_calibrations_cost_ignores_input_items(base_user_inputs, resources_dir
         assert engine.obs_info['data_item_names'] == ['benchmark/x', 'benchmark/y']
     assert np.isfinite(costs['without'])
     assert costs['with'] == costs['without']
+
+
+@pytest.mark.unit
+def test_a_fixed_constant_declares_its_origin_and_write_records_it_in_the_leaf(fixed_toy):
+    """A fixed constant may be ``{name, origin, ...}``; ``--write`` puts the constants, with
+    value, units and origin, in the derived leaf's ``fixed_constants`` for the provenance
+    diagram. A bare name has no origin; a set_by_hand one without a reason is refused."""
+    import json
+    doc = _read(fixed_toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = [
+        {'name': 'k', 'origin': 'set_by_hand', 'reason': 'a shape factor of 2.5'}]
+    _write(fixed_toy['derivations'], doc)
+    results, _ = _evaluate(fixed_toy)
+    assert {r.derivation.name: r for r in results}['R_T0'].fixed_constants == {
+        'k': {'value': K_FIXED, 'units': 'dimensionless', 'origin': 'set_by_hand',
+              'reason': 'a shape factor of 2.5'}}
+    from libcuflynx.derivations import write_derived_values
+    write_derived_values(fixed_toy['parameters'], results)
+    leaves = _read(fixed_toy['parameters'])['Systemic_T']
+    assert json.loads(leaves['R_T0']['fixed_constants']) == [
+        {'derivation': 'R_T0', 'name': 'k', 'value': K_FIXED, 'units': 'dimensionless',
+         'origin': 'set_by_hand', 'reason': 'a shape factor of 2.5'}]
+    assert 'fixed_constants' not in leaves['Q_T0']
+    del doc['derivations'][0]['fixed_constants'][0]['reason']
+    assert problems(DERIVATIONS_SCHEMA, doc)
+
+
+@pytest.mark.unit
+def test_a_fixed_constant_named_twice_is_refused(fixed_toy):
+    doc = _read(fixed_toy['derivations'])
+    doc['derivations'][0]['fixed_constants'] = ['k', {'name': 'k', 'origin': 'measured'}]
+    with pytest.raises(DerivationError, match="'R_T0' names a fixed constant twice"):
+        load_derivations(doc, fixed_toy['dir'])

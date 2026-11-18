@@ -1,7 +1,6 @@
 """
 Pytest configuration file for circulatory_autogen tests.
 
-This file sets up the test environment to work with OpenCOR's Python shell.
 It provides fixtures for test data, configuration, and deterministic randomness.
 """
 import os
@@ -58,7 +57,10 @@ import shutil
 import pytest
 import numpy as np
 import random
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows, where the suite runs on one process and needs no lock
+    fcntl = None
 import io
 import contextlib
 import time
@@ -251,8 +253,7 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """
-    Configure pytest to work with OpenCOR Python environment.
-    This ensures the src directory is in the Python path for imports.
+    Register the runtime markers and silence the terminal on non-root MPI ranks.
     """
     global _PYTEST_CONFIG
     _PYTEST_CONFIG = config
@@ -268,12 +269,31 @@ def pytest_configure(config):
         config.pluginmanager.set_blocked("terminalreporter")
 
     # Keep runtime marker registration aligned with pyproject strict markers.
-    config.addinivalue_line("markers", "need_opencor: tests requiring OpenCOR backend")
+    config.addinivalue_line("markers", "need_libopencor: skipped unless libopencor is installed")
     config.addinivalue_line("markers", "solver: solver-focused tests")
     # Ensure pytest-xdist group marker is registered (also in pyproject for strict markers)
     config.addinivalue_line("markers", "xdist_group(name): serialize a group of tests under pytest-xdist")
     config.addinivalue_line("markers", "one_rank_rank(idx): rank assigned to run an autogeneration test")
     config.addinivalue_line("markers", "misc_task: marks a one-rank miscellaneous integration test")
+
+    # CUFLYNX_REQUIRED_BACKENDS: a required backend's skip fails (tests/_required_backends.py).
+    import _required_backends
+    if not config.pluginmanager.is_registered(_required_backends):
+        config.pluginmanager.register(_required_backends, 'cuflynx_required_backends')
+
+
+def pytest_report_header(config):
+    """The backends and versions this run used (tests/_backend_info.py)."""
+    from _backend_info import header_lines
+    return header_lines()
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _record_backend_versions(record_testsuite_property):
+    """The same versions as the header, as junit testsuite properties."""
+    from _backend_info import backend_info
+    for name, value in backend_info().items():
+        record_testsuite_property(name, value or 'not installed')
 
 
 def pytest_sessionstart(session):
@@ -319,7 +339,7 @@ def pytest_runtest_setup(item):
     Serialize param_id/comparison/SA tests so only one runs at a time across workers/ranks.
     Uses a filesystem lock to coordinate even when xdist or MPI are involved.
     """
-    if not _has_serial_marker(item):
+    if not _has_serial_marker(item) or fcntl is None:
         return
     # Under MPI we need all ranks to enter the test concurrently; skip the lock when size>1
     comm = MPI.COMM_WORLD
@@ -551,18 +571,17 @@ def project_root():
 
 
 @pytest.fixture(scope="session")
-def opencor_python_path():
+def configured_python_path():
     """
-    Fixture that attempts to read the OpenCOR Python shell path.
-    Returns None if the path cannot be determined.
+    The interpreter user_run_files/python_path.sh names, or None when it does not exist here.
     """
     root_dir = os.path.join(os.path.dirname(__file__), '..')
-    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
+    python_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
     
-    if os.path.exists(opencor_path_file):
+    if os.path.exists(python_path_file):
         try:
             # Read the shell script and extract the path
-            with open(opencor_path_file, 'r') as f:
+            with open(python_path_file, 'r') as f:
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
@@ -574,7 +593,7 @@ def opencor_python_path():
                         if os.path.exists(path):
                             return path
         except Exception as e:
-            pytest.skip(f"Could not read OpenCOR Python path: {e}")
+            pytest.skip(f"Could not read python_path.sh: {e}")
     
     return None
 
@@ -754,6 +773,22 @@ def test_model_configs():
     ]
 
 
+def skip_without_libopencor(items):
+    """Skip the ``need_libopencor`` tests when ``libopencor`` is not importable.
+
+    libOpenCOR's wheels need Python 3.12 or later, so on older interpreters the
+    CVODE_libopencor tests skip rather than fail.
+    """
+    import importlib.util
+    if importlib.util.find_spec('libopencor') is not None:
+        return
+    skip = pytest.mark.skip(reason='needs libopencor: pip install "libcuflynx[libopencor]" '
+                                   '(Python 3.12 or later)')
+    for item in items:
+        if 'need_libopencor' in item.keywords:
+            item.add_marker(skip)
+
+
 def drop_manual_tests(config, items):
     """Deselect the ``manual`` tests unless ``--run-manual`` was passed.
 
@@ -833,16 +868,23 @@ def select_ci_shard(config, items, shards=None):
         config.hook.pytest_deselected(items=deselected)
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
+
+    Runs after pytest's own -m/-k deselection, so the one-rank totals count only the tests
+    that were kept. On more than one rank this hook drops the other ranks' one-rank tests
+    from ``items``; a deselection after that never subtracted them, and rank 0 waited
+    30 minutes per result file at the end of the run.
     """
     import os
 
     drop_manual_tests(config, items)
     select_ci_shard(config, items)
+    skip_without_libopencor(items)
 
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
@@ -892,10 +934,13 @@ def pytest_collection_modifyitems(config, items):
     # Mark param_id and comparison tests to run serially as one group under xdist
     for item in items:
         nodeid = item.nodeid
-        if "test_param_id" in nodeid or "compare_optimisers" in nodeid:
+        # By file, not by substring of the node id: test_param_id_external_recovers_params
+        # (in test_external_simulation_helper.py) needs no generated models.
+        test_file = os.path.basename(nodeid.split("::")[0])
+        if test_file == "test_param_id.py" or "compare_optimisers" in nodeid:
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
-        if "test_sensitivity_analysis" in nodeid:
+        if test_file == "test_sensitivity_analysis.py":
             item.add_marker(pytest.mark.xdist_group("param_id_serial"))
             item.add_marker(pytest.mark.need_autogen)
         if 'test_solvers' in nodeid:

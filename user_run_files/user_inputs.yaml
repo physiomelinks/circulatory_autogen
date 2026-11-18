@@ -90,7 +90,7 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_libopencor (uses libOpenCOR, needs the libopencor extra), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
 solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:

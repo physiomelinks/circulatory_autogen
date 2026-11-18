@@ -30,6 +30,165 @@ next release; add to that section as you land a change.
 - A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
   now spreads its samples over the MPI ranks, one process running them all.
 
+### Changed — the built-in hearts compute their chamber phases from the beat phase
+
+- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
+  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
+  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
+  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
+  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
+  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
+  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
+  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
+  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
+  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
+  made the same change.
+- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
+  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
+  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
+  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
+  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
+  state changes by round-off at the onset.
+- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
+  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
+### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
+
+The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
+a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
+facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
+neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
+the module, the port's variables, the 1D vessel and the 0D modules.
+
+- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
+  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
+  condition the coupler sets.
+- Sums on the module's other ports generate; they are ordinary CellML.
+- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
+  vessel `v` ends sum, couple to 1D.
+
+### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
+
+- The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
+  `VARIABLE_INFO[] = {};` when the model has no constants, computed constants or algebraic
+  variables. An empty initialiser is not standard C, and MSVC 14.44 stopped on it with an internal
+  compiler error, so these models did not build in CUFLynx's Windows app.
+  `c_code_with_one_variables_array` now writes one placeholder entry there; `VARIABLE_COUNT`
+  stays 0, so the entry is never read. GCC and Clang builds are unchanged in behaviour.
+
+### Added — a pre-release test suite
+
+- `tests/test_solver_matrix.py` checks every forward backend against one converged
+  CVODE_myokit reference, by scaled RMS, a shift-tolerant maximum and the mean/min/max
+  features, with the gates in `tests/_solver_metrics.py`. CI also runs the `mpi` tests outside
+  the param-id files (test-mpi-rest), the simulation and solver-matrix tests at the oldest
+  supported backend versions (test-min-deps) and the batched C solvers under MSVC
+  (test-windows). `CUFLYNX_REQUIRED_BACKENDS` turns a skip for a backend the job installed into
+  a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
+  release (CONTRIBUTING.md).
+
+### Changed — the tutorial notebooks run end to end in CI, with quick settings
+
+- Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
+  warm-up length, Sobol samples and genetic-algorithm calls in the two calibration notebooks;
+  pip install, example-image download, Fiji, an image of your own, sub-volume and Ilastik in the
+  image notebook. The defaults are what the tutorials teach with.
+- `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
+  notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
+  settings cell, and checks the key outputs: about 110 s for `generation_and_calibration.ipynb`
+  (including the C++ 0D build and run and the hybrid run), 20 s for
+  `generation_and_calibration_test.ipynb` and 6 s for `image_to_hemodynamics_model.ipynb`.
+  The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
+- The hybrid section of `generation_and_calibration.ipynb` runs too: its run length is two
+  settings, `hybrid_num_periods` (3) and `hybrid_period_s` (1.0 s), which the quick test sets to
+  two periods of 10 ms (the full run takes about 4 minutes per simulated second). The coupler's
+  pipes go under `generated_models_dir/coupler_pipes/` rather than `/tmp/`.
+- `image_to_hemodynamics_model.ipynb` runs to the end on a synthetic segmentation in the quick
+  test; the full run (example-image download) stays `manual`. `image_proc_funcs.py` built its
+  parameters for the model named in `user_inputs.yaml` (`3compartment` in a checkout, whose
+  `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
+  built, and read modules only from `module_config_user/`. It now takes the vessels of its own
+  module array and finds their modules with `ModuleSources`, as model generation does. The
+  network's open ends are no longer joined to pressure-inlet / pressure-outlet nodes (`P_inlet`
+  was removed in #155): an inlet vessel's entrance and an outlet vessel's exit are left
+  unconnected, generation makes their boundary conditions parameters (`<vessel>/u_in`,
+  `<vessel>/u_out`), and the pipeline writes the inlet and outlet pressures into them.
+
+### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
+
+- With the 0D model on CVODE, the 1D solver weights its boundary fluxes by each 0D step attempt
+  within a coupling step. An attempt CVODE rejected (error test or nonlinear solve) was counted at
+  its full size and its retry not at all, so the weights could sum to more than 1 and the 1D
+  solver stopped (`Sum of integration weights > 1`, on `cvs_model_with_arm_hybrid` at the first
+  coupling step). The generated `cvodeRhs` now reports every attempt, retries included, and
+  the 1D solver replaces a rejected attempt's contribution with its retry's
+  (`solver1d/auxCouplingFunctions.CvodeSubstepWeights`). The first step of a run, which was not
+  reported, is too. The weight check allows the time tolerance the 0D model rounds step ends to.
+- The coupler waited for ever on its pipes when one solver stopped. It now stops the other one
+  and exits with status 1 when a solver exits non-zero, or when the other has not finished
+  `exit_grace_s` (coupler_config, default 60 s) after the first. The 1D solver exits non-zero on
+  its errors (it exited 0 on several).
+- `run_coupler1d0d.bash` runs the solvers with one BLAS/OpenMP thread (unless set): the 1D
+  solver's arrays are small, and threaded BLAS used six cores for no gain.
+- Notebook fixes this needed: `generation_and_calibration.ipynb` read `aortic_root/u` from a model
+  without it and ran the C++ 0D model through the coupler script (which needs a hybrid model's
+  `coupler_config.json`), and passed `MaximumStep` to the C++ generator; `generation_and_calibration_test.ipynb`
+  had a hard-coded checkout path, the old `from_dict` / `CVS0DParamID(...)` calls and an unregistered
+  custom feature. Outputs go to `$CUFLYNX_USER_DIR`, or the checkout when it is unset.
+
+### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
+
+- **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
+  OpenCOR's simulation engine as a Python library: `pip install "libcuflynx[libopencor]"`
+  (wheels for Python 3.12 or later; `[dev]` and `[all]` include it there). `solver_info` takes
+  `MaximumStep`, `MaximumNumberOfSteps`, `rtol` and `atol` (`SOLVER_INFO_FIELDS`). It supports
+  everything `CVODE_opencor` did: `pre_time`, multi-sub-experiment protocols with constant
+  `params_to_change`, `offline_pre_time`, states and `*_init` constants set by calibration,
+  results for states, algebraic variables and constants. It has no time-varying inputs
+  (`protocol_traces` / `protocol_shapes` raise `NotImplementedError`) and no forward
+  sensitivities, so calibrations with it use finite-difference gradients.
+- `solver: CVODE_opencor` is an alias for `CVODE_libopencor` (OpenCOR's bundled Python shell is
+  not needed). Naming it runs libOpenCOR and emits a `FutureWarning`; without libOpenCOR
+  installed, the `CVODE_libopencor` install error applies. The `opencor_helper` module, the
+  `need_opencor` test marker and the disabled `test-with-opencor` CI job are gone;
+  `need_libopencor` tests skip without libopencor and run in the `test-libopencor` job.
+  `user_run_files/python_path.sh` names `venv/bin/python` (it is read by `run_pytest.sh` only).
+- A `cellml` model with no solver named runs on `CVODE_myokit`, the schema's default, in the
+  solver factory too.
+- `benchmarks/solver_comparison.py` runs the same models (built-in, or `--model-file`) through
+  Myokit, libOpenCOR and CasADi cvodes (JIT off and on), whichever are installed, at equal
+  tolerances, maximum step and output grid, and writes setup, first-run and median run times,
+  CVODE step counts where exposed and the error against a reference backend, as JSON and
+  Markdown.
+
+### Added — fixed constants in the provenance diagram
+
+Decided by Finbar Argus on 2026-11-14, a follow-up to the parameter derivations below.
+
+- A derivation's `fixed_constants` entry may be a name or `{"name", "origin", "data_reference",
+  "reason"}` (`origin` `measured`, `inherited` or `set_by_hand`, which needs a `reason`). A bare
+  name has no origin and is drawn `unclassified`, never as inherited by default. A constant named
+  twice in one derivation is a `DerivationError`.
+- `cuflynx-derive --write` records the constants of a derived value's derivation, with value,
+  units and origin, in the leaf's new `fixed_constants` key (JSON text); generation carries it
+  into the generated parameters file, and a calibrated value drops it.
+- The provenance diagram has a "Fixed constants of derivations" box, with an arrow to the derived
+  values, listing each constant as `<derivation>/<constant>` with its value, units and origin
+  (first six, then "and k more in the graph file", as for other boxes of values). A run with no
+  fixed constants has no such box. It sits in the top row, left of the model source, above the
+  derived values, so its arrow crosses no other. The diagram's footer adds `N unclassified
+  constants` to its count of unclassified values, so no undescribed constant hides behind a zero.
+  The graph schema is unchanged (a `values` node).
+
 ### Added — parameter reduction by PCA modes of the Sobol outputs
 
 - `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
@@ -62,6 +221,7 @@ next release; add to that section as you land a change.
 - `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
 - `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
   run's directory rather than its indices CSV.
+
 ### Added — parameter derivations and obs_data `input_items`
 
 Decided by Finbar Argus on 2026-10-31.
@@ -209,6 +369,12 @@ Decided by Finbar Argus on 2026-11-13:
 - The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
   `sweep_results` relative to the working directory and resolves them on read, as it does every
   step's other outputs.
+
+### Added — the Teusink benchmark calibrates on the batched C solvers
+
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
@@ -553,8 +719,9 @@ general port a neighbour counts whichever side of the connection it is drawn on,
   the new name. The values are the same for every model in `resources/` and the module library.
 - `FV1D_volume_sum`'s exit `volume_port` maps `q_sum`, so it is an ordinary term of the volume sum it
   feeds.
-- With `couple_to_1d`, only a module next to a 1D vessel is refused a `"sum"`, `"Multiply"` or
-  list-form port; sums elsewhere in the 0D model are allowed.
+- With `couple_to_1d`, a `"sum"`, `"Multiply"` or list-form port is refused only on the port facing a
+  1D vessel, and only when 0D modules connect to that port too (see the #649 entry); sums elsewhere
+  in the 0D model are allowed.
 
 ### Changed — a variable may be summed through several ports
 

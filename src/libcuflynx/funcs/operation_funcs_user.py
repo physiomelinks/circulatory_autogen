@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import sys
-from libcuflynx.param_id.operation_funcs import series_to_constant
+from libcuflynx.param_id.operation_funcs import _window, exact_tangent, series_to_constant
 try:
     import sympy
 except ImportError:
@@ -445,6 +445,8 @@ def peak_times(t, V, series_output=False):
     peaks = t[peak_idxs]
     return peaks
 
+@exact_tangent(lambda xs, ts, start_frac=0.0, end_frac=1.0:
+               np.mean(ts[0][_window(xs[0], start_frac, end_frac)]))
 @differentiable
 @series_to_constant
 def mean_in_range(x, start_frac=0.0,end_frac=1.0, series_output=False):
@@ -456,6 +458,8 @@ def mean_in_range(x, start_frac=0.0,end_frac=1.0, series_output=False):
         range_values = x[start_idx:end_idx]
         return mb.mean(range_values)
 
+@exact_tangent(lambda xs, ts, start_frac=0.0, end_frac=1.0:
+               _at_window_arg(np.argmax, xs[0], ts[0], start_frac, end_frac))
 @differentiable
 @series_to_constant
 def max_in_range(x, start_frac=0.0,end_frac=1.0,series_output=False):
@@ -657,6 +661,9 @@ def max_minus_min_over_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_out
 def first_minus_second_over_third_in_range(first, second, third):
     return (first - second) / third
 
+@exact_tangent(lambda xs, ts, start_frac=0.0, end_frac=1.0:
+               _at_window_arg(np.argmax, xs[0], ts[0], start_frac, end_frac)
+               - _at_window_arg(np.argmin, xs[0], ts[0], start_frac, end_frac))
 @differentiable
 @series_to_constant
 def max_minus_min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
@@ -748,6 +755,8 @@ def mean_in_range_fraction_change_from_initial_range(x, start_frac=0.8, end_frac
     else:
         return percentage_change
 
+@exact_tangent(lambda xs, ts, start_frac=0.0, end_frac=1.0:
+               _at_window_arg(np.argmin, xs[0], ts[0], start_frac, end_frac))
 @differentiable
 @series_to_constant
 def min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
@@ -829,6 +838,12 @@ def abs_diff_start_to_last_quarter(x, series_output=False):
 ## Below here are the organisational functions for building the operation functions dictionary
 ## They are not part of the public API
 ##
+
+def _at_window_arg(arg, x, t, start_frac, end_frac):
+    """t at arg (argmax/argmin) of x within the ``*_in_range`` window."""
+    w = _window(x, start_frac, end_frac)
+    return t[w][arg(x[w])]
+
 
 def register_user_operations(registry, backend):
     """
