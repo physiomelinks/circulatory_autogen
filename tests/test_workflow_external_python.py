@@ -477,6 +477,80 @@ def test_a_calibration_on_an_emulator_of_the_external_model(example, tmp_path):
     assert merged['heat/k']['value'] == pytest.approx(_TRUE_K, abs=0.03)
 
 
+_PROFILE = {'method': 'profile_likelihood', 'num_points': 5, 'range_factor': 0.05,
+            'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10}}
+
+
+def _ia_steps(**keys):
+    '''A Laplace and a profile-likelihood identifiability step on k, at the fit-k values.'''
+    step = dict(kind='identifiability', model=external_model('heat1d_model.py'),
+                obs_data='heat1d_obs_data.json', params_for_id='heat1d_k_params_for_id.json',
+                result_from='fit-k', **keys)
+    return [dict(step, id='laplace', settings={'ia_options': {'method': 'Laplace'}}),
+            dict(step, id='profile', settings={'ia_options': _PROFILE})]
+
+
+@pytest.mark.integration
+def test_a_profile_likelihood_of_the_external_model(example, tmp_path):
+    '''An external model (how a reduced-order model runs) takes an identifiability step's
+    profile likelihood as a CellML model does.'''
+    raw = _fit_k(example)
+    raw['steps'] += _ia_steps()[1:]
+    out = str(tmp_path / 'run')
+    assert run_calibration_workflow(_write(example, raw), output_dir=out)['complete']
+
+    step = _read_json(os.path.join(out, 'profile', 'step_result.json'))
+    best_k = _read_json(os.path.join(out, 'fit-k', 'step_result.json'))['best_fit']
+    assert step['method'] == 'profile_likelihood' and step['at'] == pytest.approx(best_k)
+    (profile,) = step['profile_likelihood']['profiles']
+    assert profile['parameter'] == 'heat/k'
+    assert profile['best_val'] == pytest.approx(best_k[0])
+    assert profile['ci_95'] == _read_json(profile['file'])['ci_95']
+
+
+@pytest.mark.integration
+def test_the_identifiability_steps_run_on_an_emulator_of_the_external_model(
+        example, tmp_path, monkeypatch):
+    '''emulator_from on an identifiability step of an external model: the Laplace analysis and
+    the profile likelihood evaluate the emulator, not the model.'''
+    pytest.importorskip('autoemulate')
+    from libcuflynx.external_testing.workflow_library import EMULATOR_SETTINGS
+    from libcuflynx.solver_wrappers import external_simulation_helper
+    raw = _fit_k(example)
+    # An interpolating RBF from 64 samples: the probe means are not quadratic in k over
+    # [0.05, 1], so the library's quadratic from 32 samples fails min_r2 on probe 3.
+    raw['settings']['emulator_settings'] = {**EMULATOR_SETTINGS, 'num_train_samples': 64,
+                                            'n_iter': 8, 'models': 'RadialBasisFunctions'}
+    raw['steps'].append(
+        {'id': 'emulate', 'kind': 'emulation', 'model': external_model('heat1d_model.py'),
+         'obs_data': 'heat1d_obs_data.json', 'params_for_id': 'heat1d_k_params_for_id.json',
+         'fixed_from': ['boundary']})
+    first = str(tmp_path / 'first')
+    assert run_calibration_workflow(_write(example, raw, 'train.json'),
+                                    output_dir=first)['complete']
+    emulator = _read_json(os.path.join(first, 'emulate', 'step_result.json'))['emulator_dir']
+
+    # a second workflow analyses that emulator at a point set by hand
+    analyses = _ia_steps(emulator_dir=emulator)
+    for step in analyses:
+        step['result_from'] = 'hand'
+    raw['steps'] = [{'id': 'hand', 'kind': 'set', 'point': True, 'set': [
+        {'parameter': 'heat/k', 'value': _TRUE_K, 'reason': 'the true value'}]}] + analyses
+
+    def no_model_run(self, *args, **kwargs):
+        raise AssertionError('the step simulated the model, not the emulator')
+    monkeypatch.setattr(external_simulation_helper.SimulationHelper, 'run', no_model_run)
+    out = str(tmp_path / 'run')
+    assert run_calibration_workflow(_write(example, raw), output_dir=out)['complete']
+
+    laplace = _read_json(os.path.join(out, 'laplace', 'step_result.json'))
+    profile = _read_json(os.path.join(out, 'profile', 'step_result.json'))
+    assert laplace['inputs']['emulator']['path'] == emulator
+    assert profile['inputs']['emulator']['path'] == emulator
+    assert laplace['laplace']['std'][0] > 0
+    assert [p['parameter'] for p in profile['profile_likelihood']['profiles']] == ['heat/k']
+
+
 # --------------------------------------------------------------------------------------------
 # 9. the target: the calibrated parameters, a pack and the manifest
 # --------------------------------------------------------------------------------------------
