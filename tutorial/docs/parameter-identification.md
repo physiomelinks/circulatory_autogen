@@ -2004,7 +2004,8 @@ parameter:
   `priors_from` (below), so the earlier posterior becomes the prior.
 - **One is a `set` step**: a value set by hand replaces a calibrated one with no warning, and
   the provenance marks it set by hand. Between a set step and a step it does not take from,
-  the later in run order is used.
+  the later in run order is used. Two set steps that do not take from each other (one does
+  not scale the other's value) setting one parameter give a warning, which names the one used.
 - **Neither takes from the other** (two calibrations, or combine steps): an error, which
   names the parameter, the steps and what they give it to (the target, or a step through its
   `fixed_from` or `result_from`). Add a `combine` step, which is its own box in the diagram:
@@ -2025,6 +2026,12 @@ under `calibrated`, each with `combined_from` (the inputs that gave it).
   same parameters. Use it for fits of one problem from several starting points.
 - **`mean`** gives each parameter the mean over the inputs that give it. The inputs may be
   set steps, and need not give the same parameters.
+
+For the target, the error comes where the target is merged for use: a run of more than one
+step, a sweep `on_target`, and writing the calibrated parameters. Reading the file, `--dry-run`
+(the plan's `target_overlap` holds the message) and a run of one step (`--only`) warn instead
+and use the later step's value, so a second calibration can be run before the combine step
+that settles it is added. A step given two values is always an error.
 
 A step fitting a reduction's choice (`params_for_id_from`) is checked once the reduction has
 run, against what it kept, not against every candidate: the error then comes at the merge,

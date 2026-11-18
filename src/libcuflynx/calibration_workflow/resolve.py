@@ -14,6 +14,7 @@ A step's values reach the target, and other steps, through a vessel map (``namin
 
 import json
 import os
+import warnings
 from dataclasses import dataclass, field
 
 from libcuflynx.calibration_workflow import naming, spec
@@ -321,6 +322,9 @@ class ResolvedWorkflow:
     library_inputs: dict           # the generation keys every model is built with
     components: dict = field(default_factory=dict)
     supermodules: dict = field(default_factory=dict)
+    #: what is wrong when steps that do not take from each other give the target one parameter
+    #: (given_once_problem), or None
+    target_overlap: str = None
 
     def map_between(self, source_id, receiver_id):
         '''``vessel -> vessel``: a vessel of step ``source_id``'s model named in step
@@ -344,8 +348,13 @@ def library_inputs(workflow, settings=None):
     return inputs
 
 
-def resolve_workflow(workflow):
-    '''The workflow's models and files, checked, and each step's vessel map into the target.'''
+def resolve_workflow(workflow, target_overlap='warn'):
+    '''The workflow's models and files, checked, and each step's vessel map into the target.
+
+    ``target_overlap`` says what happens when calibration or combine steps that do not take
+    from each other give the target the same parameter (:func:`given_twice`): ``'warn'`` (a
+    UserWarning, and the result's ``target_overlap`` holds the message) for reading, planning
+    and running one step, ``'error'`` (a WorkflowError) where the target is merged for use.'''
     # a selection's modules are the target's, so it needs the library only as the target does
     library = [s.model for s in workflow.steps
                if s.model is not None and s.model.kind != 'selection'] + [workflow.target]
@@ -447,11 +456,13 @@ def resolve_workflow(workflow):
         if step.kind == 'combine':
             resolved[step.id] = _resolve_combine_step(workflow, step, resolved, target, claimed)
     resolved = {step.id: resolved[step.id] for step in workflow.steps}
-    check_given_once(workflow, claimed, f'the target {workflow.target.label()}')
+    overlap = check_given_once(workflow, claimed, f'the target {workflow.target.label()}',
+                               on_clash=target_overlap)
 
     result = ResolvedWorkflow(workflow=workflow, target=target, steps=resolved,
                               config_files=sources.config_files, library_inputs=inputs,
-                              components=components, supermodules=supermodules)
+                              components=components, supermodules=supermodules,
+                              target_overlap=overlap)
     for step in workflow.steps:
         flows = step.fixed_from + [p.step for p in step.priors_from] + \
             [s for s in (step.result_from, step.start_from) if s]
@@ -672,36 +683,77 @@ def _resolve_combine_step(workflow, step, resolved, target, claimed):
     return out
 
 
+def _left(workflow, givers):
+    '''The steps of ``givers`` whose value is not replaced by a step that takes from them,
+    directly or through other steps, in run order.'''
+    ancestors = workflow.ancestors()
+    order = [s.id for s in workflow.topological_order()]
+    return sorted((g for g in dict.fromkeys(givers)
+                   if not any(g in ancestors[other] for other in givers)), key=order.index)
+
+
 def given_twice(workflow, givers):
     '''The steps of ``givers`` (ids of the steps that give one parameter to one receiver) whose
     values clash, or []. A step's value is replaced by that of a step that takes from it,
     directly or through other steps, and a set step's value never clashes: among set steps and
     unrelated steps the later in run order is used. So the clash is more than one calibration
     or combine step left when the replaced ones are taken out.'''
-    ancestors = workflow.ancestors()
-    left = [g for g in dict.fromkeys(givers)
-            if not any(g in ancestors[other] for other in givers)]
-    left = [g for g in left if workflow.step(g).kind != 'set']
+    left = [g for g in _left(workflow, givers) if workflow.step(g).kind != 'set']
     return left if len(left) > 1 else []
 
 
-def check_given_once(workflow, givers_by_name, receiver):
-    '''A WorkflowError when ``receiver`` (words: the target, or a step) is given a parameter of
-    ``givers_by_name`` (``{name: [step ids]}``) by steps that clash (:func:`given_twice`).'''
+def given_once_problem(workflow, givers_by_name, receiver):
+    '''What is wrong, or None, when ``receiver`` (words: the target, or a step) is given the
+    parameters of ``givers_by_name`` (``{name: [step ids]}``): the message naming those given by
+    steps that clash (:func:`given_twice`).'''
     clashes = {name: given_twice(workflow, ids) for name, ids in sorted(givers_by_name.items())}
     clashes = {name: ids for name, ids in clashes.items() if ids}
     if not clashes:
-        return
+        return None
     lines = '; '.join(f'"{name}" by {" and ".join(repr(i) for i in ids)}'
                       for name, ids in clashes.items())
     example = next(iter(clashes.values()))
-    raise WorkflowError(
+    return (
         f'calibration workflow "{workflow.name}": {receiver} is given {len(clashes)} '
         f'parameter(s) by steps that do not take from each other: {lines}. One value must be '
         f'chosen: let one step take from the other (e.g. "fixed_from" or "start_from"), so the '
         f'later one replaces it, or add a combine step that gives one value from them '
         f'("kind": "combine", "combine_from": {json.dumps(example)}, "combine": {{"method": '
         f'"best_fit"}} or "mean"); its values are used in place of theirs.')
+
+
+def _warn_set_twice(workflow, givers_by_name, receiver):
+    '''One UserWarning for the parameters that set steps which do not take from each other
+    both give ``receiver``, naming the step whose value is used.'''
+    lines = []
+    for name, ids in sorted(givers_by_name.items()):
+        left = _left(workflow, ids)
+        by_hand = [g for g in left if workflow.step(g).kind == 'set']
+        if len(by_hand) > 1:
+            lines.append(f'"{name}" by {" and ".join(repr(i) for i in by_hand)} (the value of '
+                         f'{left[-1]!r}, the later in run order, is used)')
+    if lines:
+        warnings.warn(
+            f'calibration workflow "{workflow.name}": {receiver} is given {len(lines)} '
+            f'parameter(s) by set steps that do not take from each other: ' + '; '.join(lines)
+            + '. Set each parameter in one step, or scale one step\'s value in the other '
+              '("scale", "of").', UserWarning, stacklevel=4)
+
+
+def check_given_once(workflow, givers_by_name, receiver, on_clash='error'):
+    '''A WorkflowError when ``receiver`` is given a parameter by steps that clash
+    (:func:`given_once_problem`), or with ``on_clash='warn'`` a UserWarning that the later in
+    run order is used. Either way, a UserWarning for parameters set by hand by unrelated set
+    steps. Returns the problem, or None.'''
+    _warn_set_twice(workflow, givers_by_name, receiver)
+    problem = given_once_problem(workflow, givers_by_name, receiver)
+    if problem and on_clash == 'error':
+        raise WorkflowError(problem)
+    if problem:
+        warnings.warn(problem + ' Until then the value of the later step in run order is used; '
+                      'a run of every step, and writing the calibrated parameters, are '
+                      'refused.', UserWarning, stacklevel=3)
+    return problem
 
 
 def _check_steps_given_once(result):
@@ -741,11 +793,11 @@ def _check_steps_given_once(result):
                                     for key, owners in given.items()}, f'step "{step.id}"')
 
 
-def check_merged_once(workflow, claimed):
+def check_merged_once(workflow, claimed, on_clash='error'):
     '''The check :func:`resolve_workflow` leaves to the run for a step fitting a reduction's
     choice: ``claimed`` (``{target name: [step ids]}``, every value the merge took) narrowed to
     the names such a step calibrated. A combine step that has not run yet counts as giving what
-    its inputs gave.'''
+    its inputs gave. ``on_clash`` as for :func:`check_given_once`.'''
     claimed = {name: list(ids) for name, ids in claimed.items()}
     for step in workflow.topological_order():
         if step.kind == 'combine':
@@ -755,7 +807,7 @@ def check_merged_once(workflow, claimed):
     check_given_once(workflow, {
         name: ids for name, ids in claimed.items()
         if any(workflow.step(i).params_for_id_from for i in ids)},
-        f'the target {workflow.target.label()}')
+        f'the target {workflow.target.label()}', on_clash=on_clash)
 
 
 def read_calibrated_parameters(params_for_id_path, where=''):

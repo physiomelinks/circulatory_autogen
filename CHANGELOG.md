@@ -297,7 +297,11 @@ number of vessels at a node (node sums #609, node rule D #617).
 
 - Two calibration (or combine) steps that give the target, or a step, the same parameter and
   do not take from each other are a `WorkflowError`, naming the parameter, the steps and what
-  they give it to; a `combine` step settles it. This replaces the "calibrated by more than one
+  they give it to; a `combine` step settles it. For the target it is raised where the target
+  is merged for use (a run of more than one step, an `on_target` sweep, the calibrated
+  parameters); reading, the plan (its `target_overlap`) and a run of one step warn and use the
+  later step's value (`resolve_workflow(workflow, target_overlap='warn' | 'error')`). Two set
+  steps that do not take from each other setting one parameter warn, naming the one used. This replaces the "calibrated by more than one
   step" warning: a step that takes from the other, directly or through other steps, replaces
   its value with no warning, as does a set step. A step given a parameter by a step and by one
   that took from it (`fixed_from`, `result_from`) gets the later one's value, where it was
