@@ -36,6 +36,21 @@ next release; add to that section as you land a change.
   the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
   defaults), so an unset `jit` warns and runs without jit there.
 
+### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
+
+The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
+a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
+facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
+neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
+the module, the port's variables, the 1D vessel and the 0D modules.
+
+- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
+  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
+  condition the coupler sets.
+- Sums on the module's other ports generate; they are ordinary CellML.
+- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
+  vessel `v` ends sum, couple to 1D.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
@@ -697,8 +712,9 @@ general port a neighbour counts whichever side of the connection it is drawn on,
   the new name. The values are the same for every model in `resources/` and the module library.
 - `FV1D_volume_sum`'s exit `volume_port` maps `q_sum`, so it is an ordinary term of the volume sum it
   feeds.
-- With `couple_to_1d`, only a module next to a 1D vessel is refused a `"sum"`, `"Multiply"` or
-  list-form port; sums elsewhere in the 0D model are allowed.
+- With `couple_to_1d`, a `"sum"`, `"Multiply"` or list-form port is refused only on the port facing a
+  1D vessel, and only when 0D modules connect to that port too (see the #649 entry); sums elsewhere
+  in the 0D model are allowed.
 
 ### Changed — a variable may be summed through several ports
 
