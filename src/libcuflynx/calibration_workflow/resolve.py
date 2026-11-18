@@ -450,7 +450,26 @@ def resolve_workflow(workflow):
                     f'{sorted({resolved[source].to_target(p.vessel) for p in resolved[source].parameters})}). '
                     f'Values can only be passed into a model that contains what they were '
                     f'calibrated on.')
+        for source, names in step.fixed_parameters.items():
+            _check_fixed_subset(step, source, names, resolved[source],
+                                result.map_between(source, step.id))
     return result
+
+
+def _check_fixed_subset(step, source, names, resolved_source, mapped):
+    '''A WorkflowError when ``names``, the values ``step`` fixes from ``source``, are not all
+    values ``source`` calibrates or sets that ``step``'s model has.'''
+    own = {p.model_name: p for p in resolved_source.parameters}
+    unknown = sorted(set(names) - set(own))
+    if unknown:
+        raise WorkflowError(
+            f'step "{step.id}" fixes {unknown} from "{source}", which "{source}" does not '
+            f'calibrate or set. Its values, as its model names them: {sorted(own)}.')
+    outside = sorted(n for n in names if not mapped(own[n].vessel))
+    if outside:
+        raise WorkflowError(
+            f'step "{step.id}" fixes {outside} from "{source}", but {step.model.label()} has '
+            f'no such vessel.')
 
 
 def split_parameter(name):

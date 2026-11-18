@@ -456,16 +456,21 @@ class _Run:
 
     # -- what a step gets from earlier steps ---------------------------------------------
 
-    def fixed_values(self, step, sources, own_only=False):
+    def fixed_values(self, step, sources, own_only=False, subsets=None):
         '''``{model name in this step: row}`` from every step in ``sources``: its calibrated
         values, those it set by hand and, unless ``own_only``, the values it was itself given
-        as fixed.'''
+        as fixed. A source in ``subsets`` (``{step id: its model names}``) gives only those of
+        its calibrated and set values.'''
+        subsets = subsets or {}
         values = {}
         for source in sources:
             result = self.require_current(source, step.id)
             vessel_of = self.resolved.map_between(source, step.id)
             left_out = []
             records = given_values(result) + ([] if own_only else result['fixed'])
+            if source in subsets:
+                records = [r for r in given_values(result)
+                           if r['model_name'] in subsets[source]]
             for record in records:
                 vessel = vessel_of(record['vessel'])
                 if vessel is None:
@@ -574,8 +579,9 @@ class _Run:
                     fixed.update(self.fixed_values(step, [source.id], own_only=True))
         else:
             # a parameter the step calibrates itself is not fixed: the later calibration wins
-            fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
-                     if n not in own}
+            fixed = {n: row for n, row in
+                     self.fixed_values(step, step.fixed_from,
+                                       subsets=step.fixed_parameters).items() if n not in own}
         point = {}
         if step.result_from:
             # result_from's values of the step's own parameters are the point it analyses (its
@@ -1618,7 +1624,10 @@ def plan_workflow(source, module_library_dirs=None):
         fixed = []
         for source_id in step.fixed_from:
             vessel_of = resolved.map_between(source_id, step.id)
+            subset = step.fixed_parameters.get(source_id)
             for p in resolved.steps[source_id].parameters:
+                if subset is not None and p.model_name not in subset:
+                    continue
                 vessel = vessel_of(p.vessel)
                 fixed.append({'from_step': source_id, 'model_name': p.model_name,
                               'in_step': naming.model_name(vessel, p.param) if vessel else None})
@@ -1860,7 +1869,11 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             if result is None:
                 continue
             vessel_of = resolved.map_between(source_id, step.id)
-            for record in given_values(result) + result['fixed']:
+            records = given_values(result) + result['fixed']
+            if source_id in step.fixed_parameters:
+                records = [r for r in given_values(result)
+                           if r['model_name'] in step.fixed_parameters[source_id]]
+            for record in records:
                 vessel = vessel_of(record['vessel'])
                 if vessel is None:
                     continue

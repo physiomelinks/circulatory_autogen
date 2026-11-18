@@ -255,6 +255,8 @@ class Step:
     vessel_map: dict = field(default_factory=dict)   # module-array step: its vessel -> target's
     depends_on: list = field(default_factory=list)   # fixed_from and priors_from steps
     fixed_from: list = field(default_factory=list)
+    # {fixed_from step id: (model names in that step)}: only those of its values are fixed
+    fixed_parameters: dict = field(default_factory=dict)
     priors_from: list = field(default_factory=list)
     store_distribution: bool = False
     emulator_from: str = None      # an emulation step whose emulator (and model) this step uses
@@ -519,6 +521,21 @@ def _prior_source(value):
                        parameters=tuple(parameters) if parameters is not None else None)
 
 
+def _fixed_sources(entries, label):
+    '''``(step ids, {step id: names})`` of a ``fixed_from``: an entry is a step id (all its
+    values) or ``{"step", "parameters"}`` (only those, named as the source step's model names
+    them).'''
+    ids, subsets = [], {}
+    for entry in entries:
+        step_id = entry if isinstance(entry, str) else entry['step']
+        if step_id in ids:
+            raise WorkflowError(f'{label}: "fixed_from" lists step "{step_id}" twice.')
+        ids.append(step_id)
+        if not isinstance(entry, str):
+            subsets[step_id] = tuple(name.strip() for name in entry['parameters'])
+    return ids, subsets
+
+
 def _step(value, where, base_dir):
     step_id = value['id'].strip()
     label = f'{where}: step "{step_id}"'
@@ -527,7 +544,7 @@ def _step(value, where, base_dir):
             ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from',
              'start_from')}
     emulator_path = _path(value['emulator_dir'], base_dir) if value.get('emulator_dir') else None
-    fixed_from = list(value.get('fixed_from', []))
+    fixed_from, fixed_parameters = _fixed_sources(value.get('fixed_from', []), label)
     priors_from = [_prior_source(p) for p in value.get('priors_from', [])]
     store = value.get('store_distribution', False)
     for key, users in _SOURCE_USERS.items():
@@ -632,7 +649,8 @@ def _step(value, where, base_dir):
                 vessel=vessel.strip() if vessel else None,
                 vessel_map={k.strip(): v.strip() for k, v in vessel_map.items()},
                 depends_on=list(dict.fromkeys(depends_on)),
-                fixed_from=fixed_from, priors_from=priors_from, store_distribution=store,
+                fixed_from=fixed_from, fixed_parameters=fixed_parameters,
+                priors_from=priors_from, store_distribution=store,
                 emulator_from=refs['emulator_from'], result_from=refs['result_from'],
                 params_for_id_from=refs['params_for_id_from'],
                 start_from=refs['start_from'], emulator_dir=emulator_path,

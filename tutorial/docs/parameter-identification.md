@@ -1423,8 +1423,9 @@ argument of their own (`sa_options=`, `ia_options=`, `uq_options=`, `emulator_se
 In all of them `model` defaults to the target. `library_module(type, version,
 parameterisation)`, `module_array(path, parameters=None)`, `external_model(path)`, `cellml_model(path,
 parameters=None)`, `selection(*instances)`,
-`prior(step, kind=, inflate=, parameters=)`, `set_value(parameter, value, reason=)` and
-`scale_value(parameter, scale, of=, reason=)` give a step's model, priors and set entries. A
+`fixed(step, parameters=)`, `prior(step, kind=, inflate=, parameters=)`,
+`set_value(parameter, value, reason=)` and `scale_value(parameter, scale, of=, reason=)` give a
+step's model, fixed values, priors and set entries. A
 step is checked against the schema when it is added.
 
 Values set by hand go in a `set` step (`add_set`), not in a parameters dict: each carries its
@@ -1615,7 +1616,7 @@ print(wf.result('fit')['best_fit'], wf.result('posterior')['distribution_dir'])
 | step `model`, `obs_data`, `params_for_id` | what the step calibrates, and against what |
 | step `vessel_map` | a module array whose vessels are named differently in the target: `{"aorta": "aortic_root"}` |
 | step `submodule` / `vessel` | where a library module sits in the target: a submodule of a library supermodule target (`i_M`, or `soma/i_M` when nested), or a vessel of a module-array target; inferred when the module occurs once |
-| step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself |
+| step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself. An entry `{"step": "fit_a", "parameters": ["p_A"]}` fixes only those of the step's own calibrated or set values (model names in that step), and none it was given |
 | step `priors_from` | steps whose stored posterior becomes this step's prior (below) |
 | step `store_distribution` | sample the posterior by MCMC after the fit and store it |
 | step `start_from` | (calibration) a calibration or set step whose values of this step's own parameters are where its fit starts (below) |
