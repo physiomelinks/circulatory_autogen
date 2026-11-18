@@ -219,6 +219,16 @@ def test_the_calibrated_model_has_the_best_fit_written_in(tmp_path):
     assert calibrated_model_name(PREFIX) == PREFIX + "_calibrated.cellml"
 
 
+@pytest.mark.unit
+def test_the_calibrated_model_is_written_into_an_output_dir_not_yet_made(tmp_path):
+    info = {"param_names": [["Lotka_Volterra_module/alpha"]]}
+    out = str(tmp_path / "not" / "yet" / calibrated_model_name(PREFIX))
+
+    assert write_calibrated_model(MODEL, info, [1.25], out) == out
+
+    assert _initial_values(out, "Lotka_Volterra_module")["alpha"] == 1.25
+
+
 # --- CA runs in a working dir ------------------------------------------------------------
 
 def _param_id(out_dir, mcmc_instead=False, **settings):
