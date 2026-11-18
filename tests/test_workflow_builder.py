@@ -574,6 +574,20 @@ def test_progress_lines_say_what_happened_to_a_step_that_did_not_run(capsys):
 
 
 @pytest.mark.unit
+def test_the_first_progress_line_names_the_steps_that_run_and_those_kept(capsys):
+    from libcuflynx.scripts.calibration_workflow_run_script import _print_progress
+    order = ['screen', 'top2', 'fit']
+    for running in (['top2'], order, []):
+        _print_progress({'event': 'workflow_started', 'order': order, 'running': running,
+                         'output_dir': 'out'})
+    assert capsys.readouterr().out.splitlines() == [
+        '[workflow] running 1 of 3 steps: top2; keeping screen, fit',
+        '[workflow] running 3 of 3 steps: screen, top2, fit',
+        '[workflow] nothing to run: all 3 steps are done and current. To run them all again: '
+        'wf.run(force=True), or the command without --stale-only.']
+
+
+@pytest.mark.unit
 def test_dicts_are_copied_and_written_as_files_only_when_they_change(library, tmp_path):
     wf = _chain(library, tmp_path / 'wf')
     obs = _obs('y_a', 'mod/y', Y_A, STD_A)

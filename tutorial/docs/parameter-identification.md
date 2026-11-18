@@ -1484,11 +1484,17 @@ CUFLynx load it; it has the layout of CUFLynx's "Custom funcs" dialog
 
 Run the script, or the notebook from the top, as often as you like. A file is rewritten only
 when its content changes, and `wf.run()` runs only the steps that have not run or are
-**stale**, printing one line for each step it keeps:
+**stale**. Its first line names the steps it runs and those it keeps, and each kept step gets
+a line of its own:
 
 ```
+[workflow] running 1 of 2 steps: chain; keeping a-alone
 [workflow] step a-alone: done and current, not run again
 ```
+
+When every step is done and current it says so and runs nothing. To run every step again,
+current or not, use `wf.run(force=True)` (on the command line, leave out `--stale-only`);
+`wf.run(from_step='<id>')` runs one step and every step after it.
 
 A step is stale when something it ran with has changed: its obs_data, its params_for_id, its
 model's parameters file, its settings, or the workflow's functions file (any function in it,
