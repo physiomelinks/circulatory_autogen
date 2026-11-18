@@ -17,6 +17,8 @@ next release; add to that section as you land a change.
   params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
   written as files under `data/` beside the workflow. The result is an ordinary workflow file
   that the command line and CUFLynx run and `pack_workflow` packs.
+  A run's first line names the steps it runs and those it keeps (done and current), or says
+  that nothing is left to run and how to run every step again (`wf.run(force=True)`).
   See "Building a workflow in Python" in the parameter-identification docs, and the
   "Calibration workflows" page of the API reference.
 - `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps

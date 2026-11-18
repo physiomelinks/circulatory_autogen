@@ -77,7 +77,20 @@ def _model_label(model):
 
 def _print_progress(event):
     kind = event['event']
-    if kind == 'step_started':
+    if kind == 'workflow_started':
+        order, running = list(event.get('order') or []), list(event.get('running') or [])
+        kept = [step for step in order if step not in running]
+        if not running:
+            print(f"[workflow] nothing to run: all {len(order)} steps are done and current. "
+                  f"To run them all again: wf.run(force=True), or the command without "
+                  f"--stale-only.", flush=True)
+        else:
+            line = (f"[workflow] running {len(running)} of {len(order)} steps: "
+                    f"{', '.join(running)}")
+            if kept:
+                line += f"; keeping {', '.join(kept)}"
+            print(line, flush=True)
+    elif kind == 'step_started':
         print(f"[workflow] step {event['index'] + 1}/{event['total']}: {event['step']} "
               f"({event.get('kind', 'calibration')}, {_model_label(event['model'])})",
               flush=True)
