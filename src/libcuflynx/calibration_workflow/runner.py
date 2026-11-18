@@ -61,7 +61,7 @@ from libcuflynx.calibration_workflow.select import (UnsetParametersError, protoc
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
-                                                  WorkflowError, load_workflow,
+                                                  ModifiedArray, WorkflowError, load_workflow,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.mpi_utils import run_on_root
@@ -90,7 +90,10 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'emulation': ('emulator_dir',),
                 'identifiability': ('laplace',),
                 'set': (),
-                'sweep': ('sweep_dir', 'sweep_results')}
+                'sweep': ('sweep_dir', 'sweep_results'),
+                'modify': ('module_array', 'parameters')}
+#: the input of a step whose model a modify step made: that model's records and removals
+MODIFIED_MODEL_INPUT = 'modified_model'
 #: what a value set by a set step is marked with
 SET_BY_HAND = 'set_by_hand'
 assert SET_BY_HAND in ORIGINS
@@ -137,6 +140,8 @@ def step_settings_digest(workflow, step):
     file do not change it.'''
     if step.kind == 'set':
         return settings_digest(step.set_values)
+    if step.kind == 'modify':
+        return settings_digest(step.changes)
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
     return settings_digest(workflow.step_settings(step))
@@ -267,12 +272,21 @@ class _Run:
             files['parameters'] = rs.model.parameters_path
         if rs.model.kind == 'array':
             files['module_array'] = rs.model.model.module_array
+        modified = rs.model.model
         if rs.selection is not None:
             # a selection starts from the target's values
             files['target_parameters'] = self.workflow.target.parameters
             files['target_module_array'] = self.workflow.target.module_array
-        return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
-                SETTINGS_INPUT: settings, **self.library_input()}
+            modified = self.workflow.target
+        inputs = {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
+                  SETTINGS_INPUT: settings, **self.library_input()}
+        if isinstance(modified, ModifiedArray):
+            # the files are the base model's: the changes made to it are an input too
+            inputs[MODIFIED_MODEL_INPUT] = {
+                'path': self.workflow.path, 'step': modified.step,
+                'sha256': settings_digest({'records': modified.records,
+                                           'removed': list(modified.removed)})}
+        return inputs
 
     def _model_free_inputs(self, step):
         '''The inputs of a reduction (its options; the rest are its sensitivity step's) or a set
@@ -381,16 +395,16 @@ class _Run:
     def run_step(self, step, index, total):
         started, t0 = _now(), time.time()
         self.emit('step_started', step=step.id, index=index, total=total, kind=step.kind,
-                  model=step.model.as_dict() if step.model is not None else None)
+                  model=step_model_dict(step))
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
                'identifiability': self._run_identifiability, 'set': self._run_set,
-               'sweep': self._run_sweep}[step.kind]
+               'sweep': self._run_sweep, 'modify': self._run_modify}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
         def finish():
             result = dict({'step': step.id, 'kind': step.kind, 'status': 'done',
-                           'model': step.model.as_dict() if step.model is not None else None,
+                           'model': step_model_dict(step),
                            'place': self.resolved.steps[step.id].place if step.model else '',
                            'started': started, 'finished': _now(),
                            'duration_s': round(time.time() - t0, 3),
@@ -691,6 +705,17 @@ class _Run:
 
     def _run_set(self, step, settings):
         return self.on_root(lambda: {'set': self._declared_values(step)})
+
+    def _run_modify(self, step, settings):
+        '''Writes the model the step makes: its module array, and its parameters file (every
+        value of the base's, less those of the records removed).'''
+        def write():
+            step_dir = self.step_dir(step.id)
+            if os.path.isdir(step_dir):
+                shutil.rmtree(step_dir)
+            return {'changes': copy.deepcopy(step.changes),
+                    **write_modified_model(step.model, step_dir)}
+        return self.on_root(write)
 
     def _target_values(self, step):
         '''``{model name: row}`` of the target as it stands, generated under the step's
@@ -1037,6 +1062,31 @@ def generate_step_model(resolved_step, work_dir, prefix, rows, obs_data, library
         raise UnsetParametersError(resolved_step.step.id, names) from exc
 
 
+def step_model_dict(step):
+    '''A step's model as its result records it: a modify step's is the model it changes.'''
+    if step.model is None:
+        return None
+    if step.kind == 'modify':
+        return step.model.base.as_dict()
+    return step.model.as_dict()
+
+
+def write_modified_model(model, directory, parameters_name=None):
+    '''Write the spec.ModifiedArray ``model`` into ``directory``: ``<step>_module_array.json``
+    and its parameters file (``parameters_name``, default ``<step>_parameters.json``), every
+    value of the base's kept but those of the records removed. Returns their paths as
+    ``{'module_array', 'parameters'}``.'''
+    from libcuflynx.utilities import parameters_file as pf
+    os.makedirs(directory, exist_ok=True)
+    array = os.path.join(directory, f'{model.step}_module_array.json')
+    with open(array, 'w') as f:
+        json.dump(model.records, f, indent=1)
+    parameters = pf.write_parameters_file(
+        os.path.join(directory, parameters_name or pf.parameters_file_name(model.step)),
+        model.parameters_document(pf.read_parameters_file(model.parameters)))
+    return {'module_array': array, 'parameters': parameters}
+
+
 def _model_files(model):
     '''A step's or target's model as the manifest records it: a module array's files, or a
     library module's ``{module_type, version, parameterisation}``; None for a reduction.'''
@@ -1137,8 +1187,9 @@ def target_generated_parameters(target, library_inputs=None, generated_path=None
 def write_calibrated_parameters(target, merged_parameters, workflow_name, path=None,
                                 library_inputs=None, generated_path=None):
     '''``path`` (default ``<name>_calibrated_parameters.json`` beside the target's parameters
-    file, ``<name>`` its parameterisation, or its module array's prefix): the target's parameters
-    file (nested JSON, utilities/parameters_file.py), completed with every other value its model
+    file, ``<name>`` its parameterisation, or its module array's prefix; a modify step's id for
+    the model that step makes, whose ``<step>_module_array.json`` is written beside it): the
+    target's parameters file (nested JSON, utilities/parameters_file.py), completed with every other value its model
     uses (:func:`target_generated_parameters`; each one's data_reference names the
     parameterisation it came from, ``from <parameterisation>: <reference>``), with each merged
     value set at the path the target names it by -- ``<vessel>/<variable>`` in a
@@ -1154,9 +1205,22 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
     kind = pf.MODEL if target.kind == 'array' else pf.MODULE
+    path = path or target.file('calibrated_parameters.json')
+    own = pf.read_parameters_file(target.parameters_path, kind=kind)
+    modified = getattr(target, 'model', None)
+    modified = modified if isinstance(modified, ModifiedArray) else None
+    if modified is not None:
+        # a modified target exists only in the run: its module array goes beside the values
+        own = modified.parameters_document(own)
+        array = os.path.join(os.path.dirname(os.path.abspath(path)),
+                             f'{modified.step}_module_array.json')
+        if os.path.isfile(array) and _read_json(array) != modified.records:
+            raise WorkflowError(f'{array} exists and is not the module array of modify step '
+                                f'"{modified.step}"; it is not overwritten. Write the calibrated '
+                                f'parameters elsewhere, or rename the step.')
     doc = target_generated_parameters(target, library_inputs, generated_path)
     # the target's own leaves as it writes them (a library's "sourced" kept)
-    for place, leaf in pf.leaves(pf.read_parameters_file(target.parameters_path, kind=kind)):
+    for place, leaf in pf.leaves(own):
         pf.set_leaf(doc, place, leaf)
     today = datetime.date.today().isoformat()
     for record in merged_parameters:
@@ -1172,7 +1236,9 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
         if 'sourced' in leaf:
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)
-    return pf.write_parameters_file(path or target.file('calibrated_parameters.json'), doc)
+    if modified is not None:
+        _write_json(array, modified.records)
+    return pf.write_parameters_file(path, doc)
 
 
 def _write_params_for_id_with_priors(source_path, out_path, priors, step_id):
@@ -1213,7 +1279,7 @@ def plan_workflow(source, module_library_dirs=None):
                               'in_step': naming.model_name(vessel, p.param) if vessel else None})
         entry = {
             'id': step.id, 'kind': step.kind,
-            'model': step.model.as_dict() if step.model is not None else None,
+            'model': step_model_dict(step),
             'place': rs.place if step.model is not None else '',
             'depends_on': list(step.depends_on),
             'obs_data': rs.obs_data_path,
@@ -1225,11 +1291,16 @@ def plan_workflow(source, module_library_dirs=None):
             'fixed_from': fixed,
             'priors_from': [p.as_dict() for p in step.priors_from],
             'store_distribution': step.store_distribution,
-            'settings': workflow.step_settings(step) if step.model is not None else {},
+            'settings': (workflow.step_settings(step)
+                         if step.model is not None and step.kind != 'modify' else {}),
         }
-        for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from'):
+        for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from',
+                    'model_from'):
             if getattr(step, key):
                 entry[key] = getattr(step, key)
+        if step.kind == 'modify':
+            entry['changes'] = copy.deepcopy(step.changes)
+            entry['records'] = [r['name'] for r in step.model.records]
         if rs.selection is not None:
             # what the selection runs as: its library module at one instance, or the cut array
             entry['selection'] = (

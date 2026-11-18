@@ -28,6 +28,7 @@ import shutil
 
 from libcuflynx.calibration_workflow.resolve import resolve_workflow
 from libcuflynx.calibration_workflow.spec import (PATH_SETTINGS, WORKFLOW_FILE_NAME,
+                                                  ModifiedArray,
                                                   load_workflow)
 
 INPUTS_DIR = 'inputs'
@@ -183,8 +184,9 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     raw = copy.deepcopy(workflow.raw)
 
     def model(spec_model, owner):
-        if spec_model.kind in ('library', 'selection'):
-            return spec_model.as_dict()    # a selection's files are the target's
+        if spec_model.kind in ('library', 'selection') or isinstance(spec_model, ModifiedArray):
+            # a selection's files are the target's; a modify step's model is named by its id
+            return spec_model.as_dict()
         array = packer.file(spec_model.module_array, owner)
         packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}
@@ -207,7 +209,10 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     for raw_step, step in zip(raw['steps'], workflow.steps):
         if step.model is None:
             continue                   # a reduction or set step names no files
-        if not raw_step.get('on_target'):
+        if step.kind == 'modify':
+            # the model it changes: its files, or another modify step's
+            raw_step['model'] = model(step.model.base, step.id)
+        elif not raw_step.get('on_target'):
             # a sweep on the target runs on the packed target, so it names no model of its own
             raw_step['model'] = model(step.model, step.id)
         if step.obs_data:

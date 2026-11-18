@@ -5,6 +5,20 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — modify steps: change a calibrated model's module array and keep its values
+
+- A calibration workflow step of `"kind": "modify"` changes the module array of its `model`
+  (`changes`: `add`, `remove` or `change` a record, `connect` or `disconnect` two, each with a
+  `reason`) and keeps every value of its parameters file; a new record takes its
+  parameterisation's values from the module library. Later steps and the workflow's `target` name
+  the result `{"from": "<step id>"}`. The step runs nothing: it writes
+  `<step>/<step>_module_array.json` and `<step>_parameters.json`. A modified target's calibrated
+  parameters get `<step>_module_array.json` beside them. The provenance diagram and the methods
+  text show each change with its reason.
+- Why: a model calibrated earlier (a whole-body model fitted to a patient) can gain a module (a
+  haemoglobin compartment) inside a workflow, without re-fitting or copying files by hand, and the
+  record of the run says what was changed and why.
+
 ### Changed — the built-in hearts compute their chamber phases from the beat phase
 
 - The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,

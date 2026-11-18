@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from libcuflynx.calibration_workflow import naming
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
-from libcuflynx.calibration_workflow.spec import WorkflowError
+from libcuflynx.calibration_workflow.spec import ModifiedArray, WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
 from libcuflynx.utilities.parameterisations import parameterisations_dir
@@ -259,6 +259,12 @@ def resolve_workflow(workflow):
         if step.kind == 'set':
             resolved[step.id] = _resolve_set_step(step, target, claimed)
             continue
+        if step.kind == 'modify':
+            # calibrates nothing: its model is what later steps and the target run on
+            model = _resolve_model(step.model, components, supermodules, where)
+            resolved[step.id] = ResolvedStep(step=step, model=model, target=target,
+                                             vessel_map=naming.Renamed({}, model.vessels))
+            continue
         selection = None
         if step.model.kind == 'selection':
             selection = resolve_selection(step, target, components, supermodules)
@@ -376,6 +382,14 @@ def _resolve_model(model, components, supermodules, where):
     for path, what in ((model.module_array, 'module array'), (model.parameters, 'parameters')):
         if not os.path.isfile(path):
             raise WorkflowError(f'{where}: its {what} file {path} does not exist.')
+    if isinstance(model, ModifiedArray):
+        for record in model.records:
+            key = (record['module_type'], record['module_subtype'])
+            if key not in components and key not in supermodules:
+                raise WorkflowError(
+                    f'{where}: record "{record["name"]}" of {model.label()} is module '
+                    f'{key[0]} version {key[1]}, which is not in the module library.')
+        return ResolvedArray(model=model, records=model.records, supermodules=supermodules)
     try:
         records = read_module_array_records(model.module_array)
     except Exception as exc:  # the readers raise a variety of errors for a malformed file

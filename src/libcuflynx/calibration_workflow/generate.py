@@ -104,9 +104,10 @@ def generate_module_array(model, work_dir, file_prefix, overrides=(), library_in
                           model_type='cellml', solver=None, protocol=None):
     '''Generate the module array ``model`` (a spec.ModuleArray) under ``work_dir``, from a copy
     of its module array and its parameters file. ``overrides`` (rows named as a model's parameters
-    file names them) are set over the parameters file's values. A select.SelectedArray is written
-    from its records, its parameters file holding the target's entries of its supermodule
-    instances with ``overrides`` over them. Returns as :func:`generate_parameterisation`.'''
+    file names them) are set over the parameters file's values. A model that holds its records
+    (a select.SelectedArray, a spec.ModifiedArray) is written from them, with the entries of its
+    parameters file it keeps (its ``parameters_document``). Returns as
+    :func:`generate_parameterisation`.'''
     work_dir = os.path.abspath(work_dir)
     resources_dir = os.path.join(work_dir, 'resources')
     os.makedirs(resources_dir, exist_ok=True)
@@ -117,9 +118,7 @@ def generate_module_array(model, work_dir, file_prefix, overrides=(), library_in
         array = os.path.join(resources_dir, f'{file_prefix}_module_array.json')
         with open(array, 'w') as f:
             json.dump(records, f, indent=1)
-        doc = dict(parameters_file.new_document(),
-                   **{r['name']: doc[r['name']] for r in records
-                      if r['name'] in doc and not parameters_file.is_leaf(doc[r['name']])})
+        doc = model.parameters_document(doc)
     else:
         extension = os.path.splitext(model.module_array)[1].lower() or '.csv'
         array = os.path.join(resources_dir, f'{file_prefix}_module_array{extension}')

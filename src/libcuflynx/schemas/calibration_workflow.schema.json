@@ -108,8 +108,174 @@
         },
         {
           "$ref": "#/$defs/library_module"
+        },
+        {
+          "$ref": "#/$defs/model_from"
         }
       ]
+    },
+    "model_from": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a modify step: its module array, with every value of the parameters file it changed"
+        }
+      },
+      "description": "the model a modify step makes"
+    },
+    "module_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "add": {
+          "type": "object",
+          "required": [
+            "name",
+            "module_type",
+            "module_subtype"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^\\s*\\S+\\s*$"
+            },
+            "module_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "module_subtype": {
+              "type": "string",
+              "minLength": 1,
+              "description": "the module's version"
+            },
+            "parameterisation": {
+              "type": "string",
+              "minLength": 1,
+              "description": "the parameterisation its values come from (default: its version's default)"
+            },
+            "inp_instances": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "records it takes input from; each lists it among its out_instances"
+            },
+            "out_instances": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "records it outputs to; each lists it among its inp_instances"
+            }
+          },
+          "description": "a record added to the module array, as a module array writes one; its values come from its parameterisation"
+        },
+        "remove": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a record removed, with its links and its entry in the parameters file"
+        },
+        "change": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name"
+          ],
+          "minProperties": 2,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "module_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "module_subtype": {
+              "type": "string",
+              "minLength": 1,
+              "description": "the module's version"
+            },
+            "parameterisation": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "a record given another module, version or parameterisation; its links and its values in the parameters file are kept"
+        },
+        "connect": {
+          "$ref": "#/$defs/module_link",
+          "description": "a link added: from outputs to to"
+        },
+        "disconnect": {
+          "$ref": "#/$defs/module_link",
+          "description": "a link removed"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "why the model is changed so: shown wherever the step is reported"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "add"
+          ]
+        },
+        {
+          "required": [
+            "remove"
+          ]
+        },
+        {
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "required": [
+            "connect"
+          ]
+        },
+        {
+          "required": [
+            "disconnect"
+          ]
+        }
+      ],
+      "description": "one change of a modify step: one of add, remove, change, connect or disconnect, with its reason"
+    },
+    "module_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the record that outputs (out_instances)"
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the record that takes it as input (inp_instances)"
+        }
+      }
     },
     "step_model": {
       "if": {
@@ -508,10 +674,11 @@
             "emulation",
             "identifiability",
             "set",
-            "sweep"
+            "sweep",
+            "modify"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. modify: changes its model's module array (changes) and keeps every value of its parameters file; later steps and the target name the result {\"from\": <step id>}. A step of any other kind than reduction, set, sweep or modify needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -605,6 +772,14 @@
             "$ref": "#/$defs/set_entry"
           },
           "description": "a set step: the values it declares"
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/module_change"
+          },
+          "description": "a modify step: the changes it makes to its model's module array, in order"
         },
         "sweep": {
           "type": "object",
@@ -764,10 +939,36 @@
           "if": {
             "properties": {
               "kind": {
+                "const": "modify"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "model",
+              "changes"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "changes"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
                 "enum": [
                   "reduction",
                   "set",
-                  "sweep"
+                  "sweep",
+                  "modify"
                 ]
               }
             },

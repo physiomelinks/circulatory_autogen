@@ -20,23 +20,29 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
   values go no further: no step takes from it and it does not reach the target. With
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
-  as the target merges them (a later step wins), after all of those steps.
+  as the target merges them (a later step wins), after all of those steps;
+* ``modify`` -- changes the module array of its ``model`` (``changes``: add, remove or change a
+  record, connect or disconnect two) and keeps every value of its parameters file. It runs
+  nothing: later steps and the ``target`` name the modified model as ``{"from": <step id>}``
+  (see :class:`ModifiedArray`).
 
-Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an ordinary run: a
+Every kind but ``reduction``, ``set``, ``sweep`` and ``modify`` names the three inputs of an ordinary run: a
 ``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep names a ``model``, and an
 ``obs_data`` file when its protocol or features come from one. A model is either
 
 * a module array of CA (``"resources/aorta_module_array.csv"``, or
   ``{"module_array": ..., "parameters": ...}`` when its parameters file is not
   ``<prefix>_parameters.json`` beside it), or
-* a module of a module library, ``{"module_type", "version", "parameterisation"}``.
+* a module of a module library, ``{"module_type", "version", "parameterisation"}``, or
+* the module array a ``modify`` step makes, ``{"from": <step id>}``.
 
 Paths are relative to the workflow file. A step may take the calibrated values of earlier steps
 as fixed parameter values (``fixed_from``) or, from steps that stored their posterior
 (``store_distribution``), as priors (``priors_from``).
 
-Only the file is checked here. Whether its files and modules exist, and where a step's model sits
-in the target, is checked in ``resolve.py``.
+Only the file is checked here, and the module arrays modify steps change are read, to make
+their models. Whether the other files and the modules exist, and where a step's model sits in the
+target, is checked in ``resolve.py``.
 '''
 
 import copy
@@ -63,7 +69,7 @@ PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
-              'sweep')
+              'sweep', 'modify')
 DEFAULT_KIND = 'calibration'
 #: the kinds that name no model, and read no files of their own
 _NO_MODEL_KINDS = ('reduction', 'set')
@@ -72,7 +78,8 @@ INHERITED_BASE = 'inherited'
 #: the source keys of a step and the kinds of step each may name
 SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulation',),
                 'result_from': ('calibration',), 'sensitivity_from': ('sensitivity',),
-                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set')}
+                'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set'),
+                'model_from': ('modify',)}
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
 _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
                                 'sweep'),
@@ -80,6 +87,10 @@ _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'iden
                  'result_from': ('sensitivity', 'identifiability', 'sweep'),
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation')}
+#: the operations of a modify step's change (each change has one, and a reason)
+MODIFY_OPERATIONS = ('add', 'remove', 'change', 'connect', 'disconnect')
+#: the keys of a record a modify step's ``change`` may set
+CHANGEABLE_RECORD_KEYS = ('module_type', 'module_subtype', 'parameterisation')
 #: the analysis options each kind needs in its settings
 _KIND_SETTINGS = {'sensitivity': 'sa_options', 'identifiability': 'ia_options'}
 # a module array file's name is <prefix><suffix>
@@ -146,6 +157,49 @@ class Selection:
         return {'select': list(self.names)}
 
 
+@dataclass(frozen=True)
+class ModelFrom:
+    '''A model named as the one a modify step makes, ``{"from": <step id>}``, until the workflow
+    is read and it becomes that step's :class:`ModifiedArray`.'''
+    step: str
+
+    kind = 'from'
+
+    def label(self):
+        return f'the model of step "{self.step}"'
+
+    def as_dict(self):
+        return {'from': self.step}
+
+
+@dataclass(frozen=True)
+class ModifiedArray(ModuleArray):
+    '''The module array a modify step (``step``) makes: the ``records`` of its base model
+    (``base``, a ModuleArray or another step's ModifiedArray) with its changes made. Its
+    parameters are the base's parameters file (``parameters``; ``module_array`` is the base's
+    file), less the entries of the records it ``removed``. A record added has no entry there, so
+    generation gives it the values of its parameterisation in the module library.'''
+    step: str = ''
+    base: object = field(default=None, compare=False)
+    records: list = field(default_factory=list, compare=False)
+    removed: tuple = field(default=(), compare=False)
+
+    @property
+    def prefix(self):
+        return self.step
+
+    def label(self):
+        return f'{self.base.label()} modified by step "{self.step}"'
+
+    def as_dict(self):
+        return {'from': self.step}
+
+    def parameters_document(self, doc):
+        '''The parameters document ``doc`` (the base's parameters file) without the entries of
+        the records removed.'''
+        return {key: value for key, value in doc.items() if key not in self.removed}
+
+
 def array_prefix(path):
     '''The file prefix of a module array file (``aorta`` for ``aorta_module_array.csv``).'''
     name = os.path.basename(path)
@@ -192,9 +246,21 @@ class Step:
     reduction: dict = field(default_factory=dict)
     set_values: list = field(default_factory=list)   # (set) the entries it declares
     sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
+    changes: list = field(default_factory=list)      # (modify) the changes it makes
     on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
     description: str = ''
+
+    @property
+    def model_from(self):
+        '''The modify step whose model this step runs on (a modify step's: its base's), or
+        None.'''
+        model = self.model
+        if self.kind == 'modify' and isinstance(model, ModifiedArray):
+            model = model.base
+        if isinstance(model, (ModelFrom, ModifiedArray)):
+            return model.step
+        return None
 
     def sources(self):
         '''``{key: [step ids]}`` of every step this one takes something from.'''
@@ -203,6 +269,8 @@ class Step:
         for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from'):
             if getattr(self, key):
                 out[key] = [getattr(self, key)]
+        if self.model_from:
+            out['model_from'] = [self.model_from]
         scaled = scale_sources(self.set_values)
         if scaled:
             out['scale_from'] = scaled
@@ -324,6 +392,7 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
                         module_library_dirs=library_dirs,
                         description=raw.get('description', '') or '', path=path, raw=raw,
                         external_figures=copy.deepcopy(raw.get('external_figures', [])))
+    _make_modified_models(workflow, where)
     _place_target_sweeps(workflow)
     check_workflow(workflow)
     _check_external_figures(workflow, where)
@@ -374,6 +443,123 @@ def _place_target_sweeps(workflow):
             step.depends_on = list(sources)
 
 
+def _make_modified_models(workflow, where):
+    '''Each modify step's model made (:class:`ModifiedArray`), and every ``{"from": <step id>}``
+    model and target replaced by the model of the step it names.'''
+    steps = {s.id: s for s in workflow.steps}
+    made, making = {}, []
+
+    def modified(step_id, needed_by):
+        step = steps.get(step_id)
+        if step is None or step.kind != 'modify':
+            what = f'a {step.kind} step' if step else 'not a step'
+            raise WorkflowError(f'{where}: {needed_by} names the model {{"from": "{step_id}"}}, '
+                                f'but "{step_id}" is {what}; "from" names a modify step.')
+        if step_id in made:
+            return made[step_id]
+        if step_id in making:
+            raise WorkflowError(f'{where}: modify steps {making} take their models from each '
+                                f'other in a cycle.')
+        making.append(step_id)
+        base = step.model
+        if isinstance(base, ModelFrom):
+            base = modified(base.step, f'step "{step_id}"')
+        made[step_id] = apply_changes(base, step, where)
+        making.remove(step_id)
+        return made[step_id]
+
+    for step in workflow.steps:
+        if step.kind == 'modify':
+            step.model = modified(step.id, f'step "{step.id}"')
+        elif isinstance(step.model, ModelFrom):
+            step.model = modified(step.model.step, f'step "{step.id}"')
+            if step.model.step not in step.depends_on:
+                step.depends_on.append(step.model.step)
+    if isinstance(workflow.target, ModelFrom):
+        workflow.target = modified(workflow.target.step, 'the target')
+
+
+def apply_changes(base, step, where=''):
+    '''The :class:`ModifiedArray` of modify step ``step``: the records of ``base`` (a
+    ModuleArray, read from its file, or a ModifiedArray) with ``step.changes`` made in order.
+
+    A record's links are kept on both sides: adding a record lists it among the outputs of each
+    record it takes input from and among the inputs of each it outputs to, removing one drops it
+    from every list, and ``connect``/``disconnect`` (``from`` -> ``to``) change ``from``'s
+    out_instances and ``to``'s inp_instances. A new link goes at the end of each list.'''
+    from libcuflynx.utilities.config_schemas import read_module_array_records
+    label = f'{where}: modify step "{step.id}"' if where else f'modify step "{step.id}"'
+    if isinstance(base, ModifiedArray):
+        records, removed = copy.deepcopy(base.records), list(base.removed)
+    elif type(base) is ModuleArray:
+        if not os.path.isfile(base.module_array):
+            raise WorkflowError(f'{label}: its module array {base.module_array} does not '
+                                f'exist.')
+        try:
+            records = read_module_array_records(base.module_array)
+        except Exception as exc:  # the readers raise a variety of errors for a malformed file
+            raise WorkflowError(f'{label}: cannot read {base.module_array}: {exc}') from exc
+        removed = []
+    else:
+        raise WorkflowError(f'{label}: a modify step changes a module array, not '
+                            f'{base.label()}.')
+    by_name = {r['name']: r for r in records}
+
+    def record(name, n):
+        if name not in by_name:
+            raise WorkflowError(f'{label}, change {n}: there is no record "{name}" (records: '
+                                f'{sorted(by_name)}).')
+        return by_name[name]
+
+    def link(first, second, n, add):
+        source, receiver = record(first, n), record(second, n)
+        linked = second in source['out_instances'] or first in receiver['inp_instances']
+        if add and linked:
+            raise WorkflowError(f'{label}, change {n}: "{first}" already outputs to "{second}".')
+        if not add and not linked:
+            raise WorkflowError(f'{label}, change {n}: "{first}" does not output to '
+                                f'"{second}".')
+        for names, other in ((source['out_instances'], second),
+                             (receiver['inp_instances'], first)):
+            if add and other not in names:
+                names.append(other)
+            while not add and other in names:
+                names.remove(other)
+
+    for n, change in enumerate(step.changes, start=1):
+        operation = next(op for op in MODIFY_OPERATIONS if op in change)
+        value = change[operation]
+        if operation == 'add':
+            new = dict(copy.deepcopy(value), inp_instances=[], out_instances=[])
+            if new['name'] in by_name:
+                raise WorkflowError(f'{label}, change {n}: there is already a record '
+                                    f'"{new["name"]}".')
+            records.append(new)
+            by_name[new['name']] = new
+            for other in value.get('inp_instances', []):
+                link(other, new['name'], n, True)
+            for other in value.get('out_instances', []):
+                link(new['name'], other, n, True)
+        elif operation == 'remove':
+            records.remove(record(value, n))
+            del by_name[value]
+            for other in records:
+                for key in ('inp_instances', 'out_instances'):
+                    other[key] = [name for name in other[key] if name != value]
+            removed.append(value)
+        elif operation == 'change':
+            record(value['name'], n).update(
+                {key: value[key] for key in CHANGEABLE_RECORD_KEYS if key in value})
+        else:
+            link(value['from'], value['to'], n, operation == 'connect')
+    root = base
+    while isinstance(root, ModifiedArray):
+        root = root.base
+    return ModifiedArray(module_array=root.module_array, parameters=root.parameters,
+                         step=step.id, base=base, records=records,
+                         removed=tuple(dict.fromkeys(removed)))
+
+
 def _path(value, base_dir):
     value = os.path.expanduser(value.strip())
     return value if os.path.isabs(value) else os.path.normpath(os.path.join(base_dir, value))
@@ -385,6 +571,8 @@ def _model(value, base_dir):
     (a step's) a selection of the target's instances ``{"select": [...]}``.'''
     if isinstance(value, str):
         value = {'module_array': value}
+    if 'from' in value:
+        return ModelFrom(value['from'].strip())
     if 'select' in value:
         return Selection(tuple(name.strip() for name in value['select']))
     if 'module_array' in value:
@@ -495,6 +683,19 @@ def _step(value, where, base_dir):
                     settings={'param_reduction_options': options},
                     description=value.get('description', '') or '')
 
+    if kind == 'modify':
+        named = sorted(set(value) - {'id', 'kind', 'model', 'changes', 'description', 'comment'})
+        if named:
+            raise WorkflowError(f'{label}: a modify step changes its model\'s module array and '
+                                f'runs nothing, so it has no {named}.')
+        model = _model(value['model'], base_dir)
+        if model.kind not in ('array', 'from'):
+            raise WorkflowError(f'{label}: a modify step changes a module array (a file, or '
+                                f'{{"from": <a modify step>}}), not {model.label()}.')
+        return Step(id=step_id, model=model, obs_data=None, params_for_id=None, kind=kind,
+                    depends_on=[model.step] if model.kind == 'from' else [],
+                    changes=[_change(c) for c in value['changes']],
+                    description=value.get('description', '') or '')
     if value.get('on_target'):
         if kind != 'sweep':
             raise WorkflowError(f'{label}: "on_target" is for a sweep step, not a {kind} step.')
@@ -543,6 +744,26 @@ def _step(value, where, base_dir):
                 sweep=_sweep(value['sweep']) if kind == 'sweep' else {},
                 settings=_settings(value.get('settings', {}), base_dir),
                 description=value.get('description', '') or '')
+
+
+def _change(value):
+    '''One change of a modify step, its names stripped.'''
+    change = copy.deepcopy(value)
+    change['reason'] = change['reason'].strip()
+    operation = next(op for op in MODIFY_OPERATIONS if op in change)
+    if operation == 'remove':
+        change['remove'] = change['remove'].strip()
+    elif operation in ('connect', 'disconnect'):
+        change[operation] = {k: v.strip() for k, v in change[operation].items()}
+    else:
+        item = change[operation]
+        for key in ('name',) + CHANGEABLE_RECORD_KEYS:
+            if isinstance(item.get(key), str):
+                item[key] = item[key].strip()
+        for key in ('inp_instances', 'out_instances'):
+            if key in item:
+                item[key] = [name.strip() for name in item[key]]
+    return change
 
 
 def _set_entry(value):

@@ -86,6 +86,8 @@ def _sources(raw_step):
     scaled = scale_sources(raw_step.get('set') or [])
     if scaled:
         out['scale_from'] = scaled
+    if isinstance(raw_step.get('model'), dict) and raw_step['model'].get('from'):
+        out['model_from'] = [raw_step['model']['from']]     # the modify step it runs on
     return out
 
 
@@ -146,7 +148,7 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
-            'set': raw.get('set'), 'sweep': raw.get('sweep'),
+            'set': raw.get('set'), 'sweep': raw.get('sweep'), 'changes': raw.get('changes'),
             'on_target': bool(raw.get('on_target'))})
     return steps
 
@@ -175,6 +177,19 @@ def _figure_node(parent_id, paths, output_dir, stale):
 def _target_model(run):
     target = (run['result'] or {}).get('target') or run['workflow'].get('target')
     return {'module_array': target} if isinstance(target, str) else target
+
+
+def _source_model(run):
+    '''The model the target is generated from: the target, or for a model a modify step made,
+    the model that step (or the first of a chain of them) changed.'''
+    model = _target_model(run)
+    steps = {s.get('id'): s for s in run['workflow'].get('steps', [])}
+    seen = set()
+    while isinstance(model, dict) and model.get('from') in steps and model['from'] not in seen:
+        seen.add(model['from'])
+        model = steps[model['from']].get('model')
+        model = {'module_array': model} if isinstance(model, str) else model
+    return model
 
 
 def _number(text):
@@ -490,7 +505,8 @@ def provenance_graph(output_dir):
                     counts=_step_counts(step_result) if done else {},
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
-        if done and node['kind'] == 'values':
+        if done and node['kind'] == 'values' and node['parameters']:
+            # a set step's values; a modify step's node keeps its changes
             node['lines'] = [_described(v) for v in node['parameters']]
         if done and 'n_points' in step_result:
             points = step_result['n_points']
@@ -518,7 +534,7 @@ def provenance_graph(output_dir):
     source_counts = _counts(source_values)
     source = {'id': SOURCE_NODE, 'title': 'Model source', 'kind': 'source',
               'mark': _mark(source_counts),
-              'lines': [flowchart.model_line(_target_model(run))] +
+              'lines': [flowchart.model_line(_source_model(run))] +
                        [f'{source_counts[m]} {_MARK_LABELS[m]}' for m in (INHERITED, UNCLASSIFIED)
                         if source_counts[m]],
               'status': 'done', 'stale': False, 'counts': source_counts,

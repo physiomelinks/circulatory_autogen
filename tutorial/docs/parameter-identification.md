@@ -1407,6 +1407,7 @@ of calibrations and `set` steps are merged into the target.
 | `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
 | `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
+| `modify` | changes a module array (adds, removes or changes records, links them), keeping every value of its parameters file | `model` (a module array), `changes`, each with a reason; no files or settings | the modify step whose model it changes |
 
 The keys that pass something on, each naming one step of the kind shown:
 
@@ -1418,6 +1419,42 @@ The keys that pass something on, each naming one step of the kind shown:
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
 | `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
+| `"model": {"from": ...}` | modify | the module array it made, as this step's model (or the workflow's `target`) |
+
+A **modify step** changes a model's module array and keeps its values: a model calibrated
+earlier gets a new module without losing what was calibrated. Its `model` is a module array (or
+`{"from": <another modify step>}`), and its `changes` are made in order, each with a `reason`:
+
+```json
+{"id": "add_hgb", "kind": "modify", "model": "resources/cvs_ans_module_array.csv",
+ "changes": [
+   {"add": {"name": "hgb", "module_type": "haemoglobin_mass", "module_subtype": "v1",
+            "inp_instances": ["venous_ivc"], "out_instances": ["pulmonary_GE"]},
+    "reason": "saline dilutes haemoglobin"},
+   {"change": {"name": "pulmonary_GE", "module_subtype": "Hgb_port_v1"},
+    "reason": "takes its saturation content from hgb"},
+   {"connect": {"from": "hgb", "to": "arterial_chemoreceptor"}, "reason": "SpO2 uses Hgb"},
+   {"disconnect": {"from": "a", "to": "b"}, "reason": "..."},
+   {"remove": "old_record", "reason": "..."}
+ ]},
+{"id": "fit_hgb", "model": {"from": "add_hgb"}, "obs_data": "...", "params_for_id": "..."}
+```
+
+`add` takes a record as a module array writes one; each record in its `inp_instances` lists it
+among its `out_instances`, and each in its `out_instances` among its `inp_instances`. `connect`
+and `disconnect` change `from`'s `out_instances` and `to`'s `inp_instances`; a new link goes at the
+end of each list. `change` gives a record another `module_type`, `module_subtype` (version) or
+`parameterisation`, and keeps its links and values. `remove` drops a record, its links and its
+entry in the parameters file. Every other value of the parameters file is kept; a new record has
+none there, so it takes its parameterisation's values from the module library.
+
+The step runs nothing: it writes the model it makes, `<step_id>/<step_id>_module_array.json` and
+`<step_id>_parameters.json`. Later steps, and the `target`, name it `{"from": "<step_id>"}` and run
+after it; a change to its `changes` makes them stale. A modified target's calibrated parameters
+are `<step_id>_calibrated_parameters.json` beside the parameters file it changed, with
+`<step_id>_module_array.json` beside them (an existing, different file of that name is not
+overwritten). In the provenance diagram the step is a box of changes made by hand, each with its
+reason.
 
 A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
 entry names a parameter as the target does, and gives a `reason`:

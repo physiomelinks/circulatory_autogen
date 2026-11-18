@@ -447,7 +447,8 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'emulation': ('emulator training', 'emulator trainings'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
-              'sweep': ('parameter sweep', 'parameter sweeps')}
+              'sweep': ('parameter sweep', 'parameter sweeps'),
+              'modify': ('change of the model', 'changes of the model')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -470,7 +471,7 @@ def _step_section(step, symbols, entries=()):
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) in ('reduction', 'set'):
+    if _kind(step) in ('reduction', 'set', 'modify'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
@@ -604,9 +605,12 @@ def _step_intro(step):
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
         return 'This step sets values by hand: ' + '; '.join(lines) + '.'
     m = step['model']
-    if 'module_array' in m:
-        what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
-        where = ''
+    if _kind(step) == 'modify':
+        lines = [flowchart.latex(flowchart.change_line(change)) for change in step['changes']]
+        return (f'This step changes {_model_text(m)} by hand, keeping every value of its '
+                f'parameters file: ' + '; '.join(lines) + '.')
+    if 'module_array' in m or 'from' in m:
+        what, where = _model_text(m), ''
     else:
         what = (f'parameterisation {_tt(m["parameterisation"])} of module '
                 f'{_tt(m["module_type"])} (version {_tt(m["version"])})')
@@ -620,6 +624,13 @@ def _step_intro(step):
     against = (f', against the observations in {_tt(os.path.basename(step["obs_path"]))}'
                if step['obs_path'] else '')
     return f'This step {verb} {what}{where}{at}{against}.'
+
+
+def _model_text(model):
+    '''A module-array model in words: its file, or the step that made it.'''
+    if 'from' in model:
+        return f'the model made in step {escape(model["from"])}'
+    return f'the model {_tt(_array_label(model))} ({_tt(os.path.basename(model["module_array"]))})'
 
 
 def _array_label(model):
@@ -655,6 +666,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     ``bib_out`` is a .bib file to write the cited entries to, for ``\\bibliography``.
     '''
     from libcuflynx.calibration_workflow import load_workflow, resolve_workflow, workflow_model
+    from libcuflynx.calibration_workflow.runner import step_model_dict
 
     workflow = load_workflow(workflow_path, module_library_dirs)
     resolved = resolve_workflow(workflow)
@@ -691,8 +703,12 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
             'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
+            'changes': step.changes, 'model_from': step.model_from,
         }
-        if step.kind == 'sweep':
+        if step.kind == 'modify':
+            entry.update({'model': step_model_dict(step), 'place': '', 'to_target': None,
+                          'obs_path': None, 'obs': {}, 'params': []})
+        elif step.kind == 'sweep':
             entry.update({'model': step.model.as_dict(), 'place': rs.place,
                           'to_target': rs.to_target, 'obs_path': rs.obs_data_path,
                           'obs': {}, 'params': []})

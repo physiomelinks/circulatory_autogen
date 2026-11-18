@@ -66,6 +66,13 @@ class SelectedArray(ModuleArray):
     def as_dict(self):
         return {'select': list(self.names)}
 
+    def parameters_document(self, doc):
+        '''The target's parameters document ``doc`` cut to the entries of the selected
+        supermodule instances; the other values come as the step's base rows.'''
+        return dict(parameters_file.new_document(),
+                    **{r['name']: doc[r['name']] for r in self.records
+                       if r['name'] in doc and not parameters_file.is_leaf(doc[r['name']])})
+
 
 @dataclass
 class ResolvedSelection:

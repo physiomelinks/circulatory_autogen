@@ -129,12 +129,16 @@ def _model_name(model):
     if 'module_array' in model:
         from libcuflynx.calibration_workflow.spec import array_prefix
         return array_prefix(model['module_array'])
+    if 'from' in model:
+        return model['from']
     return model['module_type']
 
 
 def _model_detail(model):
     if 'module_array' in model:
         return 'module array'
+    if 'from' in model:
+        return f'module array modified by step `{model["from"]}`'
     return f'parameterisation `{model["parameterisation"]}`'
 
 
@@ -144,13 +148,35 @@ def model_line(model):
         return f'selection `{", ".join(model["select"])}` of the target'
     if 'module_array' in model:
         return f'model `{_model_name(model)}`'
+    if 'from' in model:
+        return f'model of step `{model["from"]}`'
     return f'`{model["module_type"]}`, parameterisation `{model["parameterisation"]}`'
+
+
+def change_line(change):
+    '''One change of a modify step, with its reason.'''
+    if 'add' in change:
+        record = change['add']
+        how = (f'`{record["name"]}` added: `{record["module_type"]}` '
+               f'`{record["module_subtype"]}`')
+    elif 'remove' in change:
+        how = f'`{change["remove"]}` removed'
+    elif 'change' in change:
+        record = change['change']
+        how = f'`{record["name"]}` changed: ' + ', '.join(
+            f'{key} `{value}`' for key, value in record.items() if key != 'name')
+    else:
+        operation = 'connect' if 'connect' in change else 'disconnect'
+        link = change[operation]
+        how = f'`{link["from"]}` -> `{link["to"]}` {operation}ed'
+    return f'{how}: {change["reason"]}'
 
 
 #: what an edge from each source key is labelled
 _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from': 'emulator',
                   'result_from': 'at its fit', 'sensitivity_from': 'indices',
-                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from'}
+                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from',
+                  'model_from': 'model'}
 #: the kinds whose values are merged into the target
 MERGED_KINDS = ('calibration', 'set')
 
@@ -239,6 +265,10 @@ def workflow_graph(steps):
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
+        elif kind == 'modify':
+            lines = ([model_line(s['model'])] if s.get('model') else []) + \
+                [change_line(change) for change in s.get('changes') or []] + \
+                ['every value of its parameters file kept']
         elif s.get('model') is None:
             lines = ['not run']
         elif kind == 'sweep':
@@ -250,8 +280,10 @@ def workflow_graph(steps):
                      _kind_line(s)]
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
+        # a modify step, like a set step, is made by hand
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
-                      'kind': {'calibration': 'step', 'set': 'values'}.get(kind, 'analysis')})
+                      'kind': {'calibration': 'step', 'set': 'values',
+                               'modify': 'values'}.get(kind, 'analysis')})
         if s.get('on_target'):
             # it runs on the merged target, which the merge edges already draw
             edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
