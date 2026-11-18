@@ -35,7 +35,8 @@ is rewritten only when its content changes, so the runner's change detection (th
 each input file) finds exactly the steps whose data or functions changed, and
 :meth:`~WorkflowBuilder.run` runs those and the steps after them, keeping the rest. A functions
 file carries the checksum of what was generated (``utilities.user_funcs_file``): the builder
-regenerates one nobody edited and refuses to replace one edited by hand, unless told to
+regenerates one nobody edited, but refuses to replace one edited by hand, or one holding
+functions the builder does not have (added by another writer), unless told to
 (``overwrite=True``).
 '''
 
@@ -597,7 +598,8 @@ class WorkflowBuilder:
     def add_reduction(self, id, *, sensitivity_from, method='pca', n_params=None,
                       index_type=None, criterion=None, threshold=None, min_mode_std=None,
                       variance_fraction=None, min_index=None, redundancy_check=None,
-                      description=None, comment=None):
+                      redundancy_statistic=None, redundancy_converged_only=None,
+                      redundancy_convergence_tol=None, description=None, comment=None):
         """Add a reduction: choose the parameters a later step calibrates
         (its ``params_for_id_from``) from the Sobol indices of a sensitivity step.
 
@@ -616,6 +618,12 @@ class WorkflowBuilder:
                 variance (default 1, no cut).
             min_index: pca: skip a mode whose largest index is below this (default 0.05).
             redundancy_check: the check for parameters with the same effect on the outputs.
+            redundancy_statistic: pca with redundancy_check: ``'median'`` (default) or ``'rms'``
+                of a parameter's unexplained effect over the local Jacobian points.
+            redundancy_converged_only: pca with redundancy_check: leave out the points whose
+                derivatives change with the step (needs ``sa_options.jacobian_check_steps``).
+            redundancy_convergence_tol: the largest relative change between the two steps
+                (default 0.1).
             description, comment: free text.
 
         The options are written as the step's ``settings.param_reduction_options``; those
@@ -624,7 +632,10 @@ class WorkflowBuilder:
         options = {k: v for k, v in dict(
             method=method, n_params=n_params, index_type=index_type, criterion=criterion,
             threshold=threshold, min_mode_std=min_mode_std, variance_fraction=variance_fraction,
-            min_index=min_index, redundancy_check=redundancy_check).items() if v is not None}
+            min_index=min_index, redundancy_check=redundancy_check,
+            redundancy_statistic=redundancy_statistic,
+            redundancy_converged_only=redundancy_converged_only,
+            redundancy_convergence_tol=redundancy_convergence_tol).items() if v is not None}
         return self.add_step(id, kind='reduction', sensitivity_from=sensitivity_from,
                              settings={'param_reduction_options': options},
                              **_given({'description': description, 'comment': comment}))
@@ -937,15 +948,32 @@ class WorkflowBuilder:
         with open(path, encoding='utf-8') as f:
             return f.read()
 
-    def _refuse_edited_funcs_file(self, kind, text):
+    def _refuse_edited_funcs_file(self, kind, text, at_write=False):
         '''A WorkflowError when writing ``text`` as the ``kind`` functions file would lose
         something: the file on disk is neither ``text``, nor as a writer generated it (its
         checksum), nor the file :meth:`load` read with everything in it kept. Not after
-        ``overwrite=True``.'''
+        ``overwrite=True``. A file with a valid checksum that holds functions this builder
+        lacks is refused only when ``at_write`` (from :meth:`write`): while functions are
+        still being added, a later add may supply them. A hand-edited file, or one holding
+        statements the builder does not keep, is refused at add time and at write.'''
         disk = self._funcs_on_disk(kind)
-        if disk is None or disk == text or self._overwrite[kind] or is_unedited(disk):
+        if disk is None or disk == text or self._overwrite[kind]:
             return
         path, adder = self._funcs_path(kind), _adder(kind)
+        if is_unedited(disk):
+            if disk == self._funcs_seen[kind] or not at_write:
+                return
+            read = read_funcs_file(path, kind)
+            held = {n.name for n in ast.parse(text).body if isinstance(n, ast.FunctionDef)}
+            missing = [n for n in (read[0] if read else {}) if n not in held]
+            if missing:
+                raise WorkflowError(
+                    f'{path} holds {missing}, which this builder does not have (another writer '
+                    f'added them), and writing would drop them. Start from '
+                    f'WorkflowBuilder.load() to keep them, or call wf.write(overwrite=True) '
+                    f'(or wf.{adder}(f, overwrite=True)) to replace the file with the '
+                    f'functions given to this builder.')
+            return
         if disk == self._funcs_seen[kind]:
             if not self._funcs_unkept[kind]:
                 return
@@ -1131,7 +1159,7 @@ class WorkflowBuilder:
         texts = {kind: self.funcs_source(kind) for kind in FUNCS_SETTINGS}
         for kind, text in texts.items():
             if text is not None:
-                self._refuse_edited_funcs_file(kind, text)
+                self._refuse_edited_funcs_file(kind, text, at_write=True)
         for relative, text in self._data_files()[0].items():
             _write_if_changed(os.path.join(self.directory, relative), text)
         for kind, text in texts.items():
