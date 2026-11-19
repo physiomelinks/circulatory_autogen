@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — an emulator is not refused because its Python model has another file name
+
+- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
+  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
+  run on an emulator trained under another prefix (a workflow step's emulator used by another
+  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
+  fingerprint now also holds `model_content_sha256`: the model file with that file name left
+  out, and the utilities file, which the earlier hash did not cover. An emulator stored
+  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
+  this refusal.
+
 ### Fixed — what a new user meets in the first hour
 
 Found by installing libcuflynx as a new user and following the tutorial from an empty directory.
