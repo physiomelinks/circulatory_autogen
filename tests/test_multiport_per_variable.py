@@ -490,35 +490,71 @@ def test_malformed_list_multi_port_fails_generation(tmp_path, external_modules_d
         _generate(tmp_path, external_modules_dir, "mp_bad_list", rows, params)
 
 
-@pytest.mark.unit
-def test_cpp_generator_refuses_list_multi_port_next_to_a_1d_vessel(tmp_path):
-    """The 0D-1D coupling reads the ports of a module next to a 1D vessel from its config, so
-    such a module cannot sum or multiply; a sum elsewhere (a volume sum) is ordinary CellML and
-    gets past this check."""
+def _merge_next_to_1d_model(inp_instances, out_instances=(), entrance_multi_port=("sum", "True"),
+                            exit_multi_port=None):
+    """A stub model: module "merge" (one entrance and one exit vessel_port), an FV1D_vessel
+    "FV1D_0" and a 0D vessel "src", connected as ``inp_instances``/``out_instances`` say."""
+    vessel = {"entrance_ports": [_port("vessel_port", ["v", "u"])],
+              "exit_ports": [_port("vessel_port", ["v", "u"])], "general_ports": []}
+
+    class _Model:
+        vessels_df = pd.DataFrame([
+            {"name": "merge", "module_type": "flow_merge",
+             "inp_instances": list(inp_instances), "out_instances": list(out_instances),
+             "entrance_ports": [_port("vessel_port", ["v_in", "u"], list(entrance_multi_port)
+                                      if entrance_multi_port else None)],
+             "exit_ports": [_port("vessel_port", ["v_out", "u"], list(exit_multi_port)
+                                  if exit_multi_port else None)],
+             "general_ports": []},
+            dict(vessel, name="FV1D_0", module_type="FV1D_vessel",
+                 inp_instances=[], out_instances=[]),
+            dict(vessel, name="src", module_type="vessel", inp_instances=[], out_instances=[])])
+    return _Model()
+
+
+def _cpp_generator_refusal(tmp_path, model):
+    """The NotImplementedError the C++ generator raises for ``model`` coupled to 1D, or None."""
     from libcuflynx.generators.cpp.generator import CVS0DCppGenerator
-
-    def _model(merge_neighbours):
-        class _Model:
-            vessels_df = pd.DataFrame([
-                {"name": "merge", "module_type": "flow_merge",
-                 "inp_instances": merge_neighbours, "out_instances": [],
-                 "entrance_ports": [_port("vessel_port", ["v_in", "u"], ["sum", "True"])],
-                 "exit_ports": [], "general_ports": []},
-                {"name": "FV1D_0", "module_type": "FV1D_vessel",
-                 "inp_instances": [], "out_instances": [],
-                 "entrance_ports": [], "exit_ports": [], "general_ports": []}])
-        return _Model()
-
-    with pytest.raises(NotImplementedError, match=r"\['merge'\]: a module next to a 1D vessel"):
-        CVS0DCppGenerator(_model(["FV1D_0"]), str(tmp_path / "gen"), "mp", couple_to_1d=True,
-                          cpp_generated_models_dir=str(tmp_path / "gen_cpp"))
     try:
-        CVS0DCppGenerator(_model([]), str(tmp_path / "gen2"), "mp", couple_to_1d=True,
-                          cpp_generated_models_dir=str(tmp_path / "gen_cpp2"))
+        CVS0DCppGenerator(model, str(tmp_path / "gen"), "mp", couple_to_1d=True,
+                          cpp_generated_models_dir=str(tmp_path / "gen_cpp"))
     except NotImplementedError as e:
-        pytest.fail(f"a sum away from the 1D vessels was refused: {e}")
+        return e
     except Exception:
         pass  # the stub model is not enough for the rest of the constructor
+    return None
+
+
+@pytest.mark.unit
+def test_cpp_generator_refuses_a_sum_mixing_1d_and_0d_neighbours(tmp_path):
+    """The coupler sets the variables of the port facing a 1D vessel, so that port cannot also
+    sum over 0D modules."""
+    refusal = _cpp_generator_refusal(tmp_path, _merge_next_to_1d_model(["FV1D_0", "src"]))
+    assert refusal is not None
+    assert "'merge' port ['v_in', 'u'] faces 1D vessel 'FV1D_0' and 0D module(s) ['src']" \
+        in str(refusal)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("model", [
+    # a sum whose only neighbour on the port is the 1D vessel: the CellML generator skips that
+    # connection, so the summed variable stays the boundary condition the coupler sets
+    pytest.param(dict(inp_instances=["FV1D_0"]), id="sum_facing_only_1d"),
+    # the sum is on the exit port, facing a 0D module; the entrance port faces the 1D vessel
+    pytest.param(dict(inp_instances=["FV1D_0"], out_instances=["src"], entrance_multi_port=None,
+                      exit_multi_port=("sum", "True")), id="sum_on_far_port"),
+    # a sum away from the 1D vessels is ordinary CellML
+    pytest.param(dict(inp_instances=["src"]), id="no_1d_neighbour"),
+])
+def test_cpp_generator_allows_sums_the_1d_coupling_does_not_set(tmp_path, model):
+    model = _merge_next_to_1d_model(**model)
+    refusal = _cpp_generator_refusal(tmp_path, model)
+    if refusal is not None:
+        pytest.fail(f"a sum the 0D-1D coupling does not set was refused: {refusal}")
+    # the check itself runs cleanly (the stub's later constructor errors are not hiding it)
+    from libcuflynx.generators.cpp.generator import _mixed_1d_0d_summing_ports
+    for _, row in model.vessels_df.iterrows():
+        assert _mixed_1d_0d_summing_ports(row, model.vessels_df) == []
 
 
 # --------------------------------------------------------------------------------------------

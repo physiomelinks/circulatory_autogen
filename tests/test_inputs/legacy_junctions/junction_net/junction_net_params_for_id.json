@@ -1,0 +1,23 @@
+{
+ "version": 1,
+ "params": [
+  {
+   "targets": [
+    "M/R"
+   ],
+   "min": 1000000.0,
+   "max": 100000000.0,
+   "param_type": "const",
+   "name_for_plotting": "R_M"
+  },
+  {
+   "targets": [
+    "inflow/v_2"
+   ],
+   "min": 1e-06,
+   "max": 4e-06,
+   "param_type": "const",
+   "name_for_plotting": "v_2"
+  }
+ ]
+}
