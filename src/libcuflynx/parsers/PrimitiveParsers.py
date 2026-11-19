@@ -1952,8 +1952,10 @@ ANALYSIS_OPTIONS = {
         'options_key': 'param_reduction_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'pca', 'required': False,
-             'choices': ['pca', 'sobol'],
-             'description': ('How to choose the parameters to calibrate from a Sobol analysis. '
+             'choices': ['pca', 'sobol', 'manual'],
+             'description': ('How to choose the parameters to calibrate from a Sobol analysis, '
+                             'or "manual": the parameters named in "parameters", chosen by hand '
+                             'for the "reason" given, with no Sobol analysis read. '
                              '"pca": PCA of the Sobol outputs (scaled by their obs_data std and '
                              'weight), Sobol indices of each mode, then one parameter per mode '
                              'that moves the data by more than its noise, largest mode first. '
@@ -1986,6 +1988,12 @@ ANALYSIS_OPTIONS = {
             {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
              'description': ('For "pca": a mode whose largest index among the parameters not yet '
                              'kept is below this is skipped; no free parameter drives it.')},
+            {'name': 'parameters', 'type': 'list', 'default': None, 'required': False,
+             'description': ('For "manual" (which needs it): the parameters to keep, each named '
+                             'as its params_for_id entry is labelled ("heart/E_lv_A"; a grouped '
+                             'entry\'s names joined by "+"; a modifier\'s name).')},
+            {'name': 'reason', 'type': 'str', 'default': None, 'required': False,
+             'description': 'For "manual" (which needs it): why these parameters were chosen.'},
             {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('The Sobol run to read (its output_dir). Default: '
                              'sa_options.output_dir. In a calibration workflow, the '

@@ -12,7 +12,8 @@ arrow onward: nothing takes its values. Each value the target uses is marked wit
   or its entry in the parameters has origin ``calibrated`` (fitted before this run; its
   data_reference says by what).
 * **set_by_hand**: a set step declared it, with its reason, or the ``origin`` of its entry in the
-  parameters says so.
+  parameters says so. The box of a reduction chosen by hand (``"method": "manual"``) has this
+  mark too: the choice of what to calibrate was made by hand, though it sets no value.
 * **measured**, **derived**, **inherited**: the ``origin`` of its entry in the parameters
   (``derived``: a parameter derivation calculated it from data).
 * **unclassified**: nothing says. A value is never counted as inherited by default.
@@ -121,6 +122,12 @@ def _done(result):
     return bool(result) and result.get('status') == 'done'
 
 
+def _chosen_by_hand(raw_step):
+    '''Whether a step is a reduction whose parameters were chosen by hand.'''
+    options = (raw_step.get('settings') or {}).get('param_reduction_options') or {}
+    return raw_step.get('kind') == 'reduction' and options.get('method') == 'manual'
+
+
 def _graph_steps(run):
     '''The steps of a run as :func:`flowchart.workflow_graph` takes them.'''
     workflow = run['workflow']
@@ -149,6 +156,7 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
+            'by_hand': _chosen_by_hand(raw),
             'set': raw.get('set'), 'sweep': raw.get('sweep'), 'combine': raw.get('combine'),
             'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point'))})
     return steps
@@ -485,6 +493,8 @@ def provenance_graph(output_dir):
         step_result = run['steps'].get(step_id)
         done = _done(step_result)
         mark = {'step': CALIBRATED, 'values': SET_BY_HAND}.get(node['kind'])
+        if by_id[step_id].get('by_hand'):
+            mark = SET_BY_HAND
         node.update(mark=mark if done else None,
                     status='done' if done else 'not_run', stale=stale[step_id],
                     counts=_step_counts(step_result) if done else {},
@@ -527,7 +537,8 @@ def provenance_graph(output_dir):
               'parameters': source_values, 'inputs': []}
     extra = [source]
     edges = [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'generates', 'style': 'order'}
-             for s in steps if not s['depends_on'] and s['kind'] != 'set'] + edges
+             for s in steps if not s['depends_on'] and s['kind'] != 'set'
+             and not s.get('by_hand')] + edges
     edges += [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'scaled from', 'style': 'order'}
               for s in steps if any(entry.get('of') == INHERITED_BASE
                                     for entry in s.get('set') or [])]

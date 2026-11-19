@@ -172,6 +172,12 @@ MERGED_KINDS = ('calibration', 'set', 'combine')
 COMBINE_LINES = {'best_fit': 'best fit of', 'mean': 'mean of'}
 
 
+def manual_reduction_lines(options):
+    '''What a reduction chosen by hand keeps, and why, for its box.'''
+    names = ', '.join(f'`{name}`' for name in options.get('parameters') or [])
+    return [f'chosen by hand: {names}', options.get('reason', '')]
+
+
 def combine_line(combine, combine_from):
     '''What a combine step does, in one line: ``best fit of a, b``.'''
     method = (combine or {}).get('method', 'best_fit')
@@ -269,7 +275,9 @@ def workflow_graph(steps):
         if kind == 'reduction':
             options = s.get('reduction') or {}
             index_type = options.get('index_type', 'ST')
-            if options.get('method', 'pca') == 'pca':
+            if options.get('method') == 'manual':
+                lines = manual_reduction_lines(options)
+            elif options.get('method', 'pca') == 'pca':
                 lines = [f'one parameter per informative PCA mode, by Sobol {index_type}']
             else:
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']

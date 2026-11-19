@@ -26,7 +26,7 @@ from libcuflynx.parsers.PrimitiveParsers import (
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
-_DESCRIPTOR_TYPES = {'int', 'float', 'bool', 'str', 'dict', 'enum'}
+_DESCRIPTOR_TYPES = {'int', 'float', 'bool', 'str', 'dict', 'enum', 'list'}
 
 
 def _assert_descriptors_well_formed(context, options, valid_types=_DESCRIPTOR_TYPES):
@@ -540,7 +540,8 @@ def test_analysis_options_schema_well_formed():
     # which Sobol run to read and where the reduced params_for_id goes.
     assert names('param_reduction') == {
         'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
-        'variance_fraction', 'min_index', 'sensitivity_dir', 'output_dir'}
+        'variance_fraction', 'min_index', 'parameters', 'reason', 'sensitivity_dir',
+        'output_dir'}
     assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags

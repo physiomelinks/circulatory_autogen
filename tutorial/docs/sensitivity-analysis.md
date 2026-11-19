@@ -195,7 +195,12 @@ output's noise, is not kept.
 outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the
 noise and counts correlated outputs separately.
 
-Both write `param_reduction.json`: the options and the kept parameters with their scores. For
+**`method: manual`** keeps the parameters named in `parameters`, a choice made by hand for
+the `reason` given (both required). It reads nothing of the Sobol run; it records the choice
+where the other methods record theirs. A parameter is named as its params_for_id entry is
+labelled (`heart/E_lv_A`; a grouped entry's names joined by `+`; a modifier's name).
+
+Each writes `param_reduction.json`: the options and the kept parameters with their scores. For
 `pca` each kept parameter also has its mode, and the report lists every mode's std and variance
 share. `pca_modes.csv` holds each mode's loadings on the outputs, `pca_mode_sobol_indices.csv`
 the indices per mode (in the layout of the Sobol indices CSV), and `pca_mode_sobol_ST.png` a

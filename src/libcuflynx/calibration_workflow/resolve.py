@@ -21,7 +21,7 @@ from libcuflynx.calibration_workflow import naming, spec
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
 from libcuflynx.calibration_workflow.spec import WorkflowError
-from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, param_entry_labels
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
 from libcuflynx.utilities.parameterisations import parameterisations_dir
 from libcuflynx.utilities.supermodules import submodule_path_parts
@@ -374,7 +374,14 @@ def resolve_workflow(workflow, target_overlap='warn'):
     for step in workflow.steps:
         where = f'step "{step.id}"'
         if step.kind == 'reduction':
-            # reads a sensitivity step's results; it has no model and calibrates nothing
+            # reads a sensitivity step's results, or keeps the entries named of its own
+            # params_for_id; it has no model and calibrates nothing
+            if step.chosen_by_hand:
+                if not os.path.isfile(step.params_for_id):
+                    raise WorkflowError(f'{where}: its params_for_id file {step.params_for_id} '
+                                        f'does not exist.')
+                read_calibrated_parameters(step.params_for_id, where,
+                                           keep=step.reduction['parameters'])
             resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
                                              parameters=[], target=target)
             continue
@@ -396,17 +403,25 @@ def resolve_workflow(workflow, target_overlap='warn'):
         else:
             model = _resolve_model(step.model, components, supermodules, where)
         # a calibration fitting a reduction's choice is checked against every candidate: the
-        # params_for_id of the sensitivity step the reduction reads
-        params_for_id = None
+        # params_for_id of the sensitivity step the reduction reads. A choice made by hand is
+        # known: the entries it names of the reduction's params_for_id
+        params_for_id, keep = None, None
         if step.kind != 'sweep':
-            params_for_id = step.params_for_id or workflow.step(
-                workflow.step(step.params_for_id_from).sensitivity_from).params_for_id
+            params_for_id = step.params_for_id
+            if step.params_for_id_from:
+                reduction = workflow.step(step.params_for_id_from)
+                if reduction.chosen_by_hand:
+                    params_for_id = reduction.params_for_id
+                    keep = reduction.reduction['parameters']
+                else:
+                    params_for_id = workflow.step(reduction.sensitivity_from).params_for_id
         for path, what in ((step.obs_data, 'obs_data'), (params_for_id, 'params_for_id')):
             if path and not os.path.isfile(path):
                 raise WorkflowError(f'{where}: its {what} file {path} does not exist.')
         if selection is None:
             vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
-        parameters = read_calibrated_parameters(params_for_id, where) if params_for_id else []
+        parameters = read_calibrated_parameters(params_for_id, where, keep=keep) \
+            if params_for_id else []
         if step.kind == 'sweep':
             parameters = _swept_parameters(step, model)
         if selection is not None and selection.vessel:
@@ -438,7 +453,7 @@ def resolve_workflow(workflow, target_overlap='warn'):
                     f'"{landing}" of the target {workflow.target.label()}, which has no such '
                     f'vessel (its vessels: {sorted(target.vessels)}). Map it with '
                     f'"vessel_map" (a module array) or "vessel"/"submodule" (a library module).')
-            if not step.params_for_id_from:
+            if not workflow.chosen_at_run(step):
                 # a reduction's candidates are not what it calibrates: the run checks those
                 claimed.setdefault(name, []).append(step.id)
         resolved[step.id] = resolved_step
@@ -630,7 +645,7 @@ def _resolve_combine_step(workflow, step, resolved, target, claimed):
             if len(given[in_target.model_name]) == 1:
                 out.parameters.append(in_target)
     # a calibration fitting a reduction's choice gives what it kept, known when it has run
-    known = not any(workflow.step(s).params_for_id_from for s in step.combine_from)
+    known = not any(workflow.chosen_at_run(workflow.step(s)) for s in step.combine_from)
     if step.combine['method'] == 'best_fit' and known:
         partly = {name: ids for name, ids in sorted(given.items())
                   if len(ids) != len(step.combine_from)}
@@ -640,7 +655,7 @@ def _resolve_combine_step(workflow, step, resolved, target, claimed):
                 f'must calibrate the same parameters, but only some of them calibrate '
                 f'{partly}. Use "method": "mean", or give the steps the same params_for_id.')
     for name, ids in given.items():
-        if not all(workflow.step(s).params_for_id_from for s in ids):
+        if not all(workflow.chosen_at_run(workflow.step(s)) for s in ids):
             claimed.setdefault(name, []).append(step.id)
     return out
 
@@ -749,7 +764,7 @@ def _check_steps_given_once(result):
         given = {key: owners for key, owners in received(step).items()
                  if key not in own.get(step.id, ())}
         if step.kind in spec.VALUE_KINDS:
-            mine = () if step.params_for_id_from else own[step.id]
+            mine = () if workflow.chosen_at_run(step) else own[step.id]
             passes[step.id] = {**given, **{key: [step.id] for key in mine}}
         check_given_once(workflow, {naming.model_name(*key): owners
                                     for key, owners in given.items()}, f'step "{step.id}"')
@@ -768,19 +783,28 @@ def check_merged_once(workflow, claimed, on_clash='error'):
                     ids.append(step.id)
     check_given_once(workflow, {
         name: ids for name, ids in claimed.items()
-        if any(workflow.step(i).params_for_id_from for i in ids)},
+        if any(workflow.chosen_at_run(workflow.step(i)) for i in ids)},
         f'the target {workflow.target.label()}', on_clash=on_clash)
 
 
-def read_calibrated_parameters(params_for_id_path, where=''):
+def read_calibrated_parameters(params_for_id_path, where='', keep=None):
     '''Every ``(vessel, param)`` a params_for_id file calibrates (a grouped row gives one per
-    target).'''
+    target). With ``keep`` (entry labels, as a reduction names its choice), only those of the
+    entries named; a WorkflowError for a name the file has no entry for.'''
     try:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id_path)
     except Exception as exc:  # the parser raises a variety of errors for a malformed file
         raise WorkflowError(f'{where}: cannot read {params_for_id_path}: {exc}') from exc
+    entries = list(info['param_names'])
+    if keep is not None:
+        labels = param_entry_labels(info)
+        unknown = [name for name in keep if name not in labels]
+        if unknown:
+            raise WorkflowError(f'{where}: {params_for_id_path} has no entry for {unknown} '
+                                f'(its parameters: {labels}).')
+        entries = [names for names, label in zip(entries, labels) if label in keep]
     parameters = []
-    for names in info['param_names']:
+    for names in entries:
         for qname in (names if isinstance(names, (list, tuple)) else [names]):
             vessel, _, param = str(qname).partition('/')
             if not param:

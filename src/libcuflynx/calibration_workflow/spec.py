@@ -9,7 +9,9 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``calibration`` -- an ordinary param_id run (with MCMC if ``store_distribution``);
 * ``sensitivity`` -- a sensitivity analysis (``sa_options`` in its settings);
 * ``reduction`` -- keeps the parameters a Sobol ``sensitivity`` step found most influential
-  (``sensitivity_from``), as a params_for_id a calibration takes with ``params_for_id_from``;
+  (``sensitivity_from``), as a params_for_id a calibration takes with ``params_for_id_from``.
+  With ``"method": "manual"`` the choice is made by hand: it keeps the ``parameters`` named,
+  for the ``reason`` given, of its own ``params_for_id``, and reads no sensitivity step;
 * ``emulation`` -- trains an emulator (``emulator_settings``) that later calibration and
   sensitivity steps run on through ``emulator_from``, with the emulation step's model; it may
   be trained on a reduction's parameters (``params_for_id_from``);
@@ -85,8 +87,11 @@ DEFAULT_PRIOR_KIND = 'mvnormal'
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
               'sweep', 'uq', 'combine')
 DEFAULT_KIND = 'calibration'
-#: the kinds that name no model, and read no files of their own
+#: the kinds that name no model, and read no files of their own (but a reduction chosen by
+#: hand, which names the params_for_id it keeps entries of)
 _NO_MODEL_KINDS = ('reduction', 'set', 'combine')
+#: the reduction method that is a choice made by hand
+MANUAL_REDUCTION = 'manual'
 #: how a combine step gives one value per parameter, the first the default
 COMBINE_METHODS = ('best_fit', 'mean')
 #: the kinds whose values pass on to later steps and reach the target
@@ -256,8 +261,8 @@ class Step:
     model: object                  # Target (a library module), ModuleArray or Selection;
                                    # None: a reduction or a set step
     obs_data: str                  # None for a reduction, a set step, or a sweep without one
-    params_for_id: str             # None for a reduction, a set step, a sweep, or a step with
-                                   # params_for_id_from
+    params_for_id: str             # None for a set step, a sweep, a step with
+                                   # params_for_id_from, or a reduction not chosen by hand
     kind: str = DEFAULT_KIND
     submodule: str = None          # where a library module sits in a supermodule target
     vessel: str = None             # where a library module sits in a module-array target
@@ -283,6 +288,12 @@ class Step:
     on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
     description: str = ''
+
+    @property
+    def chosen_by_hand(self):
+        '''(reduction) its parameters are named in the workflow, not chosen from a
+        sensitivity step's results.'''
+        return self.kind == 'reduction' and self.reduction.get('method') == MANUAL_REDUCTION
 
     def sources(self):
         '''``{key: [step ids]}`` of every step this one takes something from.'''
@@ -360,6 +371,12 @@ class Workflow:
             out[step.id] = set(step.depends_on).union(*(out[d] for d in step.depends_on))
         return out
 
+    def chosen_at_run(self, step):
+        '''Whether what ``step`` calibrates is known only when its reduction has run: it fits
+        the choice (``params_for_id_from``) of a reduction that reads a sensitivity step. A
+        reduction chosen by hand names its parameters in the workflow.'''
+        return bool(step.params_for_id_from) and \
+            not self.step(step.params_for_id_from).chosen_by_hand
 
 
 # --------------------------------------------------------------------------------------------
@@ -594,11 +611,15 @@ def _step(value, where, base_dir):
         raise WorkflowError(f'{label}: a reduction step\'s options go in '
                             f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
 
+    by_hand = kind == 'reduction' and isinstance(value.get('settings'), dict) and (
+        value['settings'].get('param_reduction_options') or {}).get('method') == MANUAL_REDUCTION
     if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
-                                     'vessel', 'vessel_map') if k in value)
+                                     'vessel', 'vessel_map')
+                         if k in value and not (by_hand and k == 'params_for_id'))
         if present:
-            reads = {'reduction': 'reads a sensitivity step\'s results',
+            reads = {'reduction': 'keeps entries of its params_for_id' if by_hand else
+                                  'reads a sensitivity step\'s results',
                      'set': 'declares values for the target',
                      'combine': 'combines the values of other steps'}[kind]
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
@@ -632,10 +653,22 @@ def _step(value, where, base_dir):
         if 'param_reduction_options' not in settings:
             raise WorkflowError(f'{label}: a reduction step needs "settings": '
                                 f'{{"param_reduction_options": {{...}}}}.')
-        return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
-                    depends_on=[refs['sensitivity_from']],
+        reduction = _reduction_options(options, label)
+        if by_hand and refs['sensitivity_from']:
+            raise WorkflowError(f'{label}: a reduction chosen by hand ("method": "manual") '
+                                f'reads no sensitivity step, so it has no "sensitivity_from".')
+        if by_hand and 'params_for_id' not in value:
+            raise WorkflowError(f'{label}: a reduction chosen by hand ("method": "manual") '
+                                f'needs "params_for_id": the file whose entries, with their '
+                                f'ranges, it keeps for the parameters it names.')
+        if not by_hand and not refs['sensitivity_from']:
+            raise WorkflowError(f'{label}: a {reduction["method"]} reduction needs '
+                                f'"sensitivity_from", the Sobol sensitivity step it reads.')
+        return Step(id=step_id, model=None, obs_data=None, kind=kind,
+                    params_for_id=_path(value['params_for_id'], base_dir) if by_hand else None,
+                    depends_on=[] if by_hand else [refs['sensitivity_from']],
                     sensitivity_from=refs['sensitivity_from'],
-                    reduction=_reduction_options(options, label),
+                    reduction=reduction,
                     settings={'param_reduction_options': options},
                     description=value.get('description', '') or '')
 
@@ -762,7 +795,7 @@ def check_workflow(workflow):
                 raise WorkflowError(
                     f'reduction "{step.id}" reads Sobol indices, but "{step.sensitivity_from}" '
                     f'runs {method!r} sensitivity analysis.')
-        if step.params_for_id_from:
+        if workflow.chosen_at_run(step):
             sensitivity = workflow.step(workflow.step(step.params_for_id_from).sensitivity_from)
             if step.model != sensitivity.model:
                 raise WorkflowError(
