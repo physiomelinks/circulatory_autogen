@@ -720,3 +720,150 @@ def test_every_step_kind_has_its_outputs_and_reporting_words():
     from libcuflynx.calibration_workflow.spec import STEP_KINDS
     from libcuflynx.reporting.methods import KIND_NAMES
     assert set(STEP_OUTPUTS) == set(STEP_KINDS) == set(KIND_NAMES)
+
+
+# --------------------------------------------------------------------------------------------
+# a surrogate, a Sobol analysis on it, a reduction, and a calibration of what the reduction kept
+# --------------------------------------------------------------------------------------------
+
+_BETA, _DELTA = 'Lotka_Volterra_module/beta', 'Lotka_Volterra_module/delta'
+#: all four parameters of the model; its own values (5, 0.2, 0.2, 3) are inside the bounds
+_FOUR = {_ALPHA: (1.0, 7.0), _BETA: (0.05, 0.4), _DELTA: (0.05, 0.4), _GAMMA: (1.0, 5.0)}
+_MODEL_VALUES = {_ALPHA: 5.0, _BETA: 0.2, _DELTA: 0.2, _GAMMA: 3.0}
+_SURROGATE = {'num_train_samples': 48, 'sample_type': 'sobol', 'random_seed': 0,
+              'models': 'PolynomialRegression', 'min_r2': -1e12, 'n_iter': 1, 'n_splits': 2}
+
+
+def _surrogate_reduce_fit(lv, tmp_path, fit_on):
+    '''The workflow: an emulator of all four parameters ("surrogate"), a Sobol analysis on
+    it, a reduction to two parameters, and "fit" of those two on the emulator ``fit_on``
+    ("surrogate-reduced" also trains one on the two). Returns its output directory.'''
+    four = _write_json(os.path.join(lv, 'four_params_for_id.json'), {'version': 1, 'params': [
+        {'targets': [name], 'min': low, 'max': high} for name, (low, high) in _FOUR.items()]})
+    obs = os.path.join(lv, _OBS)
+    wf = WorkflowBuilder('lv', target=cellml_model(os.path.join(lv, _MODEL)),
+                         directory=str(tmp_path / 'workflow'),
+                         settings=dict(_FAST, optimiser_options={
+                             'num_calls_to_function': 80, 'max_patience': 40, 'seed': 1,
+                             'cost_type': 'gaussian_MLE'}))
+    wf.add_emulation('surrogate', obs_data=obs, params_for_id=four,
+                     emulator_settings=_SURROGATE)
+    wf.add_sensitivity('sobol', obs_data=obs, params_for_id=four, emulator_from='surrogate',
+                       sa_options={'method': 'sobol', 'sample_type': 'saltelli',
+                                   'num_samples': 16})
+    wf.add_reduction('reduce', sensitivity_from='sobol', method='sobol', n_params=2)
+    if fit_on == 'surrogate-reduced':
+        wf.add_emulation('surrogate-reduced', obs_data=obs, params_for_id_from='reduce',
+                         emulator_settings=dict(_SURROGATE, num_train_samples=32))
+    wf.add_calibration('fit', obs_data=obs, params_for_id_from='reduce', emulator_from=fit_on)
+    wf.write(overwrite=True)
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(wf.path, output_dir=out)
+    return out
+
+
+def _kept(out):
+    '''The parameters the reduction kept, as ``Lotka_Volterra_module/<name>``.'''
+    reduced = _read_json(_step(out, 'reduce')['params_for_id'])
+    return [entry['targets'][0] for entry in reduced['params']]
+
+
+@pytest.mark.integration
+def test_a_reduction_is_calibrated_on_an_emulator_trained_on_its_parameters(lv, tmp_path):
+    '''surrogate -> Sobol on it -> reduction -> a second surrogate of the kept parameters ->
+    a calibration on that one: only the kept parameters are calibrated, and the others keep
+    the model's values.'''
+    pytest.importorskip('autoemulate')
+    out = _surrogate_reduce_fit(lv, tmp_path, 'surrogate-reduced')
+    kept = _kept(out)
+    assert len(kept) == 2 and set(kept) < set(_FOUR)
+    fit = _step(out, 'fit')
+    assert [f"{row['vessel']}/{row['param']}" for row in fit['calibrated']] == kept
+    assert 'held' not in fit
+    meta = _read_json(os.path.join(_step(out, 'surrogate-reduced')['emulator_dir'],
+                                   'emulator_metadata.json'))
+    assert meta['param_entry_labels'] == kept
+    # the parameters the reduction dropped are the model's in the emulator's model
+    values = _values(fit['generated']['parameters_path'])
+    for name in set(_FOUR) - set(kept):
+        vessel, _, param = name.partition('/')
+        assert values[f'{param}_{vessel}'] == _MODEL_VALUES[name]
+
+
+@pytest.mark.integration
+def test_a_reduction_is_calibrated_on_the_emulator_of_all_the_parameters(lv, tmp_path):
+    '''The same without the second surrogate: "fit" calibrates the kept parameters on the
+    emulator of all four, which is evaluated at all four, the dropped ones held at the
+    model's values.'''
+    pytest.importorskip('autoemulate')
+    from libcuflynx.emulators.emulator_bundle import EmulatorBundle
+    out = _surrogate_reduce_fit(lv, tmp_path, 'surrogate')
+    kept = _kept(out)
+    dropped = [name for name in _FOUR if name not in kept]
+    assert len(kept) == 2 and len(dropped) == 2
+    assert not os.path.isdir(os.path.join(out, 'surrogate-reduced'))
+
+    fit = _step(out, 'fit')
+    calibrated = {f"{row['vessel']}/{row['param']}": row['value'] for row in fit['calibrated']}
+    held = {f"{row['vessel']}/{row['param']}": row['value'] for row in fit['held']}
+    assert list(calibrated) == kept
+    assert held == {name: _MODEL_VALUES[name] for name in dropped}
+    assert fit['held_at'] == 'the model of "surrogate"'
+    assert fit['best_fit'] == [calibrated[name] for name in kept]
+    assert fit['params_for_id_used'] == _step(out, 'reduce')['params_for_id']
+    assert fit['emulator_params_for_id'] == _step(out, 'surrogate')['params_for_id_used']
+    # a calibrated parameter moved; the fit stayed inside the emulator's box
+    assert any(calibrated[name] != _MODEL_VALUES[name] for name in kept)
+    assert all(_FOUR[name][0] <= calibrated[name] <= _FOUR[name][1] for name in kept)
+
+    # the run's own files: the full vector, and which entries were held
+    case_dir = fit['param_id_output_dir']
+    full = {**calibrated, **held}
+    np.testing.assert_allclose(np.load(os.path.join(case_dir, 'best_param_vals.npy')),
+                               [full[name] for name in _FOUR])
+    record = _read_json(os.path.join(case_dir, 'held_entries.json'))
+    assert record['calibrated'] == kept
+    assert {row['label']: row['value'] for row in record['held']} == held
+
+    # the cost is the full emulator's at the full vector
+    bundle = EmulatorBundle.load(_step(out, 'surrogate')['emulator_dir'])
+    assert bundle.param_entry_labels == list(_FOUR)
+    features = bundle.predict(np.array([full[name] for name in _FOUR]))
+    items = _read_json(os.path.join(lv, _OBS))['data_items']
+    residuals = [(feature - item['value']) / item['std'] for feature, item in zip(features, items)]
+    assert fit['best_cost'] == pytest.approx(0.5 * np.mean(np.square(residuals)), rel=1e-6)
+
+    # only the calibrated parameters are merged into the target
+    result = _read_json(os.path.join(out, 'workflow_result.json'))
+    assert sorted(r['host_name'] for r in result['merged_parameters']) == sorted(kept)
+
+
+@pytest.mark.unit
+def test_what_a_calibration_holding_emulator_parameters_cannot_be_given_is_refused(lv):
+    emulate = {'id': 'emulate', 'kind': 'emulation', 'model': _model(), 'obs_data': _OBS,
+               'params_for_id': _PARAMS, 'settings': {'emulator_settings': {}}}
+    sobol = dict(_fit('sobol'), kind='sensitivity', emulator_from='emulate',
+                 settings={'sa_options': {'method': 'sobol'}})
+    reduce = {'id': 'reduce', 'kind': 'reduction', 'sensitivity_from': 'sobol',
+              'settings': {'param_reduction_options': {'method': 'sobol', 'n_params': 1}}}
+    fit = {'id': 'fit', 'model': _model(), 'obs_data': _OBS, 'params_for_id_from': 'reduce',
+           'emulator_from': 'emulate'}
+
+    def check(steps):
+        return parse_workflow(_raw(steps), path=os.path.join(lv, 'workflow.json'))
+
+    assert check([emulate, sobol, reduce, fit]).holds_entries(
+        check([emulate, sobol, reduce, fit]).step('fit'))
+    with pytest.raises(WorkflowError, match='"store_distribution" or "priors_from"'):
+        check([emulate, sobol, reduce, dict(fit, store_distribution=True)])
+    # a reduction of another params_for_id is not a choice among the emulator's parameters
+    other = _write_json(os.path.join(lv, 'other_params_for_id.json'), {'version': 1, 'params': [
+        {'targets': [_ALPHA], 'min': 1.0, 'max': 7.0}]})
+    elsewhere = dict(_fit('sobol', params_for_id=os.path.basename(other)), kind='sensitivity',
+                     settings={'sa_options': {'method': 'sobol'}})
+    with pytest.raises(WorkflowError, match='must choose from the params_for_id "emulate"'):
+        check([emulate, elsewhere, reduce, fit])
+    # and a step that names its own params_for_id still has to name the emulator's
+    with pytest.raises(WorkflowError, match='names a different params_for_id'):
+        check([emulate, dict(_fit(params_for_id=os.path.basename(other)),
+                             emulator_from='emulate')])

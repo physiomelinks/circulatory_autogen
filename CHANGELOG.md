@@ -5,6 +5,22 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a reduced parameter set is calibrated on the emulator of the full set
+
+- A workflow calibration with `params_for_id_from` a reduction and `emulator_from` the emulator
+  of the params_for_id that reduction chose from (it was refused) calibrates the parameters
+  the reduction kept and holds the emulator's other parameters at their values in the
+  emulation step's model. No second emulator is trained. The step's result has `held` (the
+  held parameters and values), `held_at` and `emulator_params_for_id`; `calibrated`,
+  `best_fit` and the values merged into the target are the kept parameters only. A held value
+  outside its params_for_id bounds is refused, as are `store_distribution` and `priors_from`
+  on such a step.
+- `ParamID.set_calibrated_entries(labels)` (`calibrated_entries` in the dict given to
+  `run_param_id`): calibrate only those params_for_id entries, the others held at their values
+  in the model. The cost is evaluated at the full vector (`param_id.held_entries.HeldEntries`,
+  which profile likelihood now uses for its held entry); `best_param_vals.npy` is the full
+  vector and `held_entries.json` records what was held. Not with `do_uq` or `do_ia`.
+
 ### Added — calibration workflows can express a GUI study
 
 - **A CellML model as a workflow's target and steps' model:**

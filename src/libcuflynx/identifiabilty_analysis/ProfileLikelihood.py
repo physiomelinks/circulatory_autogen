@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import chi2
 
+from libcuflynx.param_id.held_entries import HeldEntries
 from libcuflynx.param_id.paramID import ensure_mle_cost_type_for_bayesian_inner
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
@@ -93,49 +94,6 @@ def _optimum_row(cost, optimum):
     if optimum is None or not np.isfinite(cost):
         return None
     return [float(v) if np.isfinite(v) else None for v in np.asarray(optimum, dtype=float)]
-
-
-class _HeldEntry:
-    """The param_id's cost with entry ``idx`` held at ``value``, over the other entries.
-
-    This is the ``cost_obj`` a profile point's optimiser calibrates (see
-    ``ParamID.make_optimiser``). Each call puts ``value`` back into the vector at ``idx`` and
-    hands the full vector to the param_id, so the param_id and its backends always see the
-    parameter set they were built for, and a grouped or modifier entry is held as a whole by
-    ``expand_modifier_param_vals``. ``param_init`` is the warm start.
-    """
-
-    def __init__(self, param_id, idx, value, param_init):
-        self.param_id = param_id
-        self.idx = int(idx)
-        self.value = float(value)
-        self.param_init = np.asarray(param_init, dtype=float)
-        self.best_param_vals = None
-
-    def full(self, param_vals):
-        return np.insert(np.asarray(param_vals, dtype=float), self.idx, self.value)
-
-    def _reduced(self, gradient):
-        return np.delete(np.asarray(gradient, dtype=float).ravel(), self.idx)
-
-    def get_cost_from_params(self, param_vals):
-        return self.param_id.get_cost_from_params(self.full(param_vals))
-
-    def get_cost(self, param_vals):
-        return self.param_id.get_cost(self.full(param_vals))
-
-    def get_lnlikelihood_lnprior_from_params(self, param_vals):
-        return self.param_id.get_lnlikelihood_lnprior_from_params(self.full(param_vals))
-
-    def get_gradient(self, param_vals):
-        return self._reduced(self.param_id.get_gradient(self.full(param_vals)))
-
-    def get_cost_and_gradient(self, param_vals):
-        cost, gradient = self.param_id.get_cost_and_gradient(self.full(param_vals))
-        return cost, self._reduced(gradient)
-
-    def set_best_param_vals(self, param_vals):
-        self.best_param_vals = np.asarray(param_vals, dtype=float)
 
 
 class ProfileLikelihood:
@@ -285,7 +243,7 @@ class ProfileLikelihood:
         pid = self.param_id
         if param_init is None:
             param_init = np.delete(self.best_param_vals, fixed_param_idx)
-        held = _HeldEntry(pid, fixed_param_idx, fixed_value, param_init)
+        held = HeldEntries(pid, [fixed_param_idx], [fixed_value], param_init)
         if pid.num_params == 1:
             # Nothing else to re-calibrate: the profile is the cost itself.
             return float(held.get_cost(np.empty(0))), np.empty(0)
