@@ -6,6 +6,7 @@ These tests verify that sensitivity analysis works correctly for various models.
 import json
 import os
 
+import numpy as np
 import pandas as pd
 from _obs_data import retimed_obs_data
 import pytest
@@ -111,6 +112,18 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         # each output's obs_data std and weight (3compartment_obs_data.json's first item)
         assert problem['outputs'][0]['std'] == pytest.approx(1.0731181019893536e-05)
         assert problem['outputs'][0]['weight'] == 1.0
+        # the local Jacobian: one row per parameter at each of the first 8 Saltelli base points
+        jacobian = pd.read_csv(os.path.join(output_dir,
+                                            'all_outputs_n16_Sobol_local_jacobian.csv'))
+        rows = [10 * k for k in range(8)]          # blocks of 2M + 2 = 10 rows
+        assert list(jacobian['point']) == [r for r in rows for _ in range(4)]
+        assert set(jacobian['step']) == {1e-2}      # central differences, one step
+        assert list(jacobian['Parameter']) == list(indices['Parameter']) * 8
+        assert list(jacobian.columns[3:]) == list(outputs.columns)
+        assert np.all(np.isfinite(jacobian.iloc[:, 3:].to_numpy()))
+        assert problem['local_jacobian']['jacobian_scheme'] == 'central'
+        assert problem['local_jacobian']['points'] == rows
+        assert problem['local_jacobian']['failed_points'] == []
         reduction_dir = os.path.join(output_dir, 'param_reduction')
         assert os.path.isfile(os.path.join(reduction_dir, 'reduced_params_for_id.json'))
         with open(os.path.join(reduction_dir, 'param_reduction.json')) as f:
@@ -483,3 +496,47 @@ def test_init_from_all_dicts_is_a_classmethod(monkeypatch):
     out = SensitivityAnalysis.init_from_all_dicts({'file_prefix': 'x'}, 'obs', 'params', 'sa')
     assert out is stub
     assert received == {'inp': {'file_prefix': 'x'}, 'obs': 'obs', 'params': 'params', 'sa': 'sa'}
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_a_failed_sobol_sample_is_filled_from_its_own_outputs(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """A sample whose simulation fails gets, for each output, that output's mean over the
+    samples that ran: never a value of another output, whatever its units."""
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment', 'input_param_file': '3compartment_parameters.json',
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'pre_time': 20, 'sim_time': 2,
+        'dt': 0.01, 'solver_info': {'MaximumStep': 0.001},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir, 'generated_models_dir': temp_generated_models_dir,
+        'sa_options': {'method': 'sobol', 'num_samples': 2, 'sample_type': 'saltelli',
+                       'output_dir': os.path.join(temp_output_dir, 'failed_samples')}})
+    _ensure_cellml_model_generated(config, mpi_comm)
+    if mpi_comm.Get_size() > 1:
+        pytest.skip('counts the calls of one rank')
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    config = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=True,
+                                                     do_generation_with_fit_parameters=False)
+    manager = SensitivityAnalysis.init_from_dict(config).SA_manager
+    manager.set_sa_options(config['sa_options'])
+    executor = manager._protocol_executor
+    run_protocol, calls = executor.run_protocol, []
+
+    def every_third_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) % 3 == 1:
+            return False, {}, None, None
+        return run_protocol(*args, **kwargs)
+
+    executor.run_protocol = every_third_fails
+    samples = manager.generate_samples()[:6]
+    raw = np.array(manager.generate_outputs_mpi(samples), dtype=float)
+    assert np.all(np.isnan(raw[[0, 3]])) and np.all(np.isfinite(raw[[1, 2, 4, 5]]))
+    with pytest.warns(UserWarning, match='2 of 6 Sobol samples'):
+        filled = manager.fill_failed_outputs(raw)
+    ran = raw[[1, 2, 4, 5]].mean(axis=0)
+    assert filled[0] == pytest.approx(ran) and filled[3] == pytest.approx(ran)
+    assert manager.failed_samples == 2

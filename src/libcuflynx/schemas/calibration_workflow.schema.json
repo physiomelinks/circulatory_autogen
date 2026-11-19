@@ -289,7 +289,28 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.05,
-          "description": "pca: skip a mode whose largest index among the free parameters is below this"
+          "description": "pca: with redundancy_check, a parameter whose largest index over the informative modes is below this is not a candidate; without it, skip a mode whose largest index among the free parameters is below this"
+        },
+        "redundancy_check": {
+          "type": "boolean",
+          "default": true,
+          "description": "pca: keep a parameter only if its effect on the informative modes, beyond what the kept parameters explain, is at least min_mode_std noise stds (from the Sobol run's local Jacobian). Off: one parameter per informative mode."
+        },
+        "redundancy_statistic": {
+          "enum": ["rms", "median"],
+          "default": "median",
+          "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
+        },
+        "redundancy_converged_only": {
+          "type": "boolean",
+          "default": false,
+          "description": "pca with redundancy_check: leave out Jacobian points whose derivatives at the step and half of it disagree; needs sa_options.jacobian_check_steps"
+        },
+        "redundancy_convergence_tol": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.1,
+          "description": "redundancy_converged_only: largest change between the two steps, relative to the effect (or min_mode_std, if larger)"
         }
       }
     },
