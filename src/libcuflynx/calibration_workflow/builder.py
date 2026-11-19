@@ -574,7 +574,10 @@ class WorkflowBuilder:
             start_from: a calibration or set step at whose values this step's own
                 parameters start.
             emulator_from: an emulation step (:meth:`add_emulation`) whose emulator this
-                step is evaluated on; give the same model, obs_data and params_for_id.
+                step is evaluated on; give the same model, obs_data and params_for_id. With
+                ``params_for_id_from`` a reduction of that emulator's params_for_id, the step
+                calibrates the parameters the reduction kept and holds the emulator's others
+                at their values in the emulation step's model.
             emulator_dir: instead of ``emulator_from``, the directory of an emulator trained
                 outside the workflow.
             vessel: for a library module in a module-array target, the vessel it is (inferred

@@ -14,7 +14,10 @@ one of :data:`STEP_KINDS` (default ``calibration``):
   for the ``reason`` given, of its own ``params_for_id``, and reads no sensitivity step;
 * ``emulation`` -- trains an emulator (``emulator_settings``) that later calibration and
   sensitivity steps run on through ``emulator_from``, with the emulation step's model; it may
-  be trained on a reduction's parameters (``params_for_id_from``);
+  be trained on a reduction's parameters (``params_for_id_from``). A calibration may instead
+  take a reduction's parameters on the emulator of the params_for_id they were reduced from:
+  it calibrates those and holds the emulator's other parameters at the model's values
+  (``Workflow.holds_entries``);
 * ``identifiability`` -- identifiability analysis (``ia_options``) at a calibration's or set
   step's values (``result_from``), or at the model's own values;
 * ``uq`` -- uncertainty quantification at a point, without a fit of its own: MCMC started there,
@@ -380,6 +383,23 @@ class Workflow:
         for step in self.topological_order():
             out[step.id] = set(step.depends_on).union(*(out[d] for d in step.depends_on))
         return out
+
+    def holds_entries(self, step):
+        '''Whether ``step`` calibrates a reduction's parameters on an emulator trained on the
+        params_for_id they were reduced from: the emulator's other parameters are held at
+        their values in the emulation step's model.'''
+        if step.kind != 'calibration' or not step.emulator_from or not step.params_for_id_from:
+            return False
+        emulation = self.step(step.emulator_from)
+        return (step.params_for_id, step.params_for_id_from) != \
+            (emulation.params_for_id, emulation.params_for_id_from)
+
+    def reduced_from(self, reduction):
+        '''``(params_for_id, params_for_id_from)`` of the parameters ``reduction`` chooses
+        from: its sensitivity step's, or its own params_for_id when chosen by hand.'''
+        source = self.step(reduction.sensitivity_from) if reduction.sensitivity_from \
+            else reduction
+        return source.params_for_id, source.params_for_id_from
 
     def chosen_at_run(self, step):
         '''Whether what ``step`` calibrates is known only when its reduction has run: it fits
@@ -795,6 +815,23 @@ def check_workflow(workflow):
             emulation = workflow.step(step.emulator_from)
             differ = [k for k in ('model', 'obs_data', 'params_for_id', 'params_for_id_from')
                       if getattr(step, k) != getattr(emulation, k)]
+            if workflow.holds_entries(step) and not set(differ) & {'model', 'obs_data'}:
+                # a reduction's parameters, calibrated on the emulator of all of them
+                reduction = workflow.step(step.params_for_id_from)
+                if workflow.reduced_from(reduction) != (emulation.params_for_id,
+                                                        emulation.params_for_id_from):
+                    raise WorkflowError(
+                        f'step "{step.id}" calibrates the parameters "{reduction.id}" chose on '
+                        f'the emulator of "{emulation.id}", holding that emulator\'s other '
+                        f'parameters; "{reduction.id}" must choose from the params_for_id '
+                        f'"{emulation.id}" was trained on, and it chooses from another.')
+                if step.store_distribution or step.priors_from:
+                    raise WorkflowError(
+                        f'step "{step.id}" calibrates some of the parameters of the emulator '
+                        f'of "{emulation.id}" and holds the others, so it has no '
+                        f'"store_distribution" or "priors_from": an MCMC samples every '
+                        f'parameter the emulator was trained on.')
+                differ = []
             if differ:
                 raise WorkflowError(
                     f'step "{step.id}" uses the emulator of "{emulation.id}" but names a '

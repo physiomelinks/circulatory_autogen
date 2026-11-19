@@ -841,7 +841,15 @@ class _Run:
         resolved = self.resolved.steps[step.id]
         generated, params_for_id, units, fixed, priors = self.on_root(
             lambda: self._prepare(step, settings))
-        inp = self._inp(step, settings, generated, params_for_id)
+        # A reduction's parameters on the emulator of all of them: the run is on the
+        # emulator's params_for_id, calibrating the step's entries and holding the others.
+        run_params_for_id, kept = params_for_id, None
+        if self.workflow.holds_entries(step):
+            run_params_for_id, kept = self.on_root(
+                lambda: self._emulator_entries(step, params_for_id))
+        inp = self._inp(step, settings, generated, run_params_for_id)
+        if kept is not None:
+            inp['calibrated_entries'] = kept
         if priors:
             inp['joint_priors'] = [([n for n in dist.names],
                                     dist.as_prior(prior.kind, prior.inflate))
@@ -851,8 +859,10 @@ class _Run:
 
         def finish():
             case_dir = outcome['output_dir']
-            from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
-            info = ObsAndParamDataParser().get_param_id_info(params_for_id)
+            from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
+                                                             param_entry_labels)
+            info = ObsAndParamDataParser().get_param_id_info(run_params_for_id)
+            labels = param_entry_labels(info)
             best = np.atleast_1d(np.load(os.path.join(case_dir, 'best_param_vals.npy')))
             best_cost = float(np.load(os.path.join(case_dir, 'best_cost.npy')))
             distribution_dir = None
@@ -865,19 +875,21 @@ class _Run:
                 # MCMC sampled the posterior they shape. Report that posterior's medians.
                 samples = StoredDistribution.load(distribution_dir).samples
                 values, point_estimate = np.median(samples, axis=0), POINT_POSTERIOR_MEDIAN
-            calibrated = []
+            calibrated, held = [], []
             # an entry's value is each of its parameters' value, except a modifier's, whose
             # value is theta: its parameters have its function of theta at their baselines
             member_values, modifiers = _member_values(step, outcome.get('param_id'), info,
                                                       values)
-            for qnames, entry_values in zip(info['param_names'], member_values):
+            for label, qnames, entry_values in zip(labels, info['param_names'], member_values):
+                # an entry the step does not calibrate was held at this value
+                rows = calibrated if kept is None or label in kept else held
                 names = qnames if isinstance(qnames, (list, tuple)) else [qnames]
                 for qname, value in zip(names, entry_values):
                     vessel, _, param = str(qname).partition('/')
                     # as the step's model names it (a CellML's constant)
                     parameter = resolved.in_model(CalibratedParameter(vessel=vessel, param=param))
                     vessel, param = parameter.vessel, parameter.param
-                    calibrated.append({
+                    rows.append({
                         'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
                         'target_host_name': naming.host_row_name(resolved.to_target(vessel),
@@ -888,9 +900,15 @@ class _Run:
             return {
                 'method': settings.get('param_id_method'), 'best_cost': best_cost,
                 'point_estimate': point_estimate,
-                'best_fit': [float(v) for v in best],
+                # the calibrated entries' values, in the order of params_for_id_used
+                'best_fit': [float(v) for label, v in zip(labels, best)
+                             if kept is None or label in kept],
                 'calibrated': calibrated,
                 'modifiers': modifiers,
+                # (a step on an emulator of more parameters than it calibrates) the emulator's
+                # other parameters, held at their values in the emulation step's model
+                **({'held': held, 'held_at': f'the model of "{step.emulator_from}"',
+                    'emulator_params_for_id': run_params_for_id} if kept is not None else {}),
                 'fixed': [dict(row) for _, row in sorted(fixed.items())],
                 'priors': [dict(prior.as_dict(), parameters=dist.names)
                            for prior, dist in priors],
@@ -907,6 +925,26 @@ class _Run:
             }
 
         return self.on_root(finish)
+
+    def _emulator_entries(self, step, params_for_id):
+        '''Rank 0, for a step that calibrates some of its emulator's parameters: the
+        params_for_id the emulator was trained on, and the labels of the entries of
+        ``params_for_id`` (the step's), which must all be entries of it.'''
+        from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
+                                                         param_entry_labels)
+        trained_on = self.require_current(step.emulator_from, step.id)['params_for_id_used']
+        parser = ObsAndParamDataParser(
+            modifier_funcs_external_path=self.workflow.step_settings(step).get(
+                'modifier_funcs_external_path'))
+        kept = param_entry_labels(parser.get_param_id_info(params_for_id))
+        known = param_entry_labels(parser.get_param_id_info(trained_on))
+        unknown = [label for label in kept if label not in known]
+        if unknown:
+            raise WorkflowStepError(
+                step.id, f'it calibrates {unknown}, which the emulator of '
+                         f'"{step.emulator_from}" was not trained on (its parameters are '
+                         f'{known}).')
+        return trained_on, kept
 
     def _calibration_outputs(self, step, outcome, generated):
         '''Rank 0: what a calibration step writes after its fit, with CA's own writers -- the

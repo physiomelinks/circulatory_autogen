@@ -27,7 +27,9 @@ def run_param_id(inp_data_dict=None):
     ``inp_data_dict`` is a user_inputs dict (None reads ``user_inputs.yaml``). Besides the
     yaml keys it takes ``joint_priors``, a list of ``(names, logpdf)`` handed to
     ``set_joint_priors`` of the calibration and of the MCMC (calibration workflows use it for
-    priors from an earlier step's stored posterior).
+    priors from an earlier step's stored posterior), and ``calibrated_entries``, the labels of
+    the params_for_id entries to calibrate, the others being held at their values in the model
+    (``ParamID.set_calibrated_entries``; a calibration of some of an emulator's parameters).
 
     Returns ``{'output_dir', 'uq_output_dir', 'best_param_vals', 'param_id', 'mcmc',
     'solver_info'}``: ``output_dir`` is the calibration's run directory and ``uq_output_dir``
@@ -76,6 +78,13 @@ def run_param_id(inp_data_dict=None):
     joint_priors = inp_data_dict.get('joint_priors')
     if joint_priors:
         param_id.set_joint_priors(joint_priors)
+    calibrated_entries = inp_data_dict.get('calibrated_entries')
+    if calibrated_entries is not None:
+        if inp_data_dict.get('do_uq') or inp_data_dict.get('do_ia'):
+            raise ValueError('calibrated_entries calibrates some entries of the params_for_id '
+                             'and holds the others; do_uq and do_ia analyse every entry, so '
+                             'run them without it.')
+        param_id.set_calibrated_entries(calibrated_entries)
 
     if rank == 0:
         if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):

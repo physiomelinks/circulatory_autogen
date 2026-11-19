@@ -26,6 +26,7 @@ paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser, cost_experiment_idxs
+from libcuflynx.param_id.held_entries import HeldEntries
 from libcuflynx.param_id import validation
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
@@ -204,6 +205,8 @@ UQ_CASE_METHOD = 'mcmc'
 
 #: The file an MCMC run writes its chain to, in its own run directory.
 MCMC_CHAIN_FILE = 'mcmc_chain.npy'
+#: written by a calibration of some entries: which were calibrated and what the others were held at
+HELD_ENTRIES_FILE = 'held_entries.json'
 
 #: The optimiser options of a calibration engine given none.
 DEFAULT_OPTIMISER_OPTIONS = {'cost_convergence': 0.0001, 'max_patience': 10,
@@ -906,6 +909,13 @@ class CVS0DParamID():
             mcmc_object.set_joint_priors(joint_priors)
         else:
             self.param_id.set_joint_priors(joint_priors)
+
+    def set_calibrated_entries(self, labels):
+        """Calibrate only the entries ``labels``; see `ParamID.set_calibrated_entries`."""
+        if self.mcmc_instead:
+            raise ValueError('set_calibrated_entries is for a calibration; an MCMC samples '
+                             'every entry of its params_for_id.')
+        self.param_id.set_calibrated_entries(labels)
 
     def set_best_param_vals(self, best_param_vals):
         """Manually supply the best-fit parameter vector (e.g. from a previous run).
@@ -2252,6 +2262,10 @@ class ParamID():
 
         # initialise
         self.param_init = None
+        #: labels of the entries a run calibrates; None calibrates every entry
+        self.calibrated_entries = None
+        #: per held entry of the last run, its label and the value it was held at
+        self.held_entries = []
         self.best_param_vals = None
         self.best_cost = np.inf
 
@@ -2430,6 +2444,49 @@ class ParamID():
         if self.cost_funcs_dict_symbolic is not self.cost_funcs_dict:
             self.sfp.add_user_cost_func(self.cost_funcs_dict_symbolic, func)
     
+    def set_calibrated_entries(self, labels):
+        """Calibrate only the params_for_id entries ``labels`` (as ``param_entry_labels`` names
+        them); ``run`` holds every other entry at its value in the model. None calibrates
+        every entry.
+
+        The cost is still this param_id's, at the full vector (``HeldEntries``), so the
+        backend sees the parameter set it was built for: an emulator trained on every entry
+        is calibrated over some of them. ``best_param_vals`` and ``best_param_vals.npy`` are
+        the full vector, with the held entries at their held values; ``held_entries`` records
+        them. A held value must be inside the entry's bounds.
+        """
+        if labels is None:
+            self.calibrated_entries = None
+            return
+        labels = [str(label) for label in labels]
+        known = param_entry_labels(self.param_id_info)
+        unknown = [label for label in labels if label not in known]
+        if unknown or len(set(labels)) != len(labels) or not labels:
+            raise ValueError(f'calibrated entries {labels} are not distinct entries of this '
+                             f'params_for_id, whose entries are {known}.')
+        self.calibrated_entries = labels
+
+    def _held_entries(self):
+        """The ``HeldEntries`` cost of a run with ``calibrated_entries``: every other entry
+        held at its value in ``param_init``."""
+        labels = param_entry_labels(self.param_id_info)
+        indices = [i for i, label in enumerate(labels) if label not in self.calibrated_entries]
+        values = np.asarray(self.param_init, dtype=float)[indices]
+        mins = np.asarray(self.param_id_info['param_mins'], dtype=float)[indices]
+        maxs = np.asarray(self.param_id_info['param_maxs'], dtype=float)[indices]
+        outside = [f'{labels[i]} = {value:g} (bounds [{low:g}, {high:g}])'
+                   for i, value, low, high in zip(indices, values, mins, maxs)
+                   if not low <= value <= high]
+        if outside:
+            raise ValueError(
+                f'The entries not calibrated are held at their values in the model, and these '
+                f'are outside their params_for_id bounds: {"; ".join(outside)}. An emulator '
+                f'answers only inside the box it was trained in.')
+        self.held_entries = [{'label': labels[i], 'value': float(value)}
+                             for i, value in zip(indices, values)]
+        free = [i for i in range(len(labels)) if i not in indices]
+        return HeldEntries(self, indices, values, np.asarray(self.param_init, dtype=float)[free])
+
     def set_best_param_vals(self, best_param_vals):
         self.best_param_vals = best_param_vals
     
@@ -2643,8 +2700,11 @@ class ParamID():
             # write column header for best params
             with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'w') as f:
                 wr = csv.writer(f)
+                written = [names for names, label in zip(self.param_id_info["param_names"],
+                                                         param_entry_labels(self.param_id_info))
+                           if self.calibrated_entries is None or label in self.calibrated_entries]
                 new_array_names = np.char.replace(np.array([list_of_names[0] 
-                                    for list_of_names in self.param_id_info["param_names"]]), '/', ' ')
+                                    for list_of_names in written]), '/', ' ')
                 wr.writerows(new_array_names.reshape(1, -1))
 
         if rank == 0:
@@ -2673,10 +2733,28 @@ class ParamID():
 
         # C_T min and max was 1e-9 and 1e-5 before
 
-        optimiser = self.make_optimiser(self, self.param_id_info, self.param_norm_obj,
-                                        self.output_dir)
-        optimiser.run()
-        self.best_param_vals = optimiser.best_param_vals
+        self.held_entries = []
+        if self.calibrated_entries is None:
+            optimiser = self.make_optimiser(self, self.param_id_info, self.param_norm_obj,
+                                            self.output_dir)
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+        else:
+            held = self._held_entries()
+            reduced_info = held.reduced_info()
+            optimiser = self.make_optimiser(
+                held, reduced_info,
+                Normalise_class(reduced_info['param_mins'], reduced_info['param_maxs']),
+                self.output_dir)
+            optimiser.run()
+            # the full vector, as every reader of this run's best fit expects
+            self.best_param_vals = held.full(optimiser.best_param_vals)
+            if rank == 0:
+                np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+                with open(os.path.join(self.output_dir, HELD_ENTRIES_FILE), 'w',
+                          encoding='utf-8') as f:
+                    json.dump({'calibrated': list(self.calibrated_entries),
+                               'held': self.held_entries}, f, indent=2)
         self.best_cost = optimiser.best_cost
         if self.param_id_method in ('sp_minimize', 'multi_start_sp_minimize'):
             self.init_gradient = optimiser.init_gradient
