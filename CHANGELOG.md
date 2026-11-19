@@ -5,6 +5,16 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — analysis options name the methods that read them
+
+- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
+  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
+  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
+  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
+  option without it is read by every method. `analysis_options(mode, method)` returns a
+  method's options, so a settings form shows and sends only those. No run reads the marker:
+  what each method accepts is unchanged.
+
 ### Fixed — an emulator is not refused because its Python model has another file name
 
 - A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
