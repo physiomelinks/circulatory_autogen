@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+
+- With `redundancy_check`, the reduction kept at each step the parameter with the largest
+  local effect not yet explained. Of two parameters that are redundant in the informative
+  modes it could so keep the one with the lower Sobol index, on a small difference in local
+  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
+  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
+  still at least `min_mode_std`, the one with the highest Sobol index over the informative
+  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
+  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
+  decided as before.
+
 ### Added — a reduced parameter set is calibrated on the emulator of the full set
 
 - A workflow calibration with `params_for_id_from` a reduction and `emulator_from` the emulator

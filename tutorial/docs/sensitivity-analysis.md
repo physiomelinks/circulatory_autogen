@@ -186,11 +186,14 @@ by more than its noise, and keeps one parameter for each:
    largest index over the informative modes is below `min_index` is not a candidate.
 4. With `redundancy_check: true` (the default), the reduction asks which candidates move the
    data in different ways, using local derivatives (see "How the redundancy check works" below).
-   It keeps the candidate with the largest effect, removes that direction from the others'
-   effects, and repeats, stopping when the largest effect left is below `min_mode_std` noise
-   stds: what that parameter would add to the fit is inside the noise. Parameters that move the
+   Of the candidates whose effect is at least `min_mode_std` noise stds, it keeps the one with
+   the highest Sobol index over the informative modes, removes that direction from the others'
+   effects, and repeats, stopping when no effect left reaches `min_mode_std`: what such a
+   parameter would add to the fit is inside the noise. Parameters that move the
    data the same way (only their product or ratio matters, or a scaling symmetry) have the same
-   effect, so only one of them is kept, however many modes they drive.
+   effect, so only one of them is kept, however many modes they drive: the one the Sobol
+   indices rank highest. The local derivatives decide which parameters are redundant; the
+   Sobol indices, which cover the whole prior box, decide which of them is kept.
 5. With `redundancy_check: false` it goes through the informative modes, largest first, and
    keeps the parameter, not kept already, with the largest index for that mode, skipping a mode
    that no free parameter reaches `min_index` for. This keeps at most one parameter per mode, so
