@@ -378,9 +378,9 @@ _MYOKIT_SOLVER_INFO = [
 # The scipy solve_ivp settings, for the libCellML-generated 'python' models the shared SciPy
 # helper integrates.
 _SOLVE_IVP_SOLVER_INFO = [
-    _SI_RTOL, _SI_ATOL,
     {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum step size passed to scipy.integrate.solve_ivp.'},
+    _SI_RTOL, _SI_ATOL,
     {'name': 'vectorized', 'type': 'bool', 'default': False, 'required': False,
      'description': 'Whether the RHS accepts vectorised input (scipy solve_ivp option).'},
     {'name': 'dense_output', 'type': 'bool', 'default': False, 'required': False,
@@ -389,19 +389,21 @@ _SOLVE_IVP_SOLVER_INFO = [
      'description': 'Optional Jacobian specification for implicit methods.'},
 ]
 
+# Each solver lists its step limits before its tolerances, so every settings form a tool builds
+# from this shows them in the same order.
 SOLVER_INFO_FIELDS = {
     'CVODE_myokit': _MYOKIT_SOLVER_INFO,
     'CVODE_libopencor': _LIBOPENCOR_SOLVER_INFO,
     # Defaults mirror solver_wrappers/batched_c_helper.py. rtol is looser than CVODE's: backward Euler
     # is first order, so its cost grows as 1/rtol.
     'BE_batched_c': [
-        {**_SI_RTOL, 'default': 1e-4,
-         'description': 'Relative tolerance of the local error, against each state\'s largest size so far.'},
-        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'MaximumStep', 'type': 'float', 'default': None, 'required': False,
          'description': 'Longest step (unbounded by default: outputs are interpolated, not stepped to).'},
         {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 10000000, 'required': False,
          'description': 'Most steps one block may take in one run.'},
+        {**_SI_RTOL, 'default': 1e-4,
+         'description': 'Relative tolerance of the local error, against each state\'s largest size so far.'},
+        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'threads', 'type': 'int', 'default': 1, 'required': False,
          'description': 'OpenMP threads over the blocks (results are the same for any number).'},
         {'name': 'jacobian', 'type': 'enum', 'default': 'exact', 'required': False,
@@ -414,12 +416,12 @@ SOLVER_INFO_FIELDS = {
     ],
     # Defaults mirror solver_wrappers/batched_c_helper.py: CVODE_myokit's tolerances, BE_batched_c's other settings.
     'CVODES_batched_c': [
-        {**_SI_RTOL, 'default': 1e-6},
-        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'MaximumStep', 'type': 'float', 'default': None, 'required': False,
          'description': 'Longest step (unbounded by default: outputs are interpolated, not stepped to).'},
         {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 10000000, 'required': False,
          'description': 'Most steps one block may take in one run.'},
+        {**_SI_RTOL, 'default': 1e-6},
+        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'threads', 'type': 'int', 'default': 1, 'required': False,
          'description': 'OpenMP threads over the blocks (results are the same for any number).'},
         {'name': 'jacobian', 'type': 'enum', 'default': 'exact', 'required': False,
