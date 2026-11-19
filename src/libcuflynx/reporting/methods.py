@@ -595,6 +595,10 @@ def _step_intro(step):
     '''What the step does, on which model, against which observations.'''
     if _kind(step) == 'reduction':
         options = step['reduction']
+        if options.get('method') == 'manual':
+            return ('This step keeps parameters chosen by hand: '
+                    + _join([_tt(name) for name in options['parameters']])
+                    + f'. Reason: {escape(options["reason"].rstrip("."))}.')
         index_name = _INDEX_NAMES[options.get('index_type', 'ST')]
         source = escape(step['sensitivity_from'])
         if options.get('method', 'pca') == 'pca':
@@ -744,9 +748,11 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
         elif step.model is not None:
             # a calibration of a reduction's choice: what it kept, once it has run; until
             # then every parameter it chooses from
-            params_path = ((result or {}).get('params_for_id_used') or step.params_for_id
-                           or workflow.step(workflow.step(step.params_for_id_from)
-                                            .sensitivity_from).params_for_id)
+            params_path = (result or {}).get('params_for_id_used') or step.params_for_id
+            if not params_path:
+                reduction = workflow.step(step.params_for_id_from)
+                params_path = reduction.params_for_id or \
+                    workflow.step(reduction.sensitivity_from).params_for_id
             entry.update({
                 'model': step.model.as_dict(), 'place': rs.place, 'to_target': rs.to_target,
                 'obs_path': rs.obs_data_path, 'obs': _load_obs_data(rs.obs_data_path),

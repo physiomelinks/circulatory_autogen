@@ -276,15 +276,16 @@
     "param_reduction_options": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses. {} is PCA with every default. Only a reduction step has them; the workflow's own settings do not.",
+      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses. {} is PCA with every default. With method manual the choice is made by hand: the parameters named, for the reason given. Only a reduction step has them; the workflow's own settings do not.",
       "properties": {
         "method": {
           "enum": [
             "pca",
-            "sobol"
+            "sobol",
+            "manual"
           ],
           "default": "pca",
-          "description": "pca: one parameter per informative PCA mode of the Sobol outputs (scaled by obs_data std and weight). sobol: the n_params parameters with the highest Sobol index."
+          "description": "pca: one parameter per informative PCA mode of the Sobol outputs (scaled by obs_data std and weight). sobol: the n_params parameters with the highest Sobol index. manual: the parameters named in parameters, chosen by hand for the reason given; the step reads no sensitivity step and names the params_for_id whose entries it keeps."
         },
         "n_params": {
           "type": "integer",
@@ -352,8 +353,61 @@
           "minimum": 0,
           "default": 0.1,
           "description": "redundancy_converged_only: largest change between the two steps, relative to the effect (or min_mode_std, if larger)"
+        },
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "manual (required): the parameters to keep, each named as its params_for_id entry is labelled (heart/E_lv_A; a grouped entry's names joined by +; a modifier's name)"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "manual (required): why these parameters were chosen"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "manual"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "required": [
+              "parameters",
+              "reason"
+            ],
+            "description": "A manual reduction needs parameters (the names kept) and reason."
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "parameters"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "description": "parameters and reason are for a manual reduction."
+          }
+        }
+      ]
     },
     "prior": {
       "oneOf": [
@@ -648,7 +702,7 @@
             "combine"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. combine: gives one value per parameter from several calibration, set or combine steps (combine_from, combine), for fixed_from and the target in place of theirs. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set, combine or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. With method manual the choice is made by hand: the parameters named, of the step's own params_for_id, and no sensitivity_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. combine: gives one value per parameter from several calibration, set or combine steps (combine_from, combine), for fixed_from and the target in place of theirs. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set, combine or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -668,7 +722,7 @@
         "params_for_id": {
           "type": "string",
           "minLength": 1,
-          "description": "the params_for_id file: what it calibrates or analyses"
+          "description": "the params_for_id file: what it calibrates or analyses; for a reduction chosen by hand (method manual), the file whose entries it keeps"
         },
         "submodule": {
           "type": "string",
@@ -767,7 +821,7 @@
         "sensitivity_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a reduction step: the Sobol sensitivity step whose results it reduces"
+          "description": "a reduction step: the Sobol sensitivity step whose results it reduces (none for a reduction chosen by hand, method manual)"
         },
         "params_for_id_from": {
           "type": "string",
@@ -872,7 +926,6 @@
           },
           "then": {
             "required": [
-              "sensitivity_from",
               "settings"
             ],
             "properties": {
@@ -880,6 +933,110 @@
                 "$ref": "#/$defs/reduction_step_settings"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "reduction"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "properties": {
+                  "settings": {
+                    "properties": {
+                      "param_reduction_options": {
+                        "properties": {
+                          "method": {
+                            "const": "manual"
+                          }
+                        },
+                        "required": [
+                          "method"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "param_reduction_options"
+                    ]
+                  }
+                },
+                "required": [
+                  "settings"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "params_for_id"
+            ],
+            "not": {
+              "required": [
+                "sensitivity_from"
+              ]
+            },
+            "description": "A reduction chosen by hand (method manual) needs params_for_id, the file whose entries it keeps, and has no sensitivity_from."
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "reduction"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "not": {
+                  "properties": {
+                    "settings": {
+                      "properties": {
+                        "param_reduction_options": {
+                          "properties": {
+                            "method": {
+                              "const": "manual"
+                            }
+                          },
+                          "required": [
+                            "method"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "param_reduction_options"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "settings"
+                  ]
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "sensitivity_from"
+            ],
+            "not": {
+              "required": [
+                "params_for_id"
+              ]
+            },
+            "description": "A reduction that reads a sensitivity step needs sensitivity_from and has no params_for_id."
           }
         },
         {

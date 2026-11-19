@@ -220,6 +220,16 @@ number of vessels at a node (node sums #609, node rule D #617).
   (`fixed_from`, `start_from`, `result_from`, a scale), and the target takes its values in
   place of its inputs'. The builder's `add_combine()`. A front end can tell from `combine` in
   `$defs.step.properties.kind.enum`.
+- **A reduction chosen by hand:** `param_reduction_options` `{"method": "manual", "parameters":
+  [names], "reason": "..."}` keeps the params_for_id entries named (as their entries are
+  labelled) and reads no Sobol run (`parameter_reduction.ManualReduction`). In a workflow, such
+  a reduction step has no `sensitivity_from` and names the `params_for_id` it keeps entries of;
+  a step fitting its choice (`params_for_id_from`) is checked before anything runs, since what
+  it calibrates is known from the file. The provenance graph marks the step's box
+  `set_by_hand`. The builder's `add_reduction(method='manual', parameters=, reason=,
+  params_for_id=)`. `ANALYSIS_OPTIONS['param_reduction']` has the two options, `parameters`
+  with the new descriptor type `list`. A front end can tell from `manual` in
+  `$defs.param_reduction_options.properties.method.enum`.
 - **`start_from`** on a calibration: a calibration or set step whose values of the step's own
   parameters are where its fit starts (the model is generated with them, so they are x0). They
   are not fixed. The builder's `add_calibration(start_from=)`.

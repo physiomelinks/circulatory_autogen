@@ -445,11 +445,15 @@ class _Run:
         return {**inputs, SETTINGS_INPUT: settings, **self.library_input()}
 
     def _model_free_inputs(self, step):
-        '''The inputs of a reduction (its options; the rest are its sensitivity step's), a
-        combine step (its inputs and options) or a set step (its entries, and the target's values
-        when it scales them).'''
+        '''The inputs of a reduction (its options; the rest are its sensitivity step's, or
+        the params_for_id a choice made by hand keeps entries of), a combine step (its inputs
+        and options) or a set step (its entries, and the target's values when it scales
+        them).'''
         inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
                                    'sha256': step_settings_digest(self.workflow, step)}}
+        if step.chosen_by_hand and os.path.isfile(step.params_for_id):
+            inputs['params_for_id'] = {'path': step.params_for_id,
+                                       'sha256': sha256(step.params_for_id)}
         if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
             # an external target's values are its model file's defaults, a CellML target's its
             # file's with its parameters file's over them
@@ -1004,8 +1008,13 @@ class _Run:
 
     def _run_reduction(self, step, settings):
         def reduce():
-            source = self.require_current(step.sensitivity_from, step.id)
             reduction = ParamReduction.from_options(step.reduction)
+            if step.chosen_by_hand:
+                source = {'sensitivity_dir': None, 'params_for_id_used': step.params_for_id}
+                what = f'keeping entries of {step.params_for_id}'
+            else:
+                source = self.require_current(step.sensitivity_from, step.id)
+                what = f'reducing "{step.sensitivity_from}"'
             step_dir = self.step_dir(step.id)
             if os.path.isdir(step_dir):
                 shutil.rmtree(step_dir)
@@ -1015,8 +1024,7 @@ class _Run:
                 selected = reduction.reduce(source['sensitivity_dir'],
                                             source['params_for_id_used'], out)
             except ValueError as exc:
-                raise WorkflowStepError(step.id, f'reducing "{step.sensitivity_from}": '
-                                                 f'{exc}') from exc
+                raise WorkflowStepError(step.id, f'{what}: {exc}') from exc
             return {'sensitivity_step': step.sensitivity_from,
                     'reduction': reduction.as_dict(), 'selected': selected,
                     'kept_rows': len(selected), 'params_for_id': out,

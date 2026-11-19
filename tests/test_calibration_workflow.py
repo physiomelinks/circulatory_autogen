@@ -952,7 +952,7 @@ def _reduce_options(raw):
     (lambda w: _steps(w)['screen'].update(kind='screening'), r"kind: 'screening' is not one of"),
     (lambda w: _steps(w)['reduce'].update(model=_steps(w)['screen']['model']),
      "a reduction step reads a sensitivity step's results and has no \['model'\]"),
-    (lambda w: _steps(w)['reduce'].pop('sensitivity_from'), r"'sensitivity_from' is a required property"),
+    (lambda w: _steps(w)['reduce'].pop('sensitivity_from'), "needs sensitivity_from and has no params_for_id"),
     (lambda w: _reduce_options(w).update(n_params=0), r"n_params: 0 is less than the minimum of 1"),
     (lambda w: _reduce_options(w).update(criterion='median'), r"criterion: 'median' is not one of"),
     (lambda w: _reduce_options(w).update(method='pca', criterion='mean'),

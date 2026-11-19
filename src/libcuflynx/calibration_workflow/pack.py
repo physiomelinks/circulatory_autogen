@@ -267,7 +267,11 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
         del raw['settings']
     for raw_step, step in zip(raw['steps'], workflow.steps):
         if step.model is None:
-            continue                   # a reduction or set step names no files
+            # a reduction, set or combine step names no files, but a reduction chosen by
+            # hand: the params_for_id it keeps entries of
+            if step.params_for_id:
+                raw_step['params_for_id'] = packer.file(step.params_for_id, step.id)
+            continue
         if not raw_step.get('on_target'):
             # a sweep on the target runs on the packed target, so it names no model of its own
             raw_step['model'] = model(step.model, step.id)

@@ -1709,7 +1709,7 @@ step's `model` (an external Python model).
 |---|---|---|---|
 | `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `start_from`, `emulator_from`, `params_for_id_from` |
 | `sensitivity` | Sobol or local sensitivity analysis | `sa_options` in its settings | `fixed_from`, `emulator_from`, `result_from` |
-| `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `param_reduction_options` in its settings; no model or files | |
+| `reduction` | keeps the parameters a Sobol step found most influential, or those chosen by hand (`"method": "manual"`) | `sensitivity_from`, `param_reduction_options` in its settings; no model or files (chosen by hand: `params_for_id`, and no `sensitivity_from`) | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
 | `identifiability` | Identifiability analysis (Laplace or a profile likelihood) at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
 | `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
@@ -1729,7 +1729,7 @@ The keys that pass something on, each naming one step of the kind shown:
 | `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
 | `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id. The step's `result_from` point is only where the emulator is evaluated: it is not written into the step's model, which stays the one the emulator was trained on |
-| `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
+| `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step, or of a model with the parameters chosen by hand; a step on that emulator names the same reduction) |
 
 A calibration with **`start_from`** starts its fit at the values that step calibrated or set
 for its own parameters: its model is generated with them, so they are the optimiser's initial
@@ -1954,6 +1954,26 @@ params_for_id: it is a global, prior-wide measure, not local to the fitted value
 
 Rerunning `screen` reruns `keep`, and so `fit` and `ia`, since each takes from the one before.
 
+A reduction may instead record a **choice made by hand**: `"method": "manual"` keeps the
+`parameters` named, for the `reason` given. It reads no sensitivity step (it has no
+`sensitivity_from`) and names the `params_for_id` whose entries, with their bounds, it keeps.
+A parameter is named as its params_for_id entry is labelled: `vessel/variable`, a grouped
+entry's names joined by `+`, or a modifier's name.
+
+```json
+{"id": "keep", "kind": "reduction", "params_for_id": "candidates_params_for_id.json",
+ "settings": {"param_reduction_options": {
+     "method": "manual", "parameters": ["heart/E_lv_A", "aortic_root/C"],
+     "reason": "the two the pressure data resolve; the rest are from the literature"}}},
+{"id": "fit", "model": {...}, "obs_data": "...", "params_for_id_from": "keep"}
+```
+
+The names are checked against the params_for_id, and the step that fits them against its
+model, before anything runs. The provenance graph marks the step's box `set_by_hand`, with the
+names and the reason: no value is set by hand, but what is calibrated is. Editing the
+params_for_id or the choice reruns `keep` and what takes from it. The builder's
+`add_reduction(id, method='manual', parameters=, reason=, params_for_id=)`.
+
 A reduction is a `libcuflynx.sensitivity_analysis.parameter_reduction.ParamReduction`, which
 can also be used on its own:
 
@@ -2036,7 +2056,8 @@ that settles it is added. A step given two values is always an error.
 A step fitting a reduction's choice (`params_for_id_from`) is checked once the reduction has
 run, against what it kept, not against every candidate: the error then comes at the merge,
 with every step's result kept, so a run with `--stale-only` after adding the combine step
-runs only that step. The builder's `add_combine(id, combine_from, method=)`.
+runs only that step. A choice made by hand (`"method": "manual"`) is known from the file, so
+a step fitting it is checked before anything runs, like any other calibration. The builder's `add_combine(id, combine_from, method=)`.
 
 ### Outputs
 
