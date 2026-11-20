@@ -1633,6 +1633,11 @@ the target uses is marked with what set it:
 | set by hand | us, with a reason | `"origin": "set_by_hand"` and a required `"reason"` |
 | unclassified | nothing says | no `origin` |
 
+The boxes of values given in the parameters files (measured, derived, set by hand, calibrated
+before the run) point to the model source: those values are in the model of every step generated
+from it, so each calibration ran with them. When no step comes from the model source, they point
+to the target.
+
 When a derived value's derivation has `fixed_constants`, a "Fixed constants of derivations" box
 with an arrow to the derived values lists each as `<derivation>/<constant>` with its value, units
 and origin (measured with its source, set by hand with its reason, inherited, or unclassified when
