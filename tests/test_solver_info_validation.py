@@ -721,6 +721,141 @@ def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
             'another backend reads it too and the form must offer it there')
 
 
+def _method_markers(mode):
+    """{option name: its `methods` marker} for the marked options of a mode."""
+    return {o['name']: o['methods'] for o in analysis_options(mode) if 'methods' in o}
+
+
+def test_methods_markers_name_methods_of_their_mode():
+    """A `methods` marker says which values of the mode's `method` option read the option, so
+    a form shows it for those only. A marker naming no real method would hide the option for
+    good."""
+    marked_modes = set()
+    for mode in ANALYSIS_OPTIONS:
+        by_name = {o['name']: o for o in analysis_options(mode)}
+        markers = _method_markers(mode)
+        if not markers:
+            continue
+        marked_modes.add(mode)
+        choices = by_name['method']['choices']
+        assert 'methods' not in by_name['method'], f'{mode}: method itself cannot be marked'
+        for name, methods in markers.items():
+            assert isinstance(methods, list) and methods, f'{mode}.{name}: an empty marker'
+            assert set(methods) <= set(choices), (
+                f'{mode}.{name}: methods {methods} are not all in {choices}')
+            assert len(set(methods)) == len(methods), f'{mode}.{name}: a method named twice'
+    assert marked_modes == {'sensitivity_analysis', 'uq', 'param_reduction',
+                            'identifiability_analysis'}
+
+
+def test_analysis_options_are_filtered_by_method():
+    """analysis_options(mode, method) is what a form for that method shows."""
+    def names(mode, method=None):
+        return {o['name'] for o in analysis_options(mode, method)}
+
+    local = names('sensitivity_analysis', 'local')
+    assert {'method', 'gradient_method', 'fd_rel_step', 'include_prediction_items'} <= local
+    assert not local & {'sample_type', 'num_samples', 'jacobian_points'}
+    sobol = names('sensitivity_analysis', 'sobol')
+    assert {'method', 'sample_type', 'num_samples', 'jacobian_points',
+            'include_prediction_items'} <= sobol
+    assert not sobol & {'gradient_method', 'fd_rel_step'}
+    assert local | sobol == names('sensitivity_analysis')
+
+    profile = names('identifiability_analysis', 'profile_likelihood')
+    assert {'num_points', 'range_factor', 'optimiser_options'} <= profile
+    assert not profile & {'gradient_source', 'sub_method'}
+    # a method the schema does not know gets the options every method reads
+    assert names('sensitivity_analysis', 'unknown') == local & sobol
+
+
+def test_sa_methods_markers_match_what_each_method_reads():
+    """The markers against the code: an option marked for "local" is read in
+    run_local_sensitivity and one marked for "sobol" is not; the "sobol" options are the
+    sampling settings and the local Jacobian's (sobolSA.JACOBIAN_DEFAULTS)."""
+    import inspect
+
+    from libcuflynx.sensitivity_analysis import sobolSA
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+
+    markers = _method_markers('sensitivity_analysis')
+    local_source = _without_docstrings(inspect.getsource(SensitivityAnalysis))
+    sobol_source = _without_docstrings(inspect.getsource(sobolSA))
+    local = {name for name, methods in markers.items() if methods == ['local']}
+    sobol = {name for name, methods in markers.items() if methods == ['sobol']}
+    assert local | sobol == set(markers)
+    assert local == {'gradient_method', 'fd_rel_step'}
+    for name in local:
+        assert f"'{name}'" in local_source, f'{name} is not read by the local method'
+        assert f"'{name}'" not in sobol_source, f'{name} is also read by the Sobol engine'
+    assert sobol == {'sample_type', 'num_samples'} | set(sobolSA.JACOBIAN_DEFAULTS)
+    for name in sobol:
+        assert f"'{name}'" in sobol_source, f'{name} is not read by the Sobol engine'
+        assert f"'{name}'" not in local_source, f'{name} is also read by the local method'
+
+
+def test_ia_methods_markers_match_what_each_method_reads():
+    """Profile likelihood reads its options in profile_likelihood_options; the Laplace
+    approximation reads its own in run_laplace_approximation."""
+    import inspect
+
+    from libcuflynx.identifiabilty_analysis import ProfileLikelihood as profile_module
+    from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import \
+        IdentifiabilityAnalysis
+
+    markers = _method_markers('identifiability_analysis')
+    profile_source = _without_docstrings(inspect.getsource(profile_module))
+    laplace_source = _without_docstrings(
+        inspect.getsource(IdentifiabilityAnalysis.run_laplace_approximation))
+    pattern = re.compile(r"""ia_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
+    profile_reads = set(pattern.findall(profile_source))
+    laplace_reads = set(pattern.findall(laplace_source))
+    assert profile_reads and laplace_reads, 'the ia_options reads are not where this looks'
+    assert not profile_reads & laplace_reads
+    assert markers == {**{name: ['profile_likelihood'] for name in profile_reads},
+                       **{name: ['Laplace'] for name in laplace_reads}}
+
+
+def test_uq_methods_markers_match_what_mcmc_reads():
+    """Every UQ option marked for "mcmc" is read by the MCMC class."""
+    import inspect
+
+    from libcuflynx.param_id.paramID import MCMC
+
+    source = _without_docstrings(inspect.getsource(MCMC))
+    markers = _method_markers('uq')
+    assert markers
+    for name, methods in markers.items():
+        if methods == ['mcmc']:
+            assert f"'{name}'" in source, f'{name} is marked for mcmc but MCMC never reads it'
+
+
+def test_param_reduction_methods_markers_match_each_reductions_options():
+    """Each reduction's OPTIONS is what from_options accepts for it; the markers say the same,
+    so a form offers a method exactly the options that method accepts."""
+    from libcuflynx.sensitivity_analysis.parameter_reduction import PATH_OPTIONS, REDUCTIONS
+
+    markers = _method_markers('param_reduction')
+    choices = next(o for o in analysis_options('param_reduction')
+                   if o['name'] == 'method')['choices']
+    assert set(choices) == set(REDUCTIONS)
+    for opt in analysis_options('param_reduction'):
+        name = opt['name']
+        if name == 'method' or name in PATH_OPTIONS:
+            assert name not in markers, f'{name} is read by every reduction'
+            continue
+        accepting = [method for method in choices if name in REDUCTIONS[method].OPTIONS]
+        assert accepting, f'{name}: no reduction accepts it'
+        if len(accepting) == len(choices):
+            assert name not in markers, f'{name}: every reduction accepts it; no marker'
+        else:
+            assert markers.get(name) == accepting, (
+                f'{name}: accepted by {accepting}, marked {markers.get(name)}')
+        for method in choices:
+            assert (name in {o['name'] for o in analysis_options('param_reduction', method)}) \
+                == (name in REDUCTIONS[method].OPTIONS)
+
+
 def test_closed_set_analysis_options_are_enums_with_choices():
     """Every option whose consumer dispatches on a fixed set of values must be declared
     'enum' with those values in 'choices' -- not a free 'str'.
