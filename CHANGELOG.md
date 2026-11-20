@@ -5,6 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — a workflow tab's model is generated faster
+
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
 ### Changed — the PCA parameter reduction checks for redundant parameters
 
 - `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
