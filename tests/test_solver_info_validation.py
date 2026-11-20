@@ -17,6 +17,7 @@ from libcuflynx.parsers.PrimitiveParsers import (
     get_solver_info_default,
     SOLVER_SCHEMA,
     SOLVER_INFO_FIELDS,
+    SOLVER_INFO_ALIASES,
     solver_info_fields,
     gradient_sources,
     ANALYSIS_OPTIONS,
@@ -125,6 +126,23 @@ def test_every_solver_lists_its_step_limits_before_its_tolerances(solver):
         assert max(step_at) < min(tol_at), order
 
 
+@pytest.mark.parametrize('solver', sorted(SOLVER_INFO_FIELDS))
+def test_no_solver_lists_one_setting_twice(solver):
+    """A settings form shows each field, so two names for one setting is two inputs with one
+    meaning (casadi_integrator listed reltol and its alias rtol). Aliases are accepted, not
+    listed."""
+    names = {f['name'] for f in SOLVER_INFO_FIELDS[solver]}
+    for pair in ({'rtol', 'reltol'}, {'atol', 'abstol'}):
+        assert not pair <= names, (solver, pair)
+    for alias, field in SOLVER_INFO_ALIASES.get(solver, {}).items():
+        assert alias not in names and field in names, (solver, alias, field)
+
+
+def test_casadi_still_accepts_the_rtol_atol_aliases():
+    validate_solver_info('casadi_integrator', {'method': 'cvodes', 'rtol': 1e-6, 'atol': 1e-9})
+    validate_solver_info('casadi_integrator', {'method': 'cvodes', 'reltol': 1e-6, 'abstol': 1e-9})
+
+
 def test_solver_info_fields_schema_well_formed():
     """SOLVER_INFO_FIELDS lets a tool auto-populate the solver settings form; every solver that
     can be selected must have a well-formed field list, and it must be exposed on SOLVER_SCHEMA."""
@@ -143,7 +161,8 @@ def test_solver_integrator_keys_derived_from_schema():
     so the accepted keys and the advertised settings cannot drift. Locks the exact key sets that
     validation enforces today -- if a field is added to the schema, update these sets too."""
     for solver, fields in SOLVER_INFO_FIELDS.items():
-        assert _SOLVER_INTEGRATOR_KEYS[solver] == {f['name'] for f in fields}
+        assert _SOLVER_INTEGRATOR_KEYS[solver] == (
+            {f['name'] for f in fields} | set(SOLVER_INFO_ALIASES.get(solver, {})))
     cvode = {'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}
     assert _SOLVER_INTEGRATOR_KEYS['CVODE_libopencor'] == cvode
     # CVODE_myokit is deliberately not in that family: myokit.Simulation exposes only

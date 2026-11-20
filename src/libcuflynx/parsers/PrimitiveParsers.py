@@ -456,10 +456,6 @@ SOLVER_INFO_FIELDS = {
          'description': 'Relative integration tolerance (SUNDIALS naming).'},
         {'name': 'abstol', 'type': 'float', 'default': 1e-10, 'required': False,
          'description': 'Absolute integration tolerance (SUNDIALS naming).'},
-        {**_SI_RTOL, 'default': None,
-         'description': 'Relative-tolerance alias (reltol is preferred for CasADi).'},
-        {**_SI_ATOL, 'default': None,
-         'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
         {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
          'description': 'Extra options passed straight through to the CasADi integrator.'},
         {'name': 'jit', 'type': 'bool', 'default': CASADI_JIT_DEFAULT, 'required': False,
@@ -3117,11 +3113,17 @@ class YamlFileParser(object):
 # Keys always allowed in solver_info (framework metadata, not passed to integrators).
 _FRAMEWORK_SOLVER_INFO_KEYS = frozenset({'solver', 'method', 'dt_solver'})
 
+# Other names a solver still reads for one of its fields: accepted in solver_info, but not
+# advertised, so a settings form shows each setting once. casadi_integrator reads reltol/abstol,
+# falling back to the rtol/atol every other solver uses.
+SOLVER_INFO_ALIASES = {'casadi_integrator': {'rtol': 'reltol', 'atol': 'abstol'}}
+
 # Integrator-specific keys that may appear in solver_info for each backend. Derived from
 # SOLVER_INFO_FIELDS (the schema surfaced to tools) so the validation and the advertised settings
-# cannot drift apart -- add a field there and it is both offered to the UI and accepted here.
+# cannot drift apart -- add a field there and it is both offered to the UI and accepted here --
+# plus the solver's SOLVER_INFO_ALIASES.
 _SOLVER_INTEGRATOR_KEYS = {
-    solver: frozenset(field['name'] for field in fields)
+    solver: frozenset(field['name'] for field in fields) | frozenset(SOLVER_INFO_ALIASES.get(solver, {}))
     for solver, fields in SOLVER_INFO_FIELDS.items()
 }
 
