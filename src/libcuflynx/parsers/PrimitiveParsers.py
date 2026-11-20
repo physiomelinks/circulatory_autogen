@@ -1854,6 +1854,28 @@ ANALYSIS_OPTIONS = {
             {'name': 'num_samples', 'type': 'int', 'default': 32, 'required': False,
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
+            # Read by sobol_SA.run_local_jacobian (sobolSA.JACOBIAN_DEFAULTS), for the PCA
+            # reduction's redundancy check.
+            {'name': 'jacobian_points', 'type': 'int', 'default': 8, 'required': False,
+             'description': ('For method "sobol": how many of the Saltelli base points the run '
+                             'also takes local derivatives at, for a "pca" parameter '
+                             "reduction's redundancy_check. 0 skips them.")},
+            {'name': 'jacobian_location', 'type': 'enum', 'default': 'base_points',
+             'required': False, 'choices': ['base_points', 'centre'],
+             'description': ('Where the local derivatives are taken: at jacobian_points base '
+                             'points, or at the centre of the box only.')},
+            {'name': 'jacobian_scheme', 'type': 'enum', 'default': 'central', 'required': False,
+             'choices': ['central', 'forward'],
+             'description': ('central (2 runs per parameter and point) or forward (1) '
+                             'differences.')},
+            {'name': 'jacobian_step', 'type': 'float', 'default': 1e-2, 'required': False,
+             'description': ('The difference step: in ln(parameter), or, for bounds that '
+                             'straddle 0, as a fraction of the range.')},
+            {'name': 'jacobian_check_steps', 'type': 'bool', 'default': False,
+             'required': False,
+             'description': ('Also take the derivatives with half the step (twice the runs), so '
+                             'a reduction can leave out points where they disagree '
+                             '(redundancy_converged_only).')},
             # Read by sobol_SA (both methods go through it for their options) and by
             # run_local_sensitivity. Off, the outputs are exactly the data_item features, as
             # they always were.
@@ -1963,8 +1985,34 @@ ANALYSIS_OPTIONS = {
                              'value ignores the noise, so it can drop a small mode the data '
                              'resolve.')},
             {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
-             'description': ('For "pca": a mode whose largest index among the parameters not yet '
-                             'kept is below this is skipped; no free parameter drives it.')},
+             'description': ('For "pca": with redundancy_check, a parameter whose largest index '
+                             'over the informative modes is below this is not a candidate. '
+                             'Without it, a mode whose largest index among the parameters not '
+                             'yet kept is below this is skipped; no free parameter drives it.')},
+            {'name': 'redundancy_check', 'type': 'bool', 'default': True, 'required': False,
+             'description': ('For "pca": keep a parameter only if its effect on the informative '
+                             'modes over its prior range, after removing what the parameters '
+                             'already kept explain, is at least min_mode_std noise stds. The '
+                             'effects come from the local derivatives the Sobol run saves at '
+                             'sa_options.jacobian_points of its base points. Parameters that move the '
+                             'data the same way (a product, a ratio, a scaling symmetry) are '
+                             'then kept once. Off: one parameter per informative mode, which '
+                             'does not reduce when the outputs are a time course with more modes '
+                             'than parameters.')},
+            {'name': 'redundancy_statistic', 'type': 'enum', 'default': 'median', 'required': False,
+             'choices': ['rms', 'median'],
+             'description': ('For "pca" with redundancy_check: how a parameter\'s unexplained '
+                             'effect at the Jacobian points is summarised: rms (any point where '
+                             'it is unexplained counts) or median (most points must agree).')},
+            {'name': 'redundancy_converged_only', 'type': 'bool', 'default': False,
+             'required': False,
+             'description': ('For "pca" with redundancy_check: leave out Jacobian points where '
+                             'the derivatives at the step and half of it differ by more than '
+                             'redundancy_convergence_tol. Needs sa_options.jacobian_check_steps.')},
+            {'name': 'redundancy_convergence_tol', 'type': 'float', 'default': 0.1,
+             'required': False,
+             'description': ('For redundancy_converged_only: the largest change between the two '
+                             'steps, relative to the effect (or to min_mode_std, if larger).')},
             {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('The Sobol run to read (its output_dir). Default: '
                              'sa_options.output_dir. In a calibration workflow, the '

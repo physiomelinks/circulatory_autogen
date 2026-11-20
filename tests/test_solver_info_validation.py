@@ -540,7 +540,8 @@ def test_analysis_options_schema_well_formed():
     # read by sobol_SA (and, through it, the local method).
     assert names('sensitivity_analysis') == {
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step',
-        'include_prediction_items'}
+        'include_prediction_items', 'jacobian_points', 'jacobian_location', 'jacobian_scheme',
+        'jacobian_step', 'jacobian_check_steps'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
                            'num_tune', 'pymc_method', 'chain_save_every'}
@@ -571,7 +572,9 @@ def test_analysis_options_schema_well_formed():
     # which Sobol run to read and where the reduced params_for_id goes.
     assert names('param_reduction') == {
         'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
-        'variance_fraction', 'min_index', 'sensitivity_dir', 'output_dir'}
+        'variance_fraction', 'min_index', 'redundancy_check', 'redundancy_statistic',
+        'redundancy_converged_only', 'redundancy_convergence_tol', 'sensitivity_dir',
+        'output_dir'}
     assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
