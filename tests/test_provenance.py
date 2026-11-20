@@ -14,7 +14,7 @@ from libcuflynx.external_testing.workflow_library import build_workflow_library
 from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, FIXED_NODE, GRAPH_FILE,
                                              HAND_NODE,
                                              MEASURED_NODE, SCHEMA_VERSION, SOURCE_NODE, SVG_FILE,
-                                             TARGET_NODE, ProvenanceVersionError,
+                                             TARGET_NODE, ProvenanceVersionError, _given_to,
                                              provenance_graph, provenance_svg,
                                              read_provenance_graph, write_provenance)
 from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
@@ -105,7 +105,9 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     assert hand['mark'] == 'set_by_hand'
     assert [v['reason'] for v in hand['parameters']] == ['a gain of one by construction']
     assert 'a gain of one by construction' in hand['lines'][0]
-    assert (HAND_NODE, TARGET_NODE) in _edges(graph)
+    # it is in the model the steps calibrate, so its arrow goes to the model source
+    assert _edges(graph)[(HAND_NODE, SOURCE_NODE)]['style'] == 'given'
+    assert (HAND_NODE, TARGET_NODE) not in _edges(graph)
     assert all(hand['parameters'][0]['name'] != p['name'] for p in nodes['rest']['parameters'])
 
     # a value nothing describes is unclassified, never inherited
@@ -128,8 +130,21 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     root = ElementTree.fromstring(svg)
     assert root.tag.endswith('svg') and root.get('role') == 'img'
     assert '<script' not in svg and '<style' not in svg
-    for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', out, 'libCellML'):
+    for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', 'libCellML'):
         assert text in svg
+    # the footer breaks a path longer than the drawing is wide, so compare its pieces joined
+    assert out in ''.join(re.findall(r'>([^<]*)</text>', svg))
+
+
+@pytest.mark.unit
+def test_given_values_point_to_the_model_source_when_a_step_comes_from_it():
+    """The values given in the parameters files are in every model generated from the source, so
+    their boxes point to it; when no step comes from the source they point to the target."""
+    from_source = [{'from': SOURCE_NODE, 'to': 'fit', 'label': 'generates', 'style': 'order'},
+                   {'from': 'fit', 'to': TARGET_NODE, 'label': '', 'style': 'merge'}]
+    assert _given_to(from_source) == SOURCE_NODE
+    assert _given_to([{'from': 'hand', 'to': TARGET_NODE, 'label': '', 'style': 'merge'}]) \
+        == TARGET_NODE
 
 
 FIXED = [{'derivation': 'k_gain', 'name': 'R', 'value': 8.314, 'units': 'J_per_K_per_mol',
@@ -203,7 +218,7 @@ def test_derived_values_and_values_calibrated_before_the_run_have_their_own_mark
     assert derived['mark'] == 'derived' and derived['title'] == 'Derived values'
     assert [(v['name'], v['origin']) for v in derived['parameters']] == [('k_mod__C', 'derived')]
     assert 'derived; derivation k_gain' in derived['lines'][0]
-    assert _edges(graph)[(DERIVED_NODE, TARGET_NODE)]['label'] == 'derived'
+    assert _edges(graph)[(DERIVED_NODE, SOURCE_NODE)]['label'] == 'derived'
     assert graph['counts']['derived'] == 1 and graph['counts']['unclassified'] == 0
     assert {HAND_NODE, MEASURED_NODE, EARLIER_NODE}.isdisjoint(nodes)
     svg = provenance_svg(graph)
@@ -220,6 +235,7 @@ def test_derived_values_and_values_calibrated_before_the_run_have_their_own_mark
     assert DERIVED_NODE not in nodes
     earlier = nodes[EARLIER_NODE]
     assert earlier['mark'] == 'calibrated'
+    assert (EARLIER_NODE, SOURCE_NODE) in _edges(graph)
     assert [(v['name'], v['from_step']) for v in earlier['parameters']] == [('k_mod__C', None)]
     assert graph['counts']['calibrated'] == len(result['merged_parameters']) + 1
     assert all(v['from_step'] for v in nodes[TARGET_NODE]['parameters'])

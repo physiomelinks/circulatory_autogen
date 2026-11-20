@@ -8,7 +8,9 @@ the values it calibrated, its priors and the values it was given, with what set 
 each for the measured values, the derived values, the fixed constants of the derivations (when a
 derived value has any), the values set by hand in the parameters files and the values calibrated
 before the run (when there are any), and the merged target the simulation runs. A sweep's node has no
-arrow onward: nothing takes its values. Each value the target uses is marked with what set it:
+arrow onward: nothing takes its values. The nodes of values given in the parameters files point
+to the target's model source, whose generated step models hold them (to the target when no step
+comes from that source). Each value the target uses is marked with what set it:
 
 * **calibrated**: a step fitted it (the step's results and the run's merged parameters say so),
   or its entry in the parameters has origin ``calibrated`` (fitted before this run; its
@@ -653,6 +655,7 @@ def provenance_graph(output_dir):
     edges += [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'scaled from', 'style': 'order'}
               for s in steps if any(entry.get('of') == INHERITED_BASE
                                     for entry in s.get('set') or [])]
+    given_to = _given_to(edges)
     for node_id, title, origin in ((MEASURED_NODE, 'Measured values', MEASURED),
                                    (DERIVED_NODE, 'Derived values', DERIVED),
                                    (HAND_NODE, 'Values set by hand', SET_BY_HAND),
@@ -662,7 +665,7 @@ def provenance_graph(output_dir):
         given = [v for v in values if v['origin'] == origin and not v['from_step']]
         if given:
             extra.append(_values_node(node_id, title, origin, given))
-            edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
+            edges.append({'from': node_id, 'to': given_to, 'label': _MARK_LABELS[origin],
                           'style': 'given'})
     constants = _fixed_constants(rows, values)
     if constants:
@@ -698,6 +701,13 @@ def provenance_graph(output_dir):
         'code': {key: (result or {}).get(key) for key in
                  ('libcuflynx_version', 'libcuflynx_git', 'project_git', 'libcellml_version')},
         'counts': target_counts, 'nodes': extra + nodes + figures, 'edges': edges}
+
+
+def _given_to(edges):
+    '''The node the boxes of values given in the parameters files (measured, derived, set by
+    hand, calibrated before the run) point to: the model source, since those values are in the
+    model of every step generated from it; the target when no step comes from the source.'''
+    return SOURCE_NODE if any(e['from'] == SOURCE_NODE for e in edges) else TARGET_NODE
 
 
 # -- drawing -----------------------------------------------------------------------------------

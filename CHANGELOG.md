@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — the provenance diagram draws given values into the model source
+
+- The boxes of values given in the parameters files (measured, derived, set by hand, calibrated
+  before the run) pointed to the target, as if the calibration steps had run without them. They
+  point to the model source, whose every generated step model holds them; to the target only
+  when no step comes from the model source. A reader of `provenance_graph.json` that draws
+  these edges must accept `__source__` as their end (the schema is unchanged).
+
 ### Added — a reduced parameter set is calibrated on the emulator of the full set
 
 - A workflow calibration with `params_for_id_from` a reduction and `emulator_from` the emulator

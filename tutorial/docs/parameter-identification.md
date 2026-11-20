@@ -2152,6 +2152,11 @@ set by hand in which step and why. The target's box names its merged values the 
 shows the first four of each list (six for the target and the model source) and says how many
 more the graph file has.
 
+The boxes of values given in the parameters files (measured, derived, set by hand, calibrated
+before the run) point to the target's model source: those values are in the model of every step
+generated from it, so each calibration ran with them. When no step comes from that model source,
+they point to the target.
+
 When a derived value's derivation has `fixed_constants`, a "Fixed constants of derivations" box
 with an arrow to the derived values lists each as `<derivation>/<constant>` with its value, units
 and origin (measured with its source, set by hand with its reason, inherited, or unclassified when
