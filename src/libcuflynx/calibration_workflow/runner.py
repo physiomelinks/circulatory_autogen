@@ -2121,7 +2121,7 @@ TARGET_VIEW = 'target'
 
 
 def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=None,
-                   with_own_results=True):
+                   with_own_results=True, validate=True):
     """Generate the model one tab of a workflow shows, from whatever results exist so far.
 
     ``view`` is a step id, or ``'target'`` for the workflow's target. A step's model gets
@@ -2131,6 +2131,10 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     gets every calibrated value there is, mapped into its naming. Nothing is calibrated, and
     nothing in ``output_dir`` is written but the model, under ``work_dir`` (which may be
     ``<output_dir>/models``, :data:`MODELS_DIR`, a folder no step's output can have).
+
+    ``validate=False`` skips the trial run generation ends with (a Myokit compile, about half
+    the time of a view), for a caller that compiles or runs the model itself straight after.
+    A model with parameters left unset is still refused.
 
     Returns ``{view, kind ('step' or 'target'), target, submodule_path, model_path,
     flat_model_path (one self-contained CellML file), parameters_path, obs_data_path, params_for_id_path, fixed, calibrated, waiting_for,
@@ -2148,6 +2152,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     resolved = resolve_workflow(workflow)
     run = _Run(resolved, output_dir, _get_comm(None), None)
     waiting, stale = [], []
+    library_inputs = dict(resolved.library_inputs)
+    if not validate:
+        library_inputs['validate_generated_model'] = False
 
     def available(step_id):
         result = run.step_result(step_id)
@@ -2242,10 +2249,10 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             obs_data, params_for_id = write_step_inputs(view_dir, own_step, params_for_id,
                                                         rs.vessel_map, resolved.target.vessels)
         generated = generate_step_model(rs, view_dir, view, under(base_rows, rows), obs_data,
-                                        resolved.library_inputs, settings)
+                                        library_inputs, settings)
     else:
         generated = generate_model(
-            model, view_dir, view, rows, library_inputs=resolved.library_inputs,
+            model, view_dir, view, rows, library_inputs=library_inputs,
             model_type=settings.get('model_type', STEP_DEFAULTS['model_type']),
             solver=settings.get('solver'))
 

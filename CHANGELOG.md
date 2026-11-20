@@ -13,6 +13,27 @@ next release; add to that section as you land a change.
   when no step comes from the model source. A reader of `provenance_graph.json` that draws
   these edges must accept `__source__` as their end (the schema is unchanged).
 
+### Changed — a workflow tab's model is generated faster
+
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
+### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+
+- With `redundancy_check`, the reduction kept at each step the parameter with the largest
+  local effect not yet explained. Of two parameters that are redundant in the informative
+  modes it could so keep the one with the lower Sobol index, on a small difference in local
+  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
+  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
+  still at least `min_mode_std`, the one with the highest Sobol index over the informative
+  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
+  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
+  decided as before.
+
 ### Added — a reduced parameter set is calibrated on the emulator of the full set
 
 - A workflow calibration with `params_for_id_from` a reduction and `emulator_from` the emulator
@@ -550,24 +571,6 @@ the module, the port's variables, the 1D vessel and the 0D modules.
 - The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
   vessel `v` ends sum, couple to 1D.
 
-### Added — `cuflynx-upgrade junctions`
-
-The module library (circulatory-autogen-modules) removes its junction module types: vessels whose
-compliant end now has a summing port (`"multi_port": ["sum", "True"]`) do what they did, for any
-number of vessels at a node (node sums #609, node rule D #617).
-
-- `cuflynx-upgrade junctions <module_array> --module-library-dir <library>/modules` converts a
-  model: each junction version is retyped to the version the library's `renames.json` names in an
-  entry marked `"by": "cuflynx-upgrade junctions"` (same equations); an `inlet_flow constant_2`
-  becomes two `constant` sources; a `flow_merge`/`flow_split` is removed and its neighbours joined.
-  It renames what changed in `<prefix>_parameters.json`, `<prefix>_obs_data*.json` and
-  `<prefix>_params_for_id*.json`: `v_in_sum`/`v_out_sum` to `v_in`/`v_out`, and a numbered port
-  flow (`J/v_out_1`) to the inflow of the neighbour on that port (`s1/v`). Values the new version
-  has no variable for are dropped and listed. Run it after `cuflynx-upgrade module-names`.
-- The refusal of a node with several ends on both sides no longer suggests a `2in2out_junction`;
-  it suggests a lumped `vv` vessel between them.
-- The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
-  `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
