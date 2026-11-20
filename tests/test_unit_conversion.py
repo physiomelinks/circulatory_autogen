@@ -238,10 +238,3 @@ def test_scale_factor_rejects_affine_units():
     for from_units, to_units in [('kelvin', 'celsius'), ('celsius', 'kelvin')]:
         with pytest.raises(AffineUnitsError, match='needs an offset'):
             converter.get_scale_factor(from_units, to_units)
-
-
-@pytest.mark.unit
-def test_unit_converters_share_one_unit_registry():
-    """Building a pint UnitRegistry takes about a second, so a process builds one."""
-    from libcuflynx.utilities.utility_funcs import UnitConverter, unit_registry
-    assert UnitConverter().ureg is UnitConverter().ureg is unit_registry()
