@@ -38,6 +38,12 @@ next release; add to that section as you land a change.
   them: test runs and studies with many model paths filled TMPDIR. After each write only the
   200 newest files are kept (`myokit_helper.FLATTENED_CELLML_CACHE_MAX_FILES`); a removed
   model is flattened again when it is next run.
+### Added — `cuflynx-init` writes a starter study
+
+- `cuflynx-init [DIR]` writes `user_run_files/user_inputs.yaml` and the 3compartment model's
+  resources (module array, parameters, params_for_id, obs_data) into DIR (default the current
+  directory) and prints what to run next, so a `pip install libcuflynx` has a config to start
+  from. It overwrites nothing unless given `--force`.
 
 ### Changed — a workflow tab's model is generated faster
 

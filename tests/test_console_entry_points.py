@@ -46,6 +46,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-run-predictions",
     "cuflynx-couple",
     "cuflynx-derive",
+    "cuflynx-init",
 }
 
 
@@ -410,6 +411,8 @@ NON_STAGE_COMMANDS = {
     # user_inputs.yaml by cuflynx-generate
     "cuflynx-couple",
     "cuflynx-derive",
+    # writes the starter user_inputs.yaml itself
+    "cuflynx-init",
 }
 
 
