@@ -69,15 +69,31 @@ def test_init_says_to_set_the_user_dir_when_it_is_elsewhere(tmp_path, monkeypatc
     assert 'cuflynx-generate' in out
 
 
-@pytest.mark.unit
-def test_the_starter_yaml_parses_with_its_paths_under_the_study(tmp_path, monkeypatch):
-    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+@pytest.fixture
+def study(tmp_path, monkeypatch):
+    """A directory holding the starter, set as the user directory and the current directory.
+
+    The parser fixes where it looks for user_inputs.yaml when it is imported, so a process
+    that set CUFLYNX_USER_DIR afterwards (this one) points that at the study too.
+    """
+    from libcuflynx.parsers import PrimitiveParsers
 
     init_script.write_starter(tmp_path)
     monkeypatch.setenv('CUFLYNX_USER_DIR', str(tmp_path))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(tmp_path / 'user_run_files'))
     monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+@pytest.mark.unit
+def test_the_starter_yaml_parses_with_its_paths_under_the_study(study):
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+
+    tmp_path = study
     parsed = YamlFileParser().parse_user_inputs_file(None, obs_path_needed=True)
 
+    assert parsed['param_id_obs_path'] == 'resources/3compartment_obs_data.json', \
+        'the starter yaml was not the one read'
     assert os.path.realpath(parsed['resources_dir']) == os.path.realpath(tmp_path / 'resources')
     assert os.path.isfile(parsed['param_id_obs_path'])
     assert os.path.realpath(parsed['params_for_id_path']) == os.path.realpath(
@@ -85,13 +101,10 @@ def test_the_starter_yaml_parses_with_its_paths_under_the_study(tmp_path, monkey
 
 
 @pytest.mark.integration
-def test_a_model_generates_from_the_starter(tmp_path, monkeypatch):
+def test_a_model_generates_from_the_starter(study):
     from libcuflynx.scripts.script_generate_with_new_architecture import \
         generate_with_new_architecture
 
-    init_script.write_starter(tmp_path)
-    monkeypatch.setenv('CUFLYNX_USER_DIR', str(tmp_path))
-    monkeypatch.chdir(tmp_path)
-
+    tmp_path = study
     assert generate_with_new_architecture(False, None)
     assert (tmp_path / 'generated_models' / '3compartment' / '3compartment.cellml').is_file()

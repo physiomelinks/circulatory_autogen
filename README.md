@@ -102,6 +102,7 @@ Each pipeline stage also has a console command, all configured from
 
 | Command | Stage |
 |---|---|
+| `cuflynx-init` | write a starter study into a directory: `user_run_files/user_inputs.yaml` and the 3compartment model's resources (takes a directory and `--force`, not the yaml) |
 | `cuflynx-generate` | generate a model from the CSV arrays |
 | `cuflynx-param-id` | generate + calibrate (`mpiexec -n N` for parallel) |
 | `cuflynx-sensitivity` | Sobol sensitivity analysis |
