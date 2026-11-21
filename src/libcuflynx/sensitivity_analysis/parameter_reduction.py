@@ -564,8 +564,8 @@ class PCASobolReduction(ParamReduction):
             table[f'ST_mode_{k + 1}'] = ST[k]
         table.to_csv(os.path.join(report_dir, PCA_MODE_INDICES_FILE), index=False)
         try:
-            import matplotlib
-            matplotlib.use('Agg')
+            from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+            use_agg_unless_interactive()
             import matplotlib.pyplot as plt
             fig, ax = plt.subplots(figsize=(1.2 + 0.9 * len(params), 1.2 + 0.5 * len(variances)))
             image = ax.imshow(ST, vmin=0, vmax=1, cmap='viridis', aspect='auto')
