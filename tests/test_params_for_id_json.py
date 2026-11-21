@@ -309,3 +309,19 @@ def test_the_programmatic_dict_api_still_works():
     ])
     assert from_entries['param_names'] == [['aortic_root/C'], ['a/R', 'b/R']]
     assert from_entries['param_names_for_gen'] == [['C_aortic_root'], ['R_a', 'R_b']]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('params_for_id', ['3compartment_params_for_id.json',
+                                           '3compartment_q_lv_only_params_for_id.json'])
+def test_the_3compartment_defaults_are_inside_their_calibration_bounds(params_for_id):
+    """A calibration of the main test model starts from its defaults: each must be one the
+    optimiser may reach, or the start is clipped onto a bound."""
+    parameters = json.loads((RESOURCES / '3compartment_parameters.json').read_text())
+    entries = json.loads((RESOURCES / params_for_id).read_text())['params']
+    for entry in entries:
+        for target in entry['targets']:
+            instance, variable = target.split('/')
+            value = parameters[instance][variable]['value']
+            assert entry['min'] <= value <= entry['max'], (
+                f"{target} default {value:g} outside [{entry['min']:g}, {entry['max']:g}]")

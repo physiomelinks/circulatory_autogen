@@ -10,7 +10,7 @@
   "q_ra_init": {"value": 0.000004, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
   "q_rv_init": {"value": 0.00001, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
   "q_la_init": {"value": 0.000004, "units": "m3", "data_reference": "Korakianitis_2006_Table_1"},
-  "q_lv_init": {"value": 0.002, "units": "m3", "data_reference": "to_be_identified"},
+  "q_lv_init": {"value": 0.001, "units": "m3", "data_reference": "to_be_identified"},
   "T_ac": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2"},
   "T_ar": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2"},
   "t_astart": {"value": 0.8, "units": "second", "data_reference": "Liang_2009_Table_2"},

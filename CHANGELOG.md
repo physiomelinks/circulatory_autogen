@@ -19,6 +19,11 @@ next release; add to that section as you land a change.
   point to the model source, whose every generated step model holds them; to the target only
   when no step comes from the model source. A reader of `provenance_graph.json` that draws
   these edges must accept `__source__` as their end (the schema is unchanged).
+### Changed — the 3compartment model starts inside its calibration bounds (changes results)
+
+- `resources/3compartment_parameters.json`: `global/q_lv_init` is 1e-3 m3, inside the bounds
+  [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
+  calibrations started from its defaults, give different numbers.
 
 ### Changed — a workflow tab's model is generated faster
 
