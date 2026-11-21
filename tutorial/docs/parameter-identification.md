@@ -1385,8 +1385,15 @@ wf.result('fit')['values']      # {'A/p': 2.0}
   `num_calls_to_function`). `wf.check()` names what is missing, without running anything;
   `wf.update_settings(...)` changes settings later.
 
-`wf.run()` checks the workflow, writes it and runs it. `print(wf)` lists the steps and whether
-each has run; `wf.status()` also says which are stale.
+`wf.run()` checks the workflow, writes it and runs it. It prints one `[workflow]` line per
+step; everything else a step writes (the optimiser's iterations, compiler output, warnings)
+goes to `<output_dir>/<step>/log.txt`, and what is written outside the steps to
+`<output_dir>/workflow_log.txt`. `wf.run(verbose=True)` prints all of it as well.
+
+`print(wf)` lists the steps and whether each has run. `wf.show_status()` prints a table with
+each step's state (`done`, `stale`, `not run`), best cost and finish time, and
+`wf.show_plan()` one with each step's model, the steps it takes from and the parameters it
+gives; `wf.status()` and `wf.plan()` return the same as dicts.
 
 #### A chain of steps
 
@@ -1520,28 +1527,40 @@ calibration_workflow.json          the workflow; its paths are relative to this 
 data/<step>_obs_data.json          an obs_data given as a dict
 data/<step>_params_for_id.json     a params_for_id given as entries
 <name>_operation_funcs.py          the functions given to add_operation, with their imports
+.workflow_builder_files.json       which of these files a builder wrote, for wf.clean()
 workflow_output/<name>/            the run (wf.output_dir), see Outputs below
 ```
 
 Two steps given the same dict share one file, named after the first. Keep files of your own
 out of `data/`.
 
+Removing or renaming a step leaves its data files behind. `wf.clean()` lists the files the
+builder wrote for this workflow that no workflow in the directory names any more, and
+`wf.clean(delete=True)` moves them to `data/removed/`; it deletes nothing. A file is only ever
+listed when a builder wrote it, its content is still what was written, and no JSON file at the
+top of the directory names it. Nothing under `workflow_output/` is touched.
+
 After a run, `wf.result(id)` is what the step recorded (a calibration's `values` and
 `best_cost`, a reduction's chosen `parameters`, each kind's files as paths), `wf.step_dir(id)`
-its output directory, `wf.plot_step(id)` plots a calibration's fit, and `wf.model(id)` (or
-`wf.model('target')`) generates the model with the values found so far, under the run's
-`models/<id>/`.
+its output directory, `wf.plot_step(id)` plots a calibration's fit (as png;
+`formats=('png', 'pdf')` for more), and `wf.model(id)` (or `wf.model('target')`) generates the
+model with the values found so far, under the run's `models/<id>/`. Every path the builder
+returns (`wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir(id)`, the files
+in `wf.result(id)`) is a `pathlib.Path`.
+
+A step's options are dicts under the names the schema gives them: `sa_options`,
+`ia_options`, `emulator_settings`, and for a reduction
+`wf.add_reduction(id, sensitivity_from=..., param_reduction_options={'method': 'pca', ...})`.
 
 #### From the command line
 
 The written file is an ordinary workflow: CUFLynx opens it, `pack_workflow` carries its data
 and functions file, and the command runs it. The command's default output directory is
-`./workflow_output/<name>` under the directory it is run from, not the builder's, so give the
-builder's to continue the same run:
+`workflow_output/<name>` beside the workflow file, which is the builder's `wf.output_dir`, so
+the command continues the same run from any directory:
 
 ```
-cuflynx-calibration-workflow wf_python/calibration_workflow.json \
-    --output-dir wf_python/workflow_output/chain_from_python --stale-only
+cuflynx-calibration-workflow wf_python/calibration_workflow.json --stale-only
 ```
 
 `--stale-only` runs what `wf.run()` would; without it the command runs every step, and
@@ -2062,7 +2081,7 @@ a step fitting it is checked before anything runs, like any other calibration. T
 ### Outputs
 
 ```
-<output_dir>/                         --output-dir; default ./workflow_output/<workflow_name>
+<output_dir>/                         --output-dir; default workflow_output/<workflow_name> beside the workflow file
     calibration_workflow.json         the workflow as run
     workflow_result.json              order, provenance (input hashes, times, commits, libCellML version), merged parameters
     provenance_graph.json             how every value was set, for reports and CUFLynx (below)
@@ -2102,7 +2121,9 @@ false` in the settings packs nothing and names the inputs where they are.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere
-and gives the same results. It holds each step's files under `inputs/<step_id>/`, the module
+and gives the same results. `--pack DIR --overwrite` (`pack_workflow(..., overwrite=True)`)
+replaces an earlier pack in `DIR`; a directory holding anything a pack does not write is
+refused. It holds each step's files under `inputs/<step_id>/`, the module
 versions the workflow uses under `modules/` (built-in modules come with libcuflynx), and the
 files its settings name under `settings/`. Paths in `settings` (`external_modules_dir`,
 `*_funcs_external_path`) are relative to the workflow file, like its other paths.

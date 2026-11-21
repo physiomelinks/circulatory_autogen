@@ -8,6 +8,7 @@ chain), whose optima are known in closed form.
 """
 import inspect
 import re
+import warnings
 import json
 import linecache
 import os
@@ -142,8 +143,9 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
                        params_for_id=_entries('mod', 'p', 0.1, 5.0), store_distribution=True,
                        settings={'UQ_options': UQ_OPTIONS}, description='A alone')
     wf.add_sensitivity('screen', obs_data=obs, params_for_id=pfi, sa_options=SA_OPTIONS)
-    wf.add_reduction('reduce', sensitivity_from='screen', method='sobol', n_params=1,
-                     threshold=0.05)
+    wf.add_reduction('reduce', sensitivity_from='screen',
+                     param_reduction_options={'method': 'sobol', 'n_params': 1,
+                                              'threshold': 0.05})
     wf.add_emulation('emulate', obs_data=obs, params_for_id_from='reduce',
                      emulator_settings=EMULATOR_SETTINGS, fixed_from=['fit_a'])
     wf.add_calibration('fit', obs_data=obs, params_for_id_from='reduce', fixed_from='fit_a')
@@ -544,7 +546,7 @@ def test_the_api_page_lists_every_public_member_and_each_has_a_docstring():
     assert sorted(listed) == sorted(public)
     for name in public:
         assert len(inspect.getdoc(getattr(WorkflowBuilder, name)) or '') > 20, name
-    for attribute in ('directory (str)', 'path (str)', 'settings (dict)'):
+    for attribute in ('directory (pathlib.Path)', 'path (pathlib.Path)', 'settings (dict)'):
         assert attribute in inspect.getdoc(WorkflowBuilder)
 
 
@@ -1100,7 +1102,8 @@ def test_run_only_from_step_and_edited_dicts_make_their_steps_stale(library, tmp
     model = wf.model('rest')
     assert os.path.isfile(model['model_path'])
     # generated in the run's models/ folder, which no step's output can be
-    assert model['model_path'].startswith(os.path.join(wf.output_dir, MODELS_DIR, 'rest') + os.sep)
+    assert str(model['model_path']).startswith(
+        os.path.join(wf.output_dir, MODELS_DIR, 'rest') + os.sep)
 
 
 @pytest.mark.integration
@@ -1110,7 +1113,7 @@ def test_run_keeps_the_steps_that_are_done_and_current(library, tmp_path, capsys
     from libcuflynx.scripts import calibration_workflow_run_script as cli
     wf = _chain(library, tmp_path / 'wf')
     with pytest.raises(WorkflowError, match=f'step "fit_a" has not run into '
-                                            f'{re.escape(wf.output_dir)}'):
+                                            f'{re.escape(str(wf.output_dir))}'):
         wf.result('fit_a')
     events = []
     wf.run(only='fit_a', progress=events.append)
@@ -1143,7 +1146,7 @@ def test_run_keeps_the_steps_that_are_done_and_current(library, tmp_path, capsys
     fit_a = wf.result('fit_a')
     assert fit_a['kind'] == 'calibration' and fit_a['values'] == {'mod/p': values['fit_a']}
     assert fit_a['best_cost'] == wf.status()['steps']['fit_a']['best_cost']
-    assert fit_a['step_dir'] == str(wf.step_dir('fit_a'))
+    assert fit_a['step_dir'] == wf.step_dir('fit_a')
     assert os.path.isdir(fit_a['param_id_output_dir'])
     with pytest.raises(WorkflowError, match='has no step "nope"'):
         wf.result('nope')
@@ -1153,8 +1156,8 @@ def test_run_keeps_the_steps_that_are_done_and_current(library, tmp_path, capsys
                        params_for_id=_entries('mod__C', 'q', 0.1, 10.0), fixed_from='fit_a')
     assert ran() == (['rest'], ['fit_a'])
     # the command line's --stale-only is the same; without it every step runs
-    assert cli.build_parser().parse_args([wf.path, '--stale-only']).stale_only
-    assert not cli.build_parser().parse_args([wf.path]).stale_only
+    assert cli.build_parser().parse_args([str(wf.path), '--stale-only']).stale_only
+    assert not cli.build_parser().parse_args([str(wf.path)]).stale_only
     assert ran(force=True) == (['fit_a', 'rest'], [])
     assert _calibrated(wf, 'fit_a') == pytest.approx(values['fit_a'], rel=1e-12)
 
@@ -1303,3 +1306,280 @@ def test_an_exact_tangent_given_after_the_def_is_written_as_its_decorator():
                                       known={'mean_with_rule', '_rule'})
     assert source.startswith('@exact_tangent(_rule)\ndef mean_with_rule(x):')
     assert imports == ['from libcuflynx.param_id.operation_funcs import exact_tangent']
+
+
+# --------------------------------------------------------------------------------------------
+# options as dicts, paths, logs, clean, show_*, pack overwrite, plot formats
+# --------------------------------------------------------------------------------------------
+
+def _screened(library, directory):
+    screened = library['chain/screened']
+    wf = WorkflowBuilder('screened', target=library_module('chain', 'v1', 'screened'),
+                         directory=directory, module_library_dirs=[library['modules']],
+                         settings=OPTIMISER_SETTINGS)
+    wf.add_sensitivity('screen', obs_data=os.path.join(screened, 'screened_obs_data.json'),
+                       params_for_id=os.path.join(screened, 'screened_params_for_id.json'),
+                       sa_options=SA_OPTIONS)
+    return wf
+
+
+def _reduction_options(wf, step='reduce'):
+    return next(s for s in wf.to_dict()['steps']
+                if s['id'] == step)['settings']['param_reduction_options']
+
+
+@pytest.mark.unit
+def test_add_reduction_takes_its_options_as_a_dict_and_the_keywords_warn(library, tmp_path):
+    wf = _screened(library, tmp_path / 'wf')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        wf.add_reduction('reduce', sensitivity_from='screen',
+                         param_reduction_options={'n_params': 1, 'redundancy_check': True})
+    # method is pca unless given
+    assert _reduction_options(wf) == {'method': 'pca', 'n_params': 1, 'redundancy_check': True}
+    wf.add_reduction('reduce', sensitivity_from='screen')
+    assert _reduction_options(wf) == {'method': 'pca'}
+
+    # the keywords of the first version give the same step, with a FutureWarning
+    with pytest.warns(FutureWarning, match=r"param_reduction_options=\{'method': 'sobol', "
+                                           r"'n_params': 1\}"):
+        wf.add_reduction('reduce', sensitivity_from='screen', method='sobol', n_params=1)
+    assert _reduction_options(wf) == {'method': 'sobol', 'n_params': 1}
+    with pytest.warns(FutureWarning):
+        wf.add_reduction('reduce', sensitivity_from='screen', threshold=0.05,
+                         param_reduction_options={'method': 'sobol', 'n_params': 1})
+    assert _reduction_options(wf) == {'method': 'sobol', 'n_params': 1, 'threshold': 0.05}
+
+    # an option given both ways with different values is refused; the step is unchanged
+    with pytest.warns(FutureWarning), pytest.raises(WorkflowError, match=r"\['n_params'\] is "
+                                                                         r"given both"):
+        wf.add_reduction('reduce', sensitivity_from='screen', n_params=2,
+                         param_reduction_options={'method': 'sobol', 'n_params': 1})
+    assert _reduction_options(wf)['n_params'] == 1
+    # an option the schema does not have is refused where it is given
+    with pytest.raises(WorkflowError, match='n_parms'):
+        wf.add_reduction('reduce', sensitivity_from='screen',
+                         param_reduction_options={'n_parms': 1})
+
+
+@pytest.mark.unit
+def test_paths_are_returned_as_path_objects(library, tmp_path):
+    from pathlib import Path
+    wf = _chain(library, str(tmp_path / 'wf'))
+    assert wf.directory == tmp_path / 'wf' and isinstance(wf.directory, Path)
+    assert wf.path == tmp_path / 'wf' / 'calibration_workflow.json'
+    assert wf.output_dir == tmp_path / 'wf' / 'workflow_output' / 'chain_built'
+    assert isinstance(wf.output_dir, Path)
+    written = wf.write()
+    assert written == wf.path and isinstance(written, Path) and written.is_file()
+    assert wf.step_dir('fit_a') == wf.output_dir / 'fit_a'
+    loaded = WorkflowBuilder.load(written)
+    assert loaded.directory == wf.directory and isinstance(loaded.path, Path)
+
+
+@pytest.mark.unit
+def test_a_run_given_no_output_directory_goes_beside_the_workflow_file(library, tmp_path,
+                                                                        monkeypatch):
+    """The command (and run_calibration_workflow) run a written file into the builder's
+    output_dir, wherever they are run from."""
+    from libcuflynx.calibration_workflow.runner import default_output_dir
+    wf = _chain(library, tmp_path / 'wf')
+    path = wf.write()
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert default_output_dir(load_workflow(path)) == str(wf.output_dir)
+    # a workflow given as a dict has no file: the working directory
+    in_memory = load_workflow({**wf.to_dict(), 'target': wf.target,
+                               'module_library_dirs': wf.module_library_dirs,
+                               'steps': [{'id': 'by_hand', 'kind': 'set', 'set': [
+                                   {'parameter': 'C/k', 'value': 1.0, 'reason': 'one'}]}]})
+    assert default_output_dir(in_memory) == str(elsewhere / 'workflow_output' / 'chain_built')
+
+
+@pytest.mark.unit
+def test_clean_lists_and_moves_only_unused_files_the_builder_wrote(library, tmp_path, capsys):
+    wf = _chain(library, tmp_path / 'wf')
+    wf.write()
+    data = wf.directory / 'data'
+    mine = data / 'my_notes.json'
+    mine.write_text('{"mine": true}')
+    result_file = wf.output_dir / 'rest' / 'step_result.json'
+    result_file.parent.mkdir(parents=True)
+    result_file.write_text('{}')
+    assert wf.clean() == []
+    assert 'nothing to clean' in capsys.readouterr().out
+
+    # a removed step's data files are no longer used: listed, and left where they are
+    wf.remove_step('rest')
+    wf.write()
+    unused = [data / 'rest_obs_data.json', data / 'rest_params_for_id.json']
+    assert wf.clean() == unused and all(p.is_file() for p in unused)
+    out = capsys.readouterr().out
+    assert 'data/rest_obs_data.json' in out and 'wf.clean(delete=True) moves them' in out
+
+    # a file another workflow in the directory names is kept
+    other = wf.directory / 'other_workflow.json'
+    other.write_text(json.dumps({'workflow_name': 'other', 'steps': [
+        {'id': 'rest', 'obs_data': 'data/rest_obs_data.json'}]}))
+    assert wf.clean() == [data / 'rest_params_for_id.json']
+    # so is one that is not as the builder wrote it
+    written = unused[1].read_text()
+    unused[1].write_text(written + ' ')
+    assert wf.clean() == []
+    assert 'kept data/rest_params_for_id.json: changed since' in capsys.readouterr().out
+    unused[1].write_text(written)
+    # a JSON file that cannot be read may name anything: nothing is cleaned
+    broken = wf.directory / 'broken.json'
+    broken.write_text('{')
+    with pytest.raises(WorkflowError, match='broken.json cannot be read'):
+        wf.clean(delete=True)
+    broken.unlink()
+    other.unlink()
+
+    # delete=True moves the files into data/removed/, and deletes nothing
+    moved = wf.clean(delete=True)
+    removed = data / 'removed' / 'data'
+    assert moved == [removed / 'rest_obs_data.json', removed / 'rest_params_for_id.json']
+    assert all(p.is_file() for p in moved) and not any(p.exists() for p in unused)
+    assert moved[1].read_text() == written
+    assert mine.read_text() == '{"mine": true}' and result_file.is_file()
+    assert (data / 'fit_a_obs_data.json').is_file()
+    assert wf.clean() == [] and wf.clean(delete=True) == []
+    # the workflow still writes and reads as before
+    assert load_workflow(wf.write()).step('fit_a').obs_data == str(data / 'fit_a_obs_data.json')
+
+    # a second builder of the same workflow cleans what the first wrote
+    again = WorkflowBuilder.load(wf.path)
+    again.add_calibration('extra', model=library_module('lin_a', 'v1', 'fit_a'),
+                          obs_data=_obs('y_a', 'mod/y', Y_A + 1, STD_A),
+                          params_for_id=_entries('mod', 'p', 0.1, 4.0))
+    again.write()
+    assert WorkflowBuilder.load(wf.path).clean() == []
+    again.remove_step('extra')
+    assert again.clean() == []          # the file on disk still names them, until write()
+    again.write()
+    assert WorkflowBuilder.load(wf.path).clean() == [data / 'extra_obs_data.json',
+                                                     data / 'extra_params_for_id.json']
+
+
+@pytest.mark.unit
+def test_show_plan_and_show_status_print_a_line_for_each_step(library, tmp_path, capsys):
+    wf = _chain(library, tmp_path / 'wf')
+    assert wf.show_plan() is None
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith('[workflow] chain_built: 2 steps, in run order')
+    assert lines[1].split() == ['step', 'kind', 'model', 'takes', 'from', 'gives']
+    assert lines[2].split()[:3] == ['fit_a', 'calibration', 'lin_a/v1/fit_a']
+    assert lines[3].split()[:4] == ['rest', 'calibration', 'chain/v1/rest', 'fit_a']
+
+    assert wf.show_status() is None
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (f'[workflow] chain_built: 0 of 2 steps are done and current, in '
+                        f'{wf.output_dir}')
+    assert lines[1].split() == ['step', 'kind', 'status', 'best', 'cost', 'finished']
+    assert [line.split() for line in lines[2:]] == [['fit_a', 'calibration', 'not', 'run'],
+                                                    ['rest', 'calibration', 'not', 'run']]
+
+
+@pytest.mark.unit
+def test_the_launched_commands_lines_go_to_each_steps_log(tmp_path):
+    """run(ranks=N) reads the command's output: the [workflow] lines are shown and start and
+    end each step's log; the rest goes to the log only, unless verbose."""
+    from libcuflynx.calibration_workflow.builder import _RunLog
+    lines = ['[workflow] running 2 of 2 steps: fit, fit 2\n',
+             '[workflow] step 1/2: fit (calibration, a.json)\n', 'generation 1\n',
+             'a warning\n', '[workflow] step fit done: best cost 1 in 2.0 s\n',
+             'between the steps\n',
+             '[workflow] step 2/2: fit 2 (calibration, a.json)\n', 'generation 9\n',
+             '[workflow] step fit 2 FAILED: no\n', 'Traceback\n']
+    for verbose in (False, True):
+        shown, out = [], tmp_path / str(verbose)
+        log = _RunLog(str(out), echo=shown.append, verbose=verbose, steps=['fit', 'fit 2'])
+        for line in lines:
+            log.line(line)
+        log.close()
+        assert shown == (lines if verbose else [x for x in lines if x.startswith('[workflow]')])
+        assert (out / 'fit' / 'log.txt').read_text() == 'generation 1\na warning\n'
+        assert (out / 'fit 2' / 'log.txt').read_text() == 'generation 9\n'
+        assert (out / 'workflow_log.txt').read_text() == ''.join(
+            x for x in lines if x.startswith('[workflow]') or x in ('between the steps\n',
+                                                                    'Traceback\n'))
+        assert sorted(p.name for p in out.iterdir()) == ['fit', 'fit 2', 'workflow_log.txt']
+
+
+@pytest.mark.unit
+def test_pack_workflow_replaces_an_earlier_pack_only_when_told_to(library, tmp_path):
+    path = _chain(library, tmp_path / 'wf').write()
+    pack = tmp_path / 'pack'
+    first = pack_workflow(path, str(pack))
+    with pytest.raises(ValueError, match='is not empty; pack into a new directory, or replace '
+                                         'an earlier pack with overwrite=True'):
+        pack_workflow(path, str(pack))
+    stale = pack / 'inputs' / 'gone' / 'old.json'
+    stale.parent.mkdir()
+    stale.write_text('{}')
+    again = pack_workflow(path, str(pack), overwrite=True)
+    assert again['files'] == first['files'] and not stale.exists()
+    # a directory holding anything a pack does not write is never replaced
+    (pack / 'notes.txt').write_text('mine')
+    with pytest.raises(ValueError, match=r"holds \['notes.txt'\], which a pack does not write"):
+        pack_workflow(path, str(pack), overwrite=True)
+    assert (pack / 'notes.txt').read_text() == 'mine'
+    assert (pack / 'calibration_workflow.json').is_file()
+
+
+@pytest.mark.integration
+def test_run_prints_the_workflow_lines_and_keeps_all_output_in_logs(library, tmp_path, capsys):
+    wf = _chain(library, tmp_path / 'wf')
+    wf.run()
+    captured = capsys.readouterr()
+    printed = [line for line in captured.out.splitlines() if line.strip()]
+    assert printed and all(line.startswith('[workflow]') for line in printed), printed
+    assert captured.err == ''
+    assert '[workflow] step 1/2: fit_a (calibration, lin_a/v1/fit_a)' in printed
+    logs = {step: (wf.step_dir(step) / 'log.txt').read_text() for step in wf.steps}
+    assert all(logs.values()) and logs['fit_a'] != logs['rest']
+    assert not any(line.startswith('[workflow]') for text in logs.values()
+                   for line in text.splitlines())
+    workflow_log = (wf.output_dir / 'workflow_log.txt').read_text()
+    assert all(line in workflow_log for line in printed)
+    assert not list(wf.output_dir.glob('step_log.*'))
+    # the streams are the caller's again
+    print('after the run')
+    assert capsys.readouterr().out == 'after the run\n'
+
+    # verbose prints the steps' output too, and the logs are written as before
+    wf.run(force=True, verbose=True)
+    printed = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert any(not line.startswith('[workflow]') for line in printed)
+    assert all((wf.step_dir(step) / 'log.txt').read_text() for step in wf.steps)
+    # progress=False prints nothing, and still keeps the logs
+    wf.run(force=True, progress=False)
+    assert capsys.readouterr().out == ''
+    assert all((wf.step_dir(step) / 'log.txt').read_text() for step in wf.steps)
+
+    wf.show_status()
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith('[workflow] chain_built: 2 of 2 steps are done and current')
+    assert [line.split()[:3] for line in lines[2:]] == [['fit_a', 'calibration', 'done'],
+                                                        ['rest', 'calibration', 'done']]
+
+    # a failing step's output is kept too, and the message says where
+    wf.add_calibration('rest', obs_data=_obs('z_c', 'mod__C/nope', Z_C, STD_C),
+                       params_for_id=_entries('mod__C', 'q', 0.1, 10.0), fixed_from='fit_a')
+    with pytest.raises(Exception):
+        wf.run()
+    out = capsys.readouterr().out
+    assert '[workflow] step rest FAILED' in out
+    assert f'[workflow] the output of step rest is in {wf.step_dir("rest") / "log.txt"}' in out
+    assert (wf.step_dir('rest') / 'log.txt').is_file()
+
+    # plot_step saves the formats asked for, png by default
+    images = wf.plot_step('fit_a')
+    assert images and {p.suffix for p in images} == {'.png'} and all(p.is_file() for p in images)
+    both = wf.plot_step('fit_a', formats=('pdf', 'png'))
+    assert {p.suffix for p in both} == {'.pdf', '.png'} and set(images) <= set(both)
+    assert {p.suffix for p in wf.plot_step('fit_a', formats='eps')} == {'.eps'}
+    with pytest.raises(WorkflowError, match=r"not \['svg'\]"):
+        wf.plot_step('fit_a', formats=('svg',))
