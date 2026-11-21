@@ -20,8 +20,8 @@ EPILOG = (
     "its model, obs_data and params_for_id in the workflow file, and its settings come from\n"
     "the file's \"settings\" (and the step's own).\n"
     "\n"
-    "Outputs go to --output-dir (default ./workflow_output/<workflow_name>): one directory\n"
-    "per step and workflow_result.json with the merged parameter set.\n"
+    "Outputs go to --output-dir (default workflow_output/<workflow_name> beside the workflow\n"
+    "file): one directory per step and workflow_result.json with the merged parameter set.\n"
     "\n"
     "Run under a launcher to use more than one rank, e.g.\n"
     "`mpiexec -n 4 cuflynx-calibration-workflow <workflow.json>`; every step's calibration\n"
@@ -44,7 +44,8 @@ def build_parser():
                         help='a module library to find the library modules in '
                              '(repeatable; added to the file\'s own module_library_dirs)')
     parser.add_argument('--output-dir', default=None, metavar='DIR',
-                        help='where to write the run (default ./workflow_output/<name>)')
+                        help='where to write the run (default workflow_output/<name> beside '
+                             'the workflow file)')
     which = parser.add_mutually_exclusive_group()
     which.add_argument('--from-step', default=None, metavar='ID',
                        help='run this step and the ones after it, reusing earlier results')
@@ -64,6 +65,9 @@ def build_parser():
                         help='copy every file the workflow needs to run (its inputs, module '
                              'versions and settings files, none of its results) into the new '
                              'directory DIR, with the workflow rewritten to them; run nothing')
+    parser.add_argument('--overwrite', action='store_true',
+                        help='with --pack: replace an earlier pack in DIR (a directory holding '
+                             'anything else is refused)')
     return parser
 
 
@@ -117,7 +121,8 @@ def run(args):
         if MPI.COMM_WORLD.Get_rank() != 0:
             return None
         packed = pack_workflow(args.workflow, args.pack,
-                               module_library_dirs=args.module_library_dirs)
+                               module_library_dirs=args.module_library_dirs,
+                               overwrite=args.overwrite)
         print(f"[workflow] packed {len(packed['files'])} files ({len(packed['modules'])} "
               f"module versions) into {args.pack}; run {packed['workflow']}")
         return packed

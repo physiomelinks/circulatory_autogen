@@ -29,6 +29,7 @@ What :meth:`~WorkflowBuilder.write` puts in ``directory``::
     data/<step>_params_for_id.json    a params_for_id given as entries or a document
     <name>_operation_funcs.py         the functions given to add_operation (and _cost_funcs.py,
                                       _modifier_funcs.py for add_cost_func, add_modifier_func)
+    .workflow_builder_files.json      which of those files a builder wrote, for clean()
 
 Dicts are copied when they are added: to change a step, add it again with the same id. A file
 is rewritten only when its content changes, so the runner's change detection (the sha256 of
@@ -42,16 +43,22 @@ functions the builder does not have (added by another writer), unless told to
 
 import ast
 import builtins
+import contextlib
 import copy
+import hashlib
 import importlib
 import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 import time
+import warnings
+from pathlib import Path
 
 from libcuflynx.calibration_workflow.spec import (ALLOWED_SETTINGS, PATH_SETTINGS,
                                                   WORKFLOW_FILE_NAME, WorkflowError,
@@ -62,6 +69,21 @@ from libcuflynx.utilities.user_funcs_file import (FUNCS_SETTINGS, HEADER_NAMES,
 
 #: where a dict input is written, relative to the workflow's directory
 DATA_DIR = 'data'
+#: where clean(delete=True) moves the files no workflow uses, relative to the directory
+REMOVED_DIR = 'data/removed'
+#: the record of the files builders wrote into a directory, by workflow file:
+#: ``{"version": 1, "workflows": {<workflow file name>: {<relative path>: <sha256>}}}``
+WRITTEN_FILES = '.workflow_builder_files.json'
+#: a run's output outside its steps, in the run's output directory
+WORKFLOW_LOG = 'workflow_log.txt'
+#: a step's output, in the step's directory (``<output_dir>/step_log.<id>.txt`` while it runs)
+STEP_LOG = 'log.txt'
+#: the options of a reduction step, which add_reduction also takes as keywords of their own
+#: for one release
+_REDUCTION_KEYWORDS = ('method', 'n_params', 'index_type', 'criterion', 'threshold',
+                       'min_mode_std', 'variance_fraction', 'min_index', 'redundancy_check',
+                       'redundancy_statistic', 'redundancy_converged_only',
+                       'redundancy_convergence_tol')
 #: the marker each decorator sets on a function: (attribute, decorator), by kind of file. A
 #: marker set after the def (``f.series_to_constant = True``) is written as the decorator.
 _MARKS = {'operation': [('series_to_constant', 'series_to_constant'),
@@ -87,6 +109,8 @@ _USER_ENV = ('OMPI_MCA_orte_tmpdir_base', 'OMPI_MCA_orte_default_hostfile',
 _RESERVED_IDS = frozenset({'models', 'target', '_target', 'inputs'})
 #: the kinds of step that name no model (spec._NO_MODEL_KINDS)
 _NO_MODEL_KINDS = ('reduction', 'set')
+#: the file formats plot_outputs saves a figure in
+PLOT_FORMATS = ('png', 'pdf', 'eps')
 #: the calibration method of a step whose settings name none (the parser's default)
 DEFAULT_PARAM_ID_METHOD = 'genetic_algorithm'
 #: the longest step id: it names the step's directory and files
@@ -293,16 +317,16 @@ class WorkflowBuilder:
         WorkflowError: an unknown setting, or a name or target the schema refuses.
 
     Attributes:
-        directory (str): the absolute directory the workflow is written to.
-        path (str): the workflow file, ``<directory>/calibration_workflow.json``.
+        directory (pathlib.Path): the absolute directory the workflow is written to.
+        path (pathlib.Path): the workflow file, ``<directory>/calibration_workflow.json``.
         settings (dict): the workflow's settings, paths absolute. Change them with
             :meth:`update_settings`, which checks them.
     '''
 
     def __init__(self, name, target, *, directory, description=None, module_library_dirs=(),
                  settings=None):
-        self.directory = os.path.abspath(os.path.expanduser(os.fspath(directory)))
-        self.path = os.path.join(self.directory, WORKFLOW_FILE_NAME)
+        self._dir = os.path.abspath(os.path.expanduser(os.fspath(directory)))
+        self._path = os.path.join(self._dir, WORKFLOW_FILE_NAME)
         self._head = {'schema_version': 1, 'workflow_name': name}
         if description is not None:
             self._head['description'] = description
@@ -351,7 +375,7 @@ class WorkflowBuilder:
             raise WorkflowError(f'{path} is not valid JSON: {exc}') from exc
         directory = os.path.dirname(path)
         self = cls.__new__(cls)
-        self.directory, self.path = directory, path
+        self._dir, self._path = directory, path
         self._head, self._steps, self._order = {}, [], list(raw)
         self.settings = {}
         for key, value in raw.items():
@@ -381,7 +405,7 @@ class WorkflowBuilder:
         from libcuflynx.calibration_workflow.runner import STEP_RESULT
         lines = [f'<WorkflowBuilder "{self.name}": target {_model_label(self._head["target"])}, '
                  f'{len(self._steps)} step{"" if len(self._steps) == 1 else "s"}, in '
-                 f'{self.directory}>']
+                 f'{self._dir}>']
         for step in self._steps:
             state = 'not run'
             try:
@@ -395,6 +419,16 @@ class WorkflowBuilder:
             if self._funcs[kind]:
                 lines.append(f'  {kind} functions: {", ".join(self._funcs[kind])}')
         return '\n'.join(lines)
+
+    @property
+    def directory(self):
+        '''The absolute directory the workflow is written to (a ``pathlib.Path``).'''
+        return Path(self._dir)
+
+    @property
+    def path(self):
+        '''The workflow file (a ``pathlib.Path``).'''
+        return Path(self._path)
 
     @property
     def name(self):
@@ -414,8 +448,9 @@ class WorkflowBuilder:
     @property
     def output_dir(self):
         '''Where :meth:`run` writes unless told otherwise:
-        ``<directory>/workflow_output/<name>`` (a str).'''
-        return os.path.join(self.directory, 'workflow_output', self.name)
+        ``<directory>/workflow_output/<name>`` (a ``pathlib.Path``), which is also where the
+        ``cuflynx-calibration-workflow`` command runs the written file.'''
+        return Path(self._dir, 'workflow_output', self.name)
 
     @property
     def steps(self):
@@ -538,47 +573,76 @@ class WorkflowBuilder:
         given['settings'] = dict(settings or {}, sa_options=dict(sa_options))
         return self.add_step(id, kind='sensitivity', **given)
 
-    def add_reduction(self, id, *, sensitivity_from, method='pca', n_params=None,
-                      index_type=None, criterion=None, threshold=None, min_mode_std=None,
-                      variance_fraction=None, min_index=None, redundancy_check=None,
-                      redundancy_statistic=None, redundancy_converged_only=None,
-                      redundancy_convergence_tol=None, description=None, comment=None):
+    def add_reduction(self, id, *, sensitivity_from, param_reduction_options=None,
+                      method=None, n_params=None, index_type=None, criterion=None,
+                      threshold=None, min_mode_std=None, variance_fraction=None, min_index=None,
+                      redundancy_check=None, redundancy_statistic=None,
+                      redundancy_converged_only=None, redundancy_convergence_tol=None,
+                      description=None, comment=None):
         """Add a reduction: choose the parameters a later step calibrates
         (its ``params_for_id_from``) from the Sobol indices of a sensitivity step.
 
         Args:
             id: the step's name (see :meth:`add_calibration`).
             sensitivity_from: the sensitivity step whose results are reduced.
-            method: ``'pca'`` (one parameter per informative mode of the Sobol outputs) or
-                ``'sobol'`` (the ``n_params`` parameters with the highest index).
-            n_params: how many parameters to keep (pca: at most; sobol: required).
-            index_type: ``'ST'`` (total, the default) or ``'S1'`` (first-order) indices.
-            criterion: sobol: a parameter's score, the ``'max'`` or ``'mean'`` of its index.
-            threshold: sobol: drop parameters scoring below this.
-            min_mode_std: pca: a mode is informative when its std over the samples is at
-                least this many obs_data stds (default 1).
-            variance_fraction: pca: only the leading modes explaining this fraction of the
-                variance (default 1, no cut).
-            min_index: pca: skip a mode whose largest index is below this (default 0.05).
-            redundancy_check: the check for parameters with the same effect on the outputs.
-            redundancy_statistic: pca with redundancy_check: ``'median'`` (default) or ``'rms'``
-                of a parameter's unexplained effect over the local Jacobian points.
-            redundancy_converged_only: pca with redundancy_check: leave out the points whose
-                derivatives change with the step (needs ``sa_options.jacobian_check_steps``).
-            redundancy_convergence_tol: the largest relative change between the two steps
-                (default 0.1).
+            param_reduction_options: the reduction's options (the schema's
+                ``param_reduction_options``), written as the step's
+                ``settings.param_reduction_options``; a key left out takes the schema's
+                default, and ``method`` is ``'pca'`` unless given:
+
+                - ``method``: ``'pca'`` (one parameter per informative mode of the Sobol
+                  outputs) or ``'sobol'`` (the ``n_params`` parameters with the highest
+                  index);
+                - ``n_params``: how many parameters to keep (pca: at most; sobol: required);
+                - ``index_type``: ``'ST'`` (total, the default) or ``'S1'`` (first-order);
+                - ``criterion``: sobol: a parameter's score, the ``'max'`` or ``'mean'`` of
+                  its index;
+                - ``threshold``: sobol: drop parameters scoring below this;
+                - ``min_mode_std``: pca: a mode is informative when its std over the samples
+                  is at least this many obs_data stds (default 1);
+                - ``variance_fraction``: pca: only the leading modes explaining this fraction
+                  of the variance (default 1, no cut);
+                - ``min_index``: pca: skip a mode whose largest index is below this (default
+                  0.05);
+                - ``redundancy_check``: the check for parameters with the same effect on the
+                  outputs;
+                - ``redundancy_statistic``: pca with redundancy_check: ``'median'`` (default)
+                  or ``'rms'`` of a parameter's unexplained effect over the local Jacobian
+                  points;
+                - ``redundancy_converged_only``: pca with redundancy_check: leave out the
+                  points whose derivatives change with the step (needs
+                  ``sa_options.jacobian_check_steps``);
+                - ``redundancy_convergence_tol``: the largest relative change between the
+                  two steps (default 0.1).
+            method, n_params, index_type, criterion, threshold, min_mode_std,
+                variance_fraction, min_index, redundancy_check, redundancy_statistic,
+                redundancy_converged_only, redundancy_convergence_tol: deprecated: the same
+                options as keywords of their own, read with a FutureWarning. Give them in
+                ``param_reduction_options``.
             description, comment: free text.
 
-        The options are written as the step's ``settings.param_reduction_options``; those
-        left as None take the schema's defaults. Returns ``id``.
+        Returns ``id``.
+
+        Raises:
+            WorkflowError: an option is given both ways with different values, or the step
+                does not fit the schema.
         """
-        options = {k: v for k, v in dict(
-            method=method, n_params=n_params, index_type=index_type, criterion=criterion,
-            threshold=threshold, min_mode_std=min_mode_std, variance_fraction=variance_fraction,
-            min_index=min_index, redundancy_check=redundancy_check,
-            redundancy_statistic=redundancy_statistic,
-            redundancy_converged_only=redundancy_converged_only,
-            redundancy_convergence_tol=redundancy_convergence_tol).items() if v is not None}
+        given = locals()
+        flat = {k: given[k] for k in _REDUCTION_KEYWORDS if given[k] is not None}
+        options = dict(param_reduction_options or {})
+        if flat:
+            warnings.warn(
+                f'add_reduction({", ".join(f"{k}=" for k in flat)}...): give the reduction\'s '
+                f'options as param_reduction_options={flat!r}; the separate keywords are '
+                f'removed in the next release.', FutureWarning, stacklevel=2)
+            clash = sorted(k for k, v in flat.items() if k in options and options[k] != v)
+            if clash:
+                raise WorkflowError(
+                    f'step "{id}": {clash} {"is" if len(clash) == 1 else "are"} given both in '
+                    f'param_reduction_options and as a keyword, with different values. Give '
+                    f'each option once, in param_reduction_options.')
+            options.update(flat)
+        options = {'method': options.pop('method', 'pca'), **options}
         return self.add_step(id, kind='reduction', sensitivity_from=sensitivity_from,
                              settings={'param_reduction_options': options},
                              **_given({'description': description, 'comment': comment}))
@@ -902,7 +966,7 @@ class WorkflowBuilder:
             f'replaces the file with the functions given to this builder.')
 
     def _funcs_path(self, kind):
-        return os.path.join(self.directory, f'{_file_stem(self.name, "workflow")}_{kind}_funcs.py')
+        return os.path.join(self._dir, f'{_file_stem(self.name, "workflow")}_{kind}_funcs.py')
 
     def _named_funcs_files(self, key, settings=None, steps=None):
         settings = self.settings if settings is None else settings
@@ -972,7 +1036,7 @@ class WorkflowBuilder:
         Raises:
             WorkflowError: naming each problem and how to fix it.
         """
-        workflow = parse_workflow(self.to_dict(), path=self.path)
+        workflow = parse_workflow(self.to_dict(), path=self._path)
         problems = self._run_problems(workflow)
         if problems:
             raise WorkflowError(f'workflow "{self.name}" cannot run yet:\n  - '
@@ -1057,7 +1121,7 @@ class WorkflowBuilder:
                 wrote, with the functions given to this builder.
 
         Returns:
-            the workflow file's path (a str).
+            the workflow file's path (a ``pathlib.Path``).
 
         Raises:
             WorkflowError: the workflow does not pass its checks, a functions file would
@@ -1065,25 +1129,169 @@ class WorkflowBuilder:
                 builder writes.
         """
         raw = self.to_dict()
-        parse_workflow(copy.deepcopy(raw), path=self.path)
+        parse_workflow(copy.deepcopy(raw), path=self._path)
         if overwrite:
             self._overwrite = {kind: True for kind in FUNCS_SETTINGS}
         texts = {kind: self.funcs_source(kind) for kind in FUNCS_SETTINGS}
         for kind, text in texts.items():
             if text is not None:
                 self._refuse_edited_funcs_file(kind, text, at_write=True)
+        written = {}
         for relative, text in self._data_files()[0].items():
-            _write_if_changed(os.path.join(self.directory, relative), text)
+            _write_if_changed(os.path.join(self._dir, relative), text)
+            written[relative] = text
         for kind, text in texts.items():
             if text is not None:
                 _write_if_changed(self._funcs_path(kind), text)
+                written[os.path.basename(self._funcs_path(kind))] = text
                 if text != self._funcs_seen[kind]:
                     self._funcs_seen[kind], self._funcs_unkept[kind] = text, []
                     self._funcs_loaded[kind] = (dict(self._funcs[kind]),
                                                 list(self._imports[kind]))
                 self._overwrite[kind] = False
-        _write_if_changed(self.path, json.dumps(raw, indent=1, allow_nan=False) + '\n')
-        return self.path
+        _write_if_changed(self._path, json.dumps(raw, indent=1, allow_nan=False) + '\n')
+        self._record_written(written)
+        return Path(self._path)
+
+    # -- the files a builder wrote, and clean() ---------------------------------------------
+
+    def _written_files(self):
+        '''The record of the files builders wrote into the directory (WRITTEN_FILES).'''
+        path = os.path.join(self._dir, WRITTEN_FILES)
+        try:
+            with open(path, encoding='utf-8') as f:
+                record = json.load(f)
+        except FileNotFoundError:
+            return {'version': 1, 'workflows': {}}
+        except (OSError, ValueError) as exc:
+            raise WorkflowError(f'{path}, the record of the files the builder wrote, cannot be '
+                                f'read ({exc}).') from exc
+        if not isinstance(record, dict) or not isinstance(record.get('workflows'), dict):
+            raise WorkflowError(f'{path} is not a record of the files the builder wrote.')
+        return record
+
+    def _record_written(self, written):
+        '''Add ``{relative path: text}``, the files this write() gave the workflow, to the
+        record, each with the checksum of what was written.'''
+        record = self._written_files()
+        mine = record['workflows'].setdefault(os.path.basename(self._path), {})
+        before = dict(mine)
+        for relative, text in written.items():
+            mine[relative] = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        if mine != before:
+            _write_if_changed(os.path.join(self._dir, WRITTEN_FILES),
+                              json.dumps(record, indent=1, sort_keys=True) + '\n')
+
+    def _files_in_use(self):
+        '''The files any workflow in the directory names: every string of every JSON file at
+        the top of the directory, and of this builder as it stands, read as a path relative
+        to the directory. More than the workflows use, never less.'''
+        documents = []
+        for name in sorted(os.listdir(self._dir)) if os.path.isdir(self._dir) else []:
+            path = os.path.join(self._dir, name)
+            if not name.endswith('.json') or name == WRITTEN_FILES or not os.path.isfile(path):
+                continue
+            try:
+                with open(path, encoding='utf-8-sig') as f:
+                    documents.append(json.load(f))
+            except (OSError, ValueError) as exc:
+                raise WorkflowError(
+                    f'{path} cannot be read ({exc}), so the files it names are not known: '
+                    f'nothing is cleaned until it reads as JSON.') from exc
+        if self._steps:
+            documents.append(self.to_dict())
+        used = set()
+
+        def strings(value):
+            if isinstance(value, dict):
+                for v in value.values():
+                    strings(v)
+            elif isinstance(value, list):
+                for v in value:
+                    strings(v)
+            elif isinstance(value, str) and value and '\n' not in value and len(value) < 4096:
+                used.add(os.path.normcase(os.path.normpath(os.path.join(self._dir, value))))
+
+        for document in documents:
+            strings(document)
+        return used
+
+    def clean(self, delete=False):
+        """The files this workflow's builder wrote into :attr:`directory` that no workflow
+        there uses any more (the data file of a step that was removed or renamed, a functions
+        file whose functions were all removed), and, with ``delete=True``, their removal.
+
+        A file is listed only when all of these hold: a builder wrote it for this workflow
+        file (``write()`` records each file it writes, with its checksum, in
+        ``.workflow_builder_files.json``); its content is still what the builder wrote; and
+        no JSON file at the top of the directory, nor this builder as it stands, names it.
+        Nothing under ``workflow_output/`` is ever listed: a run's results are not the
+        builder's files. A workflow in another directory that names these files is not
+        seen.
+
+        Args:
+            delete: False (the default) only lists the files. True moves them to
+                ``data/removed/`` under the directory, keeping their relative paths; nothing
+                is deleted, so moving a file back restores it.
+
+        Returns:
+            the files (a list of ``pathlib.Path``): where they are, or with ``delete=True``
+            where they were moved to. One line per file is printed.
+
+        Raises:
+            WorkflowError: a JSON file in the directory cannot be read, so what it uses is
+                not known.
+        """
+        record = self._written_files()
+        mine = record['workflows'].get(os.path.basename(self._path), {})
+        used = self._files_in_use()
+        outputs = os.path.normcase(os.path.join(self._dir, 'workflow_output')) + os.sep
+        unused, changed, gone = [], [], []
+        for relative, digest in sorted(mine.items()):
+            path = os.path.normpath(os.path.join(self._dir, relative))
+            key = os.path.normcase(path)
+            if not os.path.isfile(path):
+                gone.append(relative)
+            elif key in used or key.startswith(outputs):
+                continue
+            elif _sha256_file(path) != digest:
+                changed.append(relative)
+            else:
+                unused.append(relative)
+        for relative in changed:
+            print(f'[workflow] kept {relative}: changed since the builder wrote it')
+        if not unused:
+            print(f'[workflow] nothing to clean in {self._dir}: every file the builder wrote '
+                  f'is in use.')
+        elif not delete:
+            print(f'[workflow] {len(unused)} file{"" if len(unused) == 1 else "s"} written by '
+                  f'the builder {"is" if len(unused) == 1 else "are"} no longer used by a '
+                  f'workflow in {self._dir}:')
+            for relative in unused:
+                print(f'    {relative}')
+            print(f'[workflow] wf.clean(delete=True) moves '
+                  f'{"it" if len(unused) == 1 else "them"} to {REMOVED_DIR}/.')
+        if not delete:
+            return [Path(self._dir, relative) for relative in unused]
+        moved = []
+        for relative in unused:
+            destination = os.path.join(self._dir, REMOVED_DIR, relative)
+            stem, ext = os.path.splitext(destination)
+            n = 1
+            while os.path.exists(destination):
+                n += 1
+                destination = f'{stem}.{n}{ext}'
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.move(os.path.join(self._dir, relative), destination)
+            print(f'[workflow] moved {relative} to '
+                  f'{_forward_slashes(os.path.relpath(destination, self._dir))}')
+            moved.append(Path(destination))
+        for relative in unused + gone:
+            del mine[relative]
+        if unused or gone:
+            _write_if_changed(os.path.join(self._dir, WRITTEN_FILES),
+                              json.dumps(record, indent=1, sort_keys=True) + '\n')
+        return moved
 
     def plan(self):
         """What a run would do, without running anything: :meth:`check`, :meth:`write`, then
@@ -1100,8 +1308,25 @@ class WorkflowBuilder:
         self.check()
         return plan_workflow(self.write())
 
+    def show_plan(self):
+        """Print :meth:`plan` as a table, one line per step in run order: its kind, its
+        model, the steps it takes from, and the parameters it calibrates or sets. Runs
+        nothing; returns None (:meth:`plan` returns the dict)."""
+        plan = self.plan()
+        rows = [('step', 'kind', 'model', 'takes from', 'gives')]
+        for step in plan['steps']:
+            gives = [p['model_name'] for p in step.get('calibrates', [])] \
+                + [e['parameter'] for e in step.get('set', [])]
+            rows.append((step['id'], step['kind'],
+                         _model_label(step['model']) if step['model'] else '-',
+                         ', '.join(step['depends_on']) or '-', ', '.join(gives) or '-'))
+        print(f'[workflow] {plan["workflow_name"]}: {len(plan["steps"])} '
+              f'step{"" if len(plan["steps"]) == 1 else "s"}, in run order; target '
+              f'{_model_label(plan["target"])}')
+        _print_table(rows)
+
     def run(self, *, only=None, from_step=None, force=False, output_dir=None, dry_run=False,
-            write_calibrated=False, ranks=1, progress=None):
+            write_calibrated=False, ranks=1, progress=None, verbose=False):
         """Check and write the workflow (:meth:`check`, :meth:`write`), then run it.
 
         Without ``only`` and ``from_step``, the steps that are done and current are kept
@@ -1123,10 +1348,13 @@ class WorkflowBuilder:
                 file, as ``<name>_calibrated_parameters.json`` (complete runs only).
             ranks: the number of MPI ranks. More than one runs
                 ``mpiexec -n <ranks> python -m libcuflynx.scripts.calibration_workflow_run_script``
-                on the written file and prints its output as it comes.
+                on the written file.
             progress: ``callable(event)`` called for each step event (one rank only).
-                Default: print one line per event. False: print nothing (with
-                ``ranks > 1``, the launched command's output is not printed).
+                Default: print one ``[workflow]`` line per event. False: print no such
+                line.
+            verbose: also print everything the steps write (the optimiser's iterations,
+                compiler output, warnings) as it comes. By default only the ``[workflow]``
+                lines are printed; the rest is in the log files either way.
 
         Returns:
             the workflow result, also written as ``<output_dir>/workflow_result.json``:
@@ -1136,6 +1364,11 @@ class WorkflowBuilder:
         The run writes ``<output_dir>/<step id>/`` for each step (``step_result.json``, the
         generated model, the calibration's outputs), ``workflow_result.json``, the
         provenance graph and ``_target/``, the target generated with every merged value.
+
+        Everything the run writes to the terminal is kept: a step's output in
+        ``<output_dir>/<step id>/log.txt`` (``<output_dir>/step_log.<step id>.txt`` while the
+        step runs), and what is written outside the steps, with every ``[workflow]`` line, in
+        ``<output_dir>/workflow_log.txt``. Each run replaces the logs of the steps it runs.
 
         Raises:
             WorkflowError: the workflow cannot run (see :meth:`check`), a result ``only``
@@ -1149,23 +1382,42 @@ class WorkflowBuilder:
                                 'is another process, whose output is printed (progress=False '
                                 'prints nothing).')
         self.check()
-        path = self.write()
+        path = os.fspath(self.write())
         output_dir = os.path.abspath(os.fspath(output_dir or self.output_dir))
         stale_only = not force and not only and not from_step
         if ranks > 1:
             return self._run_mpi(path, output_dir, only, from_step, stale_only, dry_run,
-                                 write_calibrated, ranks, echo=progress is not False)
+                                 write_calibrated, ranks, echo=progress is not False,
+                                 verbose=verbose)
         from libcuflynx.calibration_workflow.runner import run_calibration_workflow
         if progress is None:
             from libcuflynx.scripts.calibration_workflow_run_script import _print_progress
             progress = _print_progress
-        return run_calibration_workflow(path, output_dir=output_dir, from_step=from_step,
-                                        only=only, stale_only=stale_only, dry_run=dry_run,
-                                        write_calibrated=write_calibrated,
-                                        progress=progress or None)
+        options = dict(output_dir=output_dir, from_step=from_step, only=only,
+                       stale_only=stale_only, write_calibrated=write_calibrated)
+        if dry_run:
+            return run_calibration_workflow(path, dry_run=True, **options)
+        log = _RunLog(output_dir, verbose=verbose)
+        with _Captured(log, echo=bool(progress) or verbose) as captured:
+
+            def report(event):
+                kind = event['event']
+                if kind in ('step_finished', 'step_failed'):
+                    captured.mark('stop')
+                if progress:
+                    with contextlib.redirect_stdout(captured.sayer):
+                        progress(event)
+                    captured.sayer.flush()
+                    if kind == 'step_failed':
+                        captured.say(f'[workflow] the output of step {event["step"]} is in '
+                                     f'{os.path.join(output_dir, event["step"], STEP_LOG)}')
+                if kind == 'step_started':
+                    captured.mark('start', event['step'])
+
+            return run_calibration_workflow(path, progress=report, **options)
 
     def _run_mpi(self, path, output_dir, only, from_step, stale_only, dry_run,
-                 write_calibrated, ranks, echo=True):
+                 write_calibrated, ranks, echo=True, verbose=False):
         from libcuflynx.calibration_workflow.runner import WORKFLOW_RESULT, plan_workflow
         command = ['mpiexec', '-n', str(int(ranks)), sys.executable, '-m',
                    'libcuflynx.scripts.calibration_workflow_run_script', path,
@@ -1189,14 +1441,20 @@ class WorkflowBuilder:
             raise WorkflowError(
                 f'run(ranks={ranks}) needs mpiexec, which is not on the PATH ({exc}). Install '
                 f'an MPI (Open MPI or MPICH) or run with ranks=1.') from exc
+        log = _RunLog(output_dir, verbose=verbose, steps=self.steps,
+                      echo=(lambda line: print(line, end='', flush=True)) if echo else None)
         tail = []
-        for line in process.stdout:
-            if echo:
-                print(line, end='')
-            tail = (tail + [line])[-40:]
+        try:
+            for line in process.stdout:
+                log.line(line)
+                tail = (tail + [line])[-40:]
+        finally:
+            log.close()
         if process.wait() != 0:
-            raise WorkflowError(f'{" ".join(command)} exited with {process.returncode}; its '
-                                f'last lines:\n{"".join(tail)}')
+            raise WorkflowError(
+                f'{" ".join(command)} exited with {process.returncode}; its last lines (all of '
+                f'its output is in {os.path.join(output_dir, WORKFLOW_LOG)} and each step\'s '
+                f'{STEP_LOG}):\n{"".join(tail)}')
         result_path = os.path.join(output_dir, WORKFLOW_RESULT)
         if not os.path.isfile(result_path) or os.path.getmtime(result_path) < started:
             raise WorkflowError(f'{" ".join(command)} wrote no {result_path}.')
@@ -1218,6 +1476,27 @@ class WorkflowBuilder:
         from libcuflynx.calibration_workflow.runner import workflow_status
         return workflow_status(self.write(), os.fspath(output_dir or self.output_dir))
 
+    def show_status(self, output_dir=None):
+        """Print :meth:`status` as a table, one line per step in run order: ``done``,
+        ``stale`` (done, but something it depends on changed) or ``not run``, a
+        calibration's best cost, and when it finished. Runs nothing; returns None
+        (:meth:`status` returns the dict)."""
+        status = self.status(output_dir)
+        kinds = {s['id']: s.get('kind', 'calibration') for s in self._steps}
+        rows = [('step', 'kind', 'status', 'best cost', 'finished')]
+        current = 0
+        for step_id in status['order']:
+            step = status['steps'][step_id]
+            state = ('not run' if step['status'] != 'done' else
+                     'stale' if step['stale'] else 'done')
+            current += state == 'done'
+            cost = '' if step.get('best_cost') is None else f'{step["best_cost"]:.6g}'
+            rows.append((step_id, kinds.get(step_id, ''), state, cost,
+                         step.get('finished') or ''))
+        print(f'[workflow] {status["workflow_name"]}: {current} of {len(status["order"])} '
+              f'steps are done and current, in {os.fspath(output_dir or self.output_dir)}')
+        _print_table(rows)
+
     def model(self, view, output_dir=None, work_dir=None):
         """Generate the model of step ``view``, or of ``'target'``, with the values found so
         far in ``output_dir`` (:func:`workflow_model`), after :meth:`write`.
@@ -1232,13 +1511,16 @@ class WorkflowBuilder:
             ``{'view', 'kind' ('step' or 'target'), 'model_path', 'flat_model_path' (one
             self-contained CellML file), 'parameters_path', 'obs_data_path',
             'params_for_id_path', 'fixed', 'calibrated', 'waiting_for' (steps whose results
-            it should have but that have not run), 'stale', ...}``.
+            it should have but that have not run), 'stale', ...}``; each ``*_path`` is a
+            ``pathlib.Path``.
         """
         from libcuflynx.calibration_workflow.runner import MODELS_DIR, workflow_model
         output_dir = os.fspath(output_dir or self.output_dir)
-        return workflow_model(self.write(), view, output_dir=output_dir,
-                              work_dir=os.fspath(work_dir or os.path.join(output_dir,
-                                                                          MODELS_DIR)))
+        model = workflow_model(self.write(), view, output_dir=output_dir,
+                               work_dir=os.fspath(work_dir or os.path.join(output_dir,
+                                                                           MODELS_DIR)))
+        return {key: (Path(value) if key.endswith('_path') and isinstance(value, str)
+                      else value) for key, value in model.items()}
 
     def step_dir(self, id, output_dir=None):
         """The output directory of step ``id`` in the run in ``output_dir`` (default
@@ -1257,7 +1539,7 @@ class WorkflowBuilder:
         Returns:
             a dict with, for every kind, ``'step'``, ``'kind'``, ``'status'``, ``'started'``,
             ``'finished'``, ``'duration_s'``, ``'inputs'`` and ``'step_dir'``, and the kind's
-            own keys, its files as absolute paths:
+            own keys, its files and directories as absolute ``pathlib.Path``:
 
             - calibration: ``'values'`` (``{"<vessel>/<parameter>": best value}``),
               ``'best_cost'``, ``'calibrated'`` (each value with its units and where it
@@ -1282,11 +1564,11 @@ class WorkflowBuilder:
             result = None
         if not result or result.get('status') != 'done':
             raise WorkflowError(f'step "{id}" has not run into {output_dir}.')
-        result = dict(result, step_dir=os.path.abspath(step_dir))
+        result = dict(result, step_dir=Path(os.path.abspath(step_dir)))
         result.setdefault('kind', 'calibration')
         for key in STEP_OUTPUTS.get(result['kind'], ()) + ('report', 'model_path'):
             if isinstance(result.get(key), str):
-                result[key] = os.path.normpath(os.path.join(output_dir, result[key]))
+                result[key] = Path(os.path.normpath(os.path.join(output_dir, result[key])))
         if result['kind'] == 'calibration':
             result['values'] = {f'{row["vessel"]}/{row["param"]}': row['value']
                                 for row in result.get('calibrated', [])}
@@ -1294,7 +1576,7 @@ class WorkflowBuilder:
             result['parameters'] = [row['parameter'] for row in result.get('selected', [])]
         return result
 
-    def plot_step(self, id, output_dir=None):
+    def plot_step(self, id, output_dir=None, *, formats=('png',)):
         """Plot a calibration step's best fit against its obs_data, after :meth:`write`:
         the model is simulated with the step's best values and ``plot_outputs`` of the
         param_id run writes the figures under the step's ``param_id/`` directory.
@@ -1302,13 +1584,21 @@ class WorkflowBuilder:
         Args:
             id: a calibration step that has run.
             output_dir: the run. Default :attr:`output_dir`.
+            formats: the file formats each figure is saved in: any of ``'png'``, ``'pdf'``
+                and ``'eps'`` (one name, or several).
 
         Returns:
-            the image files written (a sorted list of paths).
+            the image files written (a sorted list of ``pathlib.Path``).
 
         Raises:
-            WorkflowError: the step has not run, or is not a calibration.
+            WorkflowError: the step has not run, or is not a calibration, or a format is
+                not one of the three.
         """
+        formats = (formats,) if isinstance(formats, str) else tuple(formats)
+        unknown = [f for f in formats if f not in PLOT_FORMATS]
+        if unknown or not formats:
+            raise WorkflowError(f'plot_step saves figures as {list(PLOT_FORMATS)}, not '
+                                f'{unknown or "no format"}: formats=(\'png\',) is the default.')
         from libcuflynx.calibration_workflow.resolve import resolve_workflow
         from libcuflynx.calibration_workflow.runner import _get_comm, _Run
         from libcuflynx.calibration_workflow.spec import load_workflow
@@ -1332,13 +1622,14 @@ class WorkflowBuilder:
         param_id = CVS0DParamID.init_from_dict(inp)
         try:
             param_id.simulate_with_best_param_vals()
-            param_id.plot_outputs()
+            with _only_formats(formats):
+                param_id.plot_outputs()
         finally:
             param_id.close_simulation()
-        return sorted(os.path.join(root, name)
+        return sorted(Path(root, name)
                       for root, _, names in os.walk(os.path.join(output_dir, id))
                       for name in names
-                      if name.endswith(('.png', '.pdf', '.svg'))
+                      if name.endswith(tuple(f'.{f}' for f in formats))
                       and os.path.getmtime(os.path.join(root, name)) >= started)
 
     # -- inputs ---------------------------------------------------------------------------
@@ -1383,7 +1674,7 @@ class WorkflowBuilder:
                     relative = f'{DATA_DIR}/{_file_stem(step["id"])}_{key}.json'
                     by_text[value.text] = relative
                     files[relative] = value.text
-                    owner[os.path.join(self.directory, DATA_DIR,
+                    owner[os.path.join(self._dir, DATA_DIR,
                                        os.path.basename(relative))] = (step['id'], key)
         for step in self._steps:
             for key in ('obs_data', 'params_for_id'):
@@ -1394,7 +1685,7 @@ class WorkflowBuilder:
                         f'step "{step["id"]}" names {value} as its {key}, and that is the file '
                         f'the builder writes the {other_key} given as a dict to step "{other}" '
                         f'to, so writing would replace your file. Keep your own files outside '
-                        f'{os.path.join(self.directory, DATA_DIR)}, or under another name.')
+                        f'{os.path.join(self._dir, DATA_DIR)}, or under another name.')
         return files, by_text
 
     def _validate_step(self, step):
@@ -1421,7 +1712,7 @@ class WorkflowBuilder:
 
     def _rel(self, path):
         try:
-            return _forward_slashes(os.path.relpath(path, self.directory))
+            return _forward_slashes(os.path.relpath(path, self._dir))
         except ValueError:      # another drive
             return path
 
@@ -1520,6 +1811,216 @@ def _given(values, without=()):
             continue
         out[key] = list(value) if isinstance(value, tuple) else value
     return out
+
+
+def _sha256_file(path):
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _print_table(rows):
+    '''Print ``rows`` (the first is the header) in columns as wide as their widest cell.'''
+    widths = [max(len(str(row[i])) for row in rows) for i in range(len(rows[0]))]
+    for row in rows:
+        print('  ' + '  '.join(str(cell).ljust(width)
+                               for cell, width in zip(row, widths)).rstrip())
+
+
+@contextlib.contextmanager
+def _only_formats(formats):
+    '''While open, matplotlib saves a figure to a file only when the file's extension is one
+    of ``formats``: plot_outputs saves every figure as eps, pdf and png.'''
+    from matplotlib.figure import Figure
+    original = Figure.savefig
+
+    def savefig(figure, fname, *args, **kwargs):
+        if isinstance(fname, (str, os.PathLike)) and \
+                os.path.splitext(os.fspath(fname))[1].lstrip('.').lower() not in formats:
+            return None
+        return original(figure, fname, *args, **kwargs)
+
+    Figure.savefig = savefig
+    try:
+        yield
+    finally:
+        Figure.savefig = original
+
+
+# --------------------------------------------------------------------------------------------
+# a run's output
+# --------------------------------------------------------------------------------------------
+
+class _RunLog:
+    '''Where the lines a run writes go: a step's into ``<output_dir>/<step>/log.txt``
+    (``<output_dir>/step_log.<step>.txt`` while it runs, since the runner clears the step's
+    directory when the step starts), the rest and every ``[workflow]`` line into
+    ``<output_dir>/workflow_log.txt``. ``echo(line)`` also gets the ``[workflow]`` lines, and
+    every line with ``verbose``.
+
+    A step starts and ends by :meth:`start_step` and :meth:`end_step`; with ``steps`` (the
+    ids), the ``[workflow] step ...`` lines of the command's own progress start and end
+    them.'''
+
+    def __init__(self, output_dir, echo=None, verbose=False, steps=()):
+        self.output_dir, self.echo, self.verbose = output_dir, echo, verbose
+        self.steps = sorted(steps, key=len, reverse=True)
+        os.makedirs(output_dir, exist_ok=True)
+        self._workflow = open(os.path.join(output_dir, WORKFLOW_LOG), 'w', encoding='utf-8')
+        self._step, self._file = None, None
+
+    def _running(self, step):
+        return os.path.join(self.output_dir, f'step_log.{step}.txt')
+
+    def start_step(self, step):
+        self.end_step()
+        self._step, self._file = step, open(self._running(step), 'w', encoding='utf-8')
+
+    def end_step(self):
+        if self._step is None:
+            return
+        self._file.close()
+        step_dir = os.path.join(self.output_dir, self._step)
+        os.makedirs(step_dir, exist_ok=True)
+        os.replace(self._running(self._step), os.path.join(step_dir, STEP_LOG))
+        self._step, self._file = None, None
+
+    def line(self, line, always=False):
+        '''One line of output, with its newline. ``always``: a progress line, echoed and
+        kept in the workflow's log whatever it says.'''
+        progress = always or line.startswith('[workflow]')
+        if progress and self._step is not None and self.steps and \
+                line.startswith((f'[workflow] step {self._step} done',
+                                 f'[workflow] step {self._step} FAILED')):
+            self.end_step()
+        target = self._workflow if progress or self._file is None else self._file
+        target.write(line)
+        target.flush()
+        if self.echo is not None and (progress or self.verbose):
+            self.echo(line)
+        if progress and self.steps:
+            for step in self.steps:
+                if re.match(r'\[workflow\] step \d+/\d+: ' + re.escape(step) + r' \(', line):
+                    self.start_step(step)
+                    break
+
+    def close(self):
+        self.end_step()
+        self._workflow.close()
+
+
+class _Sayer:
+    '''A stream whose lines reach a :class:`_Captured` as progress lines.'''
+
+    def __init__(self, captured):
+        self._captured, self._pending = captured, ''
+
+    def write(self, text):
+        *lines, self._pending = (self._pending + text).split('\n')
+        for line in lines:
+            self._captured.say(line)
+        return len(text)
+
+    def flush(self):
+        if self._pending:
+            self._captured.say(self._pending)
+            self._pending = ''
+
+
+class _Captured:
+    '''While open, everything this process writes to stdout and stderr -- Python's streams
+    and file descriptors 1 and 2, so the C libraries' and the child processes' output too --
+    goes through one pipe to a :class:`_RunLog`, line by line on a thread. With ``echo``, the
+    log's echo is the stdout the process had, so the ``[workflow]`` lines (and with the
+    log's ``verbose`` every line) are still printed.
+
+    :meth:`mark` and :meth:`say` go through the same pipe, so a step's log starts and ends
+    between the right lines.'''
+
+    _MARK = '\x00cuflynx-run-output:'
+
+    def __init__(self, log, echo=True):
+        self.log, self._echo = log, echo
+        self.sayer = _Sayer(self)
+
+    def __enter__(self):
+        self._streams = sys.stdout, sys.stderr
+        for stream in self._streams:
+            with contextlib.suppress(Exception):
+                stream.flush()
+        read_fd, write_fd = os.pipe()
+        self._saved = {}
+        for fd in (1, 2):
+            try:
+                saved = os.dup(fd)
+                os.dup2(write_fd, fd)
+                self._saved[fd] = saved
+            except OSError:         # no such descriptor (a GUI process): Python's streams only
+                pass
+        self._pipe = os.fdopen(write_fd, 'w', encoding='utf-8', errors='replace', buffering=1)
+        if self._echo:
+            self.log.echo = self._real_stdout(self._streams[0])
+        sys.stdout = sys.stderr = self._pipe
+        self._thread = threading.Thread(target=self._pump, args=(read_fd,), daemon=True)
+        self._thread.start()
+        return self
+
+    def _real_stdout(self, stream):
+        '''A writer to where ``stream`` wrote before the descriptors were redirected.'''
+        try:
+            fd = stream.fileno()
+        except Exception:  # noqa: BLE001 - a stream with no descriptor (a notebook's, pytest's)
+            fd = None
+        if fd in self._saved:
+            saved, encoding = self._saved[fd], getattr(stream, 'encoding', None) or 'utf-8'
+            return lambda text: os.write(saved, text.encode(encoding, 'replace'))
+
+        def write(text):
+            stream.write(text)
+            stream.flush()
+        return write
+
+    def mark(self, kind, value=''):
+        self._pipe.write(f'{self._MARK}{kind} {value}\n')
+        self._pipe.flush()
+
+    def say(self, line):
+        '''A progress line: printed and kept in the workflow's log whatever it says.'''
+        self.mark('say', line)
+
+    def _pump(self, read_fd):
+        with os.fdopen(read_fd, 'r', encoding='utf-8', errors='replace') as lines:
+            for line in lines:
+                before, mark, command = line.partition(self._MARK)
+                try:                # whatever a line does, the pipe is drained
+                    if before:
+                        self.log.line(before + ('\n' if mark else ''))
+                    if not mark:
+                        continue
+                    kind, _, value = command.rstrip('\n').partition(' ')
+                    if kind == 'end':
+                        break
+                    if kind == 'start':
+                        self.log.start_step(value)
+                    elif kind == 'stop':
+                        self.log.end_step()
+                    elif kind == 'say':
+                        self.log.line(value + '\n', always=True)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def __exit__(self, *exc):
+        with contextlib.suppress(Exception):
+            self.mark('end')
+        sys.stdout, sys.stderr = self._streams
+        for fd, saved in self._saved.items():
+            os.dup2(saved, fd)
+        self._thread.join(timeout=30)
+        for saved in self._saved.values():
+            os.close(saved)
+        with contextlib.suppress(Exception):
+            self._pipe.close()
+        self.log.close()
+        return False
 
 
 def _write_if_changed(path, text):

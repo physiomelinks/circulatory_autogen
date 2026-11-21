@@ -56,6 +56,26 @@ next release; add to that section as you land a change.
   (`operation_funcs_external_path`, `cost_funcs_external_path`,
   `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
   before this are not made stale by it.
+- **Run output.** `wf.run()` prints the `[workflow]` lines only. A step's full output goes to
+  `<output_dir>/<step>/log.txt`, the rest to `<output_dir>/workflow_log.txt`;
+  `run(verbose=True)` prints everything as well.
+- **Paths.** `wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir()` and the
+  files in `wf.result()`, `wf.model()` and `wf.plot_step()` are `pathlib.Path`.
+- `add_reduction` takes the reduction's options as `param_reduction_options={...}`.
+- `wf.show_status()` and `wf.show_plan()` print `status()` and `plan()` as tables.
+- `wf.clean()` lists the files the builder wrote that no workflow in the directory uses any
+  more; `wf.clean(delete=True)` moves them to `data/removed/` and deletes nothing.
+- `wf.plot_step(id, formats=('png',))` saves the figures in the formats asked for.
+
+### Changed — a workflow run with no output directory goes beside the workflow file
+
+- `cuflynx-calibration-workflow <file>` and `run_calibration_workflow(<file>)` without an
+  output directory run into `workflow_output/<workflow_name>` in the workflow file's
+  directory, where they used the working directory. It is the builder's `wf.output_dir`, so the
+  command and the builder continue one run. A workflow given as a dict still uses the working
+  directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
+- `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
+  directory holding anything a pack does not write is still refused.
 
 ### Fixed — an emulator is not refused because its Python model has another file name
 
