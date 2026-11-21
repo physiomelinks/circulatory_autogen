@@ -5,6 +5,12 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the 3compartment model starts inside its calibration bounds (changes results)
+
+- `resources/3compartment_parameters.json`: `global/q_lv_init` is 1e-3 m3, inside the bounds
+  [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
+  calibrations started from its defaults, give different numbers.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
