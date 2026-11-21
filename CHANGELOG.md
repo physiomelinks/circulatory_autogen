@@ -14,6 +14,34 @@ next release; add to that section as you land a change.
 - One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
   `UnitConverter`, so every generator, built its own (about a second each).
 
+### Fixed — a Sobol analysis runs on casadi_python models
+
+- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
+  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
+  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
+  every model type, as a calibration does for its numeric evaluations.
+
+### Fixed — an emulator is not refused because its Python model has another file name
+
+- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
+  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
+  run on an emulator trained under another prefix (a workflow step's emulator used by another
+  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
+  fingerprint now also holds `model_content_sha256`: the model file with that file name left
+  out, and the utilities file, which the earlier hash did not cover. An emulator stored
+  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
+  this refusal.
+
+### Added — analysis options name the methods that read them
+
+- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
+  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
+  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
+  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
+  option without it is read by every method. `analysis_options(mode, method)` returns a
+  method's options, so a settings form shows and sends only those. No run reads the marker:
+  what each method accepts is unchanged.
+
 ### Changed — the PCA parameter reduction checks for redundant parameters
 
 - `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
