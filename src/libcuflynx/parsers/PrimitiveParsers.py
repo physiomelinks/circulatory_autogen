@@ -378,9 +378,9 @@ _MYOKIT_SOLVER_INFO = [
 # The scipy solve_ivp settings, for the libCellML-generated 'python' models the shared SciPy
 # helper integrates.
 _SOLVE_IVP_SOLVER_INFO = [
-    _SI_RTOL, _SI_ATOL,
     {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum step size passed to scipy.integrate.solve_ivp.'},
+    _SI_RTOL, _SI_ATOL,
     {'name': 'vectorized', 'type': 'bool', 'default': False, 'required': False,
      'description': 'Whether the RHS accepts vectorised input (scipy solve_ivp option).'},
     {'name': 'dense_output', 'type': 'bool', 'default': False, 'required': False,
@@ -389,19 +389,21 @@ _SOLVE_IVP_SOLVER_INFO = [
      'description': 'Optional Jacobian specification for implicit methods.'},
 ]
 
+# Each solver lists its step limits before its tolerances, so every settings form a tool builds
+# from this shows them in the same order.
 SOLVER_INFO_FIELDS = {
     'CVODE_myokit': _MYOKIT_SOLVER_INFO,
     'CVODE_libopencor': _LIBOPENCOR_SOLVER_INFO,
     # Defaults mirror solver_wrappers/batched_c_helper.py. rtol is looser than CVODE's: backward Euler
     # is first order, so its cost grows as 1/rtol.
     'BE_batched_c': [
-        {**_SI_RTOL, 'default': 1e-4,
-         'description': 'Relative tolerance of the local error, against each state\'s largest size so far.'},
-        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'MaximumStep', 'type': 'float', 'default': None, 'required': False,
          'description': 'Longest step (unbounded by default: outputs are interpolated, not stepped to).'},
         {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 10000000, 'required': False,
          'description': 'Most steps one block may take in one run.'},
+        {**_SI_RTOL, 'default': 1e-4,
+         'description': 'Relative tolerance of the local error, against each state\'s largest size so far.'},
+        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'threads', 'type': 'int', 'default': 1, 'required': False,
          'description': 'OpenMP threads over the blocks (results are the same for any number).'},
         {'name': 'jacobian', 'type': 'enum', 'default': 'exact', 'required': False,
@@ -414,12 +416,12 @@ SOLVER_INFO_FIELDS = {
     ],
     # Defaults mirror solver_wrappers/batched_c_helper.py: CVODE_myokit's tolerances, BE_batched_c's other settings.
     'CVODES_batched_c': [
-        {**_SI_RTOL, 'default': 1e-6},
-        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'MaximumStep', 'type': 'float', 'default': None, 'required': False,
          'description': 'Longest step (unbounded by default: outputs are interpolated, not stepped to).'},
         {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 10000000, 'required': False,
          'description': 'Most steps one block may take in one run.'},
+        {**_SI_RTOL, 'default': 1e-6},
+        {**_SI_ATOL, 'default': 1e-8},
         {'name': 'threads', 'type': 'int', 'default': 1, 'required': False,
          'description': 'OpenMP threads over the blocks (results are the same for any number).'},
         {'name': 'jacobian', 'type': 'enum', 'default': 'exact', 'required': False,
@@ -454,10 +456,6 @@ SOLVER_INFO_FIELDS = {
          'description': 'Relative integration tolerance (SUNDIALS naming).'},
         {'name': 'abstol', 'type': 'float', 'default': 1e-10, 'required': False,
          'description': 'Absolute integration tolerance (SUNDIALS naming).'},
-        {**_SI_RTOL, 'default': None,
-         'description': 'Relative-tolerance alias (reltol is preferred for CasADi).'},
-        {**_SI_ATOL, 'default': None,
-         'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
         {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
          'description': 'Extra options passed straight through to the CasADi integrator.'},
         {'name': 'jit', 'type': 'bool', 'default': CASADI_JIT_DEFAULT, 'required': False,
@@ -1807,6 +1805,8 @@ def default_gradient_source(model_type=DEFAULT_MODEL_TYPE, solver=None, method=N
 # the same descriptor shape as a param_id method's `options`, so a tool can auto-populate their
 # settings forms too. Each entry gives the enabling top-level flag (`enable_flag`), the
 # user_inputs key holding the block (`options_key`), and the option descriptors the mode reads.
+# A descriptor with `methods` is read only when the mode's `method` option is one of them (a
+# form shows and sends it for those methods only); one without is read by every method.
 # Keep in sync with sensitivityAnalysis.py / paramID.py (MCMC) / identifiabilityAnalysis.py.
 ANALYSIS_OPTIONS = {
     'sensitivity_analysis': {
@@ -1828,6 +1828,7 @@ ANALYSIS_OPTIONS = {
             # reported back by a UI; each validates against the backend rather than being
             # silently reinterpreted.
             {'name': 'gradient_method', 'type': 'enum', 'default': 'auto', 'required': False,
+             'methods': ['local'],
              'choices': ['auto', 'AD', 'FSA', 'FD'],
              'description': ('For method "local": how to differentiate. "auto" picks the '
                              "backend's own analytic arm and fails where there is none; "
@@ -1841,6 +1842,7 @@ ANALYSIS_OPTIONS = {
             # sensitivity coefficient by up to 48%, since `max` of an oscillating trace is a
             # rough functional. A number that swings the answer that far belongs to the user.
             {'name': 'fd_rel_step', 'type': 'float', 'default': 1e-3, 'required': False,
+             'methods': ['local'],
              'description': ('For method "local" with gradient_method "FD": the finite-'
                              'difference step, relative to each parameter. Too large and it '
                              'measures curvature rather than the derivative; too small and '
@@ -1849,13 +1851,42 @@ ANALYSIS_OPTIONS = {
             # and raises ValueError on anything else, so a free string only lets a
             # typo through to run time.
             {'name': 'sample_type', 'type': 'enum', 'default': 'saltelli', 'required': False,
+             'methods': ['sobol'],
              'choices': ['saltelli', 'sobol'],
              'description': 'SALib sampling scheme: saltelli or sobol.'},
             # Real default lives in the fill-in block below (sets 32 when absent), so the schema
             # must advertise it rather than an empty required field (see issue #277).
             {'name': 'num_samples', 'type': 'int', 'default': 32, 'required': False,
+             'methods': ['sobol'],
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
+            # Read by sobol_SA.run_local_jacobian (sobolSA.JACOBIAN_DEFAULTS), for the PCA
+            # reduction's redundancy check.
+            {'name': 'jacobian_points', 'type': 'int', 'default': 8, 'required': False,
+             'methods': ['sobol'],
+             'description': ('For method "sobol": how many of the Saltelli base points the run '
+                             'also takes local derivatives at, for a "pca" parameter '
+                             "reduction's redundancy_check. 0 skips them.")},
+            {'name': 'jacobian_location', 'type': 'enum', 'default': 'base_points',
+             'methods': ['sobol'],
+             'required': False, 'choices': ['base_points', 'centre'],
+             'description': ('Where the local derivatives are taken: at jacobian_points base '
+                             'points, or at the centre of the box only.')},
+            {'name': 'jacobian_scheme', 'type': 'enum', 'default': 'central', 'required': False,
+             'methods': ['sobol'],
+             'choices': ['central', 'forward'],
+             'description': ('central (2 runs per parameter and point) or forward (1) '
+                             'differences.')},
+            {'name': 'jacobian_step', 'type': 'float', 'default': 1e-2, 'required': False,
+             'methods': ['sobol'],
+             'description': ('The difference step: in ln(parameter), or, for bounds that '
+                             'straddle 0, as a fraction of the range.')},
+            {'name': 'jacobian_check_steps', 'type': 'bool', 'default': False,
+             'methods': ['sobol'],
+             'required': False,
+             'description': ('Also take the derivatives with half the step (twice the runs), so '
+                             'a reduction can leave out points where they disagree '
+                             '(redundancy_converged_only).')},
             # Read by sobol_SA (both methods go through it for their options) and by
             # run_local_sensitivity. Off, the outputs are exactly the data_item features, as
             # they always were.
@@ -1885,15 +1916,19 @@ ANALYSIS_OPTIONS = {
              'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
                             'is implemented so far.'},
             {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
+             'methods': ['mcmc'],
              'choices': ['emcee', 'pymc'],
              'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
                             'invariant ensemble sampler; pymc adds Metropolis and sequential '
                             'Monte Carlo and needs the optional [uq] extra.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
+             'methods': ['mcmc'],
              'description': 'Number of MCMC steps per walker.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
+             'methods': ['mcmc'],
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
             {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,
+             'methods': ['mcmc'],
              'description': 'Samples discarded before the chain is used. A value below 1 is a '
                             'fraction of num_steps; 1 or above is a number of steps.'},
             # Read by MCMC._build_sampler for the pymc backend. It was read but not
@@ -1901,6 +1936,7 @@ ANALYSIS_OPTIONS = {
             # inverted: the knob exists and matters (it triples the iteration count at its
             # default) but no front-end could discover or change it.
             {'name': 'num_tune', 'type': 'int', 'default': 1000, 'required': False,
+             'methods': ['mcmc'],
              'libraries': ['pymc'],
              'description': 'Tuning (warm-up) draws the pymc backend discards before sampling. '
                             'Ignored by emcee, which tunes as it goes. These are on top of '
@@ -1909,12 +1945,14 @@ ANALYSIS_OPTIONS = {
             # than what it costs to get it. Same defect as num_tune above: _build_sampler reads
             # it with a hardcoded fallback, so it sat at 'mcmc' with nothing able to reach it.
             {'name': 'pymc_method', 'type': 'enum', 'default': 'mcmc', 'required': False,
+             'methods': ['mcmc'],
              'choices': ['mcmc', 'smc'],
              'libraries': ['pymc'],
              'description': "pyMC sampling algorithm: 'mcmc' is Metropolis, 'smc' is sequential "
                             'Monte Carlo, which can cross a low-probability region between modes '
                             'that Metropolis gets stuck on one side of. Ignored by emcee.'},
             {'name': 'chain_save_every', 'type': 'int', 'default': 50, 'required': False,
+             'methods': ['mcmc'],
              'description': 'Steps between writes of the partial chain to mcmc_chain.npy, so a '
                             'running chain can be watched and a cancelled one is not lost. 0 '
                             'saves only at the end, which a very wide chain on a slow shared '
@@ -1947,26 +1985,61 @@ ANALYSIS_OPTIONS = {
              'choices': ['ST', 'S1'],
              'description': 'Rank by total (ST) or first-order (S1) Sobol indices.'},
             {'name': 'criterion', 'type': 'enum', 'default': 'max', 'required': False,
+             'methods': ['sobol'],
              'choices': ['max', 'mean'],
              'description': ('For "sobol": a parameter\'s score over the outputs, the max or the '
                              'mean of its index.')},
             {'name': 'threshold', 'type': 'float', 'default': None, 'required': False,
+             'methods': ['sobol'],
              'description': 'For "sobol": parameters scoring below it are dropped.'},
             {'name': 'min_mode_std', 'type': 'float', 'default': 1.0, 'required': False,
+             'methods': ['pca'],
              'description': ('For "pca": a mode is informative when its standard deviation over '
                              'the Sobol samples is at least this many obs_data stds. Below it, '
                              'the mode moves the data by less than the noise. The samples fill the whole '
                              'prior box, so this is a global, prior-wide measure, not local to the '
                              'fit.')},
             {'name': 'variance_fraction', 'type': 'float', 'default': 1.0, 'required': False,
+             'methods': ['pca'],
              'description': ('For "pca": only the leading modes that together explain this '
                              'fraction of the scaled output variance are considered. The default 1 is no '
                              'relative cut: every mode above min_mode_std counts. A smaller '
                              'value ignores the noise, so it can drop a small mode the data '
                              'resolve.')},
             {'name': 'min_index', 'type': 'float', 'default': 0.05, 'required': False,
-             'description': ('For "pca": a mode whose largest index among the parameters not yet '
-                             'kept is below this is skipped; no free parameter drives it.')},
+             'methods': ['pca'],
+             'description': ('For "pca": with redundancy_check, a parameter whose largest index '
+                             'over the informative modes is below this is not a candidate. '
+                             'Without it, a mode whose largest index among the parameters not '
+                             'yet kept is below this is skipped; no free parameter drives it.')},
+            {'name': 'redundancy_check', 'type': 'bool', 'default': True, 'required': False,
+             'methods': ['pca'],
+             'description': ('For "pca": keep a parameter only if its effect on the informative '
+                             'modes over its prior range, after removing what the parameters '
+                             'already kept explain, is at least min_mode_std noise stds. The '
+                             'effects come from the local derivatives the Sobol run saves at '
+                             'sa_options.jacobian_points of its base points. Parameters that move the '
+                             'data the same way (a product, a ratio, a scaling symmetry) are '
+                             'then kept once. Off: one parameter per informative mode, which '
+                             'does not reduce when the outputs are a time course with more modes '
+                             'than parameters.')},
+            {'name': 'redundancy_statistic', 'type': 'enum', 'default': 'median', 'required': False,
+             'methods': ['pca'],
+             'choices': ['rms', 'median'],
+             'description': ('For "pca" with redundancy_check: how a parameter\'s unexplained '
+                             'effect at the Jacobian points is summarised: rms (any point where '
+                             'it is unexplained counts) or median (most points must agree).')},
+            {'name': 'redundancy_converged_only', 'type': 'bool', 'default': False,
+             'methods': ['pca'],
+             'required': False,
+             'description': ('For "pca" with redundancy_check: leave out Jacobian points where '
+                             'the derivatives at the step and half of it differ by more than '
+                             'redundancy_convergence_tol. Needs sa_options.jacobian_check_steps.')},
+            {'name': 'redundancy_convergence_tol', 'type': 'float', 'default': 0.1,
+             'methods': ['pca'],
+             'required': False,
+             'description': ('For redundancy_converged_only: the largest change between the two '
+                             'steps, relative to the effect (or to min_mode_std, if larger).')},
             {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('The Sobol run to read (its output_dir). Default: '
                              'sa_options.output_dir. In a calibration workflow, the '
@@ -1993,6 +2066,7 @@ ANALYSIS_OPTIONS = {
             # AD/FSA is actually usable follows from model_type/solver, so a front-end should
             # offer only gradient_sources(...)'s values (plus FD); an unavailable choice raises.
             {'name': 'gradient_source', 'type': 'enum', 'default': 'FD', 'required': False,
+             'methods': ['Laplace'],
              'choices': ['FD', 'AD', 'FSA'],
              'description': ('Source for the Laplace Hessian: FD (finite-difference sub_method), '
                              'AD (exact CasADi, casadi_python), or FSA (Myokit CVODES Fisher '
@@ -2004,19 +2078,23 @@ ANALYSIS_OPTIONS = {
             # NotImplementedError, so it is deliberately not offered; any other value falls back
             # to plain finite differences with only a printed warning, which a free string invites.
             {'name': 'sub_method', 'type': 'enum', 'default': 'parabola_fit', 'required': False,
+             'methods': ['Laplace'],
              'choices': ['parabola_fit', 'numdifftools_finite_diff'],
              'description': 'Finite-difference Hessian method for the Laplace approximation '
                             '(used when gradient_source is FD).'},
             # The three profile_likelihood settings, read by
             # ProfileLikelihood.profile_likelihood_options, which takes its defaults from here.
             {'name': 'num_points', 'type': 'int', 'default': 50, 'required': False,
+             'methods': ['profile_likelihood'],
              'description': 'Profile likelihood: held values per parameter sweep (>= 2). Each '
                             'is a full re-calibration of the other parameters.'},
             {'name': 'range_factor', 'type': 'float', 'default': 0.2, 'required': False,
+             'methods': ['profile_likelihood'],
              'description': 'Profile likelihood: sweep half-width either side of the best fit, '
                             'as a fraction of the parameter\'s [min, max] range (0 < x <= 1). '
                             'The sweep is clipped to [min, max].'},
             {'name': 'optimiser_options', 'type': 'dict', 'default': None, 'required': False,
+             'methods': ['profile_likelihood'],
              'description': 'Profile likelihood: optimiser_options merged over the '
                             'calibration\'s for each re-calibration, e.g. a smaller '
                             'num_calls_to_function.'},
@@ -2209,11 +2287,17 @@ ANALYSIS_OPTIONS = {
 }
 
 
-def analysis_options(mode):
+def analysis_options(mode, method=None):
     """The option descriptors for a non-calibration analysis mode ('sensitivity_analysis',
-    'uq', 'identifiability_analysis'); an empty list for an unknown mode."""
+    'uq', 'identifiability_analysis', ...); an empty list for an unknown mode.
+
+    With `method` (a value of the mode's `method` option), only the options that method reads:
+    those with no `methods` marker and those whose marker names it."""
     meta = ANALYSIS_OPTIONS.get(mode)
-    return meta['options'] if meta else []
+    options = meta['options'] if meta else []
+    if method is None:
+        return options
+    return [opt for opt in options if 'methods' not in opt or method in opt['methods']]
 
 
 # user_inputs keys CA does not read, with the key to write instead.
@@ -3029,11 +3113,17 @@ class YamlFileParser(object):
 # Keys always allowed in solver_info (framework metadata, not passed to integrators).
 _FRAMEWORK_SOLVER_INFO_KEYS = frozenset({'solver', 'method', 'dt_solver'})
 
+# Other names a solver still reads for one of its fields: accepted in solver_info, but not
+# advertised, so a settings form shows each setting once. casadi_integrator reads reltol/abstol,
+# falling back to the rtol/atol every other solver uses.
+SOLVER_INFO_ALIASES = {'casadi_integrator': {'rtol': 'reltol', 'atol': 'abstol'}}
+
 # Integrator-specific keys that may appear in solver_info for each backend. Derived from
 # SOLVER_INFO_FIELDS (the schema surfaced to tools) so the validation and the advertised settings
-# cannot drift apart -- add a field there and it is both offered to the UI and accepted here.
+# cannot drift apart -- add a field there and it is both offered to the UI and accepted here --
+# plus the solver's SOLVER_INFO_ALIASES.
 _SOLVER_INTEGRATOR_KEYS = {
-    solver: frozenset(field['name'] for field in fields)
+    solver: frozenset(field['name'] for field in fields) | frozenset(SOLVER_INFO_ALIASES.get(solver, {}))
     for solver, fields in SOLVER_INFO_FIELDS.items()
 }
 

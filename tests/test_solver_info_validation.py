@@ -17,6 +17,7 @@ from libcuflynx.parsers.PrimitiveParsers import (
     get_solver_info_default,
     SOLVER_SCHEMA,
     SOLVER_INFO_FIELDS,
+    SOLVER_INFO_ALIASES,
     solver_info_fields,
     gradient_sources,
     ANALYSIS_OPTIONS,
@@ -112,6 +113,36 @@ def test_the_ga_stopping_rules_are_listed_together():
     assert order.index('use_relative_cost_tolerance') < order.index('relative_cost_tolerance')
 
 
+@pytest.mark.parametrize('solver', sorted(SOLVER_INFO_FIELDS))
+def test_every_solver_lists_its_step_limits_before_its_tolerances(solver):
+    """Field order is form order, so a user switching solvers finds the settings where they
+    were: step limits first, then the tolerances, in every solver."""
+    steps = {'MaximumStep', 'MaximumNumberOfSteps', 'max_step', 'max_step_size', 'max_num_steps'}
+    tolerances = {'rtol', 'atol', 'reltol', 'abstol'}
+    order = [f['name'] for f in SOLVER_INFO_FIELDS[solver]]
+    step_at = [i for i, n in enumerate(order) if n in steps]
+    tol_at = [i for i, n in enumerate(order) if n in tolerances]
+    if step_at and tol_at:
+        assert max(step_at) < min(tol_at), order
+
+
+@pytest.mark.parametrize('solver', sorted(SOLVER_INFO_FIELDS))
+def test_no_solver_lists_one_setting_twice(solver):
+    """A settings form shows each field, so two names for one setting is two inputs with one
+    meaning (casadi_integrator listed reltol and its alias rtol). Aliases are accepted, not
+    listed."""
+    names = {f['name'] for f in SOLVER_INFO_FIELDS[solver]}
+    for pair in ({'rtol', 'reltol'}, {'atol', 'abstol'}):
+        assert not pair <= names, (solver, pair)
+    for alias, field in SOLVER_INFO_ALIASES.get(solver, {}).items():
+        assert alias not in names and field in names, (solver, alias, field)
+
+
+def test_casadi_still_accepts_the_rtol_atol_aliases():
+    validate_solver_info('casadi_integrator', {'method': 'cvodes', 'rtol': 1e-6, 'atol': 1e-9})
+    validate_solver_info('casadi_integrator', {'method': 'cvodes', 'reltol': 1e-6, 'abstol': 1e-9})
+
+
 def test_solver_info_fields_schema_well_formed():
     """SOLVER_INFO_FIELDS lets a tool auto-populate the solver settings form; every solver that
     can be selected must have a well-formed field list, and it must be exposed on SOLVER_SCHEMA."""
@@ -130,7 +161,8 @@ def test_solver_integrator_keys_derived_from_schema():
     so the accepted keys and the advertised settings cannot drift. Locks the exact key sets that
     validation enforces today -- if a field is added to the schema, update these sets too."""
     for solver, fields in SOLVER_INFO_FIELDS.items():
-        assert _SOLVER_INTEGRATOR_KEYS[solver] == {f['name'] for f in fields}
+        assert _SOLVER_INTEGRATOR_KEYS[solver] == (
+            {f['name'] for f in fields} | set(SOLVER_INFO_ALIASES.get(solver, {})))
     cvode = {'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}
     assert _SOLVER_INTEGRATOR_KEYS['CVODE_libopencor'] == cvode
     # CVODE_myokit is deliberately not in that family: myokit.Simulation exposes only
@@ -508,7 +540,8 @@ def test_analysis_options_schema_well_formed():
     # read by sobol_SA (and, through it, the local method).
     assert names('sensitivity_analysis') == {
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step',
-        'include_prediction_items'}
+        'include_prediction_items', 'jacobian_points', 'jacobian_location', 'jacobian_scheme',
+        'jacobian_step', 'jacobian_check_steps'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
                            'num_tune', 'pymc_method', 'chain_save_every'}
@@ -539,7 +572,9 @@ def test_analysis_options_schema_well_formed():
     # which Sobol run to read and where the reduced params_for_id goes.
     assert names('param_reduction') == {
         'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
-        'variance_fraction', 'min_index', 'sensitivity_dir', 'output_dir'}
+        'variance_fraction', 'min_index', 'redundancy_check', 'redundancy_statistic',
+        'redundancy_converged_only', 'redundancy_convergence_tol', 'sensitivity_dir',
+        'output_dir'}
     assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
@@ -703,6 +738,141 @@ def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
         assert opt['name'] not in before_pymc, (
             f"{opt['name']} is advertised as pyMC-only but is read before the pyMC arm, so "
             'another backend reads it too and the form must offer it there')
+
+
+def _method_markers(mode):
+    """{option name: its `methods` marker} for the marked options of a mode."""
+    return {o['name']: o['methods'] for o in analysis_options(mode) if 'methods' in o}
+
+
+def test_methods_markers_name_methods_of_their_mode():
+    """A `methods` marker says which values of the mode's `method` option read the option, so
+    a form shows it for those only. A marker naming no real method would hide the option for
+    good."""
+    marked_modes = set()
+    for mode in ANALYSIS_OPTIONS:
+        by_name = {o['name']: o for o in analysis_options(mode)}
+        markers = _method_markers(mode)
+        if not markers:
+            continue
+        marked_modes.add(mode)
+        choices = by_name['method']['choices']
+        assert 'methods' not in by_name['method'], f'{mode}: method itself cannot be marked'
+        for name, methods in markers.items():
+            assert isinstance(methods, list) and methods, f'{mode}.{name}: an empty marker'
+            assert set(methods) <= set(choices), (
+                f'{mode}.{name}: methods {methods} are not all in {choices}')
+            assert len(set(methods)) == len(methods), f'{mode}.{name}: a method named twice'
+    assert marked_modes == {'sensitivity_analysis', 'uq', 'param_reduction',
+                            'identifiability_analysis'}
+
+
+def test_analysis_options_are_filtered_by_method():
+    """analysis_options(mode, method) is what a form for that method shows."""
+    def names(mode, method=None):
+        return {o['name'] for o in analysis_options(mode, method)}
+
+    local = names('sensitivity_analysis', 'local')
+    assert {'method', 'gradient_method', 'fd_rel_step', 'include_prediction_items'} <= local
+    assert not local & {'sample_type', 'num_samples', 'jacobian_points'}
+    sobol = names('sensitivity_analysis', 'sobol')
+    assert {'method', 'sample_type', 'num_samples', 'jacobian_points',
+            'include_prediction_items'} <= sobol
+    assert not sobol & {'gradient_method', 'fd_rel_step'}
+    assert local | sobol == names('sensitivity_analysis')
+
+    profile = names('identifiability_analysis', 'profile_likelihood')
+    assert {'num_points', 'range_factor', 'optimiser_options'} <= profile
+    assert not profile & {'gradient_source', 'sub_method'}
+    # a method the schema does not know gets the options every method reads
+    assert names('sensitivity_analysis', 'unknown') == local & sobol
+
+
+def test_sa_methods_markers_match_what_each_method_reads():
+    """The markers against the code: an option marked for "local" is read in
+    run_local_sensitivity and one marked for "sobol" is not; the "sobol" options are the
+    sampling settings and the local Jacobian's (sobolSA.JACOBIAN_DEFAULTS)."""
+    import inspect
+
+    from libcuflynx.sensitivity_analysis import sobolSA
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+
+    markers = _method_markers('sensitivity_analysis')
+    local_source = _without_docstrings(inspect.getsource(SensitivityAnalysis))
+    sobol_source = _without_docstrings(inspect.getsource(sobolSA))
+    local = {name for name, methods in markers.items() if methods == ['local']}
+    sobol = {name for name, methods in markers.items() if methods == ['sobol']}
+    assert local | sobol == set(markers)
+    assert local == {'gradient_method', 'fd_rel_step'}
+    for name in local:
+        assert f"'{name}'" in local_source, f'{name} is not read by the local method'
+        assert f"'{name}'" not in sobol_source, f'{name} is also read by the Sobol engine'
+    assert sobol == {'sample_type', 'num_samples'} | set(sobolSA.JACOBIAN_DEFAULTS)
+    for name in sobol:
+        assert f"'{name}'" in sobol_source, f'{name} is not read by the Sobol engine'
+        assert f"'{name}'" not in local_source, f'{name} is also read by the local method'
+
+
+def test_ia_methods_markers_match_what_each_method_reads():
+    """Profile likelihood reads its options in profile_likelihood_options; the Laplace
+    approximation reads its own in run_laplace_approximation."""
+    import inspect
+
+    from libcuflynx.identifiabilty_analysis import ProfileLikelihood as profile_module
+    from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import \
+        IdentifiabilityAnalysis
+
+    markers = _method_markers('identifiability_analysis')
+    profile_source = _without_docstrings(inspect.getsource(profile_module))
+    laplace_source = _without_docstrings(
+        inspect.getsource(IdentifiabilityAnalysis.run_laplace_approximation))
+    pattern = re.compile(r"""ia_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
+    profile_reads = set(pattern.findall(profile_source))
+    laplace_reads = set(pattern.findall(laplace_source))
+    assert profile_reads and laplace_reads, 'the ia_options reads are not where this looks'
+    assert not profile_reads & laplace_reads
+    assert markers == {**{name: ['profile_likelihood'] for name in profile_reads},
+                       **{name: ['Laplace'] for name in laplace_reads}}
+
+
+def test_uq_methods_markers_match_what_mcmc_reads():
+    """Every UQ option marked for "mcmc" is read by the MCMC class."""
+    import inspect
+
+    from libcuflynx.param_id.paramID import MCMC
+
+    source = _without_docstrings(inspect.getsource(MCMC))
+    markers = _method_markers('uq')
+    assert markers
+    for name, methods in markers.items():
+        if methods == ['mcmc']:
+            assert f"'{name}'" in source, f'{name} is marked for mcmc but MCMC never reads it'
+
+
+def test_param_reduction_methods_markers_match_each_reductions_options():
+    """Each reduction's OPTIONS is what from_options accepts for it; the markers say the same,
+    so a form offers a method exactly the options that method accepts."""
+    from libcuflynx.sensitivity_analysis.parameter_reduction import PATH_OPTIONS, REDUCTIONS
+
+    markers = _method_markers('param_reduction')
+    choices = next(o for o in analysis_options('param_reduction')
+                   if o['name'] == 'method')['choices']
+    assert set(choices) == set(REDUCTIONS)
+    for opt in analysis_options('param_reduction'):
+        name = opt['name']
+        if name == 'method' or name in PATH_OPTIONS:
+            assert name not in markers, f'{name} is read by every reduction'
+            continue
+        accepting = [method for method in choices if name in REDUCTIONS[method].OPTIONS]
+        assert accepting, f'{name}: no reduction accepts it'
+        if len(accepting) == len(choices):
+            assert name not in markers, f'{name}: every reduction accepts it; no marker'
+        else:
+            assert markers.get(name) == accepting, (
+                f'{name}: accepted by {accepting}, marked {markers.get(name)}')
+        for method in choices:
+            assert (name in {o['name'] for o in analysis_options('param_reduction', method)}) \
+                == (name in REDUCTIONS[method].OPTIONS)
 
 
 def test_closed_set_analysis_options_are_enums_with_choices():

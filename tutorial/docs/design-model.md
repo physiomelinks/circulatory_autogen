@@ -67,7 +67,7 @@ Some examples of possible inputs
 |----------------|---------------------------------------------------------------------------------------------------------------|
 | name           | User defined, but it is better to use common names like 'heart', 'pvn', 'par', etc.                           |
 | module_subtype | 'vv', 'vp', 'pv', 'pp', 'pp_wCont', 'pp_wLocal', 'nn' (linked to module_subtype in the modules config JSON files) |
-| module_type    | 'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'split_junction', 'merge_junction', '2in2out_junction', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to module_type in the modules config JSON files)  |
+| module_type    | 'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to module_type in the modules config JSON files)  |
 | inp_instances  | name of the input instances, one (or more) of the names in the other rows                                    |
 | out_instances  | name of the output instances, one (or more) of the names in the other rows                                   |
 
@@ -213,7 +213,7 @@ The keys are PhLynx's. An entry with the older keys `vessel_type`, `BC_type` or 
         - `"True"`: this module's variable is mapped to the corresponding variable of **every** connected module. It is normally an output of this module (one source, many sinks).
         - `"multiply"`: as a whole-port `"Multiply"`, for this variable only: each connected module's corresponding variable is set to this variable times its factor (`multiply_factor`, above), or gets it as one term of its `"sum"`. Only one end of a variable pair may be `"multiply"`.
 
-        A list-form port works as an entrance port (many upstream modules), an exit port (many downstream modules) or a general port. With one connected module it behaves exactly like a plain port. For example, a `flow_merge` node (many inflows, one outflow) has the entrance port above, `[v_in, u]` with `["sum", "True"]`, and a plain exit port `[v_out, u_d]`, with `v_out = v_in` and `u = u_d`: the node's inflow is the sum of the upstream flows, and every upstream module reads the node pressure. A `flow_split` node (one inflow, many outflows) puts the list on its exit port instead, `[v_out, u_d]` with `["sum", "True"]`. Only one side of a connection may mark a variable `"sum"`. A variable may be `"sum"` on several of a module's ports: it is then the sum over the neighbours of all of them, in one `multiport_sum_[vessel_name]_[variable_name]` component. When coupling a C++ model to a 1D model (`couple_to_1d`), a module next to a 1D vessel cannot have a `"sum"`, `"Multiply"` or list-form port, and generation raises `NotImplementedError`; such ports elsewhere in the 0D model, such as a volume sum, are allowed.
+        A list-form port works as an entrance port (many upstream modules), an exit port (many downstream modules) or a general port. With one connected module it behaves exactly like a plain port. For example, a `flow_merge` node (many inflows, one outflow) has the entrance port above, `[v_in, u]` with `["sum", "True"]`, and a plain exit port `[v_out, u_d]`, with `v_out = v_in` and `u = u_d`: the node's inflow is the sum of the upstream flows, and every upstream module reads the node pressure. A `flow_split` node (one inflow, many outflows) puts the list on its exit port instead, `[v_out, u_d]` with `["sum", "True"]`. Only one side of a connection may mark a variable `"sum"`. A variable may be `"sum"` on several of a module's ports: it is then the sum over the neighbours of all of them, in one `multiport_sum_[vessel_name]_[variable_name]` component. When coupling a C++ model to a 1D model (`couple_to_1d`), the port of a module that faces a 1D vessel cannot be `"sum"`, `"Multiply"` or list-form if 0D modules also connect to it: the coupler sets that port's variables, so generation raises `NotImplementedError`. Such a port is allowed when the 1D vessel is its only neighbour (the sum then has no terms and stays the boundary condition the coupler sets), and such ports elsewhere in the module and the 0D model, such as a volume sum, are allowed.
 - **variables_and_units**: This specifies all of the constants and the accesible variables of the cellml module. The entries are:
     - [0] **variable name**: corresponding to the name in the cellml file
     - [1] **variable unit**: corresponsing to the unit specification in `units.cellml`
@@ -259,11 +259,27 @@ compliant. Fix it by swapping subtypes so the end alone on its side is `v` and t
 port there takes several connections), for a module that is not a vessel by giving that port a
 `"sum"` entry, or by putting a lumped `vv` vessel between the lone end
 and the others, which then owns the node. A node with several ends on **both** sides cannot be
-owned by one end and is refused: join those vessels through a `2in2out_junction` (`vv`), which
-has a port per connection, or through a `vv` vessel they merge into and split from. Nodes with a
+owned by one end and is refused: join those vessels through a `vv` vessel they merge into and
+split from, whose inlet and outlet then each own a node. Nodes with a
 1D (`FV1D_vessel`) end are coupled by the 1D coupler and are not checked. See issue #616.
 `resources/generic_junction_test_open_loop_module_array.csv` follows the rule at every split;
 `generic_junction_test2_open_loop` is the same network with four of its splits mixed, and is refused.
+
+**Models made with the junction module types.** The module library had junction module types
+(`Min_junction`, `Nout_junction`, `MinNout_junction`, `split_junction`, `merge_junction`,
+`2in2out_junction`, their `_simple` and `venous_` variants, the microvasculature's
+`<vessel>_Min`/`_Nout`/`_Minlet`/`_Noutlet`/`_MinNout`, `flow_merge` and `flow_split`): vessels
+with a fixed number of numbered ports, or a summed port named `v_in_sum`/`v_out_sum`. It replaced
+them by the ordinary vessels, whose compliant end sums its node as above. Convert a model once, after
+`cuflynx-upgrade module-names`, with
+`cuflynx-upgrade junctions [resources_dir]/[file_prefix]_module_array.json --module-library-dir [library]/modules`.
+It retypes each junction to the version the library's `renames.json` names (the equations are the
+same), splits an `inlet_flow constant_2` into two `constant` sources, removes a `flow_merge` or
+`flow_split` and joins its neighbours, and renames what changed in `[file_prefix]_parameters.json`,
+`[file_prefix]_obs_data*.json` and `[file_prefix]_params_for_id*.json`: `v_in_sum` and `v_out_sum`
+become `v_in` and `v_out`, and a numbered port flow (`J/v_out_1`) becomes the inflow of the
+neighbour on that port (`s1/v`). It lists values the new version has no variable for, which it
+drops, and any name it could not map.
 
 ### Coupling to other models: the `api` block
 
