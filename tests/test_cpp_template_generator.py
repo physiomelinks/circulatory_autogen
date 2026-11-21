@@ -470,6 +470,36 @@ def test_coupler_stops_when_a_solver_fails(user_inputs_dir, resources_dir, tmp_p
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_coupler_error_line_is_not_split_by_child_output(user_inputs_dir, resources_dir, tmp_path):
+    """The coupler's children write to the same log as the coupler. Its error line is one write,
+    so output that the children print at that moment cannot land inside it. The fake "1D solver"
+    exits with status 1 while a background process it started floods the log with short writes."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    ini = tmp_path / '1d' / 'run000' / 'input.ini'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'aortic_bif_hybrid_V1', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir), cpp_1d_model_config_path=str(ini),
+                             dt=0.01, pre_time=0.0, sim_time=1.1, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    assert generate_with_new_architecture(False, inp)
+    # the flood runs for as long as the coupler (this script's parent) is alive
+    fake_solver = tmp_path / 'failing_solver_with_noisy_neighbour.sh'
+    fake_solver.write_text('#!/bin/sh\n'
+                           'coupler=$PPID\n'
+                           '(while kill -0 "$coupler" 2>/dev/null; do echo FLOOD; done) &\n'
+                           'sleep 0.3\n'
+                           'exit 1\n')
+    fake_solver.chmod(0o755)
+    _short_coupled_run(cpp_dir, t0=0.05, python_path=str(fake_solver))
+    with pytest.raises(AssertionError):
+        _run_coupled(cpp_dir, tmp_path, timeout=120)
+    log = (tmp_path / 'coupler.log').read_text(errors='replace')  # the whole log, not its tail
+    assert 'FLOOD' in log
+    assert 'Coupler :: Error :: the 1D solver failed (exit status 1); stopping the 0D solver.\n' in log
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_provider_api_module_couples_through_ports(user_inputs_dir, resources_dir, tmp_path):
     """An external (api) module in the module array is coupled to a CellML module through
     matching ports: its api functions name its own port variables, which resolve to the CellML
