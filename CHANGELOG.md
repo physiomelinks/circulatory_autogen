@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — `cuflynx-generate` exits 1 when generation fails
+
+- `cuflynx-generate` exits with status 1 when generation, or the trial run that validates the
+  generated model, fails; it exited 0 either way. `run_param_id.sh` (and the other launchers
+  that generate first) now stop before calibrating a model that was not written. A missing
+  `model_1d_config_path` for a coupled C++ model is a failure (it exited 0), and regenerating a
+  CellML 2.0 model with fitted parameters reports success.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
