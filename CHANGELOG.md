@@ -23,6 +23,105 @@ next release; add to that section as you land a change.
   given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
   raised inside nevergrad's ask/tell, is silenced.
 
+### Fixed — a Sobol analysis runs on casadi_python models
+
+- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
+  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
+  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
+  every model type, as a calibration does for its numeric evaluations.
+
+### Fixed — an emulator is not refused because its Python model has another file name
+
+- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
+  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
+  run on an emulator trained under another prefix (a workflow step's emulator used by another
+  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
+  fingerprint now also holds `model_content_sha256`: the model file with that file name left
+  out, and the utilities file, which the earlier hash did not cover. An emulator stored
+  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
+  this refusal.
+
+### Added — analysis options name the methods that read them
+
+- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
+  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
+  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
+  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
+  option without it is read by every method. `analysis_options(mode, method)` returns a
+  method's options, so a settings form shows and sends only those. No run reads the marker:
+  what each method accepts is unchanged.
+
+### Changed — the PCA parameter reduction checks for redundant parameters
+
+- `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
+  effect on the informative PCA modes over its prior range, beyond what the parameters already
+  kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
+  at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
+  with a step of 0.01 in ln(parameter), so 2 x `jacobian_points` x M extra runs, about 2.9% of
+  a 12-parameter run at `num_samples: 256`; `jacobian_location`, `jacobian_scheme`,
+  `jacobian_step` and `jacobian_check_steps` choose others). The redundancy is judged at each
+  point and summarised over the points by `redundancy_statistic` (`median`, or `rms`),
+  optionally leaving out points whose derivatives change with the step
+  (`redundancy_converged_only`). The defaults come from
+  `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
+  (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
+  parameters, and every parameter of a ratio or scaling symmetry.
+
+### Fixed — a failed Sobol sample is filled from its own outputs
+
+- A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
+  of every kind, mixing units. Each is now filled with that output's mean over the samples that
+  ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
+- A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
+  now spreads its samples over the MPI ranks, one process running them all.
+
+### Changed — the built-in hearts compute their chamber phases from the beat phase
+
+- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
+  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
+  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
+  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
+  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
+  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
+  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
+  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
+  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
+  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
+  made the same change.
+- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
+  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
+  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
+  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
+  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
+  state changes by round-off at the onset.
+- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
+  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
+### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
+
+The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
+a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
+facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
+neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
+the module, the port's variables, the 1D vessel and the 0D modules.
+
+- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
+  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
+  condition the coupler sets.
+- Sums on the module's other ports generate; they are ordinary CellML.
+- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
+  vessel `v` ends sum, couple to 1D.
+
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
 - The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
@@ -43,6 +142,24 @@ next release; add to that section as you land a change.
   a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
   release (CONTRIBUTING.md).
 
+### Added — `cuflynx-upgrade junctions`
+
+The module library (circulatory-autogen-modules) removes its junction module types: vessels whose
+compliant end now has a summing port (`"multi_port": ["sum", "True"]`) do what they did, for any
+number of vessels at a node (node sums #609, node rule D #617).
+
+- `cuflynx-upgrade junctions <module_array> --module-library-dir <library>/modules` converts a
+  model: each junction version is retyped to the version the library's `renames.json` names in an
+  entry marked `"by": "cuflynx-upgrade junctions"` (same equations); an `inlet_flow constant_2`
+  becomes two `constant` sources; a `flow_merge`/`flow_split` is removed and its neighbours joined.
+  It renames what changed in `<prefix>_parameters.json`, `<prefix>_obs_data*.json` and
+  `<prefix>_params_for_id*.json`: `v_in_sum`/`v_out_sum` to `v_in`/`v_out`, and a numbered port
+  flow (`J/v_out_1`) to the inflow of the neighbour on that port (`s1/v`). Values the new version
+  has no variable for are dropped and listed. Run it after `cuflynx-upgrade module-names`.
+- The refusal of a node with several ends on both sides no longer suggests a `2in2out_junction`;
+  it suggests a lumped `vv` vessel between them.
+- The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
+  `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
@@ -316,6 +433,12 @@ Decided by Finbar Argus on 2026-11-13:
 - The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
   `sweep_results` relative to the working directory and resolves them on read, as it does every
   step's other outputs.
+
+### Added — the Teusink benchmark calibrates on the batched C solvers
+
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
@@ -660,8 +783,9 @@ general port a neighbour counts whichever side of the connection it is drawn on,
   the new name. The values are the same for every model in `resources/` and the module library.
 - `FV1D_volume_sum`'s exit `volume_port` maps `q_sum`, so it is an ordinary term of the volume sum it
   feeds.
-- With `couple_to_1d`, only a module next to a 1D vessel is refused a `"sum"`, `"Multiply"` or
-  list-form port; sums elsewhere in the 0D model are allowed.
+- With `couple_to_1d`, a `"sum"`, `"Multiply"` or list-form port is refused only on the port facing a
+  1D vessel, and only when 0D modules connect to that port too (see the #649 entry); sums elsewhere
+  in the 0D model are allowed.
 
 ### Changed — a variable may be summed through several ports
 

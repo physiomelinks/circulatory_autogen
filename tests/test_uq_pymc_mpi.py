@@ -25,14 +25,13 @@ import textwrap
 import numpy as np
 import pytest
 
+from _mpi_probes import _pymc_available
+
 from libcuflynx.param_id.paramID import MCMC
 from libcuflynx.utilities.mpi_utils import LAUNCHER_ENV_VARS
 
-pymc_installed = True
-try:
-    import pymc  # noqa: F401
-except ImportError:
-    pymc_installed = False
+# Probed on rank 0 only (see _mpi_probes): `import pymc` on every rank races in arviz.
+pymc_installed = _pymc_available()
 
 pytestmark = pytest.mark.unit
 
