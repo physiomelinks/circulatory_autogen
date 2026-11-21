@@ -31,6 +31,13 @@ next release; add to that section as you land a change.
   that generate first) now stop before calibrating a model that was not written. A missing
   `model_1d_config_path` for a coupled C++ model is a failure (it exited 0), and regenerating a
   CellML 2.0 model with fitted parameters reports success.
+### Fixed — the flattened-CellML cache in TMPDIR keeps at most 200 files
+
+- `CVODE_myokit` writes each model's flattened CellML to
+  `$TMPDIR/circulatory_autogen_flattened/`, one file per model path, and nothing removed
+  them: test runs and studies with many model paths filled TMPDIR. After each write only the
+  200 newest files are kept (`myokit_helper.FLATTENED_CELLML_CACHE_MAX_FILES`); a removed
+  model is flattened again when it is next run.
 
 ### Changed — a workflow tab's model is generated faster
 
