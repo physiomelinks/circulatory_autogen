@@ -1,0 +1,11 @@
+[
+ {"name": "inflow", "module_type": "inlet_flow", "module_subtype": "constant_2", "inp_instances": [], "out_instances": ["J"]},
+ {"name": "J", "module_type": "2in2out_junction", "module_subtype": "vv", "inp_instances": ["inflow"], "out_instances": ["s1", "p2"]},
+ {"name": "s1", "module_type": "split_junction_simple", "module_subtype": "pv", "inp_instances": ["J"], "out_instances": ["p3", "p4"]},
+ {"name": "p2", "module_type": "arterial_simple", "module_subtype": "pp", "inp_instances": ["J"], "out_instances": ["F"]},
+ {"name": "p3", "module_type": "arterial_simple", "module_subtype": "pp", "inp_instances": ["s1"], "out_instances": ["F"]},
+ {"name": "p4", "module_type": "arterial_simple", "module_subtype": "pp", "inp_instances": ["s1"], "out_instances": ["M"]},
+ {"name": "F", "module_type": "flow_merge", "module_subtype": "vp", "inp_instances": ["p2", "p3"], "out_instances": ["M"]},
+ {"name": "M", "module_type": "Min_junction", "module_subtype": "vp_simple", "inp_instances": ["F", "p4"], "out_instances": ["out"]},
+ {"name": "out", "module_type": "outlet_pressure", "module_subtype": "constant", "inp_instances": ["M"], "out_instances": []}
+]

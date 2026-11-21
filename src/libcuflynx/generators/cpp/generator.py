@@ -20,7 +20,7 @@ import jinja2
 
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-from libcuflynx.generators.multi_port import module_has_list_multi_port
+from libcuflynx.generators.multi_port import is_multiply_port, list_multi_port
 from libcuflynx.generators.cpp import externals as ext
 from libcuflynx.generators.cpp.api import CAPI_VERSION, python_model_path, unit_factor
 from libcuflynx.generators.naming import build_symbols
@@ -55,12 +55,44 @@ def template_environment():
     )
 
 
-def _is_next_to_1d_vessel(row, vessels_df):
-    """Whether a module row has an FV1D_vessel among its inp_instances or out_instances."""
-    neighbours = list(row.get("inp_instances", []) or []) + list(row.get("out_instances", []) or [])
-    types = vessels_df.loc[vessels_df["name"].isin(neighbours), "module_type"] \
-        if "module_type" in vessels_df else []
-    return any(module_type == "FV1D_vessel" for module_type in types)
+def _mixed_1d_0d_summing_ports(row, vessels_df):
+    """The ports of a module row that face a 1D vessel, sum or multiply (list-form or Multiply
+    multi_port), and also have 0D neighbours: a node that mixes 1D and 0D, as
+    ``(1D vessel, port variables, 0D neighbours)``.
+
+    The 0D-1D coupling sets the variables of the port facing a 1D vessel (the one
+    ``externals._select_vessel_port`` picks) straight from the module config. The CellML
+    generator skips the connection to the 1D vessel, so a sum whose only neighbour on that port
+    is the 1D vessel gets no terms and its variable stays the boundary condition the coupler
+    sets; with 0D neighbours too, the coupler would overwrite their sum."""
+    if "module_type" not in vessels_df:
+        return []
+    types = dict(zip(vessels_df["name"], vessels_df["module_type"]))
+    tup = next(vessels_df.loc[[row.name]].itertuples())  # row comes from vessels_df.iterrows()
+    mixed = []
+    for side, neighbours, facing in (
+            ("inlet", list(row.get("inp_instances", []) or []), ("exit_ports", "general_ports")),
+            ("outlet", list(row.get("out_instances", []) or []), ("entrance_ports", "general_ports"))):
+        for vessel in [n for n in neighbours if types.get(n) == "FV1D_vessel"]:
+            try:
+                port = ext._select_vessel_port(vessels_df, tup, side, vessel)
+            except ext.ExternalsError:
+                continue  # the coupling reports a port it cannot find
+            if list_multi_port(port) is None and not is_multiply_port(port):
+                continue
+            others = []
+            for name in neighbours:
+                # a 1D vessel is not a 0D neighbour, and a name missing from vessels_df has no
+                # ports to read here
+                if name not in types or types[name] == "FV1D_vessel":
+                    continue
+                match = vessels_df.loc[vessels_df["name"] == name].iloc[0]
+                if any(p.get("port_type") == port.get("port_type")
+                       for key in facing for p in list(match.get(key, []) or [])):
+                    others.append(name)
+            if others:
+                mixed.append((vessel, list(port.get("variables", [])), others))
+    return mixed
 
 
 class CppGenerationError(RuntimeError):
@@ -121,17 +153,19 @@ class CVS0DCppGenerator(object):
 
         self.couple_to_1d = couple_to_1d
         if self.couple_to_1d and getattr(model, 'vessels_df', None) is not None:
-            # the 0D-1D coupling reads the ports of the modules next to a 1D vessel straight
-            # from the module config and knows nothing of per-variable multi_port semantics;
-            # sums elsewhere in the 0D model are ordinary CellML
-            coupled = [row["name"] for _, row in model.vessels_df.iterrows()
-                       if _is_next_to_1d_vessel(row, model.vessels_df)
-                       and module_has_list_multi_port(row)]
-            if coupled:
+            # a sum on the port facing a 1D vessel is refused only when 0D modules connect to
+            # that port as well (see _mixed_1d_0d_summing_ports)
+            mixed = [f"'{row['name']}' port {variables} faces 1D vessel '{vessel}' and 0D "
+                     f"module(s) {others}"
+                     for _, row in model.vessels_df.iterrows()
+                     for vessel, variables, others in _mixed_1d_0d_summing_ports(row, model.vessels_df)]
+            if mixed:
                 raise NotImplementedError(
-                    f'{coupled}: a module next to a 1D vessel cannot have a "Sum", "Multiply" or '
-                    f'list-form (per-variable) multi_port when coupling the C++ model to a 1D '
-                    f'model (couple_to_1d). Use "True" there, or generate without 1D coupling.')
+                    f'{"; ".join(mixed)}. A port facing a 1D vessel cannot also "Sum" or '
+                    f'"Multiply" (or have a list-form multi_port) over 0D modules when coupling '
+                    f'the C++ model to a 1D model (couple_to_1d): the coupler sets that port\'s '
+                    f'variables. Connect the 0D modules to the 1D vessel through a separate '
+                    f'module, or generate without 1D coupling.')
         self.conn_1d_0d_info = conn_1d_0d_info if couple_to_1d else None
         self.model_1d_config_path = model_1d_config_path
         # main0d.cpp is always written now: it runs standalone as well as under the coupler.
