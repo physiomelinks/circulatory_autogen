@@ -903,11 +903,11 @@ def test_a_user_inputs_config_selects_it(base_user_inputs, temp_output_dir, temp
 @pytest.mark.unit
 def test_a_user_inputs_config_with_another_solvers_method_is_refused(base_user_inputs, temp_output_dir,
                                                                      temp_generated_models_dir):
-    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.parsers.PrimitiveParsers import UserInputsError, YamlFileParser
     config = dict(base_user_inputs, file_prefix='3compartment', input_param_file='3compartment_parameters.json',
                   model_type='cellml', solver='BE_batched_c', solver_info={'method': 'CVODE'},
                   generated_models_dir=temp_generated_models_dir, param_id_output_dir=temp_output_dir)
-    with pytest.raises(SystemExit):
+    with pytest.raises(UserInputsError, match='solver method CVODE not compatible with solver BE_batched_c'):
         YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
 
 

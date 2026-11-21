@@ -5,6 +5,65 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — what a new user meets in the first hour
+
+Found by installing libcuflynx as a new user and following the tutorial from an empty directory.
+
+- **A missing `user_inputs.yaml`** is one line naming the user directory, how it was chosen
+  (`$CUFLYNX_USER_DIR`, the checkout, or the current directory) and what to do, in place of a
+  `FileNotFoundError` traceback (`paths.missing_user_inputs_message`).
+- **The shipped `user_run_files/user_inputs.yaml` names no path of one machine.**
+  `param_id_obs_path` is `resources/3compartment_obs_data.json` and the cpp paths are commented
+  out. A relative `param_id_obs_path` that is not there from the current directory (or from the
+  directory of the file `user_inputs_path_override` names) is now taken from the user directory,
+  so `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
+- **A key of a `user_inputs.yaml` that libcuflynx does not read is refused** with a
+  `UserInputsError` naming every such key and the closest key it does read (`param_id_methd`:
+  "Did you mean 'param_id_method'?"). It was ignored in silence and the default used. Keys the
+  parser derives (`model_path`, `parameters_csv_abs_path`, ...) are accepted, so a dated
+  `user_inputs_<yymmdd>.yaml` reads back, but never suggested; an optimiser option at the top
+  level (`num_calls_to_function`) is pointed to `optimiser_options`. Only files are checked, not
+  dicts built in code. `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys, among
+  them `model_file`, `do_simulation` and `do_calibration`, which pipeline bundles and CUFLynx's
+  export write. **A tool that writes a new key into a user_inputs file must add it there**, or
+  libcuflynx refuses the file.
+- **`module_array_path` and `parameters_path`** may stand in for `file_prefix` + `resources_dir`
+  (`module_array_path: resources/3compartment_module_array.json`) and for `input_param_file`
+  (any path, not only in `resources_dir`). A relative path resolves as `resources_dir` does; an
+  alias that disagrees with the key it stands for is refused.
+- The version is 0.8.0.dev0.
+- **`parse_user_inputs_file` and the genetic algorithm raise instead of calling `exit()`** on a
+  configuration they refuse: `UserInputsError` (a `ValueError`) for an invalid `solver`,
+  `model_type`, solver method, `dt` or `solver_info` key, a missing `file_prefix` and the
+  `sp_minimize` requirements; `FileNotFoundError` for a `user_inputs_path_override`,
+  `param_id_obs_path`, `external_modules_dir` or `module_library_dirs` entry that does not exist;
+  `ValueError` for a genetic algorithm budget below its population or more MPI ranks than its
+  population. `cuflynx-generate` exited 0 on these, and a script calling `pid.run()` stopped with
+  exit 0; both now exit 1 with the message. Code that caught `SystemExit` around
+  `parse_user_inputs_file` should catch `ValueError` / `FileNotFoundError`.
+- `model_type: cpp` with no `solver_info.dt_solver` says which key to add, in place of
+  `KeyError: 'dt_solver'`.
+- A module array naming a module that no module library holds says how to give the library
+  (`module_library_dirs`, or `--module-library-dir`).
+- A calibration workflow run no longer writes `param_id_output/inputs/user_inputs/` in the
+  current directory: the generation steps' dated user_inputs copy goes with their staged
+  resources under `--output-dir`.
+- `CVS0DParamID.set_params_for_id` (and `get_param_id_info_from_entries`) also take the content
+  of a params_for_id file: the `{"version", "params"}` document or its list of entries with
+  `targets` or `modifies`. The `{vessel_name, param_name, ...}` entries are read as before.
+- "parameter X not found" and "variable X not found" from the Myokit helper name the model,
+  the closest names in it and the file such a name is written in.
+- When Myokit cannot compile a model because `Python.h` or SUNDIALS' `cvode/cvode.h` is missing,
+  generation prints what to install in place of the compiler traceback. The generated
+  `CMakeLists.txt` stops with how to install SUNDIALS or pass `-DSUNDIALS_DIR`.
+- Messages: "running on 1 rank; use mpiexec -n N to parallelise", the DEBUG warning says what
+  DEBUG does, "the parameters file" where a message said "CSV", and `cuflynx-plot` no longer
+  prints `doing ia for rank 0`.
+- Docs: Python 3.10 or newer, `python3-dev` in the prerequisites, one venv name (`venv`), the
+  clone URL, where the API example's resources come from, what generation writes, that
+  workflows need a newer libcuflynx than PyPI's 0.7.3, and the removed
+  `run_param_id_without_autogen.sh`.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit

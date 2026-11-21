@@ -186,7 +186,10 @@ def _generate_once(work_dir, resources_dir, file_prefix, model_type, solver, lib
     generated_models_dir = os.path.join(work_dir, 'generated_models')
     config = {'file_prefix': file_prefix, 'input_param_file': f'{file_prefix}_parameters.json',
               'model_type': model_type, 'resources_dir': resources_dir,
-              'generated_models_dir': generated_models_dir, 'DEBUG': False}
+              'generated_models_dir': generated_models_dir, 'DEBUG': False,
+              # generation is not a run of the study: its dated user_inputs copy goes with the
+              # staged resources, not into a param_id_output under the current directory
+              'write_cuflynx_study': False}
     if solver:
         config['solver'] = solver
     config.update(library_inputs or {})

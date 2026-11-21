@@ -52,7 +52,7 @@ from libcuflynx.solver_wrappers import get_simulation_helper_from_inp_data_dict
 from libcuflynx.utilities.obs_data_helpers import ObsDataCreator
 from libcuflynx.param_id.paramID import CVS0DParamID
 
-# 1. Configuration (== user_inputs.yaml defaults, then mutate in code)
+# 1. Configuration (the library's defaults, then mutate in code)
 inp = get_default_inp_data_dict(file_prefix, input_param_file, resources_dir)
 inp["sim_time"], inp["pre_time"] = 2, 20.0
 
@@ -79,7 +79,21 @@ pid.simulate_with_best_param_vals()
 pid.plot_outputs()
 ```
 
-`params_for_id_dict` is a list of
-`{vessel_name, param_name, min, max, name_for_plotting}` entries (the in-memory
-equivalent of the entries of `{prefix}_params_for_id.json`); `vessel_name` may be a single name
-or a list to share one calibrated parameter across many vessels.
+`resources_dir` is a directory of your own holding the model's inputs:
+`{file_prefix}_module_array.csv` (or `.json`) and the parameters file `input_param_file`
+(`{file_prefix}_parameters.json`). The package installs no example models: copy one from the
+repository's [`resources/`](https://github.com/physiomelinks/circulatory_autogen/tree/master/resources)
+directory (for example `3compartment_module_array.csv`, `3compartment_parameters.json`,
+`3compartment_obs_data.json` and `3compartment_params_for_id.json`), or write your own (see
+[Designing a model](../design-model.md)). Generated models and results go under the current
+directory unless `generated_models_dir` and `param_id_output_dir` say otherwise.
+`get_default_inp_data_dict` fills in the library's defaults, which are not the values of the
+repository's `user_run_files/user_inputs.yaml` (for example `solver_info.MaximumStep` and
+`optimiser_options`).
+
+`params_for_id_dict` is the content of a `{prefix}_params_for_id.json` file: the whole
+`{"version": 1, "params": [...]}` document, or its list of entries
+(`{"targets": ["aortic_root/C"], "min": ..., "max": ..., "name_for_plotting": ...}`). A list of
+`{vessel_name, param_name, min, max, name_for_plotting}` entries is read too; there
+`vessel_name` may be a single name or a list to share one calibrated parameter across many
+vessels.

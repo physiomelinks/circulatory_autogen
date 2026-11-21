@@ -51,15 +51,15 @@ def _is_cellml2_model_with_libcellml(model_path):
 
 def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                    inp_data_dict=None):
-    """Generate a model from the vessel and parameter CSV arrays.
+    """Generate a model from its module array and parameters file.
 
-    Reads the vessel/module and parameter CSV arrays referenced by the config
+    Reads the module array (CSV or JSON) and the parameters file (JSON) the config names
     and emits a flat model in the configured ``model_type`` (CellML, Python, C++
     or CasADi) into the generated-models directory.
 
     Args:
         do_generation_with_fit_parameters: If True, regenerate using previously
-            fitted parameters instead of the defaults in the parameters CSV.
+            fitted parameters instead of the values in the parameters file.
         inp_data_dict: Configuration dict (see
             [`get_default_inp_data_dict`][utilities.utility_funcs.get_default_inp_data_dict]).
             If None, the values are loaded from ``user_inputs.yaml``.
@@ -156,6 +156,11 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         solver_cpp = solver_info.get('solver', 'CVODE')
         print(f"Using Cpp solver: {solver_cpp}")
         dtSample = inp_data_dict['dt']
+        if 'dt_solver' not in solver_info:
+            raise ValueError(
+                f'model_type cpp with solver {solver_cpp} needs solver_info.dt_solver, the step '
+                f'of the generated C++ solver (for CVODE, the interval at which it returns). Add '
+                f'it under solver_info in user_inputs.yaml, e.g. dt_solver: {dtSample}.')
         dtSolver = solver_info['dt_solver']
         nMaxSteps = solver_info['MaximumNumberOfSteps']
         # The generated C++ used to hardcode its tolerances, so these were the one part of
@@ -273,13 +278,13 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
 def main(argv=None):
     """Entry point for the ``cuflynx-generate`` command."""
     parser = _cli.build_parser(
-        'Generate a model from the vessel/module and parameter CSV arrays, in the configured '
+        'Generate a model from its module array and parameters file, in the configured '
         'model_type (CellML, Python, C++ or CasADi).')
     parser.add_argument(
         'with_fit_parameters', nargs='?', default=False, type=_cli.boolean,
         metavar='True|False',
         help='regenerate using the parameter values a previous calibration fitted, instead of '
-             'the defaults in the parameters CSV (default: False)')
+             'the values in the parameters file (default: False)')
     args = parser.parse_args(argv)
 
     # Deliberately not `return 0 if success else 1`: generation has always exited 0 whether

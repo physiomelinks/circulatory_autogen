@@ -48,7 +48,7 @@ cuflynx-methods-latex --workflow workflow.json --run-dir workflow_output/<name> 
 
 # one calibration
 cuflynx-methods-latex --model <prefix>_flat.cellml --obs-data <obs>.json \
-    --params-for-id <params>.csv --settings user_run_files/user_inputs.yaml \
+    --params-for-id <params>.json --settings user_run_files/user_inputs.yaml \
     --run-dir param_id_output/<method>_<prefix>_<obs> -o methods.tex
 ```
 

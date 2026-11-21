@@ -830,9 +830,10 @@ class CVS0DParamID():
         """Set which parameters to identify and their bounds.
 
         Args:
-            params_for_id_dict: List of entries of the form
-                ``{vessel_name, param_name, min, max, name_for_plotting}`` (the
-                in-memory equivalent of a ``{prefix}_params_for_id.json`` file's entries).
+            params_for_id_dict: Either the content of a ``{prefix}_params_for_id.json`` file
+                (the whole ``{"version", "params"}`` document, or its list of entries with
+                ``targets`` or ``modifies``), or a list of entries of the form
+                ``{vessel_name, param_name, min, max, name_for_plotting}``, where
                 ``vessel_name`` may be a single name or a list of names to share
                 one calibrated parameter across many vessels.
         """
@@ -2512,7 +2513,7 @@ class ParamID():
         if rank == 0:
             print(f'Running parameter identification across {num_procs} MPI rank(s)')
             if num_procs == 1:
-                print('WARNING Running in serial, are you sure you want to be a snail?')
+                print('running on 1 rank; use mpiexec -n N to parallelise')
             # save date as identifier for the param_id
             np.save(os.path.join(self.output_dir, 'date'), date.today().strftime("%d_%m_%Y"))
 

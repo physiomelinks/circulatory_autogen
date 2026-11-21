@@ -719,7 +719,7 @@ An example for the maximum likelihood estimator for gaussian noise (equivalent t
 
 Note:
 
-- Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/FinbarArgus/circulatory_autogen/issues/84)
+- Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/physiomelinks/circulatory_autogen/issues/84)
 
 ## Solver
 
@@ -1123,12 +1123,6 @@ Following a successful parameter id process, the model with updated parameters c
     - `all_outputs_with_best_param_vals_exp_{i}.npz` — written when calibration completes successfully.
     - `all_outputs_with_best_param_vals_exp_{i}_plot.npz` — written at the start of every `plot_outputs()` call. Use these to recover trajectories after an interrupted run as long as `best_param_vals.npy` exists in the same output folder.
 
-If you already have a model and do not want to run autogeneration, use:
-
-```
-./run_param_id_without_autogen.sh <NUM_CORES>
-```
-
 ### The study working dir
 
 `param_id_output_dir` is the study's **working dir**: every calibration, MCMC, sensitivity
@@ -1268,6 +1262,10 @@ of every calibration are merged into the workflow's **target** model. To redo a 
 edit its obs_data and run the workflow again: every step that used its values is redone too.
 
 ### Try it
+
+Calibration workflows are newer than libcuflynx 0.7.3 on PyPI: until the next release, install
+from GitHub (`pip install "libcuflynx @ git+https://github.com/physiomelinks/circulatory_autogen@master"`)
+or from a checkout.
 
 libcuflynx ships small example models for trying workflows. They are algebraic, so a run takes
 seconds, and every answer is known. Write them anywhere:

@@ -56,6 +56,46 @@ class VariableNameResolver:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def close_names(name, qnames, n=3):
+        """The names closest to ``name`` among a model's ``component.variable`` qnames, written
+        as a user writes them: ``component/variable`` without ``_module``, and a parameter
+        ``parameters.<variable>_<vessel>`` as ``<vessel>/<variable>``."""
+        import difflib
+        vessel, _, variable = str(name).rpartition('/')
+        flat_vessel = vessel.replace('/', '__')
+        written = {}
+        for qname in qnames:
+            component, _, var = str(qname).partition('.')
+            if component.endswith('_module'):
+                component = component[:-len('_module')]
+            user_name = f'{component}/{var}'
+            if component == 'parameters' and flat_vessel and var.endswith('_' + flat_vessel):
+                user_name = f'{vessel}/{var[:-len(flat_vessel) - 1]}'
+            elif component == 'parameters' and variable and var.startswith(variable + '_'):
+                user_name = f'{var[len(variable) + 1:].replace("__", "/")}/{variable}'
+            elif component == 'parameters_global':
+                user_name = f'global/{var}'
+            written.setdefault(user_name, None)
+        return difflib.get_close_matches(str(name), list(written), n=n, cutoff=0.6)
+
+    @staticmethod
+    def not_found_message(what, name, qnames, model_path=None):
+        """``<what> <name> not found``, with the model, the closest names in it and where such a
+        name is written."""
+        sources = {'parameter': 'Parameter names come from the params_for_id file (targets, '
+                                'modifies) and the obs_data protocol_info params_to_change.',
+                   'variable': 'Variable names come from the obs_data operands (data_items and '
+                               'prediction_items) and the variables asked for in code.'}
+        close = VariableNameResolver.close_names(name, qnames)
+        message = f'{what} {name} not found'
+        if model_path:
+            message += f' in the model {model_path}'
+        message += '.'
+        if close:
+            message += f' Did you mean {" or ".join(close)}?'
+        return f'{message} {sources.get(what, "")}'.rstrip()
+
+    @staticmethod
     def canonical(info: dict) -> str:
         """Return 'component/variable' from a STATE_INFO/VARIABLE_INFO dict."""
         comp = info.get("component", "")

@@ -520,7 +520,8 @@ class _Run:
         try:
             return fn(*args)
         except SystemExit as exc:
-            # the user_inputs parser exit()s on a bad configuration, after printing why
+            # a few module-array and protocol checks exit() after printing why; the user_inputs
+            # parser's refusals raise UserInputsError (a ValueError) and pass through
             raise WorkflowStepError(step.id, f'the {what} configuration was refused (exit '
                                              f'{exc.code}); the messages above say why.')
 

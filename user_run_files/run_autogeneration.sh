@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate the model from the vessel/module and parameter CSV arrays named in user_inputs.yaml.
+# Generate the model from the module array and parameters file named in user_inputs.yaml.
 # This script's own directory, using builtins only: dirname needs a working PATH, and a
 # broken PATH is precisely the situation the helper below exists to report on.
 _cuflynx_dir="${BASH_SOURCE[0]%/*}"
