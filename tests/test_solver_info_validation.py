@@ -1176,6 +1176,31 @@ def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
         assert sum(src['default'] for src in gradient_sources(mt, sv)) == 1, (mt, sv)
 
 
+@pytest.mark.unit
+def test_the_default_calibration_method_is_cma_es_and_readable_from_the_schema():
+    """A front end reads the default method from the schema; it must be a method that exists."""
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    assert DEFAULT_PARAM_ID_METHOD == SOLVER_SCHEMA['default_param_id_method'] == 'CMA-ES'
+    assert DEFAULT_PARAM_ID_METHOD in PARAM_ID_METHODS
+    # run_pipeline.py is generated standalone code, so it spells the default out
+    import inspect
+    from libcuflynx.scripts import generate_pipeline_script
+    assert (f'cfg.get("param_id_method", "{DEFAULT_PARAM_ID_METHOD}")'
+            in inspect.getsource(generate_pipeline_script))
+
+
+@pytest.mark.unit
+def test_user_inputs_naming_no_param_id_method_calibrate_with_cma_es(base_user_inputs):
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    config = dict(base_user_inputs)
+    config.pop('param_id_method', None)
+    parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
+    assert parsed['param_id_method'] == 'CMA-ES'
+    config['param_id_method'] = 'genetic_algorithm'
+    parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
+    assert parsed['param_id_method'] == 'genetic_algorithm'
+
+
 @pytest.mark.parametrize("given,expected", [
     ({}, 'cellml'),
     ({'solver': 'CVODE_myokit'}, 'cellml'),

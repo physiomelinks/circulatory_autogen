@@ -44,6 +44,15 @@ next release; add to that section as you land a change.
   resources (module array, parameters, params_for_id, obs_data) into DIR (default the current
   directory) and prints what to run next, so a `pip install libcuflynx` has a config to start
   from. It overwrites nothing unless given `--force`.
+### Changed — CMA-ES is the default calibration method (changes results)
+
+- A calibration whose user_inputs name no `param_id_method` runs CMA-ES; it ran the genetic
+  algorithm, whose population of 744 per generation needs a budget of at least that many
+  evaluations. Set `param_id_method: genetic_algorithm` to keep the old behaviour. The output
+  directory name follows the method (`CMA-ES_<prefix>_<obs>`). A front end reads the default
+  from `SOLVER_SCHEMA['default_param_id_method']` (`DEFAULT_PARAM_ID_METHOD`).
+- The genetic algorithm's default population is unchanged. `benchmarks/README.md` notes the
+  test that would decide whether it should scale with the number of parameters.
 
 ### Changed — a workflow tab's model is generated faster
 

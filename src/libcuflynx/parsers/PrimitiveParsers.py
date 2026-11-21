@@ -131,6 +131,8 @@ CASADI_JIT_DEFAULT = True
 #: The do_ad of a run whose user_inputs does not set it: finite-difference gradients. With do_ad
 #: true the gradient is the model_type's default analytic source (default_gradient_source).
 DEFAULT_DO_AD = False
+#: The calibration method used when user_inputs names no param_id_method.
+DEFAULT_PARAM_ID_METHOD = 'CMA-ES'
 
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
@@ -203,6 +205,7 @@ SOLVER_SCHEMA = {
     # analytic gradient do_ad: true takes.
     'default_model_type': DEFAULT_MODEL_TYPE,
     'default_do_ad': DEFAULT_DO_AD,
+    'default_param_id_method': DEFAULT_PARAM_ID_METHOD,
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
         # CVODE_myokit: installed with libcuflynx, whereas CVODE_libopencor needs the
@@ -2727,7 +2730,7 @@ class YamlFileParser(object):
             inp_data_dict['couple_to_1d'] = False
         
         if 'param_id_method' not in inp_data_dict.keys():
-            inp_data_dict['param_id_method'] = 'genetic_algorithm'
+            inp_data_dict['param_id_method'] = DEFAULT_PARAM_ID_METHOD
         inp_data_dict.setdefault('do_ad', DEFAULT_DO_AD)
 
         # cellml models get an AD gradient too, via Myokit CVODES forward sensitivity,

@@ -296,8 +296,8 @@ def _fmt(value):
 
 
 def method_text(settings):
-    from libcuflynx.parsers.PrimitiveParsers import PARAM_ID_METHODS
-    method = settings.get('param_id_method') or 'genetic_algorithm'
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    method = settings.get('param_id_method') or DEFAULT_PARAM_ID_METHOD
     meta = PARAM_ID_METHODS.get(method, {})
     label = meta.get('label') or method
     text = f'Parameters were estimated with {escape(label)} ({_tt(method)})'
