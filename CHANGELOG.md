@@ -90,13 +90,21 @@ Found by installing libcuflynx as a new user and following the tutorial from an 
   out. A relative `param_id_obs_path` that is not there from the current directory (or from the
   directory of the file `user_inputs_path_override` names) is now taken from the user directory,
   so `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
-- **A key of a `user_inputs.yaml` that libcuflynx does not read gives a `UserWarning`** with the
-  closest key it does read (`param_id_methd`: "Did you mean 'param_id_method'?"). It was ignored
-  in silence and the default used. Keys the parser derives (`model_path`,
-  `parameters_csv_abs_path`, ...) are never suggested, and an optimiser option at the top level
-  (`num_calls_to_function`) is pointed to `optimiser_options`. Only files are checked, not dicts
-  built in code. `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys; add a new key
-  there.
+- **A key of a `user_inputs.yaml` that libcuflynx does not read is refused** with a
+  `UserInputsError` naming every such key and the closest key it does read (`param_id_methd`:
+  "Did you mean 'param_id_method'?"). It was ignored in silence and the default used. Keys the
+  parser derives (`model_path`, `parameters_csv_abs_path`, ...) are accepted, so a dated
+  `user_inputs_<yymmdd>.yaml` reads back, but never suggested; an optimiser option at the top
+  level (`num_calls_to_function`) is pointed to `optimiser_options`. Only files are checked, not
+  dicts built in code. `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys, among
+  them `model_file`, `do_simulation` and `do_calibration`, which pipeline bundles and CUFLynx's
+  export write. **A tool that writes a new key into a user_inputs file must add it there**, or
+  libcuflynx refuses the file.
+- **`module_array_path` and `parameters_path`** may stand in for `file_prefix` + `resources_dir`
+  (`module_array_path: resources/3compartment_module_array.json`) and for `input_param_file`
+  (any path, not only in `resources_dir`). A relative path resolves as `resources_dir` does; an
+  alias that disagrees with the key it stands for is refused.
+- The version is 0.8.0.dev0.
 - **`parse_user_inputs_file` and the genetic algorithm raise instead of calling `exit()`** on a
   configuration they refuse: `UserInputsError` (a `ValueError`) for an invalid `solver`,
   `model_type`, solver method, `dt` or `solver_info` key, a missing `file_prefix` and the
@@ -128,6 +136,7 @@ Found by installing libcuflynx as a new user and following the tutorial from an 
   clone URL, where the API example's resources come from, what generation writes, that
   workflows need a newer libcuflynx than PyPI's 0.7.3, and the removed
   `run_param_id_without_autogen.sh`.
+
 ### Changed — the tutorial notebooks calibrate through a calibration workflow
 
 - Section B of `tutorial/interactive/generation_and_calibration.ipynb` builds a calibration

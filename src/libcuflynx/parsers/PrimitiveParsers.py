@@ -2375,27 +2375,34 @@ def refuse_removed_user_inputs(inp_data_dict):
 
 
 # Every top-level user_inputs key libcuflynx reads or writes back (the keys the parser derives
-# are here too, since a dated user_inputs_<yymmdd>.yaml holds them). Add a new key here:
+# are here too, since a dated user_inputs_<yymmdd>.yaml holds them, and the keys a pipeline
+# bundle or CUFLynx's export writes: model_file, do_simulation, do_calibration). A key not
+# listed is refused when a file is read, so add a new key here:
 # tests/test_new_user_first_hour.py checks every key the code reads is listed.
 KNOWN_USER_INPUTS_KEYS = frozenset({
-    'DEBUG', 'MaximumNumberOfSteps', 'UQ_options', 'cost_funcs_external_path', 'couple_to_1d',
+    'DEBUG', 'MaximumNumberOfSteps', 'UQ_options', 'calibrated_entries',
+    'cost_funcs_external_path', 'couple_to_1d',
     'coupler_pipe_dir', 'cpp_1d_model_config_path', 'cpp_generated_models_dir', 'cpp_output_dir',
     'create_main_0d', 'cuflynx_study_copy_inputs', 'cuflynx_working_dir', 'debug_UQ_options',
-    'debug_optimiser_options', 'do_ad', 'do_emulation', 'do_ia', 'do_param_reduction',
-    'do_sensitivity', 'do_uq', 'dt', 'emulator_settings', 'external_model_path',
+    'debug_optimiser_options', 'do_ad', 'do_calibration', 'do_emulation', 'do_ia',
+    'do_param_reduction', 'do_sensitivity', 'do_simulation', 'do_uq', 'dt', 'emulator_settings',
+    'external_model_path',
     'external_modules_dir', 'external_parameters_file', 'file_name_prefix', 'file_prefix',
     'file_prefix_0d', 'file_prefix_1d',
     'generate_1d', 'generated_model_path', 'generated_models_dir', 'generated_models_subdir',
     'human_readable', 'ia_options', 'identifiability_analysis_options', 'input_param_file',
     'joint_priors', 'max_num_steps', 'max_step', 'method', 'model_1d_config_path', 'model_path',
-    'model_type', 'modifier_funcs_external_path', 'module_library_dirs', 'num_samples',
+    'model_file', 'model_type', 'modifier_funcs_external_path', 'module_array_path',
+    'module_library_dirs', 'num_samples',
     'obs_data_dict', 'one_rank', 'operation_funcs_external_path', 'optimiser_options',
     'output_dir', 'override_best_param_vals_for_ia', 'param_id_method', 'param_id_obs_path',
     'param_id_output_dir', 'param_id_output_dir_abs_path', 'param_reduction_options',
-    'parameters_csv_abs_path', 'params_for_id', 'params_for_id_file', 'params_for_id_path',
+    'parameters_csv_abs_path', 'parameters_path', 'params_for_id', 'params_for_id_file',
+    'params_for_id_path',
     'plot_predictions', 'pre_time', 'resources_dir', 'sa_options', 'sample_type', 'sim_time',
     'solver', 'solver_1d_type', 'solver_info', 'study_name', 'uncalibrated_model_path',
     'use_builtin_modules', 'use_emulator', 'user_inputs_path', 'user_inputs_path_override',
+    'validate_generated_model',
     'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
     'write_cuflynx_study',
 })
@@ -2404,7 +2411,7 @@ KNOWN_USER_INPUTS_KEYS = frozenset({
 # The known keys the parser (or a calibration workflow) sets itself, overwriting any value a
 # user gives. They do not warn, but are never offered as the key a user meant.
 DERIVED_USER_INPUTS_KEYS = frozenset({
-    'cuflynx_working_dir', 'file_prefix_0d', 'file_prefix_1d', 'generated_models_subdir',
+    'calibrated_entries', 'cuflynx_working_dir', 'file_prefix_0d', 'file_prefix_1d', 'generated_models_subdir',
     'model_path', 'param_id_output_dir_abs_path', 'parameters_csv_abs_path',
     'params_for_id_path', 'uncalibrated_model_path', 'user_inputs_path',
     'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
@@ -2433,17 +2440,67 @@ def unknown_user_inputs_keys(inp_data_dict):
     return unknown
 
 
-def warn_unknown_user_inputs_keys(inp_data_dict, source):
-    """Warn (UserWarning) about each key of a user_inputs file that libcuflynx does not read,
-    with the closest key it does read. A mistyped key is otherwise ignored and its default used.
-    For a file a user wrote: a dict built in code may carry keys of its own."""
+def refuse_unknown_user_inputs_keys(inp_data_dict, source):
+    """Raise UserInputsError naming each key of a user_inputs file that libcuflynx does not
+    read, with the closest key it does read, so a mistyped key cannot silently leave its
+    default in place. For a file a user wrote: a dict built in code may carry keys of its own.
+    Every MPI rank raises, as every rank reads the same file."""
+    lines = []
     for key, close in unknown_user_inputs_keys(inp_data_dict).items():
         if key in OPTIMISER_OPTION_KEYS:
             hint = ' It is an optimiser option: put it under optimiser_options.'
         else:
             hint = f' Did you mean {close!r}?' if close else ''
-        warnings.warn(f'{source}: user_inputs key {key!r} is not one libcuflynx reads, so it '
-                      f'is ignored.{hint}', UserWarning, stacklevel=2)
+        lines.append(f'  {key!r} is not a key libcuflynx reads.{hint}')
+    if lines:
+        raise UserInputsError(f'{source} has unknown user_inputs keys:\n' + '\n'.join(lines))
+
+
+# Keys that name a file in place of the keys libcuflynx reads: alias -> what it sets.
+USER_INPUTS_PATH_ALIASES = {
+    'module_array_path': ('file_prefix', 'resources_dir'),
+    'parameters_path': ('input_param_file',),
+}
+_MODULE_ARRAY_SUFFIXES = ('_module_array.json', '_module_array.csv')
+
+
+def apply_user_inputs_path_aliases(inp_data_dict, user_files_dir=''):
+    """Replace the alias keys by the keys they stand for, in place.
+
+    ``module_array_path: resources/<prefix>_module_array.json`` sets ``file_prefix`` and
+    ``resources_dir``; ``parameters_path: <file>`` sets ``input_param_file`` (absolute, so it
+    is not joined to ``resources_dir``). A relative path resolves from ``user_files_dir``, as
+    ``resources_dir`` does. An alias whose target key is also set to something else raises
+    UserInputsError. The aliases are removed, so the resolved config holds only the keys they
+    stand for."""
+    if inp_data_dict.get('module_array_path'):
+        given = str(inp_data_dict.pop('module_array_path'))
+        name = os.path.basename(given)
+        suffix = next((s for s in _MODULE_ARRAY_SUFFIXES if name.endswith(s)), None)
+        if suffix is None or name == suffix:
+            raise UserInputsError(f'module_array_path {given!r} must name a '
+                                  f'<file_prefix>_module_array.json or .csv file.')
+        derived = {'file_prefix': name[:-len(suffix)], 'resources_dir': os.path.dirname(given)}
+        for key, value in derived.items():
+            set_to = inp_data_dict.get(key)
+            same = (set_to == value if key == 'file_prefix' else set_to is not None and
+                    os.path.normpath(os.path.join(user_files_dir, str(set_to))) ==
+                    os.path.normpath(os.path.join(user_files_dir, value)))
+            if set_to is not None and not same:
+                raise UserInputsError(f'module_array_path {given!r} means {key}: {value!r}, but '
+                                      f'{key} is set to {set_to!r}. Set one of them.')
+            inp_data_dict[key] = value
+    else:
+        inp_data_dict.pop('module_array_path', None)
+    if inp_data_dict.get('parameters_path'):
+        given = str(inp_data_dict.pop('parameters_path'))
+        if inp_data_dict.get('input_param_file'):
+            raise UserInputsError(f'parameters_path {given!r} and input_param_file '
+                                  f'{inp_data_dict["input_param_file"]!r} are both set. Set one '
+                                  f'of them.')
+        inp_data_dict['input_param_file'] = os.path.abspath(os.path.join(user_files_dir, given))
+    else:
+        inp_data_dict.pop('parameters_path', None)
 
 
 def invalid_solver_message(solver_name):
@@ -2645,9 +2702,10 @@ class YamlFileParser(object):
         if inp_data_dict is None:
             raise UserInputsError(f'{loaded_from or "the user inputs"} holds no settings: '
                                   f'expected a mapping of user_inputs keys.')
-        if loaded_from is not None and rank == 0:
-            warn_unknown_user_inputs_keys(inp_data_dict, loaded_from)
-            
+        if loaded_from is not None:
+            refuse_unknown_user_inputs_keys(inp_data_dict, loaded_from)
+        apply_user_inputs_path_aliases(inp_data_dict, user_files_dir)
+
         if 'file_prefix' not in inp_data_dict.keys():
             raise UserInputsError(f'{loaded_from or "user_inputs"} has no file_prefix: set it to '
                                   f'the model name its resources files start with '
