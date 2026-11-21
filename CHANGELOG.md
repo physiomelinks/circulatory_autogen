@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — a Sobol analysis runs on casadi_python models
+
+- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
+  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
+  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
+  every model type, as a calibration does for its numeric evaluations.
+
 ### Fixed — an emulator is not refused because its Python model has another file name
 
 - A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
