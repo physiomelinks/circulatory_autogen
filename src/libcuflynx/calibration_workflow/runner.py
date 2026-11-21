@@ -23,6 +23,11 @@ Output layout (``output_dir``)::
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
         sweep/                     a sweep step's runs (sweep.py)
     _target/model/                 the target generated with every merged value
+    models/<view>/                 models generated for viewing (workflow_model with this
+                                   work_dir)
+    inputs/                        the study's copies of its inputs (cuflynx_study)
+
+No step may be named ``models``, ``target`` (the target's view), ``_target`` or ``inputs``.
 
 A step's model is generated from a library module or from a copy of its module array; the
 files the workflow names are only read.
@@ -70,6 +75,10 @@ from libcuflynx.utilities.paths import git_state, repo_root
 STEP_RESULT = 'step_result.json'
 # the inputs of a step that are not one file: their digests are in its recorded inputs
 SETTINGS_INPUT = 'settings'
+#: the inputs that are a step's user function files, and the settings naming them
+FUNCS_INPUTS = {'operation_funcs': 'operation_funcs_external_path',
+                'cost_funcs': 'cost_funcs_external_path',
+                'modifier_funcs': 'modifier_funcs_external_path'}
 LIBRARY_INPUT = 'module_library'
 #: the files of a module library a model is generated from
 LIBRARY_FILE_SUFFIXES = ('.cellml', '_modules_config.json', '_parameters.json')
@@ -78,6 +87,9 @@ POINT_BEST_FIT = 'best_fit'
 POINT_POSTERIOR_MEDIAN = 'posterior_median'
 WORKFLOW_RESULT = 'workflow_result.json'
 TARGET_DIR = '_target'
+#: the folder of a run's output directory that workflow_model may generate into; the schema
+#: refuses it as a step id
+MODELS_DIR = 'models'
 # the file prefix the target's model is generated with
 TARGET_PREFIX = 'target'
 SENSITIVITY_DIR = 'sensitivity'
@@ -185,7 +197,11 @@ def _libcellml_version():
 
 
 def default_output_dir(workflow):
-    return os.path.join(os.getcwd(), 'workflow_output', workflow.name)
+    '''Where a run goes when it is given no output directory:
+    ``workflow_output/<workflow_name>`` beside the workflow file (the working directory for a
+    workflow given as a dict), which is ``WorkflowBuilder.output_dir``.'''
+    base = os.path.dirname(workflow.path) if workflow.path else os.getcwd()
+    return os.path.join(base, 'workflow_output', workflow.name)
 
 
 def _write_json(path, obj):
@@ -204,6 +220,11 @@ def _read_json(path):
 def given_values(result):
     '''The records of what a step's result passes on: what it calibrated or set by hand.'''
     return result['calibrated'] + result.get('set', [])
+
+
+def _from_step_hint(step_id):
+    '''How to run from a step, for a Python caller and for the command line.'''
+    return f'wf.run(from_step={step_id!r}) in Python, --from-step {step_id} on the command line'
 
 
 def _how_set(record):
@@ -271,6 +292,12 @@ class _Run:
             # a selection starts from the target's values
             files['target_parameters'] = self.workflow.target.parameters
             files['target_module_array'] = self.workflow.target.module_array
+        # the user function files the step runs with (a result recorded without them is not
+        # stale for that: changed_inputs compares only the keys a result has)
+        merged = self.workflow.step_settings(rs.step)
+        for key, setting in FUNCS_INPUTS.items():
+            if merged.get(setting) and os.path.isfile(merged[setting]):
+                files[key] = merged[setting]
         return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
                 SETTINGS_INPUT: settings, **self.library_input()}
 
@@ -301,8 +328,8 @@ class _Run:
         if result is None or result.get('status') != 'done':
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", which has not been run '
-                f'into {self.output_dir}. Run the workflow from "{step_id}" (or without '
-                f'--from-step/--only).')
+                f'into {self.output_dir}. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}, or run every step.')
         for key in self.changed_inputs(step_id, result):
             if key == LIBRARY_INPUT:
                 warnings.warn(f'the module library has changed since "{step_id}" ran; its result '
@@ -311,14 +338,15 @@ class _Run:
             changed = 'its settings' if key == SETTINGS_INPUT else result['inputs'][key]['path']
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", but {changed} has changed '
-                f'since "{step_id}" ran. Run the workflow from "{step_id}".')
+                f'since "{step_id}" ran. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}.')
         for source in self.workflow.step(step_id).depends_on:
             upstream = self.require_current(source, needed_by)
             if (upstream.get('finished') or '') > (result.get('started') or ''):
                 raise WorkflowError(
                     f'step "{needed_by}" needs the result of "{step_id}", but "{source}", which '
                     f'it took something from, ran again after it. Run the workflow from '
-                    f'"{step_id}".')
+                    f'"{step_id}": {_from_step_hint(step_id)}.')
         return result
 
     # -- what a step gets from earlier steps ---------------------------------------------
@@ -1251,23 +1279,27 @@ def plan_workflow(source, module_library_dirs=None):
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,
-                             from_step=None, only=None, dry_run=False, write_calibrated=False,
-                             progress=None, comm=None):
+                             from_step=None, only=None, stale_only=False, dry_run=False,
+                             write_calibrated=False, progress=None, comm=None):
     '''Run the calibration workflow ``source`` (a calibration_workflow.json path or its dict).
 
     Args:
-        output_dir: where the run goes (default ``./workflow_output/<workflow_name>``).
+        output_dir: where the run goes (default ``workflow_output/<workflow_name>`` beside
+            the workflow file; under the working directory for a workflow given as a dict).
         module_library_dirs: module libraries, added to the file's own.
         from_step: run this step and every step after it in the order; earlier steps' results
             are reused from ``output_dir`` (an error if missing, or if their obs_data,
             params_for_id or parameters changed since).
         only: run just this step, reusing the results it depends on.
+        stale_only: without ``from_step`` and ``only``, run just the steps that have not run
+            or are stale (:func:`workflow_status`), keeping the results that are current.
         dry_run: resolve and check everything, run nothing; returns :func:`plan_workflow`.
         write_calibrated: write the merged set as the target parameterisation's
             ``<parameterisation>_calibrated_parameters.json`` (complete runs only).
         progress: ``callable(event_dict)``, called on rank 0 with ``event`` in
             ``workflow_started``, ``step_started``, ``step_finished``, ``step_failed``,
-            ``step_skipped``, ``workflow_finished``.
+            ``step_skipped`` (with ``has_result``, and ``current`` True for a step
+            ``stale_only`` left alone), ``workflow_finished``.
         comm: an MPI communicator (default COMM_WORLD, or a one-rank stand-in).
 
     Returns the workflow_result dict (also written as ``workflow_result.json``).
@@ -1291,6 +1323,10 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
     elif from_step:
         ids = [s.id for s in order]
         to_run = order[ids.index(from_step):]
+    elif stale_only:
+        status = run.on_root(lambda: _steps_status(run))
+        to_run = [s for s in order
+                  if status[s.id]['status'] != 'done' or status[s.id]['stale']]
     else:
         to_run = order
 
@@ -1307,7 +1343,10 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
              output_dir=output_dir)
     for step in order:
         if step not in to_run:
-            run.emit('step_skipped', step=step.id)
+            has_result = run.on_root(
+                lambda: (run.step_result(step.id) or {}).get('status') == 'done')
+            run.emit('step_skipped', step=step.id, has_result=has_result,
+                     current=bool(stale_only and not from_step and not only))
     for index, step in enumerate(to_run):
         try:
             run.run_step(step, index, len(to_run))
@@ -1336,7 +1375,15 @@ def workflow_status(source, output_dir, module_library_dirs=None):
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
-    run = _Run(resolved, output_dir, _get_comm(None), None)
+    steps = _steps_status(_Run(resolved, output_dir, _get_comm(None), None))
+    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
+            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
+            'steps': steps}
+
+
+def _steps_status(run):
+    '''The ``steps`` of :func:`workflow_status` for the run ``run``.'''
+    workflow = run.workflow
     steps = {}
     for step in workflow.topological_order():
         result = run.step_result(step.id)
@@ -1356,9 +1403,7 @@ def workflow_status(source, output_dir, module_library_dirs=None):
                           'best_cost': (result or {}).get('best_cost') if done else None,
                           'finished': (result or {}).get('finished') if done else None,
                           'point_estimate': (result or {}).get('point_estimate') if done else None}
-    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
-            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
-            'steps': steps}
+    return steps
 
 
 TARGET_VIEW = 'target'
@@ -1371,8 +1416,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     ``view`` is a step id, or ``'target'`` for the workflow's target. A step's model gets
     the values its ``fixed_from`` steps calibrated (those that have run into ``output_dir``)
     and, with ``with_own_results``, its own calibrated values once it has run. The target
-    gets every calibrated value there is, mapped into its naming. Nothing is calibrated and
-    nothing in ``output_dir`` is written: the model goes under ``work_dir``.
+    gets every calibrated value there is, mapped into its naming. Nothing is calibrated, and
+    nothing in ``output_dir`` is written but the model, under ``work_dir`` (which may be
+    ``<output_dir>/models``, :data:`MODELS_DIR`, a folder no step's output can have).
 
     ``validate=False`` skips the trial run generation ends with (a Myokit compile, about half
     the time of a view), for a caller that compiles or runs the model itself straight after.

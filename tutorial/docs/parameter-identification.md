@@ -1288,6 +1288,229 @@ a layout to copy. The same chain written with library modules is
 `.../screened/calibration_workflow.json` adds a Sobol screen, a reduction and an
 identifiability analysis to it (see [Step kinds](#step-kinds)).
 
+### Building a workflow in Python
+
+`WorkflowBuilder` makes the same file with API calls, so a script or a notebook needs no
+hand-written JSON. The obs_data and params_for_id can be dicts, as `CVS0DParamID` takes them
+(or an `ObsDataCreator`). Every method is in the
+[API reference](api/calibration-workflow.md).
+
+#### One calibration
+
+With the example models of [Try it](#try-it) in `wf_example`, fit `p` of the vessel `A`
+(`y = 2 p^2`) to `y = 8`:
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder
+
+settings = {'param_id_method': 'CMA-ES', 'dt': 0.1,
+            'optimiser_options': {'num_calls_to_function': 400, 'cost_convergence': 1e-14,
+                                  'max_patience': 60, 'seed': 1, 'cost_type': 'gaussian_MLE'}}
+wf = WorkflowBuilder('one_fit', target='wf_example/arrays/a_only_module_array.json',
+                     directory='wf_one', module_library_dirs=['wf_example/modules'],
+                     settings=settings)
+wf.add_calibration(
+    'fit',
+    obs_data={'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]],
+                                'params_to_change': {}},
+              'data_items': [{'data_item_name': 'y_a', 'data_type': 'constant',
+                              'unit': 'dimensionless', 'operands': ['A/y'],
+                              'operation': 'mean', 'value': 8.0, 'std': 0.08}]},
+    params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.run()
+wf.result('fit')['values']      # {'A/p': 2.0}
+```
+
+- `target` is the model the calibrated values are merged into, and the model of every step
+  that names none: a module array path (or `module_array(path, parameters=...)`), or
+  `library_module(type, version, parameterisation)`.
+- `directory` is where the workflow file and its data are written; the run goes to
+  `<directory>/workflow_output/<name>` (`wf.output_dir`).
+- `module_library_dirs` is needed whenever a model names modules of a module library, as these
+  arrays do (`"parameterisation": "default"` of `lin_a`).
+- `settings` are `user_inputs.yaml` keys. A calibration needs its `param_id_method` and that
+  method's `optimiser_options` (`genetic_algorithm`, the method when none is named, requires
+  `num_calls_to_function`). `wf.check()` names what is missing, without running anything;
+  `wf.update_settings(...)` changes settings later.
+
+`wf.run()` checks the workflow, writes it and runs it. It prints one `[workflow]` line per
+step; everything else a step writes (the optimiser's iterations, compiler output, warnings)
+goes to `<output_dir>/<step>/log.txt`, and what is written outside the steps to
+`<output_dir>/workflow_log.txt`. `wf.run(verbose=True)` prints all of it as well.
+
+`print(wf)` lists the steps and whether each has run. `wf.show_status()` prints a table with
+each step's state (`done`, `stale`, `not run`), best cost and finish time, and
+`wf.show_plan()` one with each step's model, the steps it takes from and the parameters it
+gives; `wf.status()` and `wf.plan()` return the same as dicts.
+
+#### A chain of steps
+
+The chain of [Try it](#try-it): `a-alone` calibrates `p` on a model of `A` alone, then `chain`
+calibrates `q` in the whole chain (`z = y + q^2`) with `p` fixed.
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder, module_array
+
+def obs(item, operand, value, std, operation='mean'):
+    return {'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]], 'params_to_change': {}},
+            'data_items': [{'data_item_name': item, 'data_type': 'constant',
+                            'unit': 'dimensionless', 'operands': [operand],
+                            'operation': operation, 'value': value, 'std': std}]}
+
+arrays = 'wf_example/arrays'
+wf = WorkflowBuilder('chain_from_python', target=module_array(f'{arrays}/chain_module_array.json'),
+                     directory='wf_python', module_library_dirs=['wf_example/modules'],
+                     settings=settings)
+wf.add_calibration('a-alone', model=module_array(f'{arrays}/a_only_module_array.json'),
+                   obs_data=obs('y_a', 'A/y', 8.0, 0.08),
+                   params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.add_calibration('chain', obs_data=obs('z_c', 'C/z', 17.0, 0.17),
+                   params_for_id=[{'vessel_name': 'C', 'param_name': 'q', 'min': 0.1, 'max': 10}],
+                   fixed_from=['a-alone'])
+wf.plan()                       # the order, and where each parameter lands; runs nothing
+wf.run()                        # A/p = 2, then C/q = 3
+wf.result('chain')['values']    # {'C/q': 3.0}
+```
+
+`add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`, `add_identifiability`,
+`add_set` and `add_sweep` make the [step kinds](#step-kinds). Their keyword arguments are the
+step's keys from [The file](#the-file); the options a kind takes in its `settings` are an
+argument of their own (`sa_options=`, `ia_options=`, `emulator_settings=`, and for a reduction
+`method=`, `n_params=`, ...). `add_step(id, kind=..., **keys)` takes any step as its raw keys.
+In all of them `model` defaults to the target. `library_module(type, version,
+parameterisation)`, `module_array(path, parameters=None)`, `selection(*instances)`,
+`prior(step, kind=, inflate=, parameters=)`, `set_value(parameter, value, reason=)` and
+`scale_value(parameter, scale, of=, reason=)` give a step's model, priors and set entries. A
+step is checked against the schema when it is added.
+
+Values set by hand go in a `set` step (`add_set`), not in a parameters dict: each carries its
+reason into the provenance.
+
+#### Your own operations
+
+An obs_data item's `operation` can be a function defined in the script or in a notebook cell:
+
+```python
+import numpy as np
+from libcuflynx.param_id.operation_funcs import series_to_constant
+
+@series_to_constant
+def double_mean(x, series_output=False):
+    if series_output:
+        return 2 * x
+    return 2 * np.mean(x)
+
+wf.add_operation(double_mean)
+wf.add_calibration('a-alone', model=module_array(f'{arrays}/a_only_module_array.json'),
+                   obs_data=obs('y_a', 'A/y', 16.0, 0.16, operation='double_mean'),
+                   params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.run()                        # A/p = 2 still (2 * mean(2 p^2) = 16), and chain again after it
+```
+
+`add_operation` (and `add_cost_func`, `add_modifier_func`) copies the function's source into
+`<name>_operation_funcs.py` beside the workflow, with an import for each module it uses and a
+marker set on it after its `def` (`f.series_to_constant = True`) as its decorator. The
+workflow's `operation_funcs_external_path` names the file, so every rank, the command line and
+CUFLynx load it; it has the layout of CUFLynx's "Custom funcs" dialog
+(`libcuflynx.utilities.user_funcs_file`). `wf.functions()` lists what was added and
+`wf.remove_operation(name)` takes one out.
+
+- The file is imported on its own, so a function must carry what it needs. A lambda, a
+  function using a variable of the function it is defined in, and one using a value or a
+  function defined only in the session (in its body, a default value or an annotation) are
+  refused: pass helper functions to `add_operation` too (a name starting with `_` is not
+  registered as an operation), and put values into the function.
+- **The file is generated; edit the function where it is defined and add it again.** Its
+  header records a checksum, so the builder regenerates a file nobody edited, in this session
+  or a later one. A file that was edited by hand (or that no builder wrote), or that holds
+  functions this builder does not have (another writer added them), is refused, so they are
+  not lost without a word: `wf.add_operation(f, overwrite=True)` or
+  `wf.write(overwrite=True)` replaces it. `WorkflowBuilder.load` reads a hand-edited file's
+  functions and keeps the file as it is until its functions change; a file holding other
+  top-level statements (a constant, a class) is then refused with their names, since a
+  generated file holds imports and functions only.
+- A workflow that already names another operation funcs file takes no `add_operation`: add
+  the functions to that file.
+
+#### Running again, and changing a step
+
+Run the script, or the notebook from the top, as often as you like. A file is rewritten only
+when its content changes, and `wf.run()` runs only the steps that have not run or are
+**stale**. Its first line names the steps it runs and those it keeps, and each kept step gets
+a line of its own:
+
+```
+[workflow] running 1 of 2 steps: chain; keeping a-alone
+[workflow] step a-alone: done and current, not run again
+```
+
+When every step is done and current it says so and runs nothing. To run every step again,
+current or not, use `wf.run(force=True)` (on the command line, leave out `--stale-only`);
+`wf.run(from_step='<id>')` runs one step and every step after it.
+
+A step is stale when something it ran with has changed: its obs_data, its params_for_id, its
+model's parameters file, its settings, or the workflow's functions file (any function in it,
+whether or not the step uses it), or when a step it takes values from is stale or ran again.
+`wf.status()` shows which.
+
+- **To change a step, change what you pass and add it again with the same id.** A dict is
+  copied when it is added, so editing the dict afterwards changes nothing until
+  `wf.add_calibration('chain', obs_data=edited, ...)` is called again. The step keeps its
+  place.
+- `wf.run(force=True)` runs every step again. `wf.run(from_step='chain')` runs that step and
+  those after it, and `wf.run(only='chain')` just that step; both reuse the earlier results,
+  which must be current.
+- `wf.run(ranks=4)` runs `mpiexec -n 4` on the written file.
+- `wf.remove_step(id)` takes a step out. `WorkflowBuilder.load(path_or_directory)` makes a
+  builder from an existing workflow file.
+
+What the builder writes, in `wf.directory`, when `wf.write()` is called (`run`, `plan`,
+`status`, `model` and `plot_step` call it first):
+
+```
+calibration_workflow.json          the workflow; its paths are relative to this directory
+data/<step>_obs_data.json          an obs_data given as a dict
+data/<step>_params_for_id.json     a params_for_id given as entries
+<name>_operation_funcs.py          the functions given to add_operation, with their imports
+.workflow_builder_files.json       which of these files a builder wrote, for wf.clean()
+workflow_output/<name>/            the run (wf.output_dir), see Outputs below
+```
+
+Two steps given the same dict share one file, named after the first. Keep files of your own
+out of `data/`.
+
+Removing or renaming a step leaves its data files behind. `wf.clean()` lists the files the
+builder wrote for this workflow that no workflow in the directory names any more, and
+`wf.clean(delete=True)` moves them to `data/removed/`; it deletes nothing. A file is only ever
+listed when a builder wrote it, its content is still what was written, and no JSON file at the
+top of the directory names it. Nothing under `workflow_output/` is touched.
+
+After a run, `wf.result(id)` is what the step recorded (a calibration's `values` and
+`best_cost`, a reduction's chosen `parameters`, each kind's files as paths), `wf.step_dir(id)`
+its output directory, `wf.plot_step(id)` plots a calibration's fit (as png;
+`formats=('png', 'pdf')` for more), and `wf.model(id)` (or `wf.model('target')`) generates the
+model with the values found so far, under the run's `models/<id>/`. Every path the builder
+returns (`wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir(id)`, the files
+in `wf.result(id)`) is a `pathlib.Path`.
+
+A step's options are dicts under the names the schema gives them: `sa_options`,
+`ia_options`, `emulator_settings`, and for a reduction
+`wf.add_reduction(id, sensitivity_from=..., param_reduction_options={'method': 'pca', ...})`.
+
+#### From the command line
+
+The written file is an ordinary workflow: CUFLynx opens it, `pack_workflow` carries its data
+and functions file, and the command runs it. The command's default output directory is
+`workflow_output/<name>` beside the workflow file, which is the builder's `wf.output_dir`, so
+the command continues the same run from any directory:
+
+```
+cuflynx-calibration-workflow wf_python/calibration_workflow.json --stale-only
+```
+
+`--stale-only` runs what `wf.run()` would; without it the command runs every step, and
+`--only` and `--from-step` are as in Python.
+
 ### The file
 
 ```json
@@ -1402,7 +1625,7 @@ of calibrations and `set` steps are merged into the target.
 |---|---|---|---|
 | `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `emulator_from`, `params_for_id_from` |
 | `sensitivity` | Sobol or local sensitivity analysis | `sa_options` in its settings | `fixed_from`, `emulator_from`, `result_from` |
-| `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `reduction`; no model or files | |
+| `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `param_reduction_options` in its settings; no model or files | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
 | `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
 | `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
@@ -1556,7 +1779,7 @@ prior.
 ### Outputs
 
 ```
-<output_dir>/                         --output-dir; default ./workflow_output/<workflow_name>
+<output_dir>/                         --output-dir; default workflow_output/<workflow_name> beside the workflow file
     calibration_workflow.json         the workflow as run
     workflow_result.json              order, provenance (input hashes, times, commits, libCellML version), merged parameters
     provenance_graph.json             how every value was set, for reports and CUFLynx (below)
@@ -1570,6 +1793,7 @@ prior.
     <step_id>/<step_id>_laplace_*.npy an identifiability step's Laplace mean and covariance (also in step_result.json)
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
+    models/<view>/                    a model generated for viewing (WorkflowBuilder.model); no step is named models
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
     inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```
@@ -1592,7 +1816,9 @@ false` in the settings packs nothing and names the inputs where they are.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere
-and gives the same results. It holds each step's files under `inputs/<step_id>/`, the module
+and gives the same results. `--pack DIR --overwrite` (`pack_workflow(..., overwrite=True)`)
+replaces an earlier pack in `DIR`; a directory holding anything a pack does not write is
+refused. It holds each step's files under `inputs/<step_id>/`, the module
 versions the workflow uses under `modules/` (built-in modules come with libcuflynx), and the
 files its settings name under `settings/`. Paths in `settings` (`external_modules_dir`,
 `*_funcs_external_path`) are relative to the workflow file, like its other paths.

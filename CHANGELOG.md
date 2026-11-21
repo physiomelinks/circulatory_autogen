@@ -5,6 +5,78 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — building a calibration workflow in Python (`WorkflowBuilder`)
+
+- `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
+  API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+  `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
+  schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
+  `set_value` and `scale_value`; then `check`, `write`, `plan`, `run(only=, from_step=, force=,
+  ranks=)`, `status`, `result`, `model`, `step_dir` and `plot_step`. Each step, and the
+  workflow's settings, are checked against the schema when they are given. obs_data and
+  params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
+  written as files under `data/` beside the workflow. The result is an ordinary workflow file
+  that the command line and CUFLynx run and `pack_workflow` packs.
+  A run's first line names the steps it runs and those it keeps (done and current), or says
+  that nothing is left to run and how to run every step again (`wf.run(force=True)`).
+  See "Building a workflow in Python" in the parameter-identification docs, and the
+  "Calibration workflows" page of the API reference.
+- `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
+  the rest, printing a line for each step kept, so a script or notebook can be run again;
+  `force=True` runs every step. `check()` (and `plan()`, `run()`) names what a run still
+  needs: a module library when a model names library modules, and the `optimiser_options` the
+  calibration method requires. `result(id)` returns what a step recorded.
+- `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
+  script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
+  remove and list them. The file's header records a checksum of what was generated: a builder
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand,
+  written by something else, or (when writing) holding functions it does not have (another
+  writer added them), until `add_operation(f, overwrite=True)` or
+  `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
+  refuses to rewrite a file whose other top-level statements (a constant, a class) it would
+  drop.
+- `cuflynx-calibration-workflow --stale-only` and `run_calibration_workflow(stale_only=True)`
+  run only the steps that have not run or are stale. Their defaults are unchanged: every step
+  runs.
+- A step can no longer be named `models`, `target`, `_target` or `inputs`, names the run's
+  output directory uses itself (the schema refuses them). `WorkflowBuilder.model` generates
+  under the run's `models/` folder.
+- The genetic algorithm without `optimiser_options.num_calls_to_function` says so, instead of
+  a `KeyError`. The messages for a result a step needs name the Python call
+  (`wf.run(from_step=...)`) beside the command-line option, and a step left out of an `--only`
+  run that never ran is reported as "not run", not as reusing its earlier result.
+- `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
+  to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, checksum line,
+  extra imports, the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one
+  `def` per function): `funcs_file_source`, `write_funcs_file`, `read_funcs_file`,
+  `is_unedited` and `unkept_statements`, for `add_operation` and for CUFLynx's "Custom funcs"
+  dialog. The checksum line is a comment (`# libcuflynx-generated sha256: ...`).
+- A workflow step's recorded inputs include the user function files it runs with
+  (`operation_funcs_external_path`, `cost_funcs_external_path`,
+  `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
+  before this are not made stale by it.
+- **Run output.** `wf.run()` prints the `[workflow]` lines only. A step's full output goes to
+  `<output_dir>/<step>/log.txt`, the rest to `<output_dir>/workflow_log.txt`;
+  `run(verbose=True)` prints everything as well.
+- **Paths.** `wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir()` and the
+  files in `wf.result()`, `wf.model()` and `wf.plot_step()` are `pathlib.Path`.
+- `add_reduction` takes the reduction's options as `param_reduction_options={...}`.
+- `wf.show_status()` and `wf.show_plan()` print `status()` and `plan()` as tables.
+- `wf.clean()` lists the files the builder wrote that no workflow in the directory uses any
+  more; `wf.clean(delete=True)` moves them to `data/removed/` and deletes nothing.
+- `wf.plot_step(id, formats=('png',))` saves the figures in the formats asked for.
+
+### Changed — a workflow run with no output directory goes beside the workflow file
+
+- `cuflynx-calibration-workflow <file>` and `run_calibration_workflow(<file>)` without an
+  output directory run into `workflow_output/<workflow_name>` in the workflow file's
+  directory, where they used the working directory. It is the builder's `wf.output_dir`, so the
+  command and the builder continue one run. A workflow given as a dict still uses the working
+  directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
+- `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
+  directory holding anything a pack does not write is still refused.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
