@@ -113,9 +113,21 @@ def get_size(obj, seen=None):
         size += sum([get_size(i, seen) for i in obj])
     return size
 
+_UNIT_REGISTRY = None
+
+
+def unit_registry():
+    """The process's pint UnitRegistry, built on first use (building one takes about a
+    second). Shared: do not define units on it."""
+    global _UNIT_REGISTRY
+    if _UNIT_REGISTRY is None:
+        _UNIT_REGISTRY = pint.UnitRegistry()
+    return _UNIT_REGISTRY
+
+
 class UnitConverter:
     def __init__(self):
-        self.ureg = pint.UnitRegistry()
+        self.ureg = unit_registry()
         self.abbreviations = {
             'cm': 'centimeter',
             'mm': 'millimeter',

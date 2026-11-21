@@ -64,6 +64,15 @@ Found by installing libcuflynx as a new user and following the tutorial from an 
   workflows need a newer libcuflynx than PyPI's 0.7.3, and the removed
   `run_param_id_without_autogen.sh`.
 
+### Changed — a workflow tab's model is generated faster
+
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
 ### Fixed — a Sobol analysis runs on casadi_python models
 
 - A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute

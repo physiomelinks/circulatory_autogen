@@ -2356,6 +2356,7 @@ KNOWN_USER_INPUTS_KEYS = frozenset({
     'plot_predictions', 'pre_time', 'resources_dir', 'sa_options', 'sample_type', 'sim_time',
     'solver', 'solver_1d_type', 'solver_info', 'study_name', 'uncalibrated_model_path',
     'use_builtin_modules', 'use_emulator', 'user_inputs_path', 'user_inputs_path_override',
+    'validate_generated_model',
     'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
     'write_cuflynx_study',
 })
