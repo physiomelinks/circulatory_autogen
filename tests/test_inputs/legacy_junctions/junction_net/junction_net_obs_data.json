@@ -1,0 +1,69 @@
+{
+ "protocol_info": {
+  "pre_times": [
+   0.0
+  ],
+  "sim_times": [
+   [
+    1.0
+   ]
+  ],
+  "params_to_change": {
+   "inflow/v_1": [
+    [
+     4e-06
+    ]
+   ]
+  }
+ },
+ "data_items": [
+  {
+   "data_item_name": "flow into s1",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "J/v_out_1"
+   ],
+   "unit": "m3_per_s",
+   "weight": 1.0,
+   "value": 4e-06,
+   "std": 1e-07
+  },
+  {
+   "data_item_name": "flow into M",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "M/v_in_sum"
+   ],
+   "unit": "m3_per_s",
+   "weight": 1.0,
+   "value": 6e-06,
+   "std": 1e-07
+  },
+  {
+   "data_item_name": "merged flow",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "F/v_out"
+   ],
+   "unit": "m3_per_s",
+   "weight": 1.0,
+   "value": 3e-06,
+   "std": 1e-07
+  },
+  {
+   "data_item_name": "pressure at J",
+   "data_type": "constant",
+   "operation": "mean",
+   "operands": [
+    "J/u"
+   ],
+   "unit": "J_per_m3",
+   "weight": 1.0,
+   "value": 10000.0,
+   "std": 100.0
+  }
+ ]
+}

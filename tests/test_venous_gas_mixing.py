@@ -219,6 +219,11 @@ def _mixing_component_model(tmp_path):
         '<units name="m3_per_s"><unit exponent="3" units="metre"/>'
         '<unit exponent="-1" units="second"/></units>\n' + component + '\n</model>\n')
     model = myokit.formats.cellml.CellMLImporter().model(str(path))
+    # Variable.eval() validates the model, and Myokit 1.41 refuses one with no time variable.
+    if model.time() is None:
+        time = model.add_component('environment').add_variable('time')
+        time.set_rhs(0)
+        time.set_binding('time')
     flow_unit = myokit.parse_unit('m^3/s')
 
     def mix(v, j_o2, j_co2):
