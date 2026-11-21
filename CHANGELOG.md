@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — the flattened-CellML cache in TMPDIR keeps at most 200 files
+
+- `CVODE_myokit` writes each model's flattened CellML to
+  `$TMPDIR/circulatory_autogen_flattened/`, one file per model path, and nothing removed
+  them: test runs and studies with many model paths filled TMPDIR. After each write only the
+  200 newest files are kept (`myokit_helper.FLATTENED_CELLML_CACHE_MAX_FILES`); a removed
+  model is flattened again when it is next run.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
