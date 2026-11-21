@@ -118,7 +118,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                     calibrated_cellml_path
                 )
                 inp_data_dict['model_path'] = calibrated_cellml_path
-                return
+                return True
         
         parser = CSV0DModelParser(inp_data_dict, parameter_id_dir=param_id_output_dir_abs_path)
     else:
@@ -177,7 +177,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                     model_1d_config_path = inp_data_dict['cpp_1d_model_config_path']
                 else:
                     print("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
-                    exit()
+                    return False
             if 'cpp_generated_models_dir' in inp_data_dict:
                 cpp_generated_models_dir = inp_data_dict['cpp_generated_models_dir']
             else:
@@ -282,12 +282,13 @@ def main(argv=None):
              'the defaults in the parameters CSV (default: False)')
     args = parser.parse_args(argv)
 
-    # Deliberately not `return 0 if success else 1`: generation has always exited 0 whether
-    # or not it succeeded (one branch returns None outright), and run_param_id.sh tests that
-    # status. Turning a False return into a non-zero exit here would silently change which
-    # runs continue past generation, which belongs in its own change.
-    generate_with_new_architecture(
+    # A failed generation (validation included) exits 1, so a launcher such as
+    # run_param_id.sh stops before calibrating a model that was not written.
+    success = generate_with_new_architecture(
         args.with_fit_parameters, _cli.load_user_inputs(args))
+    if not success:
+        print('Model generation failed: see the messages above.', file=sys.stderr)
+        return 1
     return 0
 
 
