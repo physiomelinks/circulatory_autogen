@@ -60,11 +60,11 @@ import os
 
 
 # Where flattened CellML goes. A flattened model is a pure function of its input file, so
-# it is written under one stable name per input and overwritten on each run. It used to be
-# a fresh ``NamedTemporaryFile(delete=False)`` per simulation -- nothing ever deleted them,
-# and a calibration run flattens once per helper, so /tmp accumulated one ~100 kB file per
-# simulation forever (7,655 of them, 719 MB, on one dev machine).
+# it is written under one stable name per input and overwritten on each run. Every model
+# path adds a file (~100 kB), so after each write only the newest
+# FLATTENED_CELLML_CACHE_MAX_FILES are kept.
 FLATTENED_CELLML_DIRNAME = 'circulatory_autogen_flattened'
+FLATTENED_CELLML_CACHE_MAX_FILES = 200
 
 
 def flattened_cellml_path(path):
@@ -109,6 +109,46 @@ def write_flattened_cellml(prepared_path, model_string):
         except OSError:
             pass
         raise
+    prune_flattened_cellml_cache(os.path.dirname(prepared_path), keep=prepared_path)
+
+
+def prune_flattened_cellml_cache(cache_dir, max_files=None, keep=None):
+    """Remove the oldest ``*_flat.cellml`` files in *cache_dir* beyond *max_files*.
+
+    Oldest by modification time, as each run rewrites its model's file. *keep* (the file just
+    written) is never removed. Files another process removes or rewrites meanwhile are
+    skipped: a pruned model is flattened again the next time it is run.
+    """
+    if max_files is None:
+        max_files = FLATTENED_CELLML_CACHE_MAX_FILES
+    entries = []
+    try:
+        names = os.listdir(cache_dir)
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith('_flat.cellml'):
+            continue
+        path = os.path.join(cache_dir, name)
+        try:
+            entries.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
+    if len(entries) <= max_files:
+        return
+    entries.sort()
+    keep = os.path.abspath(keep) if keep else None
+    excess = len(entries) - max_files
+    for _, path in entries:
+        if excess <= 0:
+            break
+        if os.path.abspath(path) == keep:
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        excess -= 1
 
 
 _MATHML_NS = '{http://www.w3.org/1998/Math/MathML}'
