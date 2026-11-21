@@ -87,10 +87,8 @@ def load_user_inputs(args):
     if not isinstance(inp_data_dict, dict):
         raise SystemExit(
             "user inputs file %s did not parse to a mapping of settings" % path)
-    from libcuflynx.parsers.PrimitiveParsers import warn_unknown_user_inputs_keys
-    from libcuflynx.utilities import mpi_utils
-    if mpi_utils.rank() == 0:
-        warn_unknown_user_inputs_keys(inp_data_dict, path)
+    from libcuflynx.parsers.PrimitiveParsers import refuse_unknown_user_inputs_keys
+    refuse_unknown_user_inputs_keys(inp_data_dict, path)
     return inp_data_dict
 
 

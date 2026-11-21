@@ -52,7 +52,7 @@ The following are the steps for model autogeneration.
 !!! Note
     You can refer to the section [Designing a new model](design-model.md) for more details on creating module_array and parameters files.
 
-2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.json`. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml` (default), `python`, or `cpp` depending on the output you want.
+2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.json`. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml` (default), `python`, or `cpp` depending on the output you want. In place of `file_prefix` and `resources_dir` you can name the module array file itself, `module_array_path: resources/[file_prefix]_module_array.json`, and in place of `input_param_file` a parameters file anywhere, `parameters_path: path/to/[file_prefix]_parameters.json`. A key libcuflynx does not read is refused, with the key you probably meant.
 
     ![user_inputs.yaml file](images/user-inputs.png)
 

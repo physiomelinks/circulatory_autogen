@@ -16,8 +16,9 @@ import yaml
 from libcuflynx.parsers import PrimitiveParsers
 from libcuflynx.parsers.PrimitiveParsers import (KNOWN_USER_INPUTS_KEYS, UserInputsError,
                                                 YamlFileParser, ObsAndParamDataParser,
-                                                unknown_user_inputs_keys,
-                                                warn_unknown_user_inputs_keys)
+                                                apply_user_inputs_path_aliases,
+                                                refuse_unknown_user_inputs_keys,
+                                                unknown_user_inputs_keys)
 from libcuflynx.scripts import _cli
 from libcuflynx.utilities import paths
 
@@ -150,14 +151,14 @@ def test_an_unknown_user_inputs_key_is_named_with_the_closest_key():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('key', ['module_array_path', 'parameters_path', 'model_pth',
+@pytest.mark.parametrize('key', ['module_array_pth', 'parameter_paths', 'model_pth',
                                  'param_id_output_dir_abs', 'vessels_csv_path'])
 def test_a_key_the_parser_derives_is_never_suggested(key):
     assert unknown_user_inputs_keys({key: 1})[key] not in PrimitiveParsers.DERIVED_USER_INPUTS_KEYS
 
 
 @pytest.mark.unit
-def test_a_key_the_parser_derives_does_not_warn():
+def test_a_key_the_parser_derives_is_not_refused():
     assert not unknown_user_inputs_keys(dict.fromkeys(PrimitiveParsers.DERIVED_USER_INPUTS_KEYS))
 
 
@@ -166,28 +167,60 @@ def test_a_key_the_parser_derives_does_not_warn():
                                  'sigma0', 'num_starts'])
 def test_an_optimiser_option_at_the_top_level_is_pointed_to_optimiser_options(key):
     assert unknown_user_inputs_keys({key: 100}) == {key: 'optimiser_options'}
-    with pytest.warns(UserWarning, match=f"'{key}'.*an optimiser option: put it under "
-                                         f"optimiser_options"):
-        warn_unknown_user_inputs_keys({key: 100}, 'user_inputs.yaml')
+    with pytest.raises(UserInputsError, match=f"'{key}'.*an optimiser option: put it under "
+                                              f"optimiser_options"):
+        refuse_unknown_user_inputs_keys({key: 100}, 'user_inputs.yaml')
 
 
 @pytest.mark.unit
-def test_a_user_inputs_file_with_a_mistyped_key_warns(tmp_path):
+def test_a_user_inputs_file_with_a_mistyped_key_is_refused(tmp_path):
     path = tmp_path / 'user_inputs.yaml'
-    path.write_text('file_prefix: 3compartment\nparam_id_methd: CMA-ES\n')
-    with pytest.warns(UserWarning, match="'param_id_methd'.*Did you mean 'param_id_method'"):
-        loaded = _cli.load_user_inputs(argparse.Namespace(user_inputs=str(path)))
-    assert loaded['param_id_methd'] == 'CMA-ES'
+    path.write_text('file_prefix: 3compartment\nparam_id_methd: CMA-ES\nsim_tme: 2\n')
+    with pytest.raises(UserInputsError) as exc:
+        _cli.load_user_inputs(argparse.Namespace(user_inputs=str(path)))
+    message = str(exc.value)
+    assert str(path) in message
+    assert "'param_id_methd'" in message and "Did you mean 'param_id_method'" in message
+    assert "'sim_tme'" in message and "Did you mean 'sim_time'" in message
 
 
 @pytest.mark.unit
-def test_the_default_user_inputs_file_with_a_mistyped_key_warns(tmp_path, monkeypatch):
+def test_the_default_user_inputs_file_with_a_mistyped_key_is_refused(tmp_path, monkeypatch):
     config = _study(tmp_path)
     config['sim_tme'] = config.pop('sim_time')
     (tmp_path / 'user_inputs.yaml').write_text(yaml.safe_dump(config))
     monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(tmp_path))
-    with pytest.warns(UserWarning, match="'sim_tme'.*Did you mean 'sim_time'"):
+    with pytest.raises(UserInputsError, match="'sim_tme'.*Did you mean 'sim_time'"):
         YamlFileParser().parse_user_inputs_file(None)
+
+
+@pytest.mark.unit
+def test_every_rank_refuses_an_unknown_key(tmp_path, monkeypatch):
+    """Every MPI rank reads the file, so every rank raises: one rank raising alone would leave
+    the others waiting for it."""
+    config = dict(_study(tmp_path), sim_tme=2)
+    (tmp_path / 'user_inputs.yaml').write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(tmp_path))
+    monkeypatch.setattr(PrimitiveParsers, 'rank', 1)
+    with pytest.raises(UserInputsError, match="'sim_tme'"):
+        YamlFileParser().parse_user_inputs_file(None)
+
+
+@pytest.mark.unit
+def test_the_keys_a_pipeline_bundle_or_cuflynx_export_writes_are_known():
+    assert not unknown_user_inputs_keys(dict.fromkeys(['model_file', 'do_simulation',
+                                                       'do_calibration']))
+
+
+@pytest.mark.unit
+def test_the_dated_archive_of_a_parsed_config_reads_back(tmp_path):
+    """The dated user_inputs_<yymmdd>.yaml holds the keys the parser sets as well as the user's:
+    reading it back must not be refused."""
+    with open(SHIPPED_YAML) as f:
+        config = dict(yaml.safe_load(f), user_inputs_path_override=False)
+    parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
+    archived = PrimitiveParsers.user_inputs_as_written(parsed)
+    refuse_unknown_user_inputs_keys(archived, 'user_inputs_archive.yaml')
 
 
 @pytest.mark.unit
@@ -202,9 +235,7 @@ def test_a_dict_built_in_code_is_not_checked_for_unknown_keys(tmp_path):
 def test_the_shipped_user_inputs_yaml_has_no_unknown_key():
     with open(SHIPPED_YAML) as f:
         text = f.read()
-    with warnings.catch_warnings():
-        warnings.simplefilter('error')
-        warn_unknown_user_inputs_keys(yaml.safe_load(text), SHIPPED_YAML)
+    refuse_unknown_user_inputs_keys(yaml.safe_load(text), SHIPPED_YAML)
     # the keys it offers commented out, at the top level
     commented = set(re.findall(r'^# ([A-Za-z_][A-Za-z0-9_]*):', text, re.M))
     assert commented and not unknown_user_inputs_keys(dict.fromkeys(commented - {'NOTE'}))
@@ -222,7 +253,7 @@ def test_every_user_inputs_key_the_code_reads_is_known():
     read -= set(PrimitiveParsers.REMOVED_USER_INPUTS_KEYS)
     assert len(read) > 50
     assert not read - KNOWN_USER_INPUTS_KEYS, (
-        'add these to KNOWN_USER_INPUTS_KEYS, or a user_inputs.yaml that sets them warns: '
+        'add these to KNOWN_USER_INPUTS_KEYS, or a user_inputs.yaml that sets them is refused: '
         f'{sorted(read - KNOWN_USER_INPUTS_KEYS)}')
 
 
@@ -230,6 +261,67 @@ def test_every_user_inputs_key_the_code_reads_is_known():
 def test_the_settings_a_calibration_workflow_takes_are_known_user_inputs_keys():
     from libcuflynx.calibration_workflow.spec import ALLOWED_SETTINGS
     assert not set(ALLOWED_SETTINGS) - KNOWN_USER_INPUTS_KEYS
+
+
+# ---- module_array_path and parameters_path ------------------------------------------------
+
+@pytest.mark.unit
+def test_module_array_path_sets_file_prefix_and_resources_dir(tmp_path, monkeypatch):
+    config = _study(tmp_path)
+    resources = config.pop('resources_dir')
+    del config['file_prefix']
+    config['module_array_path'] = os.path.join('resources', '3compartment_module_array.csv')
+    monkeypatch.chdir(tmp_path)
+    parsed = YamlFileParser().parse_user_inputs_file(config)
+    assert parsed['file_prefix'] == '3compartment'
+    assert os.path.samefile(parsed['resources_dir'], resources)
+    assert os.path.samefile(parsed['vessels_csv_abs_path'],
+                            os.path.join(resources, '3compartment_module_array.csv'))
+    assert 'module_array_path' not in parsed
+
+
+@pytest.mark.unit
+def test_parameters_path_sets_input_param_file(tmp_path, monkeypatch):
+    config = _study(tmp_path)
+    del config['input_param_file']
+    elsewhere = tmp_path / 'params'
+    elsewhere.mkdir()
+    shutil.copy(os.path.join(REPO, 'resources', '3compartment_parameters.json'), elsewhere)
+    config['parameters_path'] = os.path.join('params', '3compartment_parameters.json')
+    monkeypatch.chdir(tmp_path)
+    parsed = YamlFileParser().parse_user_inputs_file(config)
+    assert parsed['parameters_csv_abs_path'] == str(elsewhere / '3compartment_parameters.json')
+    assert 'parameters_path' not in parsed
+
+
+@pytest.mark.unit
+def test_the_aliases_in_a_user_inputs_file_are_not_refused(tmp_path):
+    path = tmp_path / 'user_inputs.yaml'
+    path.write_text('module_array_path: resources/3compartment_module_array.csv\n'
+                    'parameters_path: resources/3compartment_parameters.json\n')
+    _cli.load_user_inputs(argparse.Namespace(user_inputs=str(path)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('config, match', [
+    ({'module_array_path': 'resources/3compartment_module_array.csv', 'file_prefix': 'other'},
+     'file_prefix'),
+    ({'module_array_path': 'resources/3compartment_module_array.csv', 'resources_dir': 'other'},
+     'resources_dir'),
+    ({'parameters_path': 'p.json', 'input_param_file': 'q.json'}, 'input_param_file'),
+    ({'module_array_path': 'resources/3compartment.csv'}, '_module_array.json or .csv'),
+])
+def test_an_alias_that_disagrees_with_its_key_is_refused(config, match):
+    with pytest.raises(UserInputsError, match=match):
+        apply_user_inputs_path_aliases(dict(config))
+
+
+@pytest.mark.unit
+def test_an_alias_that_agrees_with_its_key_is_accepted():
+    config = {'module_array_path': 'resources/3compartment_module_array.csv',
+              'file_prefix': '3compartment', 'resources_dir': 'resources/'}
+    apply_user_inputs_path_aliases(config)
+    assert config == {'file_prefix': '3compartment', 'resources_dir': 'resources'}
 
 
 # ---- a configuration the parser refuses: an exception, not exit() -------------------------
