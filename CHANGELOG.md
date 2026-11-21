@@ -23,6 +23,21 @@ next release; add to that section as you land a change.
   given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
   raised inside nevergrad's ask/tell, is silenced.
 
+### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+
+- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
+  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
+  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
+  `plot_prediction_plots` and the PCA-Sobol report now call
+  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
+  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
+  render figures with Agg, with or without a display.
+- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
+  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
+  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
+  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
+  tutorial notebook reads the hybrid run's 0D results from there.
+
 ### Fixed — a Sobol analysis runs on casadi_python models
 
 - A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
@@ -609,20 +624,6 @@ number of vessels at a node (node sums #609, node rule D #617).
   directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
 - `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
   directory holding anything a pack does not write is still refused.
-
-### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
-
-- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
-  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
-  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
-  `plot_prediction_plots` and the PCA-Sobol report now call
-  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
-  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
-  render figures with Agg, with or without a display.
-- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
-  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
-  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
-  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it.
 
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
