@@ -113,12 +113,9 @@ def figure(picture, caption, label, natural_width_cm=None, max_width_cm=15.0):
 
 
 def _method_label(settings):
-    method = settings.get('param_id_method') or 'genetic_algorithm'
-    try:
-        from libcuflynx.parsers.PrimitiveParsers import PARAM_ID_METHODS
-        return PARAM_ID_METHODS.get(method, {}).get('label') or method
-    except ImportError:
-        return method
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    method = settings.get('param_id_method') or DEFAULT_PARAM_ID_METHOD
+    return PARAM_ID_METHODS.get(method, {}).get('label') or method
 
 
 def _count(n, word):

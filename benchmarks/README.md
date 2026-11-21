@@ -202,6 +202,15 @@ Extra options: `--scaling`, `--cores C1,C2,...`, `--from-cache`.
 AADC variants run only if AADC is installed **and** licensed; otherwise they are reported as
 skipped. (The licence check must precede `import mpi4py`, which `run_benchmarks.py` handles.)
 
+### To test: the genetic algorithm's population against the number of parameters
+
+The genetic algorithm's default population is 744 per generation whatever the number of
+calibrated parameters (`num_survivors` 48, `num_mutations_per_survivor` 12, `num_cross_breed`
+120). No benchmark here measures whether it should scale with that number. To decide, run each
+benchmark's genetic algorithm at several populations (for example survivors of 4n, 8n and 48 for
+n parameters, the other sizes in proportion) at equal evaluation budgets and seeds, and compare
+the final cost and parameter error. Until that is measured the default stays fixed.
+
 ## Publishing to the docs
 
 `--update-docs` rewrites the region between `<!-- BENCHMARK_RESULTS_START -->` and

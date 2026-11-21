@@ -202,7 +202,7 @@ def build_inp_data_dict(cfg, output_dir):
         "dt": float(cfg.get("dt", 0.01)),
         "sim_time": float(cfg.get("sim_time", 2.0)),
         "pre_time": float(cfg.get("pre_time", 0.0)),
-        "param_id_method": cfg.get("param_id_method", "genetic_algorithm"),
+        "param_id_method": cfg.get("param_id_method", "CMA-ES"),
         "do_ad": bool(cfg.get("do_ad", False)),
         "optimiser_options": dict(cfg.get("optimiser_options", {})),
         "UQ_options": dict(cfg.get("UQ_options") or {}),

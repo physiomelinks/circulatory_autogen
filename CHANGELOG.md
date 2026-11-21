@@ -5,6 +5,16 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — CMA-ES is the default calibration method (changes results)
+
+- A calibration whose user_inputs name no `param_id_method` runs CMA-ES; it ran the genetic
+  algorithm, whose population of 744 per generation needs a budget of at least that many
+  evaluations. Set `param_id_method: genetic_algorithm` to keep the old behaviour. The output
+  directory name follows the method (`CMA-ES_<prefix>_<obs>`). A front end reads the default
+  from `SOLVER_SCHEMA['default_param_id_method']` (`DEFAULT_PARAM_ID_METHOD`).
+- The genetic algorithm's default population is unchanged. `benchmarks/README.md` notes the
+  test that would decide whether it should scale with the number of parameters.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit

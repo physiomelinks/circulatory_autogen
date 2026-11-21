@@ -898,8 +898,8 @@ Before doing calibration, a solver for the model needs to be chosen
 To run the parameter identification we need to set a few entries in the `[CA_dir]/user_run_files/user_inputs.yaml file`:
 
 - **param_id_method**: this defines the optimisation method we use. Currently supported methods are:
-    - **genetic_algorithm**: Genetic algorithm optimizer (default, well-tested)
-    - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (supports parallel execution)
+    - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (the default when `param_id_method` is not set; supports parallel execution)
+    - **genetic_algorithm**: Genetic algorithm optimizer (well-tested; its default population is 744 per generation, so it needs a budget of at least that many evaluations)
     - **bayesian**: Bayesian optimization using scikit-optimize (deprecated, untested)
     - **sp_minimize**: Gradient-based optimizer (L-BFGS-B, local only)
     - **multi_start_sp_minimize**: Multi-start L-BFGS-B — a gradient-based descent from many scattered starting points, so it exploits the gradient but still escapes local minima
