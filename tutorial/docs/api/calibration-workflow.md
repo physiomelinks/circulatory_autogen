@@ -12,6 +12,8 @@ plan and read a workflow file however it was written.
     options:
       members:
         - load
+        - directory
+        - path
         - name
         - target
         - module_library_dirs
@@ -39,12 +41,15 @@ plan and read a workflow file however it was written.
         - check
         - write
         - plan
+        - show_plan
         - run
         - status
+        - show_status
         - result
         - step_dir
         - plot_step
         - model
+        - clean
 
 ## What a step is made of
 

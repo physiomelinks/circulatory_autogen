@@ -34,6 +34,8 @@ INPUTS_DIR = 'inputs'
 MODULES_DIR = 'modules'
 SETTINGS_DIR = 'settings'
 TARGET_OWNER = '_target'
+#: what a pack writes at the top of its directory
+PACKED_NAMES = (WORKFLOW_FILE_NAME, INPUTS_DIR, MODULES_DIR, SETTINGS_DIR)
 
 
 def _ignore_hidden(directory, names):
@@ -159,9 +161,13 @@ def module_version_files(config_paths, library_dirs):
     return homes, packed_versions, files
 
 
-def pack_workflow(source, dest_dir, module_library_dirs=None):
+def pack_workflow(source, dest_dir, module_library_dirs=None, overwrite=False):
     '''Copy what the calibration workflow ``source`` (a calibration_workflow.json path) needs to
     run into ``dest_dir`` (see the module docstring), checking it first as a run would.
+
+    ``dest_dir`` is a new or empty directory. With ``overwrite=True`` it may also hold an
+    earlier pack, which is replaced: a directory holding anything a pack does not write
+    (PACKED_NAMES) is still refused, so nothing else is ever removed.
 
     Returns ``{'workflow': the packed workflow file, 'files': [every file written, relative to
     dest_dir], 'modules': [the module version directories packed, relative to dest_dir],
@@ -177,8 +183,20 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     if workflow.raw is None or workflow.path is None:
         raise ValueError('pack_workflow packs a workflow file; save the workflow first.')
     os.makedirs(dest_dir, exist_ok=True)
-    if os.listdir(dest_dir):
-        raise ValueError(f'{dest_dir} is not empty; pack into a new directory.')
+    held = sorted(os.listdir(dest_dir))
+    if held and not overwrite:
+        raise ValueError(f'{dest_dir} is not empty; pack into a new directory, or replace an '
+                         f'earlier pack with overwrite=True.')
+    other = [name for name in held if name not in PACKED_NAMES]
+    if other:
+        raise ValueError(f'{dest_dir} holds {other}, which a pack does not write, so it is not '
+                         f'replaced; pack into a new directory.')
+    for name in held:
+        path = os.path.join(dest_dir, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
     packer = _Packer(dest_dir)
     raw = copy.deepcopy(workflow.raw)
 

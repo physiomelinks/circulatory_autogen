@@ -116,7 +116,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-derive` | evaluate a `<name>_derivations.json` (parameters calculated from experimental data by a CellML model or a Python function) and check, or with `--write` update, the values cached in its parameters file |
 | `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
 | `cuflynx-provenance` | write a calibration workflow's provenance from its output directory: `provenance_graph.json` and an SVG diagram showing what set each value |
-| `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names`, `parameters` (a parameters CSV to nested JSON); and `supermodule-instances`, which writes a new supermodule instance's values into a model's parameters file (not a pipeline stage) |
+| `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names`, `parameters` (a parameters CSV to nested JSON), `junctions` (a model off the module library's removed junction module types); and `supermodule-instances`, which writes a new supermodule instance's values into a model's parameters file (not a pipeline stage) |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 

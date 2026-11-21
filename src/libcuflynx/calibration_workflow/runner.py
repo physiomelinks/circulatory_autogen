@@ -197,7 +197,11 @@ def _libcellml_version():
 
 
 def default_output_dir(workflow):
-    return os.path.join(os.getcwd(), 'workflow_output', workflow.name)
+    '''Where a run goes when it is given no output directory:
+    ``workflow_output/<workflow_name>`` beside the workflow file (the working directory for a
+    workflow given as a dict), which is ``WorkflowBuilder.output_dir``.'''
+    base = os.path.dirname(workflow.path) if workflow.path else os.getcwd()
+    return os.path.join(base, 'workflow_output', workflow.name)
 
 
 def _write_json(path, obj):
@@ -1280,7 +1284,8 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
     '''Run the calibration workflow ``source`` (a calibration_workflow.json path or its dict).
 
     Args:
-        output_dir: where the run goes (default ``./workflow_output/<workflow_name>``).
+        output_dir: where the run goes (default ``workflow_output/<workflow_name>`` beside
+            the workflow file; under the working directory for a workflow given as a dict).
         module_library_dirs: module libraries, added to the file's own.
         from_step: run this step and every step after it in the order; earlier steps' results
             are reused from ``output_dir`` (an error if missing, or if their obs_data,

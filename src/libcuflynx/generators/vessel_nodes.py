@@ -143,9 +143,9 @@ def check_vessel_nodes(module_df):
         if len(upstream) > 1 and len(downstream) > 1:
             raise ValueError(
                 f'{len(upstream)} outlets meet {len(downstream)} inlets at one node ({node}), so '
-                f'no single end can own it. Join them through a 2in2out_junction (vv), which has '
-                f'a port per connection, or add a lumped vessel (vv) that the upstream vessels '
-                f'merge into and the downstream ones split from. See issue #616.')
+                f'no single end can own it. Add a lumped vessel (vv) that the upstream vessels '
+                f'merge into and the downstream ones split from: its inlet and its outlet then '
+                f'each own a node. See issue #616.')
         lone = upstream[0] if len(upstream) == 1 else downstream[0]
         if is_compliant(rows[lone.module], lone):
             continue
