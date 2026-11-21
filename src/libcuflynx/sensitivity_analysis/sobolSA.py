@@ -166,13 +166,13 @@ class sobol_SA():
         self.dt = dt
 
         self.model_type = model_type
-        mode = "casadi" if self.model_type == "casadi_python" else "numpy"
-        # set up observables functions
+        # The features are computed from numeric traces (get_results), for every model type, so
+        # the operation funcs are the numpy ones; the casadi ones would return 1x1 matrices.
         self.sfp = scriptFunctionParser(
             operation_funcs_external_path=operation_funcs_external_path,
             cost_funcs_external_path=cost_funcs_external_path)
         self.modifier_funcs_external_path = modifier_funcs_external_path
-        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
+        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict("numpy")
 
         # Emulator mode (#333). `solver_info['solver']` still names the truth solver -- the one
         # the emulator was trained against -- so this is its own flag rather than a solver name.
