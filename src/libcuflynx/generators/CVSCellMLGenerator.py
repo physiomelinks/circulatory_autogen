@@ -256,6 +256,12 @@ class CVS0DCellMLGenerator(object):
         
 
         cellml_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
+        if not self.inp_data_dict.get('validate_generated_model', True):
+            # The caller compiles or runs the model itself (a view of a workflow step): the
+            # trial run below would compile it a second time. Unset parameters still fail.
+            print('Model generation has finished. Validation status: not run '
+                  '(validate_generated_model is false).')
+            return self.all_parameters_defined
         myokit_success, myokit_error = self._validate_with_myokit(cellml_path)
         if myokit_success:
             print('Model generation has been successful. Validation status: Myokit run succeeded.')
