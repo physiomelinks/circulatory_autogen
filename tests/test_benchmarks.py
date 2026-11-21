@@ -29,6 +29,24 @@ def test_registry_matches_benchmark_specs():
 
 
 @pytest.mark.unit
+def test_teusink_benchmark_runs_both_batched_solvers():
+    """The CI-run Teusink benchmark, and so the parallel-scaling study, calibrates on both batched
+    C solvers, each with solver_info its solver accepts, one thread per MPI rank and one shared
+    build folder."""
+    from benchmarks.benchmark_specs import TEUSINK_BATCHED_METHODS, teusink_batched_method_configs
+    from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA, validate_solver_info
+    configs = teusink_batched_method_configs('/models/teusink')
+    assert sorted(c['solver'] for c in configs.values()) == ['BE_batched_c', 'CVODES_batched_c']
+    assert set(configs) == set(TEUSINK_BATCHED_METHODS)
+    for method, config in configs.items():
+        assert config['solver'] in SOLVER_SCHEMA['solvers_by_model_type'][config['model_type']]
+        validate_solver_info(config['solver'], config['solver_info'])
+        assert config['solver_info']['threads'] == 1, method
+        assert config['solver_info']['build_dir'] == '/models/teusink/batched_c_build', method
+        assert config['param_id_method'] == 'multi_start_sp_minimize' and not config['do_ad']
+
+
+@pytest.mark.unit
 def test_benchmark_result_to_dict_roundtrips_rows():
     result = BenchmarkResult(
         name='b', title='B', description='d', env_note='e',
