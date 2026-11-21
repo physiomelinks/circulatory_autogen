@@ -24,6 +24,13 @@ next release; add to that section as you land a change.
 - `resources/3compartment_parameters.json`: `global/q_lv_init` is 1e-3 m3, inside the bounds
   [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
   calibrations started from its defaults, give different numbers.
+### Changed — `cuflynx-generate` exits 1 when generation fails
+
+- `cuflynx-generate` exits with status 1 when generation, or the trial run that validates the
+  generated model, fails; it exited 0 either way. `run_param_id.sh` (and the other launchers
+  that generate first) now stop before calibrating a model that was not written. A missing
+  `model_1d_config_path` for a coupled C++ model is a failure (it exited 0), and regenerating a
+  CellML 2.0 model with fitted parameters reports success.
 
 ### Changed — a workflow tab's model is generated faster
 
