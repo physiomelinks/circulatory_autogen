@@ -102,7 +102,6 @@ Each pipeline stage also has a console command, all configured from
 
 | Command | Stage |
 |---|---|
-| `cuflynx-init` | write a starter study into a directory: `user_run_files/user_inputs.yaml` and the 3compartment model's resources (takes a directory and `--force`, not the yaml) |
 | `cuflynx-generate` | generate a model from the CSV arrays |
 | `cuflynx-param-id` | generate + calibrate (`mpiexec -n N` for parallel) |
 | `cuflynx-sensitivity` | Sobol sensitivity analysis |
@@ -117,6 +116,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-derive` | evaluate a `<name>_derivations.json` (parameters calculated from experimental data by a CellML model or a Python function) and check, or with `--write` update, the values cached in its parameters file |
 | `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
 | `cuflynx-provenance` | write a calibration workflow's provenance from its output directory: `provenance_graph.json` and an SVG diagram showing what set each value |
+| `cuflynx-init` | write a starter study into a directory: `user_run_files/user_inputs.yaml` and the 3compartment model's resources (takes a directory and `--force`, not the yaml) |
 | `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names`, `parameters` (a parameters CSV to nested JSON), `junctions` (a model off the module library's removed junction module types); and `supermodule-instances`, which writes a new supermodule instance's values into a model's parameters file (not a pipeline stage) |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
