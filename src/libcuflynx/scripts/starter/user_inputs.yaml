@@ -1,0 +1,46 @@
+# Starter configuration written by cuflynx-init: the 3compartment model (a heart, an aorta and a
+# venous return) and a calibration of four of its parameters against the observables in
+# resources/3compartment_obs_data.json.
+#
+# Run from the directory that holds user_run_files/ and resources/ (or set CUFLYNX_USER_DIR to it):
+#   cuflynx-generate                 # writes generated_models/3compartment/
+#   mpiexec -n 2 cuflynx-param-id    # generates, then calibrates into param_id_output/
+#
+# Every setting is described in the tutorial: https://physiomelinks.github.io/circulatory_autogen/
+
+DEBUG: false
+# The model: resources/<file_prefix>_module_array.csv and resources/<input_param_file>.
+file_prefix: 3compartment
+input_param_file: 3compartment_parameters.json
+# cellml (default), python, casadi_python, aadc_python, cpp or external_python
+model_type: cellml
+
+# Simulation: pre_time is simulated to reach a steady state and not logged; sim_time is logged at
+# every dt (dt must be no larger than any dt in the obs_data file).
+pre_time: 20
+sim_time: 2
+dt: 0.01
+solver: CVODE_myokit
+solver_info:
+  MaximumStep: 0.0001
+
+# Calibration: the observables to fit, and the parameters to fit are in
+# resources/<file_prefix>_params_for_id.json.
+param_id_obs_path: resources/3compartment_obs_data.json
+# genetic_algorithm, CMA-ES, bayesian, sp_minimize or multi_start_sp_minimize
+param_id_method: genetic_algorithm
+do_ad: false
+optimiser_options:
+  num_calls_to_function: 2000
+  cost_convergence: 0.001
+  max_patience: 10
+  cost_type: gaussian_MLE
+# With DEBUG: true these replace optimiser_options, for a quick trial run.
+debug_optimiser_options:
+  num_calls_to_function: 30
+  cost_convergence: 0.001
+  cost_type: gaussian_MLE
+
+do_sensitivity: false
+do_uq: false
+do_ia: false

@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — `cuflynx-init` writes a starter study
+
+- `cuflynx-init [DIR]` writes `user_run_files/user_inputs.yaml` and the 3compartment model's
+  resources (module array, parameters, params_for_id, obs_data) into DIR (default the current
+  directory) and prints what to run next, so a `pip install libcuflynx` has a config to start
+  from. It overwrites nothing unless given `--force`.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit

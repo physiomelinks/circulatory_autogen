@@ -55,6 +55,18 @@ export CUFLYNX_USER_DIR=/path/to/my_study     # holds user_run_files/, resources
 cuflynx-generate False
 ```
 
+The package ships no `user_inputs.yaml` of its own. `cuflynx-init` writes a starter study to
+begin from: `user_run_files/user_inputs.yaml` and the 3compartment model's resources (module
+array, parameters, params_for_id and obs_data), then prints what to run next. It never
+overwrites a file unless given `--force`.
+
+```
+mkdir my_study && cd my_study
+cuflynx-init                    # or: cuflynx-init /path/to/my_study
+cuflynx-generate
+mpiexec -n 2 cuflynx-param-id
+```
+
 Nothing is ever written inside the installed package — that was issue #431. Individual
 directories can still be overridden per-run with `resources_dir`, `generated_models_dir`,
 `param_id_output_dir` and `external_modules_dir` in `user_inputs.yaml`; `CUFLYNX_USER_DIR`
