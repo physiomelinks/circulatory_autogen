@@ -408,7 +408,13 @@ def test_cuflynx_generate_with_a_missing_override_exits_1(tmp_path):
     (tmp_path / 'user_run_files').mkdir()
     (tmp_path / 'user_run_files' / 'user_inputs.yaml').write_text(
         yaml.safe_dump({'user_inputs_path_override': missing}))
-    env = dict(os.environ, **{paths.CUFLYNX_USER_DIR_ENV_VAR: str(tmp_path)})
+    # Under run_pytest.sh's mpiexec the child would inherit the launcher's variables and
+    # initialise MPI outside any job; and it must import this checkout, not an installed copy.
+    from libcuflynx.utilities.mpi_utils import LAUNCHER_ENV_VARS
+    env = {key: value for key, value in os.environ.items() if key not in LAUNCHER_ENV_VARS}
+    env[paths.CUFLYNX_USER_DIR_ENV_VAR] = str(tmp_path)
+    env['PYTHONPATH'] = os.path.dirname(SRC) + (os.pathsep + env['PYTHONPATH']
+                                                if env.get('PYTHONPATH') else '')
     result = subprocess.run(
         [sys.executable, '-m', 'libcuflynx.scripts.script_generate_with_new_architecture'],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
