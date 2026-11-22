@@ -491,3 +491,112 @@ def test_a_redundancy_whose_coefficients_vary_over_the_box_keeps_one_parameter(t
     kept = [r['parameter'] for r in PCASobolReduction().reduce(
         run, source, str(tmp_path / 'pca' / 'kept.json'))]
     assert 'm/c' in kept and len(kept) == 2 and len({'m/a', 'm/b'} & set(kept)) == 1
+
+
+# --------------------------------------------------------------------------------------------
+# which of several redundant parameters is kept: the one the Sobol indices rank highest
+# --------------------------------------------------------------------------------------------
+
+def _steep_outputs(x):
+    """A and B both move y1 and nothing else, so one of them is redundant. A's effect is
+    steep near the top of its range and small elsewhere; B's is linear. At most points B has
+    the larger local effect, and over the whole box A moves y1 twice as far (40 against 20
+    noise stds). C alone moves y2."""
+    a, b, c = (x - 1.0).T
+    return {'y1': (40.0 * a ** 4 + 20.0 * b, 1.0), 'y2': (5.0 * c, 1.0)}
+
+
+def _best_fit_cost(outputs_of, free, truth, nominal, bounds):
+    """The gaussian_MLE cost of the best fit of the parameters ``free`` (indices) to noiseless
+    data made at ``truth``, the others held at ``nominal``, from a grid of starts."""
+    from scipy.optimize import least_squares
+
+    def values(x):
+        return np.array([column[0] / std for column, std in outputs_of(x[None, :]).values()])
+
+    data = values(np.asarray(truth, dtype=float))
+
+    def residuals(theta):
+        x = np.array(nominal, dtype=float)
+        x[free] = theta
+        return values(x) - data
+
+    low, high = np.array(bounds, dtype=float)[free].T
+    costs = [least_squares(residuals, low + f * (high - low), bounds=(low, high)).cost
+             for f in (0.1, 0.5, 0.9)]
+    return min(costs) / len(data)
+
+
+@pytest.mark.unit
+def test_of_two_redundant_parameters_the_one_with_the_higher_sobol_index_is_kept(tmp_path):
+    """The local effects say which parameters are redundant; the Sobol indices, over the whole
+    box, say which of them matters most. A parameter kept for its larger local effect at the
+    median point can be the one that cannot reach the data."""
+    params = ['m/A', 'm/B', 'm/C']
+    run = _write_sobol_run(str(tmp_path / 'sa'), _steep_outputs, params=params,
+                           jacobian={'jacobian_points': 8, 'jacobian_scheme': 'central'})
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params)
+    kept = PCASobolReduction().reduce(run, source, str(tmp_path / 'pca' / 'kept.json'))
+    report = json.loads((tmp_path / 'pca' / 'param_reduction.json').read_text())
+
+    # the case is the one meant: B has the larger local effect, A the higher Sobol index
+    indices = pd.read_csv(tmp_path / 'sa' / 'all_outputs_n256_Sobol_indices.csv',
+                          index_col='Parameter')
+    assert report['effects']['m/B'] > report['effects']['m/A']
+    assert indices.loc['m/A', 'ST_y1'] > 2 * indices.loc['m/B', 'ST_y1']
+
+    assert {row['parameter'] for row in kept} == {'m/A', 'm/C'}
+    assert report['unexplained_effects']['m/B'] < 1.0
+
+    # In a calibration: data made where y1 is high is fitted by A and C, B at its nominal
+    # value, and is out of reach of B and C with A at its nominal value.
+    bounds, nominal, truth = [[1.0, 2.0]] * 3, [1.5, 1.5, 1.5], [1.95, 1.5, 1.3]
+    with_kept = _best_fit_cost(_steep_outputs, [0, 2], truth, nominal, bounds)
+    with_other = _best_fit_cost(_steep_outputs, [1, 2], truth, nominal, bounds)
+    assert with_kept < 1e-12
+    assert with_other > 1.0
+
+
+@pytest.mark.unit
+def test_a_redundant_parameter_is_not_kept_for_its_index_alone(tmp_path):
+    """The Sobol index orders the parameters that still add to the fit; it does not bring back
+    one whose effect the kept parameters explain."""
+    run = _write_sobol_run(str(tmp_path / 'sa'))
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'))
+    kept = PCASobolReduction(n_params=4).reduce(run, source, str(tmp_path / 'pca' / 'kept.json'))
+    names = [row['parameter'] for row in kept]
+    assert len(names) == 2 and 'm/C' in names and len({'m/A', 'm/B'} & set(names)) == 1
+    scores = [row['score'] for row in kept]
+    assert scores == sorted(scores, reverse=True)
+
+
+_THREE_COMPARTMENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_inputs',
+                                  'pca_reduction_3compartment')
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('n_params, expected', [
+    (None, ['aortic_root/C', 'global/q_lv_init']),
+    (3, ['aortic_root/C', 'global/q_lv_init']),
+    (1, ['aortic_root/C']),
+])
+def test_the_3compartment_sobol_run_keeps_the_parameters_its_indices_rank_highest(
+        tmp_path, n_params, expected):
+    """A saved Sobol run of the 3compartment model (64 samples; q_lv_init, aortic_root/C,
+    E_lv_A, E_lv_B against five features). Two modes are above the noise. q_lv_init and
+    E_lv_B both drive the first (ST 0.61 and 0.34) and are redundant in the two; their local
+    effects are within 3% (23.7 and 24.3), and the reduction kept E_lv_B for that."""
+    params = ['global/q_lv_init', 'aortic_root/C', 'global/E_lv_A', 'global/E_lv_B']
+    source = _params_for_id(str(tmp_path / 'params_for_id.json'), params)
+    kept = PCASobolReduction(n_params=n_params).reduce(
+        _THREE_COMPARTMENT, source, str(tmp_path / 'pca' / 'kept.json'))
+    assert [row['parameter'] for row in kept] == expected
+    report = json.loads((tmp_path / 'pca' / 'param_reduction.json').read_text())
+    assert report['n_informative_modes'] == 2
+    mode_indices = pd.read_csv(tmp_path / 'pca' / 'pca_mode_sobol_indices.csv',
+                               index_col='Parameter')
+    # each informative mode's highest-index parameter is kept
+    if n_params != 1:
+        for mode in (1, 2):
+            assert mode_indices[f'ST_mode_{mode}'].idxmax() in expected
+        assert report['unexplained_effects']['global/E_lv_B'] < 1e-9
