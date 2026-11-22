@@ -390,6 +390,22 @@ def test_coupled_fv1d_model_with_a_volume_sum_generates(user_inputs_dir, resourc
 
 
 @pytest.mark.integration
+def test_coupled_model_writes_outputs_next_to_the_generated_cpp(user_inputs_dir, resources_dir, tmp_path):
+    """Coupled to 1D, main0d's default output folder is simulation_outputs_cpp/ in the generated
+    C++ models directory, as for an uncoupled model, never a folder above it."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'aortic_bif_hybrid_V1', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir),
+                             cpp_1d_model_config_path=str(tmp_path / '1d' / 'run000' / 'input.ini'),
+                             pre_time=0.0, sim_time=1.1, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    assert generate_with_new_architecture(False, inp)
+    main = (cpp_dir / 'main0d.cpp').read_text()
+    assert f'std::string resFold = "{cpp_dir / "simulation_outputs_cpp"}/";' in main
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
     """End to end: generate aortic_bif_hybrid_V1 (CVODE), build main0d and the coupler with CMake,
@@ -406,7 +422,7 @@ def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
     assert generate_with_new_architecture(False, inp)
     _run_coupled(cpp_dir, tmp_path)
 
-    out0d = tmp_path / 'simulation_outputs_cpp' / 'aortic_bif_hybrid_V1'
+    out0d = cpp_dir / 'simulation_outputs_cpp'
     cv, v = _load_output(out0d / 'sol0D_variables.txt')
     assert v.shape[0] > 50 and np.all(np.isfinite(v))
     u_in = v[:, cv['terminal_1/u_in']]           # pressure received from the 1D solver [Pa]
@@ -630,7 +646,7 @@ def test_coupled_fv1d_model_stays_close_to_the_0d_model(user_inputs_dir, resourc
     t0d, zero_vals = _last_cycle(zero / 'out' / 'sol0D_states.txt', [n for n in names if n.endswith('/v')], t_start)
     _, zero_vars = _last_cycle(zero / 'out' / 'sol0D_variables.txt', [n for n in names if n.endswith('/u')], t_start)
     zero_vals.update(zero_vars)
-    out_hyb = hyb / 'simulation_outputs_cpp' / 'aortic_bif_hybrid'
+    out_hyb = cpp_dir / 'simulation_outputs_cpp'
     thy, hyb_vals = _last_cycle(out_hyb / 'sol0D_states.txt', [n for n in names if n.endswith('/v')], t_start)
     _, hyb_vars = _last_cycle(out_hyb / 'sol0D_variables.txt', [n for n in names if n.endswith('/u')], t_start)
     hyb_vals.update(hyb_vars)
