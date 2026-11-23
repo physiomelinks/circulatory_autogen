@@ -730,6 +730,19 @@ class CMAESOptimiser(Optimiser):
         # A sigma0 given is reported in run() and not applied.
         self.sigma0 = self.optimiser_options.get('sigma0')
     
+    def _search_box(self, x0):
+        """``(init, lower, upper)`` of the variables nevergrad searches.
+
+        With one parameter they hold a second variable in [0, 1] that the cost never reads. In
+        one dimension nevergrad's ``CMA`` runs its OnePlusOne search instead, which on a bounded
+        variable can keep proposing points on the bounds and stop far from the minimum; with two
+        variables it runs CMA. Candidates are cut back to the first ``num_params`` values.
+        """
+        lower, upper = np.asarray(self.param_mins, float), np.asarray(self.param_maxs, float)
+        if self.num_params != 1:
+            return x0, lower, upper
+        return np.append(x0, 0.5), np.append(lower, 0.0), np.append(upper, 1.0)
+
     def run(self):
         """Run the CMA-ES optimization."""
         comm = self.comm
@@ -806,11 +819,8 @@ class CMAESOptimiser(Optimiser):
         
         # Create parametrization with bounds
         # Nevergrad uses Array parametrization with bounds
-        parametrization = ng.p.Array(
-            init=x0,
-            lower=self.param_mins,
-            upper=self.param_maxs
-        )
+        init, lower, upper = self._search_box(x0)
+        parametrization = ng.p.Array(init=init, lower=lower, upper=upper)
         
         # Create CMA-ES optimizer
         if rank == 0:
@@ -859,7 +869,7 @@ class CMAESOptimiser(Optimiser):
                 # Convert to numpy array for broadcasting
                 num_candidates = len(candidates)
                 if num_candidates > 0:
-                    candidate_array = np.array([c.value for c in candidates])
+                    candidate_array = np.array([c.value[:self.num_params] for c in candidates])
                 else:
                     # Ensure all ranks receive zero candidates and exit cleanly
                     candidate_array = None
@@ -914,7 +924,7 @@ class CMAESOptimiser(Optimiser):
                     # Track best result
                     if cost < best_cost:
                         best_cost = cost
-                        best_params = candidate.value
+                        best_params = candidate.value[:self.num_params]
                         last_improve_iter = iteration
                         
                         # Save intermediate results
@@ -959,7 +969,7 @@ class CMAESOptimiser(Optimiser):
         if rank == 0:
             try:
                 recommendation = optimizer.provide_recommendation()
-                final_params = recommendation.value
+                final_params = recommendation.value[:self.num_params]
                 final_cost = self.param_id_obj.get_cost_from_params(final_params)
                 
                 # Use recommendation if it's better
