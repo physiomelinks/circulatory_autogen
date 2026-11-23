@@ -13,8 +13,8 @@ next release; add to that section as you land a change.
   the minimum in about a tenth of the seeds, and in a third when started on a bound. The
   optimiser now gives nevergrad a second, unused variable, so it runs CMA: none of 1,000 such
   runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
-  parameters are unchanged. The first point evaluated is no longer the start value, as for
-  several parameters.
+  parameters are unchanged. The start value is still the first point evaluated, so a search
+  started at a known optimum (a profile likelihood point) never returns a worse cost.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
