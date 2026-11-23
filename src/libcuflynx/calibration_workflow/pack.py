@@ -14,7 +14,9 @@ Layout of the packed directory::
                                   variable_mapping.csv if it has one
     modules/                      each module version the workflow uses, laid out as in its
                                   library, and every units file of that library
-                                  (modules/<n>/ for the n-th of several libraries)
+                                  (modules/<n>/ for the n-th of several libraries). A
+                                  version's test output is left out: its results/ and plots/
+                                  directories and its HTML report
     settings/                     the files and directories its settings name
                                   (external_modules_dir, *_funcs_external_path)
 
@@ -34,6 +36,10 @@ INPUTS_DIR = 'inputs'
 MODULES_DIR = 'modules'
 SETTINGS_DIR = 'settings'
 TARGET_OWNER = '_target'
+#: What a module library's tests write into a version directory: directories of this name and
+#: files of this suffix, directly in the version directory, are not part of the module.
+VERSION_OUTPUT_DIRS = ('results', 'plots')
+VERSION_OUTPUT_SUFFIXES = ('.html',)
 
 
 def _ignore_hidden(directory, names):
@@ -125,6 +131,21 @@ def _visible_files(directory):
     return found
 
 
+def _version_files(version_dir):
+    '''The files of a module version: its visible files without its test output
+    (``VERSION_OUTPUT_DIRS``, ``VERSION_OUTPUT_SUFFIXES``).'''
+    found = []
+    for path in _visible_files(version_dir):
+        relative = os.path.relpath(path, version_dir)
+        top = relative.split(os.sep)[0]
+        if top in VERSION_OUTPUT_DIRS and top != relative:
+            continue
+        if top == relative and relative.endswith(VERSION_OUTPUT_SUFFIXES):
+            continue
+        found.append(path)
+    return found
+
+
 def module_version_files(config_paths, library_dirs):
     '''The files that hold the module versions whose config files are ``config_paths``, laid
     out as their libraries ``library_dirs`` lay them out.
@@ -132,8 +153,8 @@ def module_version_files(config_paths, library_dirs):
     Returns ``(homes, versions, files)``: ``homes`` is where each library goes (``modules``,
     or ``modules/<n>`` for the n-th of several), ``versions`` the version directories, and
     ``files`` ``{path relative to the copy: source file}`` -- every file of each version
-    directory, and every units file of each library, since units are looked up across the
-    whole library. A config outside ``library_dirs`` (a built-in or external_modules_dir
+    directory but its test output (``_version_files``), and every units file of each library,
+    since units are looked up across the whole library. A config outside ``library_dirs`` (a built-in or external_modules_dir
     module) is left out. ``pack_workflow`` and the study manifest's ``inputs/system/``
     (``utilities/cuflynx_study.py``) both copy these files.
     '''
@@ -150,7 +171,7 @@ def module_version_files(config_paths, library_dirs):
         relative = os.path.join(homes[i], os.path.relpath(
             version_dir, os.path.realpath(libraries[i])))
         packed_versions.append(relative)
-        for path in _visible_files(version_dir):
+        for path in _version_files(version_dir):
             files[os.path.join(relative, os.path.relpath(path, version_dir))] = path
     for i, library in enumerate(libraries):
         for path in _visible_files(library):
