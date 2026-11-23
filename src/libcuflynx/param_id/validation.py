@@ -66,6 +66,9 @@ def _item_result(name, operand, unit, data_type, value, std, obs_dt, t_sim, mode
     t_sim = np.asarray(t_sim, dtype=float)
     t_sim = t_sim - t_sim[0]                 # from the start of the segment
     model = np.asarray(model, dtype=float).ravel()
+    if model.size == 1 and t_sim.size > 1:
+        # a variable constant in the model is recorded once: hold it over the segment
+        model = np.full(t_sim.size, model[0])
     if feature is not None:
         # a scalar feature: operation(operands) over the run, compared with the constant
         t_obs = np.array([t_sim[-1]])

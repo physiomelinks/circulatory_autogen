@@ -816,7 +816,7 @@ def test_a_sweep_point_runs_as_fast_as_a_calibration_evaluation(tmp_path):
     one_evaluation = time.perf_counter() - start
 
     start = time.perf_counter()
-    _, _, features = runner(['mod/k'], [0.001])
+    _, _, features, _ = runner(['mod/k'], [0.001])
     one_point = time.perf_counter() - start
     np.testing.assert_allclose(features['x_max'], np.exp(-5.0), rtol=1e-5)
     assert one_point < 10 * one_evaluation + 0.5, (one_point, one_evaluation)

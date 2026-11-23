@@ -39,7 +39,7 @@ A new input kind is one :func:`input_kind` entry here; the workflow schema's lis
 generated from it (``python -m libcuflynx.schemas.registries --write``).
 
 libcuflynx ships a script of standard figures (``standard_figures.py``: sweep traces and
-features, an obs_data's prediction_plots, Sobol indices, a calibration's progress, posteriors, a
+features, an obs_data's prediction_plots, the validation against held-out data, Sobol indices, a calibration's progress, posteriors, a
 Laplace approximation).
 :func:`write_standard_figures` copies it beside a workflow, where a figure step names it like any
 other script, so it is hashed and packed with the workflow and a later libcuflynx does not change
@@ -132,13 +132,30 @@ def _load_sweep(run_dir, step_id, result):
     return loaded
 
 
+@input_kind('validation', ('sweep', 'simulate'),
+            'a one-point step\'s validation_results.json, as its JSON document: "items", per '
+            'prediction item that carries a value its data_item_name, operation, unit, '
+            'data_type, n_points, rmse, nrmse, mean_abs_z, within_2std, and t, data, std and '
+            'model at the observation times')
+def _load_validation(run_dir, step_id, result):
+    path = result.get('validation_results')
+    if not path:
+        raise WorkflowError(f'step "{step_id}" compared no prediction item with data: a step of '
+                            f'one point validates the prediction items of its obs_data that '
+                            f'carry a value.')
+    with open(_existing(path, 'validation results', step_id)) as f:
+        return json.load(f)
+
+
 @input_kind('values', ('calibration', 'set', 'combine'),
             'the values a step calibrated, set by hand or combined, '
-            '{"<vessel>/<parameter>": value}, named as the step names them (a combine step: '
-            'as the target names them)')
+            '{"<module>/<parameter>": value}, named as a params_for_id names them (a nested '
+            'module by its path, heart/lv/E; a global as global/R; a combine step: as the '
+            'target names them)')
 def _load_values(run_dir, step_id, result):
+    from libcuflynx.utilities.params_for_id_file import target_name
     records = result.get('calibrated', []) + result.get('set', [])
-    return {f'{record["vessel"]}/{record["param"]}': float(record['value'])
+    return {target_name(record['vessel'], record['param']): float(record['value'])
             for record in records}
 
 

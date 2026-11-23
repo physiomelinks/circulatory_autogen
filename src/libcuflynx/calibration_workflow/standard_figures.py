@@ -17,7 +17,9 @@ sweep_traces        every output over time, a line per point, per experiment swe
 sweep_features      each feature against the swept parameters                sweep: sweep
 prediction_plots    the obs_data's prediction_plots, from one simulation     simulation: sweep,
                                                                              obs_data: obs_data
-protocol_inputs     each params_to_change entry over time, per experiment    obs_data: obs_data
+validation          held-out prediction items against the model: scores,     validation:
+                    a parity plot of the scalars and a plot per series        validation
+protocol_inputs    each params_to_change entry over time, per experiment    obs_data: obs_data
 sobol_indices       S1 and ST per output, and a heatmap of ST                sensitivity:
                                                                              sensitivity
 local_sensitivity   a heatmap of a local analysis's relative sensitivities   sensitivity:
@@ -182,6 +184,70 @@ def prediction_plots(simulation, obs_data, out_dir):
 
 class _Scalar:
     series_to_constant = True
+
+
+#: the scores of validation_scores.csv, in order
+VALIDATION_SCORES = ('rmse', 'nrmse', 'mean_abs_z', 'within_2std')
+
+
+def validation(validation, out_dir):
+    '''The prediction items that carry a value against the model, from a simulate step's
+    validation: ``validation_scores.csv``, per item its n_points and VALIDATION_SCORES (empty
+    where an item has no std); ``validation_parity.png``, the scalar items' held-out data
+    (+- std) against the model with the y = x line; and ``validation_<item>.png`` per series
+    item, the data (+- std) and the model at the observation times, from the start of the
+    item's sub-experiment.'''
+    import csv
+    items = validation['items']
+    if not items:
+        raise ValueError('the validation holds no item: no prediction item carries a value.')
+    paths = [os.path.join(out_dir, 'validation_scores.csv')]
+    with open(paths[0], 'w', newline='') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(('item', 'operation', 'unit', 'n_points') + VALIDATION_SCORES)
+        for item in items:
+            writer.writerow([item['data_item_name'], item.get('operation') or '',
+                             item.get('unit') or '', item['n_points']] +
+                            ['' if item.get(score) is None else f'{item[score]:.6g}'
+                             for score in VALIDATION_SCORES])
+    plt = _pyplot()
+    scalars = [item for item in items if item['data_type'] != 'series']
+    if scalars:
+        model = np.array([item['model'][0] for item in scalars], dtype=float)
+        data = np.array([item['data'][0] for item in scalars], dtype=float)
+        std = np.array([(item['std'] or [0.0])[0] for item in scalars], dtype=float)
+        low = min(model.min(), (data - std).min())
+        high = max(model.max(), (data + std).max())
+        pad = 0.05 * (high - low or abs(high) or 1.0)
+        figure, ax = plt.subplots(figsize=(4.2, 4.0))
+        ax.plot([low - pad, high + pad], [low - pad, high + pad], color='0.6', linestyle='--',
+                linewidth=1)
+        ax.errorbar(model, data, yerr=std, fmt='o', color=PALETTE[0], markersize=4, capsize=3)
+        for item, x, y in zip(scalars, model, data):
+            ax.annotate(item['data_item_name'], (x, y), xytext=(4, 4),
+                        textcoords='offset points', fontsize=6)
+        ax.set_xlim(low - pad, high + pad)
+        ax.set_ylim(low - pad, high + pad)
+        ax.set_xlabel('model', fontsize=8)
+        ax.set_ylabel('held-out data', fontsize=8)
+        ax.tick_params(labelsize=7)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, 'validation_parity.png'))
+    for item in (item for item in items if item['data_type'] == 'series'):
+        t = np.asarray(item['t'], dtype=float)
+        figure, ax = plt.subplots(figsize=(5.0, 3.2))
+        ax.errorbar(t, item['data'], yerr=item['std'], fmt='o', color=PALETTE[0],
+                    markersize=3, capsize=2, label='held-out data')
+        ax.plot(t, item['model'], color=PALETTE[1], linewidth=1.5, label='model')
+        unit = f' [{item["unit"]}]' if item.get('unit') else ''
+        ax.set_title(item['data_item_name'], fontsize=9)
+        ax.set_xlabel('time from the sub-experiment start [s]', fontsize=8)
+        ax.set_ylabel((item.get('operand') or item['data_item_name']) + unit, fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.legend(fontsize=7)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, f'validation_{_stem(item["data_item_name"])}.png'))
+    return paths
 
 
 def protocol_inputs(obs_data, out_dir):
@@ -607,7 +673,8 @@ def laplace(laplace, out_dir):
     return [_save(figure, out_dir, 'laplace.png')]
 
 
-FIGURES = [sweep_traces, sweep_features, prediction_plots, protocol_inputs, sobol_indices,
+FIGURES = [sweep_traces, sweep_features, prediction_plots, validation, protocol_inputs,
+           sobol_indices,
            local_sensitivity, pca_modes, calibration_progress, mcmc_diagnostics,
            emulator_validation, posterior, laplace]
 

@@ -125,6 +125,16 @@ def _edit(library, edit):
 # --------------------------------------------------------------------------------------------
 
 @pytest.mark.unit
+def test_values_are_named_as_a_params_for_id_names_them():
+    load = figures.INPUT_KINDS['values'].load
+    result = {'calibrated': [{'vessel': 'heart__lv', 'param': 'E', 'value': 2.0}],
+              'set': [{'vessel': 'global', 'param': 'R', 'value': 3},
+                      {'vessel': 'aortic_root', 'param': 'C', 'value': 4.0}]}
+    assert load('run', 'fit', result) == {'heart/lv/E': 2.0, 'global/R': 3.0,
+                                          'aortic_root/C': 4.0}
+
+
+@pytest.mark.unit
 def test_a_figure_step_depends_on_the_steps_its_inputs_name(library):
     workflow = load_workflow(_with_figure(library))
     step = workflow.step('fig')

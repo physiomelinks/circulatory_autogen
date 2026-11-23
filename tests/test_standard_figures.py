@@ -373,6 +373,20 @@ def _features_obs(path, plots=None):
              'input': {'params_to_change': 'mod__C/q'}, 'output': 'mod__C/z'}]})
 
 
+#: held-out data on z (Y_A + q^2: q = 1 in experiment 0, 2 in experiment 1): two scalars, one
+#: 1.5 stds off, and a series 0.1 above the model at each of its points after the first
+_HELD_OUT = [
+    {'data_item_name': 'z_max_0', 'operands': ['mod__C/z'], 'unit': 'dimensionless',
+     'operation': 'max', 'data_type': 'constant', 'experiment_idx': 0,
+     'value': Y_A + 1.15, 'std': 0.1},
+    {'data_item_name': 'z_max_1', 'operands': ['mod__C/z'], 'unit': 'dimensionless',
+     'operation': 'max', 'data_type': 'constant', 'experiment_idx': 1,
+     'value': Y_A + 4.0, 'std': 0.1},
+    {'data_item_name': 'z_course', 'operands': ['mod__C/z'], 'unit': 'dimensionless',
+     'data_type': 'series', 'experiment_idx': 1, 'obs_dt': 0.25, 'std': 0.05,
+     'value': [Y_A + 4.0] + [Y_A + 4.1] * 4}]
+
+
 def _with_standard_figures(library):
     raw = _read_json(library['chain_rest'])
     rest = raw['steps'][1]
@@ -385,8 +399,15 @@ def _with_standard_figures(library):
         'prediction_items': [{'data_item_name': 'z_max', 'operands': ['mod__C/z'],
                               'unit': 'dimensionless', 'operation': 'max',
                               'data_type': 'constant'}]})
+    check_obs = _write_json(os.path.join(data, 'check_obs.json'), {
+        'protocol_info': {'pre_times': [0.0, 0.0], 'sim_times': [[1.0], [1.0]],
+                          'params_to_change': {'mod__C/q': [[1.0], [2.0]]}},
+        'data_items': [], 'prediction_items': _HELD_OUT})
     figures.write_standard_figures(os.path.join(here, 'figures'))
     raw['steps'] += [
+        {'id': 'check', 'kind': 'simulate', 'model': rest['model'], 'fixed_from': ['fit_a'],
+         'obs_data': check_obs, 'settings': {}, 'simulate': {'outputs': []}},
+        _figure_step('valid', 'validation', {'validation': ('validation', 'check')}),
         {'id': 'scan', 'kind': 'sweep', 'model': rest['model'], 'fixed_from': ['fit_a'],
          'obs_data': scan_obs, 'settings': {},
          'sweep': {'outputs': ['mod__C/z'], 'design': 'grid',
@@ -415,6 +436,7 @@ def finished(tmp_path_factory):
     ('traces', ['traces_exp_0.png']),
     ('features', ['z_max_vs_mod__C_k.png']),
     ('predictions', ['z_max_vs_q.png', 'q_and_z_exp_0.png', 'q_and_z_exp_1.png']),
+    ('valid', ['validation_scores.csv', 'validation_parity.png', 'validation_z_course.png']),
 ])
 def test_a_standard_figure_step_is_the_same_drawn_alone(finished, tmp_path, step_id, files):
     path, out = finished
@@ -437,6 +459,38 @@ def test_the_simulation_gives_the_features_drawn(finished):
     loaded = figures.load_inputs(out, {'run': {'kind': 'sweep', 'step': 'run'}})['run']
     np.testing.assert_allclose(loaded['feature_values'][0], [Y_A + 1.0, Y_A + 4.0], rtol=1e-6)
     assert loaded['manifest']['plot_groups'] == []
+
+
+@pytest.mark.integration
+def test_the_validation_input_scores_the_held_out_items(finished):
+    _, out = finished
+    items = {item['data_item_name']: item for item in figures.load_inputs(
+        out, {'v': {'kind': 'validation', 'step': 'check'}})['v']['items']}
+    assert sorted(items) == ['z_course', 'z_max_0', 'z_max_1']
+    np.testing.assert_allclose(items['z_max_0']['mean_abs_z'], 1.5, rtol=1e-4)
+    assert items['z_max_0']['within_2std'] == 1.0
+    np.testing.assert_allclose(items['z_max_1']['model'], [Y_A + 4.0], rtol=1e-6)
+    course = items['z_course']
+    np.testing.assert_allclose(course['t'], [0.0, 0.25, 0.5, 0.75, 1.0])
+    np.testing.assert_allclose(course['model'], [Y_A + 4.0] * 5, rtol=1e-6)
+    np.testing.assert_allclose(course['rmse'], 0.1 * np.sqrt(0.8), rtol=1e-4)
+    with open(os.path.join(out, 'valid', 'figure', 'validation_scores.csv')) as f:
+        assert f.readline().strip() == ('item,operation,unit,n_points,rmse,nrmse,mean_abs_z,'
+                                        'within_2std')
+
+
+@pytest.mark.integration
+def test_a_step_of_several_points_has_no_validation(finished):
+    _, out = finished
+    with pytest.raises(figures.WorkflowError, match='step "scan" compared no prediction item'):
+        figures.load_inputs(out, {'v': {'kind': 'validation', 'step': 'scan'}})
+
+
+@pytest.mark.unit
+def test_a_validation_without_items_says_so(tmp_path):
+    from libcuflynx.calibration_workflow import standard_figures
+    with pytest.raises(ValueError, match='no prediction item carries a value'):
+        standard_figures.validation({'items': []}, str(tmp_path))
 
 
 @pytest.mark.unit

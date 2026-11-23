@@ -34,6 +34,20 @@ def test_a_series_is_compared_at_its_observation_times(tmp_path):
 
 
 @pytest.mark.unit
+def test_a_series_of_a_variable_constant_in_the_model_is_held_over_the_segment():
+    """A solver records a variable that is constant in the model as one value."""
+    pred = _parsed([{"data_item_name": "z_course", "operands": ["main/z"], "unit": "mV",
+                     "data_type": "series", "value": [3.0, 3.1, 3.1], "std": 0.05,
+                     "obs_dt": 0.5}])["prediction_info"]
+    t = np.linspace(0.0, 1.0, 5)
+    (item,) = validation.validation_results(pred, None, [np.array([3.0])],
+                                            time_per_item=[t])["items"]
+    assert item["t"] == [0.0, 0.5, 1.0]
+    assert item["model"] == [3.0, 3.0, 3.0]
+    assert item["rmse"] == pytest.approx(0.1 * np.sqrt(2.0 / 3.0))
+
+
+@pytest.mark.unit
 def test_a_constant_is_compared_with_the_end_of_the_experiment():
     pred = _parsed([{"data_item_name": "v_end", "operands": ["main/v"], "unit": "m3",
                      "data_type": "constant", "value": 4.0, "std": 1.0}])["prediction_info"]

@@ -1310,6 +1310,7 @@
       "propertyNames": {
         "enum": [
           "sweep",
+          "validation",
           "values",
           "progress",
           "mcmc_chain",
