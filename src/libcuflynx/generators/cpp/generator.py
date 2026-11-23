@@ -126,6 +126,7 @@ class CVS0DCppGenerator(object):
       model0d.h/.cpp      the Model0d class: solver, output, external variables
       main0d.cpp          driver, standalone or launched by the 1D-0D coupler
       CMakeLists.txt      builds libmodel0d and main0d
+      simulation_outputs_cpp/   where main0d writes its results, unless cpp_output_dir is set
       <name>_coupler1d0d.json   (coupled to 1D) connection info read by the coupler and 1D solver
       coupler_config.json       (coupled to 1D) what the coupler launches and how, from the api
                                 block of the process the connections name (e.g. FV1D_solver)
@@ -603,10 +604,7 @@ class CVS0DCppGenerator(object):
     def _default_output_dir(self):
         if self.cpp_output_dir:
             return os.path.join(os.path.abspath(self.cpp_output_dir), '')
-        if self.couple_to_1d:
-            # where the previous generator (and the tutorial) put coupled 0D results
-            return os.path.join(os.path.abspath(os.path.join(self.cpp_generated_models_dir, '..', '..')),
-                                'simulation_outputs_cpp', self._model_name(), '')
+        # next to the generated C++ model, coupled to 1D or not
         return os.path.join(os.path.abspath(self.cpp_generated_models_dir), 'simulation_outputs_cpp', '')
 
     def _render_all(self, pipes, hooks, externals, delays, providers, n_conn, n_conn_tot, exchange=()):

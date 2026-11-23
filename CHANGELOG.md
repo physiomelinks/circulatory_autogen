@@ -11,6 +11,33 @@ next release; add to that section as you land a change.
   [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
   calibrations started from its defaults, give different numbers.
 
+### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+
+- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
+  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
+  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
+  `plot_prediction_plots` and the PCA-Sobol report now call
+  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
+  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
+  render figures with Agg, with or without a display.
+- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
+  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
+  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
+  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
+  tutorial notebook reads the hybrid run's 0D results from there.
+
+### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+
+- With `redundancy_check`, the reduction kept at each step the parameter with the largest
+  local effect not yet explained. Of two parameters that are redundant in the informative
+  modes it could so keep the one with the lower Sobol index, on a small difference in local
+  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
+  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
+  still at least `min_mode_std`, the one with the highest Sobol index over the informative
+  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
+  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
+  decided as before.
+
 ### Changed — a workflow tab's model is generated faster
 
 - `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
@@ -157,6 +184,7 @@ number of vessels at a node (node sums #609, node rule D #617).
   it suggests a lumped `vv` vessel between them.
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
