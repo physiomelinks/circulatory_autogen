@@ -23,6 +23,12 @@ next release; add to that section as you land a change.
   from a run directory with the same loaders (`python fig.py <run_dir> [--step ID] [--out-dir
   DIR]`, or `--input name=kind:step`). `figures.output_differences(dir_a, dir_b)` compares two
   sets of outputs: the same files, images pixel by pixel, other files byte for byte.
+- **Standard figures**: libcuflynx ships `standard_figures.py`, a figure script with
+  `sweep_traces`, `sweep_features`, `prediction_plots` (an obs_data's `prediction_plots` from a
+  simulate step), `sobol_indices`, `posterior` and `laplace`.
+  `figures.write_standard_figures(<dir>)` copies it beside a workflow, where figure steps name
+  its functions. A `sweep` input now also carries `manifest` (`sweep_manifest.json`), which
+  records the feature plots' point groups (`plot_groups`).
 - **A `simulate` step** runs a model once through its protocol: a sweep of no parameters, with
   the same files, `fixed_from`, `result_from` and `on_target`. `"simulate": {"outputs": [...]}`
   names the variables recorded over time.

@@ -26,7 +26,8 @@ Output (``<step_dir>/sweep/``)::
     sweep_results.npz     points (points, parameters), failed, parameters, outputs, features,
                           feature_values (points, features), and per experiment e
                           time_<e> and trace_<e> (points, outputs, times)
-    sweep_manifest.json   the design, each parameter's values, and what failed
+    sweep_manifest.json   the design, each parameter's values, the feature plots' point
+                          groups (plot_groups), and what failed
     <plot name>.png       the feature plots
 '''
 
@@ -243,9 +244,10 @@ def _results_arrays(names, points, outputs, by_point):
     return arrays
 
 
-def _plot_groups(sweep, names, points, nominal):
-    '''``[(x parameter index, series parameter index or None, point indices)]``, a figure's
-    points by the design: one parameter at a time, or a grid of at most two parameters.'''
+def plot_groups(sweep, names, points, nominal):
+    '''``[{"x": parameter, "series": parameter or None, "points": [point index, ...]}]``, a
+    feature figure's points by the design: one parameter at a time, or a grid of at most two
+    parameters. The manifest records them, so the figures can be drawn from the files alone.'''
     axes = axis_groups(sweep)
     if not names:
         return []
@@ -254,24 +256,29 @@ def _plot_groups(sweep, names, points, nominal):
         start = 0
         for group in axes:
             size = len(parameter_values(sweep['parameters'][group[0]], nominal[group[0]]))
-            groups.append((names.index(group[0]), None, list(range(start, start + size))))
+            groups.append({'x': group[0], 'series': None,
+                           'points': list(range(start, start + size))})
             start += size
         return groups
     if len(axes) > 2:
         return []
-    return [(names.index(axes[0][0]), names.index(axes[1][0]) if len(axes) == 2 else None,
-             list(range(len(points))))]
+    return [{'x': axes[0][0], 'series': axes[1][0] if len(axes) == 2 else None,
+             'points': list(range(len(points)))}]
 
 
-def plot_features(sweep, names, points, nominal, arrays, out_dir):
-    '''Draw each feature against the swept parameters as ``feature_vs_input`` plots; a failed
-    point has no mark. Returns the paths.'''
+def plot_features(groups, names, points, arrays, out_dir):
+    '''Draw each feature against the swept parameters as ``feature_vs_input`` plots, one per
+    feature and entry of ``groups`` (:func:`plot_groups`); a failed point has no mark. Returns
+    the paths.'''
     import pandas as pd
     from libcuflynx.param_id.prediction_plots import plot_prediction_plots
 
+    names = [str(name) for name in names]
     paths = []
-    for x_index, series_index, group in _plot_groups(sweep, names, points, nominal):
-        group = [i for i in group if not arrays['failed'][i]]
+    for entry in groups:
+        x_index = names.index(entry['x'])
+        series_index = None if entry['series'] is None else names.index(entry['series'])
+        group = [i for i in entry['points'] if not arrays['failed'][i]]
         if not group:
             continue
         protocol = {'sim_times': [[1.0]] * len(group),
@@ -323,9 +330,10 @@ def write_results(sweep, names, points, by_point, nominal, units, out_dir, where
     results_path = os.path.join(out_dir, RESULTS_FILE)
     np.savez(results_path, **arrays)
     features = [str(name) for name in arrays['features']]
-    plots = plot_features(sweep, names, points, nominal, arrays, out_dir) if features else []
+    groups = plot_groups(sweep, names, points, nominal)
+    plots = plot_features(groups, names, points, arrays, out_dir) if features else []
     manifest = {
-        'design': sweep['design'], 'zip': sweep.get('zip', []),
+        'design': sweep['design'], 'zip': sweep.get('zip', []), 'plot_groups': groups,
         'n_points': len(points), 'n_failed': len(errors),
         'parameters': [{'name': name, 'units': units.get(name, ''), 'nominal': nominal[name],
                         'values': sorted({float(v) for v in points[:, column]})}

@@ -37,6 +37,12 @@ under ``figures``.
 
 A new input kind is one :func:`input_kind` entry here; the workflow schema's list of kinds is
 generated from it (``python -m libcuflynx.schemas.registries --write``).
+
+libcuflynx ships a script of standard figures (``standard_figures.py``: sweep traces and
+features, an obs_data's prediction_plots, Sobol indices, posteriors, a Laplace approximation).
+:func:`write_standard_figures` copies it beside a workflow, where a figure step names it like any
+other script, so it is hashed and packed with the workflow and a later libcuflynx does not change
+a finished run's figures.
 '''
 
 import argparse
@@ -85,6 +91,24 @@ def input_kind(name, step_kinds, description):
     return register
 
 
+#: the file name of the script of standard figures libcuflynx ships
+STANDARD_FIGURES = 'standard_figures.py'
+
+
+def write_standard_figures(directory, overwrite=False):
+    '''Copy libcuflynx's script of standard figures into ``directory`` (made if missing); its
+    path. A figure step names one of its functions, e.g. ``"function":
+    "figures/standard_figures.py:sweep_traces"``. An existing copy is kept unless ``overwrite``:
+    replacing it makes every figure step that uses it out of date.'''
+    import shutil
+    path = os.path.join(directory, STANDARD_FIGURES)
+    if overwrite or not os.path.isfile(path):
+        os.makedirs(directory, exist_ok=True)
+        shutil.copyfile(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     STANDARD_FIGURES), path)
+    return path
+
+
 def _existing(path, what, step_id):
     if not path or not os.path.isfile(path):
         raise WorkflowError(f'step "{step_id}" has no {what} to read ({path}).')
@@ -93,13 +117,17 @@ def _existing(path, what, step_id):
 
 @input_kind('sweep', ('sweep', 'simulate'),
             'the arrays of sweep_results.npz, as a dict: points, failed, parameters, outputs, '
-            'features, feature_values, and time_<e> / trace_<e> per experiment')
+            'features, feature_values, and time_<e> / trace_<e> per experiment; and manifest, '
+            'sweep_manifest.json as its JSON document')
 def _load_sweep(run_dir, step_id, result):
-    from libcuflynx.calibration_workflow.sweep import RESULTS_FILE, SWEEP_DIR
-    path = _existing(os.path.join(run_dir, step_id, SWEEP_DIR, RESULTS_FILE), 'sweep results',
-                     step_id)
+    from libcuflynx.calibration_workflow.sweep import MANIFEST_FILE, RESULTS_FILE, SWEEP_DIR
+    directory = os.path.join(run_dir, step_id, SWEEP_DIR)
+    path = _existing(os.path.join(directory, RESULTS_FILE), 'sweep results', step_id)
     with np.load(path) as arrays:
-        return {name: arrays[name] for name in arrays.files}
+        loaded = {name: arrays[name] for name in arrays.files}
+    with open(_existing(os.path.join(directory, MANIFEST_FILE), 'sweep manifest', step_id)) as f:
+        loaded['manifest'] = json.load(f)
+    return loaded
 
 
 @input_kind('values', ('calibration', 'set'),
