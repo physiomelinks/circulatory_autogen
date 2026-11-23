@@ -21,6 +21,7 @@ next release; add to that section as you land a change.
   after the run, where the outputs CSV holds the filled values), and `sobol_convergence.json`
   (S1 and ST with confidence half-widths at num_samples / 8, / 4, / 2 and num_samples).
 - Docs: "Following a run: progress files" in `tutorial/docs/sensitivity-analysis.md`.
+
 ### Deprecated — the CMA-ES `sigma0` option
 
 - `sigma0` was never applied (nevergrad picks the initial step from the bounds). A CMA-ES run
@@ -65,17 +66,6 @@ next release; add to that section as you land a change.
   HTML report. These are local output, not part of the module, and were most of an archive's
   size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
   directory of those names deeper inside a version is still packed.
-
-### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
-
-- A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
-  bounds and stop far from the minimum of a smooth cost. In one dimension nevergrad's `CMA`
-  runs its OnePlusOne search, not CMA; on a stand-in cost it ended more than 1% of the box from
-  the minimum in about a tenth of the seeds, and in a third when started on a bound. The
-  optimiser now gives nevergrad a second, unused variable, so it runs CMA: none of 1,000 such
-  runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
-  parameters are unchanged. The first point evaluated is no longer the start value, as for
-  several parameters.
 
 ### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
 
