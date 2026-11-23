@@ -323,9 +323,16 @@ def test_a_profile_likelihood_has_a_phase_per_parameter(tmp_path, monkeypatch):
 
     def optimum(held):
         seen.append(read_progress(os.path.join(str(tmp_path), 'profile_likelihood')))
-        if held.idx == 2 and held.value < 5.0:
+        idx, value = held_entry(held)
+        if idx == 2 and value < 5.0:
             return [np.nan, np.nan]  # a failed point: its cost is not finite
-        return [held.value, held.value + 100.0]
+        return [value, value + 100.0]
+
+    def held_entry(held):
+        # the one held entry, whether the object holds one entry or a list of them
+        if hasattr(held, 'indices'):
+            return held.indices[0], held.values[0]
+        return held.idx, held.value
 
     monkeypatch.setattr(pid, 'make_optimiser', _FakeOptimiser(optimum=optimum), raising=False)
     profile = _profile_for(pid)
