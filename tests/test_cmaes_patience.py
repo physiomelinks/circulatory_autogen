@@ -41,7 +41,8 @@ def test_patience_counts_generations_of_the_population():
     opt = _run(lambda x: 1.0, {"num_calls_to_function": 600, "max_patience": 10, "seed": 1})
     popsize = max(4, opt.num_procs + 1)
     if opt.rank == 0:
-        assert opt.num_cost_evals == 10 * popsize
+        # the start value, then max_patience generations that never beat it
+        assert opt.num_cost_evals == 1 + 10 * popsize
 
 
 @pytest.mark.unit
@@ -62,3 +63,28 @@ def test_cmaes_reaches_the_optimum_of_a_badly_scaled_two_parameter_problem(seed)
                              "cost_convergence": 1e-6, "seed": seed})
     assert opt.best_cost < 1e-6
     assert np.allclose(opt.best_param_vals, TRUTH, rtol=2e-3)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_a_run_started_at_the_optimum_never_ends_worse(seed):
+    """CMA samples around its start without evaluating it, so a two-parameter run started at
+    the optimum (a warm start, a profile likelihood point) could end with a worse cost. The
+    start is evaluated first, as one of the budget, so the run ends exactly there."""
+    points = []
+
+    def cost(x):
+        points.append(np.array(x, dtype=float))
+        return _log_misfit(x)
+
+    param_id_obj = types.SimpleNamespace(param_init=TRUTH.copy(),
+                                         get_cost_from_params=lambda x: float(cost(np.asarray(x))))
+    info = {"param_names": [["R"], ["C"]], "param_mins": MINS, "param_maxs": MAXS}
+    opt = CMAESOptimiser(param_id_obj, info, None, 2, None,
+                         {"num_calls_to_function": 9, "seed": seed})
+    opt.run()
+    if opt.rank == 0:
+        np.testing.assert_array_equal(points[0], TRUTH)
+        assert opt.best_cost == 0.0
+        np.testing.assert_array_equal(opt.best_param_vals, TRUTH)
+        assert opt.num_cost_evals <= 9  # within the budget, the start included

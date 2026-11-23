@@ -921,6 +921,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - Note: 
         - The number of parallel workers is automatically determined from the number of MPI processes
         - Initial parameter values are automatically loaded from `{file_prefix}_parameters.json`
+        - The start value is evaluated first, as one of `num_calls_to_function`, so a run never ends with a worse cost than its start (a warm start or a profile likelihood point stays at least as good)
     
     sp_minimize specific options:
 
@@ -967,7 +968,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 - **Best for**: Smooth optimization landscapes, when you want faster convergence with parallel execution
 - **One parameter**: Nevergrad runs a different search (OnePlusOne) in one dimension, which can stall on a
   parameter's bounds, so a one-parameter calibration searches a second, unused variable beside it and runs
-  CMA-ES (`benchmarks/cmaes_one_parameter.py`). The start value is the first point evaluated. For a single parameter of a smooth cost, `sp_minimize` is
+  CMA-ES (`benchmarks/cmaes_one_parameter.py`). For a single parameter of a smooth cost, `sp_minimize` is
   usually faster.
 
 Example configuration for CMA-ES:

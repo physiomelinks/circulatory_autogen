@@ -5,6 +5,16 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — every CMA-ES run evaluates its start value first (changes results)
+
+- A CMA-ES run with two or more parameters sampled around its start value without evaluating
+  it, so a run started at a known optimum (a warm start, a profile likelihood point with several
+  free parameters) could end with a worse cost than its start. Every CMA-ES run now evaluates
+  the start first, as one of `num_calls_to_function`, as one-parameter runs already did; the
+  result is never worse than the start. CMA-ES results change slightly: one fewer CMA
+  candidate fits in the budget, and a run whose candidates never beat the start stops one
+  evaluation later.
+
 ### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
 
 - A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
