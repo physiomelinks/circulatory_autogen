@@ -248,11 +248,15 @@ class PCASobolReduction(ParamReduction):
        largest index over the informative modes is at least ``min_index``. A candidate's effect
        is its local derivative of the informative mode scores, scaled to its prior range and in
        noise stds, at each of the Sobol run's Jacobian points (sobolSA.run_local_jacobian:
-       forward differences at the first ``jacobian_points`` Saltelli base points). Greedily
-       keep the candidate whose effect not explained by the kept parameters at the same point
-       has the largest root mean square over the points (pivoted Gram-Schmidt at each point,
-       choose_independent), and stop when that is below ``min_mode_std``: what it would add
-       to the fit is inside the noise. Two parameters that move the data the same way at every
+       forward differences at the first ``jacobian_points`` Saltelli base points). A candidate
+       still adds to the fit while its effect not explained by the kept parameters at the same
+       point, summarised over the points, is at least ``min_mode_std``. Greedily keep, of the
+       candidates that still add, the one with the highest Sobol index over the informative
+       modes (weighted by their variance), and remove its direction at each point (Gram-Schmidt
+       at each point, choose_independent); stop when none adds: what it would add to the fit
+       is inside the noise. So the local effects decide which parameters are redundant, and
+       the Sobol indices, which cover the whole prior box, decide which of them is kept. Two
+       parameters that move the data the same way at every
        point (a product, a ratio, a sum, a scaling symmetry) leave nothing at any point, so
        only one is kept, however many modes they drive; one whose slope is flat at one point
        but not at others is still seen.
@@ -410,10 +414,13 @@ class PCASobolReduction(ParamReduction):
         """``(selected, unexplained)``: greedy pivoted Gram-Schmidt, done at each point
         separately and chosen jointly. ``by_point`` is points x parameters x informative modes:
         each parameter's effect over its prior range, in noise stds, at each Jacobian point.
-        Keep the candidate whose effect not explained by the kept parameters, at the same
-        point, has the largest ``redundancy_statistic`` (root mean square or median) over the
-        points; remove its direction at each
-        point; stop when that is below ``min_mode_std`` or after ``n_params``. Explaining point
+        A candidate still adds to the fit while its effect not explained by the kept
+        parameters, at the same point, has a ``redundancy_statistic`` (root mean square or
+        median) over the points of at least ``min_mode_std``. Of those, keep the one with the
+        highest ``weighted`` (its Sobol index over the informative modes, weighted by their
+        variance): the Sobol indices, over the whole prior box, say which parameter matters
+        most, and the local effects only which are redundant. Remove its direction at each
+        point; stop when no candidate still adds, or after ``n_params``. Explaining point
         by point lets the combination of kept parameters that reproduces a redundant one vary
         across the box, as it does for a scaling symmetry. ``unexplained`` is each parameter's
         effect left (the same statistic) once the kept ones are accounted for."""
@@ -422,9 +429,10 @@ class PCASobolReduction(ParamReduction):
         total = self.over_points(by_point)
         while free and (self.n_params is None or len(selected) < self.n_params):
             left = self.over_points(residual)
-            best = max(free, key=lambda i: left[i])
-            if left[best] < self.min_mode_std:
+            adding = [i for i in free if left[i] >= self.min_mode_std]
+            if not adding:
                 break
+            best = max(adding, key=lambda i: (weighted[i], left[i]))
             for point in residual:
                 length = np.linalg.norm(point[best])
                 if length > 0:
@@ -564,8 +572,8 @@ class PCASobolReduction(ParamReduction):
             table[f'ST_mode_{k + 1}'] = ST[k]
         table.to_csv(os.path.join(report_dir, PCA_MODE_INDICES_FILE), index=False)
         try:
-            import matplotlib
-            matplotlib.use('Agg')
+            from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+            use_agg_unless_interactive()
             import matplotlib.pyplot as plt
             fig, ax = plt.subplots(figsize=(1.2 + 0.9 * len(params), 1.2 + 0.5 * len(variances)))
             image = ax.imshow(ST, vmin=0, vmax=1, cmap='viridis', aspect='auto')
