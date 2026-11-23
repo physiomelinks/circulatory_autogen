@@ -28,6 +28,17 @@ next release; add to that section as you land a change.
   `'deprecated': True` so a front end can hide it. It will be removed in the next release:
   remove it from `optimiser_options`.
 
+### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
+
+- A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
+  bounds and stop far from the minimum of a smooth cost. In one dimension nevergrad's `CMA`
+  runs its OnePlusOne search, not CMA; on a stand-in cost it ended more than 1% of the box from
+  the minimum in about a tenth of the seeds, and in a third when started on a bound. The
+  optimiser now gives nevergrad a second, unused variable, so it runs CMA: none of 1,000 such
+  runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
+  parameters are unchanged. The start value is still the first point evaluated, so a search
+  started at a known optimum (a profile likelihood point) never returns a worse cost.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

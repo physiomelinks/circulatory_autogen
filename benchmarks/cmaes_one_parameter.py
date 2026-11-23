@@ -6,7 +6,8 @@ best point ends more than 1% of the box from the minimum, for:
 
   default   ng.p.Array(init, lower, upper): nevergrad's OnePlusOne
   arctan    set_bounds(method='arctan')
-  dummy     a second, unused variable in [0, 1], so nevergrad runs CMA: what
+  dummy     a second, unused variable in [0, 1], so nevergrad runs CMA, after the start
+            value is evaluated as the first of the budget: what
             libcuflynx.param_id.optimisers.CMAESOptimiser does for one parameter
   scalar    scipy.optimize.minimize_scalar(method='bounded'), same budget (deterministic)
 
@@ -50,8 +51,11 @@ def nevergrad_run(method, seed, x0, cost):
                        upper=np.array([HI, 1.0]))
     opt = ng.optimizers.CMA(parametrization=p, budget=BUDGET, num_workers=1)
     opt.parametrization.random_state = np.random.RandomState(seed)
-    best, at_bound = (np.inf, None), 0
-    for _ in range(BUDGET):
+    best, at_bound, budget = (np.inf, None), 0, BUDGET
+    if method == 'dummy':
+        # as CMAESOptimiser does: the start value is evaluated first, outside nevergrad
+        best, budget = (cost(x0), x0), BUDGET - 1
+    for _ in range(budget):
         c = opt.ask()
         x = float(c.value[0])
         f = cost(x)

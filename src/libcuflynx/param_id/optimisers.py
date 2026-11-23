@@ -744,7 +744,8 @@ class CMAESOptimiser(Optimiser):
         With one parameter they hold a second variable in [0, 1] that the cost never reads. In
         one dimension nevergrad's ``CMA`` runs its OnePlusOne search instead, which on a bounded
         variable can keep proposing points on the bounds and stop far from the minimum; with two
-        variables it runs CMA. Candidates are cut back to the first ``num_params`` values.
+        variables it runs CMA. Candidates are cut back to the first ``num_params`` values, and
+        run() evaluates the start value itself, first.
         """
         lower, upper = np.asarray(self.param_mins, float), np.asarray(self.param_maxs, float)
         if self.num_params != 1:
@@ -860,7 +861,16 @@ class CMAESOptimiser(Optimiser):
         iteration = 0
         last_improve_iter = 0
         max_patience = self.optimiser_options.get('max_patience', 10)
-        
+        if rank == 0 and self.num_params == 1:
+            # One parameter: the start value is evaluated first, as one of the budget, so a
+            # search started at a known optimum (a profile likelihood point) never returns a
+            # worse cost. It is not given to nevergrad: a point CMA did not ask for disturbs
+            # its step adaptation (benchmarks/cmaes_one_parameter.py).
+            best_cost = float(self.param_id_obj.get_cost_from_params(np.array(x0, dtype=float)))
+            best_params = np.array(x0, dtype=float)
+            self.best_cost, self.best_param_vals = best_cost, np.array(best_params)
+            iteration = 1
+
         # Main optimization loop
         while True:
             if rank == 0:

@@ -69,3 +69,17 @@ def test_only_a_one_parameter_search_gets_the_unused_variable():
                          optimiser_options={'num_calls_to_function': 4})
     init, lower, upper = one._search_box(np.array([LO]))
     assert list(init) == [LO, 0.5] and list(lower) == [LO, 0.0] and list(upper) == [HI, 1.0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('start', [TRUE, LO + 0.31 * WIDTH, LO],
+                         ids=['start at the minimum', 'start mid-box', 'start on a bound'])
+def test_a_one_parameter_search_evaluates_its_start_first_and_never_ends_worse(start):
+    """The start value is the first point evaluated, so the best cost is never above the
+    start's: a profile likelihood re-fit started at the best fit relies on it."""
+    for seed in range(10):
+        optimiser, cost = _calibrate(start, seed)
+        assert cost.points[0] == start
+        start_cost = _OneParameterCost(start).get_cost_from_params([start])
+        best = _OneParameterCost(start).get_cost_from_params(optimiser.best_param_vals)
+        assert best <= start_cost
