@@ -14,6 +14,24 @@ next release; add to that section as you land a change.
   size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
   directory of those names deeper inside a version is still packed.
 
+### Changed — CMA-ES counts `max_patience` in generations: calibration results change
+
+- **CMA-ES results change.** `max_patience` now counts generations (one population of
+  candidates: 4 for two bounded parameters, at least the MPI rank count + 1) without an
+  improvement, as the schema already documented. It counted single cost evaluations, so on one
+  rank the default of 10 stopped a run after ten candidates without an improvement, under three
+  generations: a 2-parameter windkessel fit with a 600-call budget stopped after 21-42
+  evaluations at costs of 1e2, and now converges (cost < 1e-4, R and C within 0.02% of the
+  truth) in 290-520. Runs use more of `num_calls_to_function` and reach lower costs.
+- CMA-ES asks one whole generation per loop and spreads it over the ranks, instead of one
+  candidate per rank. On one rank the candidates are the same as before; on more ranks the
+  trajectory changes, because asking one per rank split generations so that nevergrad asked pycma
+  for the next generation before the last was told.
+- The CMA-ES `sigma0` option is not applied (nevergrad picks the initial step from the bounds), so
+  the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
+  given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
+  raised inside nevergrad's ask/tell, is silenced.
+
 ### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
 
 - Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
@@ -187,6 +205,7 @@ number of vessels at a node (node sums #609, node rule D #617).
   it suggests a lumped `vv` vessel between them.
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
