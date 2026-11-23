@@ -237,12 +237,15 @@ The defaults (central differences of 0.01 at 8 base points, the `median` over th
 come from `benchmarks/param_reduction/compare_redundancy.py`, which runs every setting on the
 FitzHugh-Nagumo, Goodwin and Teusink benchmarks and compares the kept count with the Fisher
 information at the truth (`redundancy_comparison_results.md`). FitzHugh-Nagumo and Teusink give
-the same count under every setting. Goodwin is decided by the points below: `rms` over all
-points keeps one parameter too many. `rms` over the converged points and the centre point alone
-also give the right count there, but on a stiff model such as the 3-compartment test model
-solver noise (which grows as 1/step) leaves no point converged at a step of 0.001, and the centre
-point misses a parameter that is flat at the centre. The cost of `median` is a parameter that
-matters in less than half the box: set `redundancy_statistic: rms` to keep such parameters.
+the same count under every setting. **On Goodwin the defaults keep 5 parameters, one more than
+its Fisher count of 4** (the `ai` of the bullet below). Two settings keep 4 there: the `median`
+over the converged points (`jacobian_check_steps: true` and `redundancy_converged_only: true`,
+which doubles the derivative runs), or the `median` at `jacobian_step: 0.001`. A step of 0.001
+has its own cost: on a stiff model such as the 3-compartment test model, solver noise (which
+grows as 1/step) leaves no point converged at that step. `rms` over all points keeps 5 at every
+step. The centre point alone also gives 4 on Goodwin, but it misses a parameter that is flat at
+the centre. The cost of `median` is a parameter that matters in less than half the box: set
+`redundancy_statistic: rms` to keep such parameters.
 
 **Why local derivatives, at several points.**
 
@@ -257,10 +260,11 @@ matters in less than half the box: set `redundancy_statistic: rms` to keep such 
 
 - *Points where the outputs are not smooth.* In the Goodwin benchmark `ai`, `Ai` and `ki` form
   an exact scaling symmetry, so `ai` is explained by the other two at every point in exact
-  arithmetic. At six of eight points the derivatives show it (under 1 noise std left), but at
-  the two where `ai` is small next to `Ai` they do not settle as the step shrinks, and leave
-  tens of noise stds. The default `median` outvotes those points and drops `ai`;
-  `rms` over every point would keep it.
+  arithmetic. At a step of 0.001 the derivatives show it at six of eight points (under 1 noise
+  std left), but at the two where `ai` is small next to `Ai` they do not settle as the step
+  shrinks, and leave tens of noise stds. The `median` outvotes those points and drops `ai`;
+  `rms` over every point keeps it. At the default step of 0.01 the `median` keeps `ai` too;
+  leaving out the points that have not converged (`redundancy_converged_only`) drops it.
 
 **Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
 such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.
