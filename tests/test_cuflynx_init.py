@@ -100,6 +100,15 @@ def test_the_starter_yaml_parses_with_its_paths_under_the_study(study):
         tmp_path / 'resources' / '3compartment_params_for_id.json')
 
 
+@pytest.mark.unit
+def test_the_starter_calibrates_with_cma_es(study):
+    """CMA-ES runs on any budget; the genetic algorithm needs 744 evaluations a generation."""
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+
+    parsed = YamlFileParser().parse_user_inputs_file(None, obs_path_needed=True)
+    assert parsed['param_id_method'] == 'CMA-ES'
+
+
 @pytest.mark.integration
 def test_a_model_generates_from_the_starter(study):
     from libcuflynx.scripts.script_generate_with_new_architecture import \

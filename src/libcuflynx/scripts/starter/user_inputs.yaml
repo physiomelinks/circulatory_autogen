@@ -27,8 +27,8 @@ solver_info:
 # Calibration: the observables to fit, and the parameters to fit are in
 # resources/<file_prefix>_params_for_id.json.
 param_id_obs_path: resources/3compartment_obs_data.json
-# genetic_algorithm, CMA-ES, bayesian, sp_minimize or multi_start_sp_minimize
-param_id_method: genetic_algorithm
+# CMA-ES, genetic_algorithm, bayesian, sp_minimize or multi_start_sp_minimize
+param_id_method: CMA-ES
 do_ad: false
 optimiser_options:
   num_calls_to_function: 2000
