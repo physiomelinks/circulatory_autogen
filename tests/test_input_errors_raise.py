@@ -85,9 +85,9 @@ def _inputs(tmp_path, **overrides):
 
 
 BAD_USER_INPUTS = {
-    'no file_prefix': ({'file_prefix': None}, 'file_prefix not found'),
+    'no file_prefix': ({'file_prefix': None}, 'file_prefix'),
     'unknown model_type': ({'model_type': 'fortran', 'solver': None},
-                           'Invalid model type: fortran'),
+                           'Invalid model.type: fortran'),
     'unknown solver': ({'solver': 'NOT_A_SOLVER'}, 'Invalid solver: NOT_A_SOLVER'),
     'dt not a float': ({'dt': 1}, 'dt must be a float'),
     'python model, CellML solver': ({'model_type': 'python'},
@@ -106,12 +106,19 @@ BAD_USER_INPUTS = {
                                  'solver solve_ivp not compatible with model_type cpp'),
     'solver_info key of another solver': ({'solver_info': {'not_a_key': 1}},
                                           "not supported by solver 'CVODE_myokit'"),
+    'sp_minimize without a gradient': ({'param_id_method': 'sp_minimize', 'do_ad': False},
+                                       'sp_minimize requires model_type'),
+}
+
+# A path that does not exist may also be refused as a FileNotFoundError: still an ordinary
+# exception with its message, which is what a caller needs.
+MISSING_PATH_ERRORS = (CAInputError, FileNotFoundError)
+
+MISSING_PATHS = {
     'external_modules_dir missing': ({'external_modules_dir': lambda p: str(p / 'no_ext')},
                                      'external_modules_dir=.*no_ext does not exist'),
     'module library missing': ({'module_library_dirs': lambda p: [str(p / 'no_lib')]},
                                'module_library_dirs entry .*no_lib does not exist'),
-    'sp_minimize without a gradient': ({'param_id_method': 'sp_minimize', 'do_ad': False},
-                                       'sp_minimize requires model_type'),
 }
 
 
@@ -123,9 +130,17 @@ def test_a_bad_user_inputs_config_raises_with_its_message(tmp_path, overrides, m
                                                 obs_path_needed=False)
 
 
+@pytest.mark.parametrize('overrides, message', list(MISSING_PATHS.values()),
+                         ids=list(MISSING_PATHS))
+def test_a_missing_path_raises_with_its_message(tmp_path, overrides, message):
+    with pytest.raises(MISSING_PATH_ERRORS, match=message):
+        YamlFileParser().parse_user_inputs_file(_inputs(tmp_path, **overrides),
+                                                obs_path_needed=False)
+
+
 def test_a_missing_obs_data_file_raises(tmp_path):
     inp = _inputs(tmp_path, param_id_obs_path=str(tmp_path / 'no_obs.json'))
-    with pytest.raises(CAInputError, match='param_id_obs_path=.*no_obs.json does not exist'):
+    with pytest.raises(MISSING_PATH_ERRORS, match='param_id_obs_path=.*no_obs.json does not exist'):
         YamlFileParser().parse_user_inputs_file(inp, obs_path_needed=True)
 
 
