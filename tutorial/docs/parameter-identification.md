@@ -1488,7 +1488,10 @@ A **simulate** step is one run of a model through its protocol: the simulation b
 with the values a calibration found (`result_from`), values fixed by earlier steps (`fixed_from`)
 or the merged target (`"on_target": true`). It is a sweep of no parameters and writes the same
 files, so whatever reads a sweep reads it. `simulate.outputs` names the variables recorded over
-time; with an `obs_data` its protocol is run and its `prediction_items` give features.
+time; with an `obs_data` its protocol is run and its `prediction_items` give features. The
+prediction items that carry a value (held-out data) are compared with the model in
+`<step_id>/sweep/validation_results.json`, as `cuflynx-run-predictions` compares them; a sweep
+of more than one point writes no validation.
 
 ```json
 {"id": "paper_run", "kind": "simulate", "on_target": true,
@@ -1697,6 +1700,7 @@ script reads or imports (helpers, a style module beside it).
 | Input kind | Read from a | The function gets |
 |---|---|---|
 | `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment; and `manifest`, `sweep_manifest.json` as its JSON document |
+| `validation` | simulate step (a sweep of one point) | `validation_results.json` as its JSON document: `items`, per prediction item that carries a value its `data_item_name`, `operation`, `unit`, `data_type`, `n_points`, `rmse`, `nrmse`, `mean_abs_z`, `within_2std`, and `t`, `data`, `std`, `model` at the observation times |
 | `values` | calibration or set step | `{"<vessel>/<parameter>": value}`: what it calibrated or set by hand, named as that step names them |
 | `obs_data` | step with an obs_data | the obs_data file as its JSON document |
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
@@ -1798,6 +1802,7 @@ The input names are the function's parameters:
 | `sweep_traces` | per experiment, every output over time, a line per point (`traces_exp_<e>.png`) | `sweep`: `sweep` |
 | `sweep_features` | each feature against the swept parameters, as the sweep step draws them | `sweep`: `sweep` |
 | `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
+| `validation` | the held-out prediction items against the model: `validation_scores.csv` (per item `n_points`, `rmse`, `nrmse`, `mean_abs_z`, `within_2std`), the scalar items' data ± std against the model with y = x (`validation_parity.png`), and per series item the data ± std and the model from the start of its sub-experiment (`validation_<item>.png`) | `validation`: `validation` |
 | `protocol_inputs` | per experiment each `params_to_change` entry over the logged time: a number held over its sub-experiment, a trace or shape from the sub-experiment's start (`inputs_exp_<e>.png`) | `obs_data`: `obs_data` |
 | `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
 | `local_sensitivity` | a heatmap of a local analysis's relative sensitivities, parameters by outputs (`local_sensitivity_heatmap.png`) | `sensitivity`: `sensitivity` |

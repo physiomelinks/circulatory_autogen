@@ -11,7 +11,7 @@ next release; add to that section as you land a change.
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
   `params_for_id`, `sensitivity`, `progress`, `emulator_validation`, `distribution`, `laplace`,
-  `reduction`, `mcmc_chain`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
+  `reduction`, `mcmc_chain`, `validation`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
   helpers the script reads. A run draws every figure step that is out of date (its script, files
   or declaration changed, or a step it reads ran again) and whose inputs are current, whatever
@@ -25,7 +25,9 @@ next release; add to that section as you land a change.
   sets of outputs: the same files, images pixel by pixel, other files byte for byte.
 - **Standard figures**: libcuflynx ships `standard_figures.py`, a figure script with
   `sweep_traces`, `sweep_features`, `prediction_plots` (an obs_data's `prediction_plots` from a
-  simulate step), `protocol_inputs` (each `params_to_change` entry over time, numbers, traces
+  simulate step), `validation` (the held-out prediction items against the model: a score
+  table, a parity plot of the scalar items and a plot per series item, from the `validation`
+  input), `protocol_inputs` (each `params_to_change` entry over time, numbers, traces
   and shapes, from an obs_data), `sobol_indices`, `local_sensitivity` (a heatmap of a local
   analysis's relative sensitivities), `pca_modes` (per PCA mode its feature loadings and each
   parameter's ST, from a reduction step), `calibration_progress` (cost and normalised
@@ -41,7 +43,9 @@ next release; add to that section as you land a change.
   records the feature plots' point groups (`plot_groups`).
 - **A `simulate` step** runs a model once through its protocol: a sweep of no parameters, with
   the same files, `fixed_from`, `result_from` and `on_target`. `"simulate": {"outputs": [...]}`
-  names the variables recorded over time.
+  names the variables recorded over time. A step of one point also writes
+  `validation_results.json`, the obs_data's prediction items that carry a value against the
+  model, as `cuflynx-run-predictions` does.
 - **Migration: `external_figures` is refused.** The key recorded commands that libcuflynx never
   ran. A workflow file with it now fails to load, with a message naming the entries: write each
   as a `figure` step (a `simulate` step runs the model for it). Nothing converts it
@@ -50,6 +54,12 @@ next release; add to that section as you land a change.
   written earlier.
 - A run's recorded workflow digest leaves figure steps out, so adding or changing one after a
   run keeps the run's values current.
+
+### Fixed — validating a held-out series of a variable constant in the model
+
+- A prediction item's series on a variable that is constant in the model (recorded once) failed
+  the validation with "fp and xp are not of the same length"; the value is now held over the
+  sub-experiment, in `cuflynx-run-predictions`, after a calibration and in a simulate step.
 
 ### Fixed — a step error raised on rank 0 reaches the other ranks
 

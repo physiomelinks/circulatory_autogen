@@ -19,7 +19,9 @@ Each point sets the parameters at the start of every experiment of the protocol,
 step's ``obs_data`` protocol, or one run of ``sim_time`` after ``pre_time``. Under MPI each rank
 runs a contiguous block of points. A point that fails keeps its row, as NaN, and the error is
 recorded. An ``obs_data``'s prediction items give a scalar feature per point, and each feature is
-drawn against the parameters as a ``feature_vs_input`` plot.
+drawn against the parameters as a ``feature_vs_input`` plot. A step of one point (a simulate
+step) also compares the prediction items that carry a value with the model
+(``param_id.validation``).
 
 Output (``<step_dir>/sweep/``)::
 
@@ -29,6 +31,8 @@ Output (``<step_dir>/sweep/``)::
     sweep_manifest.json   the design, each parameter's values, the feature plots' point
                           groups (plot_groups), and what failed
     <plot name>.png       the feature plots
+    validation_results.json   one point only, when a prediction item carries a value: each
+                          such item's scores and its data and model points
 '''
 
 import itertools
@@ -180,12 +184,14 @@ class PointRunner:
                              'params_to_change': {}}
 
     def __call__(self, names, values):
-        '''``(times, traces, features)`` at one point: per experiment the recorded time and
-        ``(outputs, times)`` array, and ``{feature: value}``. Raises when the point fails.'''
+        '''``(times, traces, features, validation)`` at one point: per experiment the recorded
+        time and ``(outputs, times)`` array, ``{feature: value}``, and the validation of the
+        prediction items that carry a value (``{"items": [...]}``, empty without them). Raises
+        when the point fails.'''
         from libcuflynx.protocol_runners.predictions import predict_on
 
         values = [float(value) for value in values]
-        times, traces, features = [], [], {}
+        times, traces, features, validation = [], [], {}, {'items': []}
         try:
             if self.outputs:
                 times, recorded, _ = self.runner.run_protocols(
@@ -194,13 +200,15 @@ class PointRunner:
                 traces = [np.asarray(columns, dtype=float) for columns in recorded]
             if self.prediction_info is not None:
                 self.runner._apply_protocol_info(self.protocol)
-                features = predict_on(self.runner._executor, self.protocol, self.prediction_info,
-                                      self.funcs, id_param_names=names,
-                                      id_param_vals=values).features
+                predicted = predict_on(self.runner._executor, self.protocol,
+                                       self.prediction_info, self.funcs, id_param_names=names,
+                                       id_param_vals=values)
+                features, validation = predicted.features, predicted.validation
         except Exception:
             self.runner.sim_helper.reset_and_clear()
             raise
-        return [np.asarray(t, dtype=float) for t in times], traces, dict(features)
+        return ([np.asarray(t, dtype=float) for t in times], traces, dict(features),
+                validation)
 
 
 def run_on_ranks(evaluate, count, comm):
@@ -227,7 +235,7 @@ def _results_arrays(names, points, outputs, by_point):
     count = len(points)
     failed = np.array([by_point[i][1] is not None for i in range(count)], dtype=bool)
     good = next(by_point[i][0] for i in range(count) if not failed[i])
-    times, traces, features = good
+    times, traces, features, _ = good
     feature_names = list(features)
     arrays = {'points': points, 'failed': failed, 'parameters': np.array(names),
               'outputs': np.array(outputs, dtype=str), 'features': np.array(feature_names,
@@ -237,7 +245,7 @@ def _results_arrays(names, points, outputs, by_point):
         arrays[f'time_{experiment}'] = time
         arrays[f'trace_{experiment}'] = np.full((count,) + trace.shape, np.nan)
     for index in np.flatnonzero(~failed):
-        _, point_traces, point_features = by_point[index][0]
+        _, point_traces, point_features, _ = by_point[index][0]
         for experiment, trace in enumerate(point_traces):
             arrays[f'trace_{experiment}'][index] = trace
         arrays['feature_values'][index] = [point_features[name] for name in feature_names]
@@ -319,7 +327,8 @@ def run_points(sweep, generated, settings, obs_data_path, nominal, comm, where):
 def write_results(sweep, names, points, by_point, nominal, units, out_dir, where):
     '''Rank 0: write what :func:`run_points` gave to ``out_dir``. Returns ``{sweep_dir,
     sweep_results, sweep_manifest, design, parameters, n_points, n_failed, outputs, features,
-    plots}``. WorkflowError when every point failed: the run is misconfigured, and the first
+    plots, validation_results}`` (validation_results None unless one point validated
+    prediction items). WorkflowError when every point failed: the run is misconfigured, and the first
     error says how.'''
     errors = {i: by_point[i][1] for i in range(len(points)) if by_point[i][1] is not None}
     if len(errors) == len(points):
@@ -342,10 +351,14 @@ def write_results(sweep, names, points, by_point, nominal, units, out_dir, where
         'failures': [{'point': int(index), 'values': points[index].tolist(), 'error': error}
                      for index, error in sorted(errors.items())],
         'results': RESULTS_FILE, 'plots': [os.path.basename(path) for path in plots]}
+    validation_path = None
+    if len(points) == 1 and not errors:
+        from libcuflynx.param_id.validation import write_validation_results
+        validation_path = write_validation_results(by_point[0][0][3], out_dir)
     manifest_path = os.path.join(out_dir, MANIFEST_FILE)
     with open(manifest_path, 'w') as f:
         json.dump(manifest, f, indent=1)
     return {'sweep_dir': out_dir, 'sweep_results': results_path, 'sweep_manifest': manifest_path,
             'design': sweep['design'], 'parameters': names, 'n_points': len(points),
             'n_failed': len(errors), 'outputs': list(sweep['outputs']), 'features': features,
-            'plots': plots}
+            'plots': plots, 'validation_results': validation_path}
