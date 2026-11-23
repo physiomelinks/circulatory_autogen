@@ -38,6 +38,17 @@ try:
 except ImportError:
     NEVERGRAD_AVAILABLE = False
 
+# nevergrad's bounded CMA variant is elitist: pycma injects the best solution so far into each
+# generation and matches it, by exact float bytes, against the solutions told back. nevergrad
+# tells back the candidate's value re-standardised (and bounced into the bounds), which differs
+# in the last bits, so pycma warns that the injected solution was never told. The warning is
+# inside nevergrad's ask/tell and not actionable here, so CMAESOptimiser silences it.
+try:
+    from cma.evolution_strategy import InjectionWarning as _CMA_INJECTION_WARNING
+except ImportError:
+    class _CMA_INJECTION_WARNING(UserWarning):
+        """Stands in when pycma is absent; never raised."""
+
 # Model types for which ParamID.get_gradient() has an AD backend: a symbolic jacobian
 # for casadi models, a tape reverse pass for aadc ones. Everything else falls back to finite
 # differences. Keep in sync with ParamID.get_gradient.
@@ -104,11 +115,10 @@ class Optimiser(ABC):
         What this does and does not buy, measured rather than assumed (#344). It makes two runs
         of the same configuration *at the same rank count* draw the same candidates, so a
         comparison is repeatable at all. It does **not** make a run rank-independent: CMA-ES asks
-        for one candidate per MPI rank, so the ask/tell interleaving -- and with it the search
-        trajectory and the number of evaluations before the run stops -- still changes with the
-        rank count. Fixing the batch to a constant makes 1, 2 and 4 ranks agree; 8 still differs,
-        because nevergrad also derives internal settings from ``num_workers``. Making a scaling
-        sweep equal-work needs the population decoupled from the rank count as well, which is
+        a whole generation per loop, but nevergrad sizes that population from ``num_workers``
+        too (at least ranks + 1), so once the rank count reaches the population size the
+        trajectory and the number of evaluations before the run stops change with it. Making a
+        scaling sweep equal-work needs the population decoupled from the rank count, which is
         why the run records what it actually did rather than claiming the counts must match.
         """
         seed = self.optimiser_options.get('seed')
@@ -676,9 +686,10 @@ class CMAESOptimiser(Optimiser):
         Args:
             optimiser_options: Dictionary with keys:
                 - num_calls_to_function: Number of function evaluations (default: 10000)
-                - sigma0: Initial standard deviation (CMA-ES specific, optional, default: 0.2 of parameter range)
+                - sigma0: not applied; nevergrad sets the initial step itself (see run())
                 - cost_convergence: Convergence tolerance (shared across optimisers)
-                - max_patience: Maximum patience for convergence (shared across optimisers)
+                - max_patience: generations (populations of candidates) without an
+                  improvement in cost before stopping (shared across optimisers)
             DEBUG: Debug flag
             
         Note: 
@@ -704,13 +715,10 @@ class CMAESOptimiser(Optimiser):
         # Initial parameter values will be loaded from parameters CSV in run() method
         # via param_id_obj.param_init
         
-        # Initial standard deviation (sigma0) - CMA-ES specific option
-        if 'sigma0' in self.optimiser_options:
-            self.sigma0 = self.optimiser_options['sigma0']
-        else:
-            # Default to 0.2 of the parameter range
-            param_ranges = self.param_maxs - self.param_mins
-            self.sigma0 = 0.2 * np.mean(param_ranges)
+        # nevergrad.optimizers.CMA takes no initial step: with bounds on every parameter it
+        # samples in a space scaled per parameter to (max - min) / 6 and picks the step there.
+        # A sigma0 given is reported in run() and not applied.
+        self.sigma0 = self.optimiser_options.get('sigma0')
     
     def _search_box(self, x0):
         """``(init, lower, upper)`` of the variables nevergrad searches.
@@ -791,7 +799,9 @@ class CMAESOptimiser(Optimiser):
             print(f'Running CMA-ES optimization with Nevergrad')
             print(f'  Budget: {self.budget} function evaluations')
             print(f'  Number of workers: {num_workers}')
-            print(f'  Initial sigma: {self.sigma0}')
+            if self.sigma0 is not None:
+                print(f'  sigma0={self.sigma0} is not applied: nevergrad chooses the initial '
+                      f'step from the parameter bounds')
             print(f'  Initial parameters: {x0}')
         
         # Broadcast initial guess to all ranks
@@ -816,10 +826,16 @@ class CMAESOptimiser(Optimiser):
             seed = self.optimiser_options.get('seed')
             if seed is not None:
                 optimizer.parametrization.random_state = np.random.RandomState(int(seed))
-            # Set initial sigma if provided (some versions of nevergrad support this)
-            # For now, we'll use the default sigma and let the optimizer adapt
-        
-        # Track best results
+            # Candidates per CMA-ES generation, asked and told together each loop and spread
+            # over the ranks, so that nevergrad never asks pycma for the next generation before
+            # the last one is told. nevergrad picks its CMA variant from the problem; a
+            # 1-parameter problem gets a (1+1)-ES with no population, and then one candidate
+            # per rank is asked.
+            popsize = getattr(getattr(optimizer, 'optim', None), '_popsize', None) or num_workers
+            print(f'  Population size: {popsize} candidates per generation')
+
+        # Track best results. `iteration` counts cost evaluations; max_patience counts
+        # generations, i.e. max_patience * popsize evaluations without an improvement.
         best_cost = np.inf
         best_params = None
         iteration = 0
@@ -831,9 +847,11 @@ class CMAESOptimiser(Optimiser):
             if rank == 0:
                 # Ask for candidate solutions
                 candidates = []
-                for _ in range(min(num_workers, self.budget - iteration)):
+                for _ in range(min(popsize, self.budget - iteration)):
                     try:
-                        candidate = optimizer.ask()
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore', _CMA_INJECTION_WARNING)
+                            candidate = optimizer.ask()
                         candidates.append(candidate)
                     except StopIteration:
                         break
@@ -889,7 +907,9 @@ class CMAESOptimiser(Optimiser):
             # Tell optimizer the results (only rank 0)
             if rank == 0:
                 for candidate, cost in zip(candidates, all_costs):
-                    optimizer.tell(candidate, cost)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', _CMA_INJECTION_WARNING)
+                        optimizer.tell(candidate, cost)
                     
                     # Track best result
                     if cost < best_cost:
@@ -918,17 +938,18 @@ class CMAESOptimiser(Optimiser):
                 if best_cost < self.optimiser_options.get('cost_convergence', 1e-6):
                     print(f'Cost converged to {best_cost:.6e} (below tolerance {self.optimiser_options.get("cost_convergence", 1e-6)})')
                     stop_loop = True
-                if (iteration - last_improve_iter) >= max_patience:
-                    print(f'Stopping CMA-ES: no improvement for {max_patience} iterations (best_cost={best_cost:.6e})')
+                if (iteration - last_improve_iter) >= max_patience * popsize:
+                    print(f'Stopping CMA-ES: no improvement for {max_patience} generations '
+                          f'({iteration - last_improve_iter} cost evaluations, '
+                          f'best_cost={best_cost:.6e})')
                     stop_loop = True
                 if iteration >= self.budget:
                     stop_loop = True
             
             # Broadcast whether to continue
             continue_flag = np.array([1], dtype='i')
-            if rank == 0:
-                if stop_loop or iteration >= self.budget or best_cost < self.optimiser_options.get('cost_convergence', 1e-6) or (iteration - last_improve_iter) >= max_patience:
-                    continue_flag[0] = 0
+            if rank == 0 and stop_loop:
+                continue_flag[0] = 0
             comm.Bcast(continue_flag, root=0)
             
             if continue_flag[0] == 0:
