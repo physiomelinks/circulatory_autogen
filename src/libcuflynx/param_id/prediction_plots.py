@@ -547,7 +547,6 @@ def _experiment_title(protocol_info, exp):
     return f'experiment {exp} ({label})'
 
 
-@paper_style()
 def _draw_input_and_output(plot, index, protocol_info, time_courses, gt_df, out_dir, plt):
     """One figure per experiment, ``<out_dir>/<name>_exp_<idx>.png``; returns the paths."""
     key, output, experiments = resolve_time_course(plot, index, protocol_info)
@@ -579,7 +578,6 @@ def _draw_input_and_output(plot, index, protocol_info, time_courses, gt_df, out_
     return paths
 
 
-@paper_style()
 def _draw_output_vs_input(plot, index, protocol_info, time_courses, out_dir, plt):
     """``<out_dir>/<name>.png``: the output against the input, one line per experiment."""
     key, output, experiments = resolve_time_course(plot, index, protocol_info)
@@ -621,7 +619,8 @@ def plot_prediction_plots(plots, gt_df, prediction_info, protocol_info, model_va
     paths = []
     # Names and labels are shown as written: paperPlotSetup's cmr10 has no "_" glyph (its slot
     # holds a dot accent), so "I_peak" would print as "I˙peak".
-    with matplotlib.rc_context({'font.family': 'serif', 'font.serif': ['DejaVu Serif']}):
+    with paper_style(), matplotlib.rc_context({'font.family': 'serif',
+                                               'font.serif': ['DejaVu Serif']}):
         for index, plot in enumerate(plots):
             if plot['kind'] not in TIME_COURSE_KINDS:
                 paths.append(_draw(plot, index, groups, protocol_info, model_values, out_dir,
@@ -640,7 +639,6 @@ def plot_prediction_plots(plots, gt_df, prediction_info, protocol_info, model_va
     return paths
 
 
-@paper_style()
 def _draw(plot, index, groups, protocol_info, model_values, out_dir, prediction_info, funcs,
           units, plt):
     """One figure, ``<out_dir>/<name>.png``; returns its path."""
