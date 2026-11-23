@@ -26,6 +26,7 @@ NO_EXIT_MODULES = [
     'parsers/ModelParsers.py',
     'generators/CVSCellMLGenerator.py',
     'generators/Python1DModelFilesGenerator.py',
+    'checks/LumpedModelChecks.py',
 ]
 
 
@@ -202,6 +203,40 @@ def test_bad_1d_vessel_parameters_raise(tmp_path, params, message):
     with pytest.raises(CAInputError, match=message):
         generate1DPythonModelFiles(df_vess, df_params, str(tmp_path / 'vess.txt'),
                                    str(tmp_path / 'nodes.txt'), str(tmp_path / 'names.csv'), {})
+
+
+# --- model checks -----------------------------------------------------------------------------
+
+
+def _vessel(**overrides):
+    row = {'name': 'v1', 'module_type': 'vessel', 'module_subtype': 'simple',
+           'variables_and_units': [['q', 'm3']],
+           'entrance_ports': [{'variables': ['q']}], 'exit_ports': [], 'general_ports': []}
+    row.update(overrides)
+    return pd.Series(row)
+
+
+def test_a_module_type_subtype_not_in_the_library_raises():
+    from libcuflynx.checks.LumpedModelChecks import LumpedBCVesselCheck
+    model = SimpleNamespace(possible_module_type_subtypes=[('vessel', 'other')])
+    with pytest.raises(CAInputError, match=r'combo of \(vessel, simple\) is not allowed for vessel v1'):
+        LumpedBCVesselCheck().execute_for_row(_vessel(), model)
+
+
+def test_an_id_param_missing_from_the_parameters_file_raises():
+    from libcuflynx.checks.LumpedModelChecks import LumpedIDParamsCheck
+    model = SimpleNamespace(param_id_name_and_vals=[('R_v1', 1.0)],
+                            parameters_array={'variable_name': ['C_v1']})
+    with pytest.raises(CAInputError, match='constant of R_v1 is not defined in the parameters file'):
+        LumpedIDParamsCheck().execute(model)
+
+
+def test_a_port_variable_the_module_lacks_raises():
+    from libcuflynx.checks.LumpedModelChecks import LumpedPortVariableCheck
+    row = _vessel(entrance_ports=[{'variables': ['u']}])
+    with pytest.raises(CAInputError, match='port variable u is not a variable for vessel type: '
+                                           'vessel, module_subtype: simple'):
+        LumpedPortVariableCheck().execute_for_row(row, None)
 
 
 # --- the calibration workflow -----------------------------------------------------------------

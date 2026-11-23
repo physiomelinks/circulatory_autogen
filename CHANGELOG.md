@@ -13,6 +13,9 @@ next release; add to that section as you land a change.
   calling `exit()` (#706). A caller running libcuflynx in-process (a notebook, CUFLynx, a
   calibration workflow step) can catch it with `except Exception` and show the message; `exit()`
   raised `SystemExit`, which ended a notebook kernel. `ObsDataError` is now a `CAInputError`.
+- The model checks run during generation (`checks/LumpedModelChecks.py`: a module type/subtype the
+  library lacks, a port variable the module does not have, a calibrated parameter missing from the
+  parameters file) raise `CAInputError` too.
 - The console commands still exit non-zero, printing the traceback with the message.
 - Code that caught `SystemExit` from these modules catches `CAInputError` instead. A calibration
   workflow step reports the message in its `WorkflowStepError`.

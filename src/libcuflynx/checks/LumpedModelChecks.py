@@ -6,6 +6,7 @@ Created on 01/11/2021
 
 from abc import ABC, abstractmethod
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.generators.multi_port import validate_list_multi_port
 
 class AbstractLumpedCheck(ABC):
@@ -64,9 +65,9 @@ class LumpedBCVesselCheck(AbstractLumpedCheck):
 
     def execute_for_row(self, vessel_row, model_0D):
         if (vessel_row["module_type"], vessel_row["module_subtype"]) not in model_0D.possible_module_type_subtypes:
-            print(f'module_type, module_subtype combo of ({vessel_row["module_type"]}, {vessel_row["module_subtype"]}) '
-                  f'is not allowed for vessel {vessel_row["name"]}')
-            exit()
+            raise CAInputError(
+                f'module_type, module_subtype combo of ({vessel_row["module_type"]}, '
+                f'{vessel_row["module_subtype"]}) is not allowed for vessel {vessel_row["name"]}')
 
 class LumpedIDParamsCheck(AbstractLumpedCheck):
     '''
@@ -80,8 +81,8 @@ class LumpedIDParamsCheck(AbstractLumpedCheck):
         '''
         for const_name, _ in model_0D.param_id_name_and_vals:
             if not const_name in model_0D.parameters_array['variable_name']:
-                print(f'ERROR parameter id constant of {const_name} is not defined in the parameters file')
-                exit()
+                raise CAInputError(
+                    f'parameter id constant of {const_name} is not defined in the parameters file')
 
 class LumpedPortVariableCheck(AbstractLumpedCheck):
     '''
@@ -103,9 +104,9 @@ class LumpedPortVariableCheck(AbstractLumpedCheck):
                 if port_variable in ["", None, "None", "none"]:
                     continue
                 if port_variable not in variables_list:
-                    print(f'the port variable {port_variable} '
-                        f'is not a variable for vessel type: {vessel_row["module_type"]}, module_subtype: {vessel_row["module_subtype"]}')
-                    exit()
+                    raise CAInputError(
+                        f'the port variable {port_variable} is not a variable for vessel type: '
+                        f'{vessel_row["module_type"]}, module_subtype: {vessel_row["module_subtype"]}')
         # a list-form multi_port must have one "sum"/"True" entry per port variable
         for port in vessel_row["entrance_ports"] + vessel_row["exit_ports"] + vessel_row["general_ports"]:
             validate_list_multi_port(
