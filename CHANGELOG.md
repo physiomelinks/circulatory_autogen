@@ -11,7 +11,7 @@ next release; add to that section as you land a change.
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
   `params_for_id`, `sensitivity`, `progress`, `emulator_validation`, `distribution`, `laplace`,
-  `reduction`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
+  `reduction`, `mcmc_chain`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
   helpers the script reads. A run draws every figure step that is out of date (its script, files
   or declaration changed, or a step it reads ran again) and whose inputs are current, whatever
@@ -30,6 +30,8 @@ next release; add to that section as you land a change.
   analysis's relative sensitivities), `pca_modes` (per PCA mode its feature loadings and each
   parameter's ST, from a reduction step), `calibration_progress` (cost and normalised
   parameters per generation, from the `progress` input: a calibration's optimiser history),
+  `mcmc_diagnostics` (each walker's trace, running mean and autocorrelation, from the
+  `mcmc_chain` input: a calibration's MCMC chain),
   `emulator_validation` (parity and residual plots at an emulation step's held-out points),
   `posterior` and `laplace`. A `sensitivity` input also carries `local` (a local analysis's
   relative and absolute sensitivities), and a `reduction` input is a reduction step's report

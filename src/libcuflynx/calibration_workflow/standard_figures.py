@@ -26,6 +26,7 @@ pca_modes           per PCA mode its feature loadings and the ST of each     red
                     parameter, and a heatmap of ST per mode                  reduction
 calibration_        the best cost and each normalised parameter per          progress: progress
 progress            generation (per iteration of each start)
+mcmc_diagnostics    each walker's trace, running mean and autocorrelation    chain: mcmc_chain
 emulator_           the emulator against the simulator at its held-out       emulator:
 validation          points, and the residuals against each parameter        emulator_validation
 posterior           a histogram per parameter, its mean and 5-95% band       distribution:
@@ -278,6 +279,85 @@ def sobol_indices(sensitivity, out_dir):
     return paths
 
 
+#: the most chain steps and walkers an MCMC panel draws
+MCMC_POINTS, MCMC_WALKERS = 400, 12
+#: the autocorrelation a mixed chain stays within over the last ACF_TAIL of its lags
+ACF_LIMIT, ACF_TAIL = 0.1, 0.2
+
+
+def mcmc_diagnostics(chain, out_dir):
+    '''A calibration's MCMC chain, a panel per parameter, up to MCMC_WALKERS walkers in
+    PALETTE colours and MCMC_POINTS steps: ``mcmc_chain.png``, each walker's trace;
+    ``mcmc_cumulative_mean.png``, each walker's running mean from step 0 (solid) and from the
+    burn-in (dashed); ``mcmc_autocorrelation.png``, each walker's autocorrelation against lag
+    (emcee's ``function_1d``) with guides at +-ACF_LIMIT, titled "within" when the walkers'
+    mean stays inside them over the last ACF_TAIL of the lags, else "still correlated".'''
+    from emcee.autocorr import function_1d
+    samples = np.asarray(chain['chain'], dtype=float)
+    steps, walkers, count = samples.shape
+    if steps < 2:
+        raise ValueError(f'the MCMC chain has {steps} step(s); there is nothing to draw.')
+    names = list(chain['param_labels']) or [f'p{i}' for i in range(count)]
+    start = min(max(int(chain['burn_in_index']), 0), steps - 1)
+    shown = np.unique(np.linspace(0, steps - 1, min(steps, MCMC_POINTS)).astype(int))
+    walkers = min(walkers, MCMC_WALKERS)
+    colours = [PALETTE[w % len(PALETTE)] for w in range(walkers)]
+    paths = []
+
+    figure, axes = _grid(count)
+    for p, ax in enumerate(axes):
+        for w in range(walkers):
+            ax.plot(shown, samples[shown, w, p], color=colours[w], linewidth=0.8, alpha=0.8)
+        ax.axvline(start, color='0.6', linestyle=':', linewidth=1)
+        _mcmc_axes(ax, names[p], 'step')
+    figure.tight_layout()
+    paths.append(_save(figure, out_dir, 'mcmc_chain.png'))
+
+    figure, axes = _grid(count)
+    for p, ax in enumerate(axes):
+        for w in range(walkers):
+            values = samples[:, w, p]
+            from_zero = np.cumsum(values) / np.arange(1, steps + 1)
+            after = np.cumsum(values[start:]) / np.arange(1, steps - start + 1)
+            ax.plot(shown, from_zero[shown], color=colours[w], linewidth=1.0)
+            later = shown[shown >= start]
+            ax.plot(later, after[later - start], color=colours[w], linewidth=1.0,
+                    linestyle='--')
+        _mcmc_axes(ax, names[p], 'step')
+    figure.tight_layout()
+    paths.append(_save(figure, out_dir, 'mcmc_cumulative_mean.png'))
+
+    figure, axes = _grid(count)
+    lags = np.unique(np.linspace(0, steps - 1, min(steps, MCMC_POINTS)).astype(int))
+    tail = lags[lags >= int((1 - ACF_TAIL) * (steps - 1))]
+    for p, ax in enumerate(axes):
+        acfs = np.array([_acf(function_1d, samples[:, w, p]) for w in range(walkers)])
+        for w in range(walkers):
+            ax.plot(lags, acfs[w, lags], color=colours[w], linewidth=0.8, alpha=0.8)
+        for level in (-ACF_LIMIT, ACF_LIMIT):
+            ax.axhline(level, color=PALETTE[5], linestyle='--', linewidth=1)
+        ax.axhline(0.0, color='0.6', linewidth=0.8)
+        mixed = bool(np.all(np.abs(np.mean(acfs[:, tail], axis=0)) <= ACF_LIMIT))
+        _mcmc_axes(ax, f'{names[p]}: '
+                       f'{"within" if mixed else "still correlated"}', 'lag')
+    figure.tight_layout()
+    paths.append(_save(figure, out_dir, 'mcmc_autocorrelation.png'))
+    return paths
+
+
+def _acf(function_1d, values):
+    '''The autocorrelation of ``values`` (all zeros for a walker that never moved).'''
+    if np.ptp(values) == 0:
+        return np.zeros(len(values))
+    return function_1d(values)
+
+
+def _mcmc_axes(ax, title, xlabel):
+    ax.set_title(title, fontsize=8)
+    ax.set_xlabel(xlabel, fontsize=8)
+    ax.tick_params(labelsize=7)
+
+
 def local_sensitivity(sensitivity, out_dir):
     '''``local_sensitivity_heatmap.png``: a local analysis's relative sensitivities
     (|p| d(feature)/dp / |feature|), parameters by outputs, on a blue-white-red scale symmetric
@@ -528,8 +608,8 @@ def laplace(laplace, out_dir):
 
 
 FIGURES = [sweep_traces, sweep_features, prediction_plots, protocol_inputs, sobol_indices,
-           local_sensitivity, pca_modes, calibration_progress, emulator_validation, posterior,
-           laplace]
+           local_sensitivity, pca_modes, calibration_progress, mcmc_diagnostics,
+           emulator_validation, posterior, laplace]
 
 
 def main(argv=None):
