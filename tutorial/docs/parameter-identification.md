@@ -917,7 +917,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
   
     CMA-ES specific options:
 
-    - **sigma0**: deprecated, to be removed in the next release. It is not applied: Nevergrad's CMA-ES picks the initial step itself, in a space scaled per parameter to (max - min) / 6. A run given `sigma0` raises a `FutureWarning`: remove it from `optimiser_options`
+    - The initial step is not an option: Nevergrad's CMA-ES picks it itself, in a space scaled per parameter to (max - min) / 6. `sigma0` was removed; a config that names it is refused
     - Note: 
         - The number of parallel workers is automatically determined from the number of MPI processes
         - Initial parameter values are automatically loaded from `{file_prefix}_parameters.json`

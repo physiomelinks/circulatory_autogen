@@ -5,12 +5,12 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Deprecated — the CMA-ES `sigma0` option
+### Removed — the CMA-ES `sigma0` option
 
-- `sigma0` was never applied (nevergrad picks the initial step from the bounds). A CMA-ES run
-  given it now raises a `FutureWarning`, and its `PARAM_ID_METHODS` descriptor carries
-  `'deprecated': True` so a front end can hide it. It will be removed in the next release:
-  remove it from `optimiser_options`.
+- `sigma0` was never applied (nevergrad picks the initial step from the bounds), and it is no
+  longer in `PARAM_ID_METHODS['CMA-ES']`. user_inputs whose `optimiser_options` or
+  `debug_optimiser_options` name it are refused with a `ValueError` saying to delete the line;
+  so is a `CMAESOptimiser` given it directly.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 

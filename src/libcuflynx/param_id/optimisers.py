@@ -670,13 +670,6 @@ class BayesianOptimiser(Optimiser):
         self._save_best_params()
 
 
-#: The warning a CMA-ES run given ``sigma0`` raises.
-SIGMA0_DEPRECATED = (
-    "The CMA-ES option 'sigma0' is deprecated and will be removed in the next release. It is "
-    "not applied: nevergrad chooses the initial step from the parameter bounds. Remove it "
-    "from optimiser_options.")
-
-
 class CMAESOptimiser(Optimiser):
     """
     CMA-ES optimiser for parameter identification using Nevergrad.
@@ -693,8 +686,6 @@ class CMAESOptimiser(Optimiser):
         Args:
             optimiser_options: Dictionary with keys:
                 - num_calls_to_function: Number of function evaluations (default: 10000)
-                - sigma0: deprecated and not applied; nevergrad sets the initial step itself
-                  (see run() and SIGMA0_DEPRECATED)
                 - cost_convergence: Convergence tolerance (shared across optimisers)
                 - max_patience: generations (populations of candidates) without an
                   improvement in cost before stopping (shared across optimisers)
@@ -704,9 +695,11 @@ class CMAESOptimiser(Optimiser):
             - num_workers is determined at runtime from the number of MPI processes
             - Initial parameter values (x0) are automatically loaded from the parameters CSV file
         """
-        super().__init__(param_id_obj, param_id_info, param_norm_obj, 
+        from libcuflynx.parsers.PrimitiveParsers import refuse_removed_optimiser_options
+        refuse_removed_optimiser_options(optimiser_options)
+        super().__init__(param_id_obj, param_id_info, param_norm_obj,
                         num_params, output_dir, optimiser_options, DEBUG)
-        
+
         if not NEVERGRAD_AVAILABLE:
             raise ImportError("Nevergrad is required for CMA-ES optimiser. Install it with: pip install nevergrad")
         
@@ -725,8 +718,6 @@ class CMAESOptimiser(Optimiser):
         
         # nevergrad.optimizers.CMA takes no initial step: with bounds on every parameter it
         # samples in a space scaled per parameter to (max - min) / 6 and picks the step there.
-        # A sigma0 given is reported in run(), with a FutureWarning, and not applied.
-        self.sigma0 = self.optimiser_options.get('sigma0')
     
     def run(self):
         """Run the CMA-ES optimization."""
@@ -794,10 +785,6 @@ class CMAESOptimiser(Optimiser):
             print(f'Running CMA-ES optimization with Nevergrad')
             print(f'  Budget: {self.budget} function evaluations')
             print(f'  Number of workers: {num_workers}')
-            if self.sigma0 is not None:
-                print(f'  sigma0={self.sigma0} is not applied: nevergrad chooses the initial '
-                      f'step from the parameter bounds')
-                warnings.warn(SIGMA0_DEPRECATED, FutureWarning, stacklevel=2)
             print(f'  Initial parameters: {x0}')
         
         # Broadcast initial guess to all ranks
@@ -813,8 +800,6 @@ class CMAESOptimiser(Optimiser):
         
         # Create CMA-ES optimizer
         if rank == 0:
-            # Nevergrad CMA optimizer doesn't accept sigma0 directly
-            # Instead, we can set it via the parametrization or use the optimizer's default
             optimizer = ng.optimizers.CMA(
                 parametrization=parametrization,
                 budget=self.budget,
