@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — calibration workflows name modules `module`, not `vessel`: convert workflow files
+
+- A workflow step places a library module with `module` (was `vessel`) and renames a module
+  array's modules with `module_map` (was `vessel_map`). Each calibrated, fixed or set record in a
+  run's `step_result.json` names its module `module` (was `vessel`), and a selection step's plan
+  entry (`--dry-run`) names where its library module sits `place` (was `vessel`).
+- The older keys are refused, naming `cuflynx-upgrade workflow <workflow file or directory>`,
+  which converts workflow files and the `step_result.json` files of earlier runs in place
+  (given a directory, every one below it). A converted run stays current: its steps are not
+  run again.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

@@ -179,8 +179,8 @@ class Step:
                                    # params_for_id_from
     kind: str = DEFAULT_KIND
     submodule: str = None          # where a library module sits in a supermodule target
-    vessel: str = None             # where a library module sits in a module-array target
-    vessel_map: dict = field(default_factory=dict)   # module-array step: its vessel -> target's
+    module: str = None             # where a library module sits in a module-array target
+    module_map: dict = field(default_factory=dict)   # module-array step: its module -> target's
     depends_on: list = field(default_factory=list)   # fixed_from and priors_from steps
     fixed_from: list = field(default_factory=list)
     priors_from: list = field(default_factory=list)
@@ -300,6 +300,20 @@ def _refuse_reduction_options_outside_reduction_steps(raw, where):
                                 f'has no param_reduction_options; ' + hint)
 
 
+def refuse_older_step_keys(raw, where):
+    '''A step that names its place with the older keys ("vessel", "vessel_map") is refused,
+    naming the upgrade that renames them.'''
+    from libcuflynx.upgrade import WORKFLOW_STEP_RENAMES, hint
+    if not isinstance(raw, dict):
+        return
+    for step in raw.get('steps') or []:
+        old = [(o, n) for o, n in WORKFLOW_STEP_RENAMES if isinstance(step, dict) and o in step]
+        if old:
+            names = ', '.join(f'"{o}" (now "{n}")' for o, n in old)
+            raise WorkflowError(f'{where}: step "{step.get("id")}" names {names}. '
+                                + hint('workflow', where))
+
+
 def parse_workflow(raw, path=None, module_library_dirs=None):
     where = path or 'calibration workflow'
     # The schema owns the file's structure (keys, types, enums, what each kind of step needs);
@@ -307,6 +321,7 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
     from libcuflynx.schemas.validation import SchemaValidationError, validate
     _refuse_reduction_options_outside_reduction_steps(raw, where)
+    refuse_older_step_keys(raw, where)
     try:
         validate(CALIBRATION_WORKFLOW_SCHEMA, raw, source=where, what='calibration workflow')
     except SchemaValidationError as exc:
@@ -465,7 +480,7 @@ def _step(value, where, base_dir):
 
     if kind in _NO_MODEL_KINDS:
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
-                                     'vessel', 'vessel_map') if k in value)
+                                     'module', 'module_map') if k in value)
         if present:
             reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
                      else 'declares values for the target')
@@ -498,8 +513,8 @@ def _step(value, where, base_dir):
     if value.get('on_target'):
         if kind != 'sweep':
             raise WorkflowError(f'{label}: "on_target" is for a sweep step, not a {kind} step.')
-        named = sorted(k for k in ('model', 'fixed_from', 'result_from', 'submodule', 'vessel',
-                                   'vessel_map') if k in value)
+        named = sorted(k for k in ('model', 'fixed_from', 'result_from', 'submodule', 'module',
+                                   'module_map') if k in value)
         if named:
             raise WorkflowError(f'{label}: a sweep "on_target" runs on the target with every '
                                 f'calibration\'s and set step\'s values, so it names no {named}.')
@@ -513,20 +528,20 @@ def _step(value, where, base_dir):
                             f'the emulation step\'s model, with the values that step was given; '
                             f'it has no "fixed_from" or "result_from" of its own.')
     model = _model(value['model'], base_dir)
-    submodule, vessel = value.get('submodule'), value.get('vessel')
+    submodule, module = value.get('submodule'), value.get('module')
     if kind == 'sweep' and model.kind == 'selection':
         raise WorkflowError(f'{label}: a sweep names its model as a library module or a module '
                             f'array, not as a selection of the target.')
-    if model.kind == 'selection' and (submodule or vessel or value.get('vessel_map')):
+    if model.kind == 'selection' and (submodule or module or value.get('module_map')):
         raise WorkflowError(f'{label}: a selection is calibrated where its instances are in the '
-                            f'target, so it has no "submodule", "vessel" or "vessel_map".')
-    if (submodule or vessel) and model.kind != 'library':
-        raise WorkflowError(f'{label}: "submodule" and "vessel" place a library module in the '
-                            f'target; a module-array model maps its vessels with "vessel_map".')
-    vessel_map = value.get('vessel_map', {})
-    if vessel_map and model.kind != 'array':
-        raise WorkflowError(f'{label}: "vessel_map" is for a module-array model; a library '
-                            f'module is placed with "submodule" or "vessel".')
+                            f'target, so it has no "submodule", "module" or "module_map".')
+    if (submodule or module) and model.kind != 'library':
+        raise WorkflowError(f'{label}: "submodule" and "module" place a library module in the '
+                            f'target; a module-array model maps its modules with "module_map".')
+    module_map = value.get('module_map', {})
+    if module_map and model.kind != 'array':
+        raise WorkflowError(f'{label}: "module_map" is for a module-array model; a library '
+                            f'module is placed with "submodule" or "module".')
     depends_on = fixed_from + [p.step for p in priors_from] + [r for r in refs.values() if r]
     return Step(id=step_id, model=model,
                 obs_data=_path(value['obs_data'], base_dir) if 'obs_data' in value else None,
@@ -534,8 +549,8 @@ def _step(value, where, base_dir):
                                if 'params_for_id' in value else None),
                 kind=kind,
                 submodule=submodule.strip() if submodule else None,
-                vessel=vessel.strip() if vessel else None,
-                vessel_map={k.strip(): v.strip() for k, v in vessel_map.items()},
+                module=module.strip() if module else None,
+                module_map={k.strip(): v.strip() for k, v in module_map.items()},
                 depends_on=list(dict.fromkeys(depends_on)),
                 fixed_from=fixed_from, priors_from=priors_from, store_distribution=store,
                 emulator_from=refs['emulator_from'], result_from=refs['result_from'],

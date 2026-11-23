@@ -140,9 +140,9 @@ def _edit(library, edit):
     (lambda w: w['steps'][0].update(target=w['steps'][0]['model']), r"steps\[0\] \('fit_a'\): .*'target' was unexpected"),
     (lambda w: w['steps'][0].pop('obs_data'), r"'obs_data' is a required property"),
     (lambda w: w.pop('target'), r"'target' is a required property"),
-    (lambda w: w['steps'][0].update(vessel_map={'A': 'B'}), '"vessel_map" is for a module-array'),
-    (lambda w: w['steps'][0].update(model='a_module_array.csv', vessel='A'),
-     '"vessel" place a library module'),
+    (lambda w: w['steps'][0].update(module_map={'A': 'B'}), '"module_map" is for a module-array'),
+    (lambda w: w['steps'][0].update(model='a_module_array.csv', module='A'),
+     '"module" place a library module'),
     (lambda w: w['settings'].update(param_id_obs_path='x.json'), 'cannot be set'),
     (lambda w: w['steps'][1].update(priors_from=['fit_a'], fixed_from=[]),
      'does not store its distribution'),
@@ -810,9 +810,9 @@ def test_a_vessel_map_renames_a_module_array_into_the_target(library):
                           'name_for_plotting': 'p'}])
     raw = _raw(library, 'chain_array')
     raw['steps'][0].update(model='aorta_module_array.json', params_for_id='data/aorta_params.json')
-    with pytest.raises(WorkflowError, match='lands on vessel "aorta"'):
+    with pytest.raises(WorkflowError, match='lands on module "aorta"'):
         resolve_workflow(parse_workflow(raw, path=library['chain_array']))
-    raw['steps'][0]['vessel_map'] = {'aorta': 'A'}
+    raw['steps'][0]['module_map'] = {'aorta': 'A'}
     steps = {s['id']: s for s in plan_workflow(parse_workflow(raw, path=library['chain_array']))
              ['steps']}
     assert steps['a-alone']['calibrates'][0]['target_model_name'] == 'p_A'
@@ -830,7 +830,7 @@ def test_a_library_module_is_placed_in_a_module_array_target(library):
     assert steps['a-alone']['place'] == 'A'
     assert steps['a-alone']['calibrates'][0]['target_model_name'] == 'p_A'
     assert steps['chain']['fixed_from'][0]['in_step'] == 'p_A'
-    raw['steps'][0]['vessel'] = 'C'
+    raw['steps'][0]['module'] = 'C'
     with pytest.raises(WorkflowError, match=r"lin_a v1 is at \['A'\]"):
         resolve_workflow(parse_workflow(raw, path=library['chain_array']))
 

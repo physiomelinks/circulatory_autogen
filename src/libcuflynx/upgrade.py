@@ -12,6 +12,7 @@ refuses the file and names the command here that converts it::
     cuflynx-upgrade supermodule-instances <*_module_array .json|.csv>... --module-library-dir <dir>
     cuflynx-upgrade params-for-id <params_for_id CSV | directory>...
     cuflynx-upgrade junctions <*_module_array .json|.csv>... --module-library-dir <dir>
+    cuflynx-upgrade workflow <calibration workflow .json | directory>...
 
 Each converts its files in place (a ``_vessel_array`` file is renamed; a parameters CSV becomes
 the ``.json`` beside it) and prints what it changed. Convert a model's module configs and module
@@ -75,6 +76,10 @@ What each converts:
 * ``parameter-names``: ``{variable}_{vessel}`` parameter names to ``<vessel>/<variable>``, and
   names joined with a single ``_`` across nested levels to ``__`` (see
   ``scripts/migrate_parameter_names.py``).
+* ``workflow``: a calibration workflow step's ``vessel`` / ``vessel_map`` to ``module`` /
+  ``module_map``, and the ``vessel`` of each calibrated, fixed or set record in a run's
+  ``step_result.json`` to ``module``. Given a directory (a study, or a workflow's output
+  directory), it converts every workflow file and step_result.json below it.
 '''
 
 import argparse
@@ -760,6 +765,103 @@ def upgrade_params_for_id(path, dry_run=False):
     return changes
 
 
+# ------------------------------------------------------------------------ calibration workflows
+
+#: a calibration workflow step's older key -> key
+WORKFLOW_STEP_RENAMES = (('vessel', 'module'), ('vessel_map', 'module_map'))
+#: the keys of a step_result.json that hold value records, and a record's older key -> key
+STEP_RESULT_RECORD_KEYS = ('calibrated', 'fixed', 'set')
+STEP_RESULT_RENAMES = (('vessel', 'module'),)
+
+
+def is_older_step_result(result):
+    '''Whether a step_result.json's records name their module ``vessel``.'''
+    return any(isinstance(r, dict) and old in r
+               for key in STEP_RESULT_RECORD_KEYS for r in result.get(key) or []
+               for old, _ in STEP_RESULT_RENAMES)
+
+
+def _renamed(obj, renames, where):
+    '''``obj`` (a dict) with its keys renamed, in order.'''
+    names = dict(renames)
+    clash = [f'"{o}" and "{n}"' for o, n in renames if o in obj and n in obj]
+    if clash:
+        raise SystemExit(f'{where} has both {", ".join(clash)}; keep one and run again.')
+    return {names.get(k, k): v for k, v in obj.items()}
+
+
+def _rewrite_json(path, text, doc, renames, changes, dry_run):
+    '''Write ``doc``: as ``text`` with its keys renamed when that reads as ``doc`` (the file's
+    formatting kept), else as indented JSON.'''
+    new_text = _rename_keys(text, renames)
+    if json.loads(new_text) != doc:
+        new_text = json.dumps(doc, indent=2) + '\n'
+    _write(path, new_text, dry_run, changes)
+
+
+def _upgrade_workflow_file(path, text, doc, dry_run):
+    changes = []
+    steps = doc['steps']
+    for i, step in enumerate(steps):
+        old = [(o, n) for o, n in WORKFLOW_STEP_RENAMES if isinstance(step, dict) and o in step]
+        if old:
+            steps[i] = _renamed(step, WORKFLOW_STEP_RENAMES, f'{path}: step "{step.get("id")}"')
+            changes.append(f'step "{step.get("id")}": '
+                           + ', '.join(f'{o} -> {n}' for o, n in old))
+    if changes:
+        _rewrite_json(path, text, doc, WORKFLOW_STEP_RENAMES, changes, dry_run)
+    return changes
+
+
+def _upgrade_step_result(path, text, doc, dry_run):
+    count = 0
+    for key in STEP_RESULT_RECORD_KEYS:
+        records = doc.get(key)
+        for i, record in enumerate(records if isinstance(records, list) else []):
+            if isinstance(record, dict) and any(o in record for o, _ in STEP_RESULT_RENAMES):
+                records[i] = _renamed(record, STEP_RESULT_RENAMES, f'{path}: a {key} record')
+                count += 1
+    if not count:
+        return []
+    changes = [f'{count} record(s): ' + ', '.join(f'{o} -> {n}' for o, n in STEP_RESULT_RENAMES)]
+    _rewrite_json(path, text, doc, STEP_RESULT_RENAMES, changes, dry_run)
+    return changes
+
+
+def _upgrade_workflow_json(path, dry_run):
+    '''Convert ``path`` if it is a calibration workflow or a step_result.json; [] otherwise.'''
+    try:
+        text = open(path, encoding='utf-8-sig').read()
+        doc = json.loads(text)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    if os.path.basename(path) == 'step_result.json':
+        return _upgrade_step_result(path, text, doc, dry_run)
+    if 'workflow_name' in doc and isinstance(doc.get('steps'), list):
+        return _upgrade_workflow_file(path, text, doc, dry_run)
+    return []
+
+
+def upgrade_workflow(path, dry_run=False):
+    '''Convert the calibration workflow file ``path``, or every workflow file and
+    step_result.json below the directory ``path`` (a study, or a workflow's output directory),
+    to name a step's place ``module`` / ``module_map`` and each value record's ``module``.
+    Returns the changes made.'''
+    if not os.path.isdir(path):
+        if not os.path.isfile(path):
+            raise SystemExit(f'{path}: no such file or directory.')
+        return _upgrade_workflow_json(path, dry_run)
+    changes = []
+    for root, dirs, files in os.walk(path):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        for name in sorted(files):
+            if name.endswith('.json'):
+                changes += _upgrade_workflow_json(os.path.join(root, name), dry_run)
+    return changes
+
+
 # ------------------------------------------------------------------------------------------ CLI
 
 # ------------------------------------------------------------------ supermodule instances
@@ -815,7 +917,10 @@ def main(argv=None):
                             ('params-for-id', 'convert params_for_id CSVs (or a directory\'s) '
                                               'to JSON'),
                             ('junctions', 'move models off the junction module types, onto '
-                                          'vessels whose ports sum over a node')):
+                                          'vessels whose ports sum over a node'),
+                            ('workflow', 'convert calibration workflow files and the '
+                                         'step_result.json files of their runs (or a '
+                                         'directory\'s)')):
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument('paths', nargs='+')
         sub.add_argument('--dry-run', action='store_true', help='print, do not write')
@@ -875,6 +980,8 @@ def main(argv=None):
             dirs = args.module_library_dirs or [d for d in os.environ.get(
                 'CUFLYNX_MODULE_LIBRARY', '').split(os.pathsep) if d]
             changed += bool(upgrade_junctions(path, dirs, args.external_modules_dir, args.dry_run))
+        elif args.command == 'workflow':
+            changed += bool(upgrade_workflow(path, args.dry_run))
         else:
             changed += bool(upgrade_obs_data(path, *_times(args), dry_run=args.dry_run))
     print(f'{changed} of {len(args.paths)} file(s) {"would be " if args.dry_run else ""}changed.')
