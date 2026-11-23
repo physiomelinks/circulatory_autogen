@@ -140,7 +140,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 
 User-extensible (kept outside the package): `module_config_user/` (custom CellML modules), `funcs_user/` (your own cost / operation / modifier funcs, plus the `external_python` model examples — see `funcs_user/README.md`). `resources/` holds input CSVs and obs_data.json; `generated_models/` is build output.
 
-**Library code never calls `exit()`.** Bad user input raises `libcuflynx.errors.CAInputError` (a `ValueError`) carrying the message, so an in-process caller (CUFLynx, a notebook, a workflow step) can catch and show it; only a console `main()` in `scripts/` sets an exit status. `tests/test_input_errors_raise.py` checks the converted modules by AST; add a module there when you convert it. Directory entries there cover every file in them; only `solver1d/` still exits (#706).
+**Library code never calls `exit()`.** Bad user input raises `libcuflynx.errors.CAInputError` (a `ValueError`) carrying the message, so an in-process caller (CUFLynx, a notebook, a workflow step) can catch and show it; only a console `main()` in `scripts/` sets an exit status. `tests/test_input_errors_raise.py` checks the converted modules by AST; add a module there when you convert it. Directory entries there cover every file in them; `solver1d/` keeps its exits: it runs as its own process (the coupler starts `main1D.py`), whose exit status reports a failure.
 
 ## `SimulationHelper` API (common across backends)
 
