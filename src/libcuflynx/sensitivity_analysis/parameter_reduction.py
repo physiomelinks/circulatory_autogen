@@ -44,6 +44,7 @@ import pandas as pd
 
 from libcuflynx.sensitivity_analysis.sobol_ranking import (CRITERIA, rank_sobol_parameters,
                                                            read_sobol_indices)
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 INDEX_TYPES = ('ST', 'S1')
 REPORT_FILE = 'param_reduction.json'
@@ -565,6 +566,7 @@ class PCASobolReduction(ParamReduction):
             'unexplained_effects': unexplained,
             'jacobian_points_used': int(len(jacobian)), 'unconverged_points': unconverged}
 
+    @paper_style()
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):
         modes = pd.DataFrame({'mode': np.arange(1, len(variances) + 1), 'variance': variances,

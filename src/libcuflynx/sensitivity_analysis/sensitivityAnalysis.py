@@ -14,9 +14,7 @@ from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
-from libcuflynx.utilities import paperPlotSetup
 from libcuflynx.utilities import cuflynx_study
-paperPlotSetup.Setup_Plot(3)
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
