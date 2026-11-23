@@ -168,6 +168,66 @@ def test_fingerprint_changes_with_bounds_observables_and_protocol():
     assert fingerprint(param_id_info, obs_info, protocol_info) == base
 
 
+_FINGERPRINT_INPUTS = (
+    {'param_names': [['comp/alpha']], 'param_mins': np.array([0.0]),
+     'param_maxs': np.array([1.0])},
+    {'operands': [['comp/x']], 'operations': ['max'], 'operation_kwargs': [None],
+     'data_types': ['constant'], 'experiment_idxs': [0], 'subexperiment_idxs': [0]},
+    {'pre_times': [0.0], 'sim_times': [[5]], 'params_to_change': {}},
+)
+
+
+def _generated_python_model(tmp_path, prefix):
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
+    cellml = os.path.join(os.path.dirname(__file__), 'test_inputs', 'scaling_native.cellml')
+    return PythonGenerator(cellml, output_dir=str(tmp_path / prefix), module_name=prefix,
+                           casadi_compat=True).generate()
+
+
+def test_a_python_model_under_another_file_name_is_the_same_model(tmp_path):
+    """One CellML generated under two prefixes is one model to an emulator.
+
+    The generated ``<prefix>.py`` names ``<prefix>_utilities.py``, so its bytes differ by
+    prefix; a workflow step and a later run name the same model differently.
+    """
+    trained = fingerprint(*_FINGERPRINT_INPUTS, _generated_python_model(tmp_path, 'surrogate-1'))
+    other_path = _generated_python_model(tmp_path, 'another_prefix')
+    live = fingerprint(*_FINGERPRINT_INPUTS, other_path)
+    assert live['model_sha256'] != trained['model_sha256']
+    assert live['model_content_sha256'] == trained['model_content_sha256']
+    bundle = make_bundle()
+    bundle.meta['fingerprint'] = trained
+    bundle.check_matches(live)
+
+    # the utilities file holds much of the generated code: a change there is a change of model
+    with open(other_path[:-len('.py')] + '_utilities.py', 'a', encoding='utf-8') as file:
+        file.write('\nSTATE_COUNT = STATE_COUNT\n')
+    with pytest.raises(EmulatorQualityError, match='model_content_sha256 has changed'):
+        bundle.check_matches(fingerprint(*_FINGERPRINT_INPUTS, other_path))
+
+    # ... and so is a change in the model file itself
+    live_path = _generated_python_model(tmp_path, 'edited')
+    with open(live_path, 'a', encoding='utf-8') as file:
+        file.write('\n# edited\n')
+    with pytest.raises(EmulatorQualityError, match='model_content_sha256 has changed'):
+        bundle.check_matches(fingerprint(*_FINGERPRINT_INPUTS, live_path))
+
+
+def test_a_bundle_without_a_content_digest_is_checked_on_the_model_file(tmp_path):
+    """A bundle stored with ``model_sha256`` alone keeps the check it was trained with."""
+    model = tmp_path / 'model.cellml'
+    model.write_text('<model/>')
+    trained = fingerprint(*_FINGERPRINT_INPUTS, str(model))
+    assert trained['model_content_sha256'] == trained['model_sha256']
+    bundle = make_bundle()
+    bundle.meta['fingerprint'] = {key: value for key, value in trained.items()
+                                  if key != 'model_content_sha256'}
+    bundle.check_matches(fingerprint(*_FINGERPRINT_INPUTS, str(model)))
+    model.write_text('<model name="other"/>')
+    with pytest.raises(EmulatorQualityError, match='model_sha256 has changed'):
+        bundle.check_matches(fingerprint(*_FINGERPRINT_INPUTS, str(model)))
+
+
 def test_error_stats_carry_more_than_r2(tmp_path):
     """R2 alone cannot rank features by how badly the emulator does on them.
 

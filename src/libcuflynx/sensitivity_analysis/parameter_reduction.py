@@ -66,7 +66,7 @@ def option_descriptors():
 
 def sobol_run_files(sensitivity_dir):
     """The files of the Sobol run in ``sensitivity_dir``: ``indices``, and when the run saved
-    them ``samples``, ``outputs`` and ``problem`` (else None). A SensitivityFilesError when there
+    them ``samples``, ``outputs``, ``local_jacobian`` and ``problem`` (else None). A SensitivityFilesError when there
     are no indices, or the indices of more than one run."""
     from libcuflynx.sensitivity_analysis.sobolSA import SOBOL_PROBLEM_FILE
     found = sorted(glob.glob(os.path.join(sensitivity_dir, SOBOL_INDICES_GLOB)))
@@ -83,6 +83,7 @@ def sobol_run_files(sensitivity_dir):
         return path if os.path.isfile(path) else None
     return {'indices': found[0], 'samples': existing(f'{stem}_samples.csv'),
             'outputs': existing(f'{stem}_outputs.csv'),
+            'local_jacobian': existing(f'{stem}_local_jacobian.csv'),
             'problem': existing(os.path.join(sensitivity_dir, SOBOL_PROBLEM_FILE))}
 
 
@@ -243,21 +244,41 @@ class PCASobolReduction(ParamReduction):
        relative cut ignores the noise, so it can drop a small mode that the data resolve. The std is over the Sobol samples, which fill the whole prior box, so it
        is a global, prior-wide measure of what the parameters can do, not local to the fit.
     3. Sobol indices of each informative mode's score, from the same Saltelli samples.
-    4. Over the informative modes, largest first: keep the parameter not yet kept with the
-       largest index for that mode, unless that index is below ``min_index`` (no free parameter
-       drives the mode). Stop after ``n_params`` (default: one per informative mode).
+    4. With ``redundancy_check`` (the default), the candidates are the parameters whose
+       largest index over the informative modes is at least ``min_index``. A candidate's effect
+       is its local derivative of the informative mode scores, scaled to its prior range and in
+       noise stds, at each of the Sobol run's Jacobian points (sobolSA.run_local_jacobian:
+       forward differences at the first ``jacobian_points`` Saltelli base points). A candidate
+       still adds to the fit while its effect not explained by the kept parameters at the same
+       point, summarised over the points, is at least ``min_mode_std``. Greedily keep, of the
+       candidates that still add, the one with the highest Sobol index over the informative
+       modes (weighted by their variance), and remove its direction at each point (Gram-Schmidt
+       at each point, choose_independent); stop when none adds: what it would add to the fit
+       is inside the noise. So the local effects decide which parameters are redundant, and
+       the Sobol indices, which cover the whole prior box, decide which of them is kept. Two
+       parameters that move the data the same way at every
+       point (a product, a ratio, a sum, a scaling symmetry) leave nothing at any point, so
+       only one is kept, however many modes they drive; one whose slope is flat at one point
+       but not at others is still seen.
+    5. Without it: over the informative modes, largest first, keep the parameter not yet kept
+       with the largest index for that mode, unless that index is below ``min_index`` (no free
+       parameter drives the mode). This keeps one parameter per mode, so it reduces only when
+       there are fewer informative modes than parameters; outputs that are a time course have
+       many more modes than parameters.
 
-    The number of informative modes bounds how many parameters the data can tell apart, and
-    keeping one parameter per mode stops two parameters that move the data the same way from
-    both being kept. ``min_mode_std`` is the noise floor; ``variance_fraction`` (default 1, off)
-    is an optional relative cut on top of it.
+    Both stop after ``n_params``. ``min_mode_std`` is the noise floor; ``variance_fraction``
+    (default 1, off) is an optional relative cut on top of it.
     """
 
     method = 'pca'
-    OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index')
+    OPTIONS = ('n_params', 'index_type', 'min_mode_std', 'variance_fraction', 'min_index',
+               'redundancy_check', 'redundancy_statistic', 'redundancy_converged_only',
+               'redundancy_convergence_tol')
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
-                 variance_fraction=1.0, min_index=0.05):
+                 variance_fraction=1.0, min_index=0.05, redundancy_check=True,
+                 redundancy_statistic='median', redundancy_converged_only=False,
+                 redundancy_convergence_tol=0.1):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
         self.index_type = _check_index_type(index_type)
@@ -265,6 +286,19 @@ class PCASobolReduction(ParamReduction):
         self.variance_fraction = float(_check_number('variance_fraction', variance_fraction,
                                                      low=0.0, high=1.0))
         self.min_index = float(_check_number('min_index', min_index, high=1.0))
+        if not isinstance(redundancy_check, bool):
+            raise ValueError(f'redundancy_check is true or false, not {redundancy_check!r}.')
+        self.redundancy_check = redundancy_check
+        if redundancy_statistic not in ('rms', 'median'):
+            raise ValueError(f'redundancy_statistic is "rms" or "median", not '
+                             f'{redundancy_statistic!r}.')
+        self.redundancy_statistic = redundancy_statistic
+        if not isinstance(redundancy_converged_only, bool):
+            raise ValueError(f'redundancy_converged_only is true or false, not '
+                             f'{redundancy_converged_only!r}.')
+        self.redundancy_converged_only = redundancy_converged_only
+        self.redundancy_convergence_tol = float(_check_number(
+            'redundancy_convergence_tol', redundancy_convergence_tol, low=0.0))
         self._extra = {}
 
     # ------------------------------------------------------------------ analysis
@@ -368,8 +402,56 @@ class PCASobolReduction(ParamReduction):
                              'mode_std': float(np.sqrt(variances[k]))})
         return selected, skipped
 
+    def over_points(self, by_point):
+        """Each parameter's ``redundancy_statistic`` (root mean square or median), over the
+        points, of the length of its effect (``by_point``: points x parameters x modes)."""
+        lengths = np.sqrt(np.sum(by_point ** 2, axis=2))
+        if self.redundancy_statistic == 'median':
+            return np.median(lengths, axis=0)
+        return np.sqrt(np.mean(lengths ** 2, axis=0))
+
+    def choose_independent(self, by_point, candidates, names, weighted, informative_idx):
+        """``(selected, unexplained)``: greedy pivoted Gram-Schmidt, done at each point
+        separately and chosen jointly. ``by_point`` is points x parameters x informative modes:
+        each parameter's effect over its prior range, in noise stds, at each Jacobian point.
+        A candidate still adds to the fit while its effect not explained by the kept
+        parameters, at the same point, has a ``redundancy_statistic`` (root mean square or
+        median) over the points of at least ``min_mode_std``. Of those, keep the one with the
+        highest ``weighted`` (its Sobol index over the informative modes, weighted by their
+        variance): the Sobol indices, over the whole prior box, say which parameter matters
+        most, and the local effects only which are redundant. Remove its direction at each
+        point; stop when no candidate still adds, or after ``n_params``. Explaining point
+        by point lets the combination of kept parameters that reproduces a redundant one vary
+        across the box, as it does for a scaling symmetry. ``unexplained`` is each parameter's
+        effect left (the same statistic) once the kept ones are accounted for."""
+        residual = np.array(by_point, dtype=float)
+        selected, free = [], list(candidates)
+        total = self.over_points(by_point)
+        while free and (self.n_params is None or len(selected) < self.n_params):
+            left = self.over_points(residual)
+            adding = [i for i in free if left[i] >= self.min_mode_std]
+            if not adding:
+                break
+            best = max(adding, key=lambda i: (weighted[i], left[i]))
+            for point in residual:
+                length = np.linalg.norm(point[best])
+                if length > 0:
+                    direction = point[best] / length
+                    point -= np.outer(point @ direction, direction)
+            free.remove(best)
+            column = int(np.argmax(np.sum(by_point[:, best] ** 2, axis=0)))
+            selected.append({'parameter': names[best], 'score': float(weighted[best]),
+                             'mode': int(informative_idx[column]) + 1,
+                             'new_effect': float(left[best]), 'effect': float(total[best])})
+        left = self.over_points(residual)
+        unexplained = {names[i]: float(left[i]) for i in range(len(names))
+                       if names[i] not in {row['parameter'] for row in selected}}
+        return selected, unexplained
+
     def select(self, files, report_dir):
         missing = [key for key in ('samples', 'outputs', 'problem') if not files[key]]
+        if self.redundancy_check and not files.get('local_jacobian'):
+            missing.append('local_jacobian')
         if missing:
             raise SensitivityFilesError(
                 f'a "pca" reduction reads the Sobol samples and outputs, and the run that wrote '
@@ -388,7 +470,12 @@ class PCASobolReduction(ParamReduction):
                                          problem.get('calc_second_order', True))
         indices = ST if self.index_type == 'ST' else S1
         params = list(problem['names'])
-        selected, skipped = self.choose(variances, informative, indices, params)
+        if self.redundancy_check:
+            selected, skipped, redundancy = self._choose_with_redundancy_check(
+                files, problem, names, scales, loadings, variances, informative, indices, params)
+        else:
+            selected, skipped = self.choose(variances, informative, indices, params)
+            redundancy = {}
         self._write_report_files(report_dir, variances, informative, loadings, names, S1, ST,
                                  params)
         self._extra = {
@@ -398,6 +485,8 @@ class PCASobolReduction(ParamReduction):
                       for k, v in enumerate(variances)],
             'n_informative_modes': int(np.sum(informative)),
             'skipped_modes': skipped,
+            **redundancy,
+            'failed_samples': int(problem.get('failed_samples', 0)),
             'output_scales': dict(zip(names, map(float, scales))),
             'files': {'modes': PCA_MODES_FILE, 'mode_indices': PCA_MODE_INDICES_FILE,
                       'heatmap': PCA_MODE_HEATMAP_FILE}}
@@ -405,6 +494,68 @@ class PCASobolReduction(ParamReduction):
 
     def report_extra(self):
         return dict(self._extra)
+
+    def _choose_with_redundancy_check(self, files, problem, names, scales, loadings,
+                                      variances, informative, indices, params):
+        table = pd.read_csv(files['local_jacobian'])
+        if 'step' not in table:
+            table.insert(0, 'step', 0.0)
+        steps = sorted(set(table['step']), reverse=True)
+        points = list(dict.fromkeys(table['point']))
+
+        def at(step):
+            rows = table[table['step'] == step]
+            return np.stack([rows[rows['point'] == point].set_index('Parameter')
+                             .loc[params, names].to_numpy(dtype=float) for point in points])
+
+        jacobian = at(steps[0])
+        ok = np.all(np.isfinite(jacobian), axis=(1, 2))
+        if self.redundancy_converged_only and len(steps) < 2:
+            raise SensitivityFilesError(
+                f'redundancy_converged_only compares derivatives at two steps, and '
+                f'{files["local_jacobian"]} has one; rerun the Sobol analysis with '
+                f'sa_options.jacobian_check_steps: true.')
+        informative_idx = [k for k in np.argsort(-variances) if informative[k]]
+
+        def effects_of(j):
+            with np.errstate(divide='ignore', invalid='ignore'):
+                per_output = np.where(np.isfinite(scales) & (scales > 0), j / scales, 0.0)
+            return per_output @ loadings[informative_idx].T   # points x parameters x modes
+
+        unconverged = []
+        if self.redundancy_converged_only:
+            full, half = effects_of(np.nan_to_num(jacobian)), effects_of(np.nan_to_num(at(steps[1])))
+            change = np.linalg.norm(full - half, axis=2)
+            size = np.maximum(np.linalg.norm(full, axis=2), self.min_mode_std)
+            converged = np.all(change <= self.redundancy_convergence_tol * size, axis=1)
+            unconverged = [int(p) for p, c, good in zip(points, converged, ok) if good and not c]
+            ok &= converged
+        if not ok.any():
+            raise SensitivityFilesError(
+                f'no local Jacobian point of {files["local_jacobian"]} can be used (a run failed, '
+                f'or the derivatives did not converge), so the redundancy check has no effects to '
+                f'compare; rerun the Sobol analysis with more jacobian_points, or set '
+                f'redundancy_check: false.')
+        if not ok.all():
+            warnings.warn(f'{int((~ok).sum())} of {len(points)} local Jacobian points are left '
+                          f'out (a run failed, or the derivatives at the two steps disagree): the '
+                          f'redundancy check uses the other {int(ok.sum())}.', stacklevel=3)
+        jacobian = jacobian[ok]
+        by_point = effects_of(jacobian)
+        total = float(np.sum(variances[informative_idx])) or 1.0
+        weighted = (variances[informative_idx, None] * indices[informative_idx]).sum(axis=0)
+        weighted = weighted / total
+        largest = indices[informative_idx].max(axis=0) if informative_idx else \
+            np.zeros(len(params))
+        candidates = [i for i in range(len(params)) if largest[i] >= self.min_index]
+        selected, unexplained = self.choose_independent(by_point, candidates, params, weighted,
+                                                        informative_idx)
+        effects = self.over_points(by_point)
+        return selected, [], {
+            'candidates': [params[i] for i in candidates],
+            'effects': {params[i]: float(effects[i]) for i in range(len(params))},
+            'unexplained_effects': unexplained,
+            'jacobian_points_used': int(len(jacobian)), 'unconverged_points': unconverged}
 
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):
@@ -421,8 +572,8 @@ class PCASobolReduction(ParamReduction):
             table[f'ST_mode_{k + 1}'] = ST[k]
         table.to_csv(os.path.join(report_dir, PCA_MODE_INDICES_FILE), index=False)
         try:
-            import matplotlib
-            matplotlib.use('Agg')
+            from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+            use_agg_unless_interactive()
             import matplotlib.pyplot as plt
             fig, ax = plt.subplots(figsize=(1.2 + 0.9 * len(params), 1.2 + 0.5 * len(variances)))
             image = ax.imshow(ST, vmin=0, vmax=1, cmap='viridis', aspect='auto')
