@@ -217,9 +217,10 @@ def test_parameters_csv_missing_row_still_flags_it_as_unfilled(tmp_path):
     assert out['value'][0] == 'EMPTY_MUST_BE_FILLED'
 
 
-def test_parameters_csv_unit_mismatch_still_exits(tmp_path):
-    """Unchanged behaviour: units that disagree with the module config are a hard error."""
-    with pytest.raises(SystemExit):
+def test_parameters_csv_unit_mismatch_is_refused(tmp_path):
+    """Units that disagree with the module config are a hard error."""
+    from libcuflynx.errors import CAInputError
+    with pytest.raises(CAInputError, match='units of m3 in the parameters file'):
         _reduce(tmp_path,
                 'variable_name,units,value,data_reference',
                 ['R_vessel,m3,1333000,Blanco_2013'])

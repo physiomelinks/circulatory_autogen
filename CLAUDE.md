@@ -140,6 +140,8 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 
 User-extensible (kept outside the package): `module_config_user/` (custom CellML modules), `funcs_user/` (your own cost / operation / modifier funcs, plus the `external_python` model examples — see `funcs_user/README.md`). `resources/` holds input CSVs and obs_data.json; `generated_models/` is build output.
 
+**Library code never calls `exit()`.** Bad user input raises `libcuflynx.errors.CAInputError` (a `ValueError`) carrying the message, so an in-process caller (CUFLynx, a notebook, a workflow step) can catch and show it; only a console `main()` in `scripts/` sets an exit status. `tests/test_input_errors_raise.py` checks the converted modules by AST; add a module there when you convert it. `solver1d/` and some analysis modules still exit (#706).
+
 ## `SimulationHelper` API (common across backends)
 
 `get_simulation_helper(...)` in `src/libcuflynx/solver_wrappers/__init__.py` returns the backend for the configured `solver`. Common methods: `run()`, `update_times(...)`, `get_results(var_names)`, `get_all_results()`, `get_all_variable_names()`, `get_init_param_vals()`, `set_param_vals(names, values)`. When adding a backend, implement this full surface and register it in the factory.

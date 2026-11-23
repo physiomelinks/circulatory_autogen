@@ -22,6 +22,7 @@ except Exception:
     ScalarFloat = None
 import re
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.parsers.solver_names import canonical_solver_name
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
@@ -51,18 +52,12 @@ mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
 
 
-class ObsDataError(ValueError):
+class ObsDataError(CAInputError):
     """An ``obs_data.json`` the parser cannot use, described well enough to fix it.
 
-    These checks used to ``print()`` and ``exit()``. That is survivable in a script, where
-    the message lands on the terminal the user is already reading, and unrecoverable
-    anywhere else: ``exit()`` raises ``SystemExit``, which inherits from ``BaseException``
-    and so passes straight through the ``except Exception`` an embedding application wraps
-    the parser in. CUFLynx turned one of these into a bare "Internal Server Error", with
-    the explanation visible only in the server's own stdout.
-
-    So they raise, and the message carries the offending numbers rather than naming the
-    keys and leaving the reader to go and look them up.
+    The message carries the offending numbers rather than naming the keys and leaving the
+    reader to go and look them up. See :class:`libcuflynx.errors.CAInputError` for why
+    input errors raise rather than ``exit()``.
     """
 
 
@@ -2503,22 +2498,20 @@ class YamlFileParser(object):
                     with open(inp_data_dict["user_inputs_path_override"], 'r') as file:
                         inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
                 else:
-                    print(f"User inputs file not found at {inp_data_dict['user_inputs_path_override']}")
-                    print("Check the user_inputs_path_override key in user_inputs.yaml and set it to False if "
-                            "you want to use the default user_inputs.yaml location")
-                    exit()
+                    raise CAInputError(
+                        f"User inputs file not found at {inp_data_dict['user_inputs_path_override']}. "
+                        "Check the user_inputs_path_override key in user_inputs.yaml and set it to "
+                        "False if you want to use the default user_inputs.yaml location")
             else:
                 user_files_dir = ''
         else:
             user_files_dir = ''
 
         if inp_data_dict is None:
-            print('no inp_data_dict provided and user_inputs.yaml not found, exiting')
-            exit()
+            raise CAInputError('no inp_data_dict provided and user_inputs.yaml not found')
             
         if 'file_prefix' not in inp_data_dict.keys():
-            print('file_prefix not found in inp_data_dict, exiting')
-            exit()
+            raise CAInputError('file_prefix not found in inp_data_dict')
         else:
             file_prefix = inp_data_dict['file_prefix']
 
@@ -2549,11 +2542,10 @@ class YamlFileParser(object):
                 and not _fsa_ad and not inp_data_dict.get('use_emulator'):
             # An emulator is exempt: its gradient comes from finite differences on its own
             # evaluations, which is affordable in a way FD on a solver is not (#333).
-            print('Parameter identification with sp_minimize requires model_type to be '
-                  '"casadi_python" or "aadc_python", or "cellml" with solver '
-                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
-                  'use_emulator: true, whose gradient is finite differences on the emulator.')
-            exit()
+            raise CAInputError('Parameter identification with sp_minimize requires model_type to be '
+                               '"casadi_python" or "aadc_python", or "cellml" with solver '
+                               '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
+                               'use_emulator: true, whose gradient is finite differences on the emulator.')
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
         # casadi_python (symbolic), aadc_python (tape), and cellml + Myokit CVODES FSA
@@ -2601,8 +2593,7 @@ class YamlFileParser(object):
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
                 if not os.path.exists(inp_data_dict['param_id_obs_path']):
-                    print(f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist')
-                    exit()
+                    raise CAInputError(f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist')
             else:
                 print(f'param_id_obs_path not defined in user_inputs.yaml')
                 print(f'Must run param_id.create_param_id_obs to create the param_id_observables')
@@ -2662,8 +2653,7 @@ class YamlFileParser(object):
         elif inp_data_dict.get('model_type') == 'aadc_python':
             model_ext = '.py'
         else:
-            print(f'Invalid model type: {inp_data_dict.get("model_type")}')
-            exit()
+            raise CAInputError(f'Invalid model type: {inp_data_dict.get("model_type")}')
 
         if model_ext is not None:
             # generated_model_path names a model to run that is kept somewhere else, such as the
@@ -2686,8 +2676,7 @@ class YamlFileParser(object):
             if ScalarFloat is not None and isinstance(inp_data_dict['dt'], ScalarFloat):
                 inp_data_dict['dt'] = float(inp_data_dict['dt'])
             if type(inp_data_dict['dt']) != float:
-                print(f'dt must be a float, but is {type(inp_data_dict["dt"])}')
-                exit()
+                raise CAInputError(f'dt must be a float, but is {type(inp_data_dict["dt"])}')
             
         if 'pre_time' in inp_data_dict.keys():
             inp_data_dict['pre_time'] = inp_data_dict['pre_time']
@@ -2735,9 +2724,8 @@ class YamlFileParser(object):
             model_type = inp_data_dict.get('model_type')
             solver_name = SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type)
             if solver_name is None:
-                print(f'Invalid model type: {model_type}. Valid types: '
-                      f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
-                exit()
+                raise CAInputError(f'Invalid model type: {model_type}. Valid types: '
+                                   f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
         else:
             valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
@@ -2746,8 +2734,7 @@ class YamlFileParser(object):
                 solver_name not in valid_casadi_solvers and
                 solver_name not in valid_aadc_solvers and
                 solver_name not in valid_external_solvers):
-                print(f'Invalid solver: {solver_name}')
-                exit()
+                raise CAInputError(f'Invalid solver: {solver_name}')
         
 
         if 'solver_info' in inp_data_dict:
@@ -2814,9 +2801,8 @@ class YamlFileParser(object):
                 if solver_method is not None:
                     inp_data_dict['solver_info']['method'] = solver_method
                 else:
-                    print(f'solver {solver_name} not compatible with model_type cpp; use one of '
-                          f'{valid_cpp_solvers} in the user_inputs.yaml file')
-                    exit()
+                    raise CAInputError(f'solver {solver_name} not compatible with model_type cpp; use one of '
+                                       f'{valid_cpp_solvers} in the user_inputs.yaml file')
             elif solver_name in valid_external_solvers:
                 # There is no method to choose: the external class owns its scheme. The
                 # placeholder keeps solver_info the same shape as every other model_type's.
@@ -2845,64 +2831,56 @@ class YamlFileParser(object):
             and solver_name not in valid_casadi_solvers
             and solver_name not in valid_aadc_solvers
             and solver_name not in valid_external_solvers):
-            print(f'Invalid solver: {solver_name}')
-            print(f'Valid CellML solvers: {valid_cellml_solvers}')
-            print(f'Valid Python solvers: {valid_python_solvers}')
-            print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            print(f'Valid CasADi solvers: {valid_casadi_solvers}')
-            print(f'Valid AADC solvers: {valid_aadc_solvers}')
-            print(f'Valid external solvers: {valid_external_solvers}')
-            exit()
+            raise CAInputError(f'Invalid solver: {solver_name}\n'
+                               f'Valid CellML solvers: {valid_cellml_solvers}\n'
+                               f'Valid Python solvers: {valid_python_solvers}\n'
+                               f'Valid Cpp solvers: {valid_cpp_solvers}\n'
+                               f'Valid CasADi solvers: {valid_casadi_solvers}\n'
+                               f'Valid AADC solvers: {valid_aadc_solvers}\n'
+                               f'Valid external solvers: {valid_external_solvers}')
         
         
         # Validate solver-model compatibility
         # CellML and CasADi solvers cannot be used with Python models
         if inp_data_dict.get('model_type') == 'python' and solver_name not in valid_python_solvers:
-                print(f'Solver {solver_method} cannot be used with Python models (model_type="python")')
-                print(f'Use {valid_python_solvers} for Python models')
-                exit()
+            raise CAInputError(f'Solver {solver_method} cannot be used with Python models '
+                               f'(model_type="python"). Use {valid_python_solvers} for Python models')
 
         # solve_ivp methods can only be used with the libCellML-generated Python models
         if solver_method in valid_solve_ivp_methods:
             if inp_data_dict.get('model_type') not in ['python', None]:
-                print(f'solve_ivp method {solver_method} requires model_type to be "python"')
-                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
-                print(f'Use {valid_cpp_solvers} for Cpp models')
-                exit()
+                raise CAInputError(f'solve_ivp method {solver_method} requires model_type to be '
+                                   f'"python". Use CVODE_myokit or CVODE_libopencor for CellML '
+                                   f'models, {valid_cpp_solvers} for Cpp models')
 
         if solver_name in valid_cellml_solvers and solver_method not in _methods[solver_name]:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {_methods[solver_name]}')
-            exit()
+            raise CAInputError(f'solver method {solver_method} not compatible with solver {solver_name}, use {_methods[solver_name]}')
         
         if solver_name in valid_cpp_solvers and solver_method not in valid_cpp_methods:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_cpp_methods} for Cpp models')
-            exit()
+            raise CAInputError(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_cpp_methods} for Cpp models')
         if solver_name in valid_python_solvers and solver_method not in valid_solve_ivp_methods:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_solve_ivp_methods} for Python models')
-            exit()
+            raise CAInputError(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_solve_ivp_methods} for Python models')
 
         # CellML and Python solvers cannot be used with CasADi Python models
         if inp_data_dict.get('model_type') == 'casadi_python' and solver_name not in valid_casadi_solvers:
-                print(f'Solver {solver_method} cannot be used with CasADi Python models (model_type="casadi_python")')
-                print(f'Use {valid_casadi_solvers} for CasADi Python models')
-                exit()
+            raise CAInputError(f'Solver {solver_method} cannot be used with CasADi Python models '
+                               f'(model_type="casadi_python"). Use {valid_casadi_solvers} for '
+                               f'CasADi Python models')
 
         # AADC solvers can only be used with AADC Python models
         if inp_data_dict.get('model_type') == 'aadc_python' and solver_name not in valid_aadc_solvers:
-                print(f'Solver {solver_name} cannot be used with AADC Python models')
-                print(f'Use {valid_aadc_solvers} for AADC Python models')
-                exit()
+            raise CAInputError(f'Solver {solver_name} cannot be used with AADC Python models. '
+                               f'Use {valid_aadc_solvers} for AADC Python models')
 
         # The external solver wraps a user-supplied solver class, and nothing else can.
         if inp_data_dict.get('model_type') == 'external_python' and solver_name not in valid_external_solvers:
-                print(f'Solver {solver_name} cannot be used with external Python models (model_type="external_python")')
-                print(f'Use {valid_external_solvers} for external Python models')
-                exit()
+            raise CAInputError(f'Solver {solver_name} cannot be used with external Python models '
+                               f'(model_type="external_python"). Use {valid_external_solvers} '
+                               f'for external Python models')
         if solver_name in valid_external_solvers and inp_data_dict.get('model_type') != 'external_python':
-                print(f'Solver {solver_name} requires model_type to be "external_python"')
-                print('It wraps a user-supplied solver class that does its own time stepping '
-                      '(the class registered as SIM_HELPER in external_model_path)')
-                exit()
+            raise CAInputError(f'Solver {solver_name} requires model_type to be "external_python". '
+                               'It wraps a user-supplied solver class that does its own time '
+                               'stepping (the class registered as SIM_HELPER in external_model_path)')
 
         # CasADi solvers can only be used with CasADi Python models.
         # aadc_python is exempted here so that a stale config carrying the removed AADC
@@ -2911,16 +2889,14 @@ class YamlFileParser(object):
         # "requires model_type casadi_python" message.
         if solver_method in valid_casadi_solver_plugins:
             if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
-                print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
-                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
-                print(f'Use {valid_cpp_solvers} for Cpp models')
-                exit()
+                raise CAInputError(f'CasADi solver {solver_method} requires model_type to be '
+                                   f'"casadi_python". Use CVODE_myokit or CVODE_libopencor for '
+                                   f'CellML models, {valid_cpp_solvers} for Cpp models')
 
         try:
             validate_solver_info(solver_name, inp_data_dict['solver_info'])
         except ValueError as exc:
-            print(f'{exc}{solver_alias_note(inp_data_dict)}')
-            exit()
+            raise CAInputError(f'{exc}{solver_alias_note(inp_data_dict)}') from exc
 
         inp_data_dict.setdefault('DEBUG', False)
         if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
@@ -2935,8 +2911,7 @@ class YamlFileParser(object):
                 if not os.path.isabs(ext_dir):
                     ext_dir = os.path.join(user_files_dir, ext_dir)
                 if not os.path.exists(ext_dir):
-                    print(f'external_modules_dir={ext_dir} does not exist')
-                    exit()
+                    raise CAInputError(f'external_modules_dir={ext_dir} does not exist')
                 resolved.append(ext_dir)
             if isinstance(inp_data_dict['external_modules_dir'], (list, tuple)):
                 inp_data_dict['external_modules_dir'] = resolved
@@ -2950,8 +2925,7 @@ class YamlFileParser(object):
             if not os.path.isabs(library_dir):
                 library_dir = os.path.join(user_files_dir, library_dir)
             if not os.path.isdir(library_dir):
-                print(f'module_library_dirs entry {library_dir} does not exist')
-                exit()
+                raise CAInputError(f'module_library_dirs entry {library_dir} does not exist')
             module_library_dirs.append(library_dir)
         inp_data_dict['module_library_dirs'] = module_library_dirs or None
 
@@ -3507,14 +3481,13 @@ class JSONFileParser(object):
             module_type = vessel_tup.module_type
             module_subtype = vessel_tup.module_subtype
             if len(module_subtype) <1 or len(module_type) <1:
-                print('You have an empty entry in your module array, exiting')
-                exit()
+                raise CAInputError('You have an empty entry in your module array')
             this_vessel_module_df = module_df.loc[((module_df["module_type"] == module_type)
                                                    & (module_df["module_subtype"] == module_subtype))].squeeze()
             if this_vessel_module_df.empty:
-                print(f'combination of module_type = {module_type} and module_subtype = {module_subtype} doesn\'t exist, check module_config.json',
-                        'for this combination')
-                exit()
+                raise CAInputError(f'combination of module_type = {module_type} and module_subtype = '
+                                   f'{module_subtype} doesn\'t exist, check module_config.json for '
+                                   f'this combination')
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
                 val = this_vessel_module_df[column]
@@ -4424,20 +4397,17 @@ class ObsAndParamDataParser(object):
         if "experiment_colors" not in protocol or protocol["experiment_colors"] is None:
             protocol["experiment_colors"] = ['r'] * N_exp
         elif len(protocol["experiment_colors"]) != N_exp:
-            print('Error: experiment_colors length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_colors length does not match num_experiments')
             
         if "experiment_labels" not in protocol or protocol["experiment_labels"] is None:
             protocol["experiment_labels"] = [None] * N_exp
         elif len(protocol["experiment_labels"]) != N_exp:
-            print('Error: experiment_labels length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_labels length does not match num_experiments')
         
         if "experiment_ids" not in protocol or protocol["experiment_ids"] is None:
             protocol["experiment_ids"] = [None] * N_exp
         elif len(protocol["experiment_ids"]) != N_exp:
-            print('Error: experiment_ids length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_ids length does not match num_experiments')
 
         # --- Weight Mapping Initialization ---
         

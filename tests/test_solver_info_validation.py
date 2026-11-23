@@ -6,6 +6,7 @@ import warnings
 
 import pytest
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.parsers.PrimitiveParsers import (
     YamlFileParser,
     refuse_removed_user_inputs,
@@ -1686,8 +1687,8 @@ def test_a_key_of_another_solver_is_refused_with_a_hint_and_the_solvers_fields(
 
 
 @pytest.mark.unit
-def test_the_parser_refuses_a_key_of_another_solver(capsys):
-    with pytest.raises(SystemExit):
+def test_the_parser_refuses_a_key_of_another_solver():
+    with pytest.raises(CAInputError, match='use max_step instead of MaximumStep'):
         YamlFileParser().parse_user_inputs_file({
             'file_prefix': '3compartment',
             'input_param_file': '3compartment_parameters.json',
@@ -1696,7 +1697,6 @@ def test_the_parser_refuses_a_key_of_another_solver(capsys):
             'solver_info': {'MaximumStep': 0.0001, 'method': 'BDF'},
             'dt': 0.01, 'pre_time': 0.0, 'sim_time': 1.0,
         }, obs_path_needed=False)
-    assert 'use max_step instead of MaximumStep' in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -1718,9 +1718,9 @@ def test_a_cpp_config_with_dt_solver_parses(solver, tmp_path):
 
 
 @pytest.mark.unit
-def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path, capsys):
+def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path):
     """The C++ generator has no PETSC solver, so validation refuses it rather than generation."""
-    with pytest.raises(SystemExit):
+    with pytest.raises(CAInputError, match='Invalid solver: PETSC'):
         YamlFileParser().parse_user_inputs_file({
             'file_prefix': '3compartment',
             'input_param_file': '3compartment_parameters.json',
@@ -1729,7 +1729,6 @@ def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path, capsys):
             'solver_info': {'dt_solver': 1e-4},
             'generated_models_dir': str(tmp_path),
         }, obs_path_needed=False, do_generation_with_fit_parameters=False)
-    assert 'Invalid solver: PETSC' in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -1852,16 +1851,16 @@ def test_cvode_for_a_cellml_model_runs_as_cvode_myokit(tmp_path, capsys, top_lev
 
 
 @pytest.mark.unit
-def test_the_solver_info_error_names_the_cvode_shorthand(tmp_path, capsys):
-    with pytest.raises(SystemExit):
+def test_the_solver_info_error_names_the_cvode_shorthand(tmp_path):
+    with pytest.raises(CAInputError) as excinfo:
         YamlFileParser().parse_user_inputs_file(
             _cvode_inputs(tmp_path, solver_info={'solver': 'CVODE', 'dt_solver': 1e-4,
                                                  'MaximumNumberOfSteps': 100,
                                                  'not_a_key': 1}),
             obs_path_needed=False, do_generation_with_fit_parameters=False)
-    out = capsys.readouterr().out
-    assert "not supported by solver 'CVODE_myokit'" in out
-    assert "solver 'CVODE' was read as 'CVODE_myokit' for this cellml model" in out
+    message = str(excinfo.value)
+    assert "not supported by solver 'CVODE_myokit'" in message
+    assert "solver 'CVODE' was read as 'CVODE_myokit' for this cellml model" in message
 
 
 @pytest.mark.unit

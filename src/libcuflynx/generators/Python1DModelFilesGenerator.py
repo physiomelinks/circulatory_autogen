@@ -11,9 +11,10 @@ import json
 import csv
 import pandas as pd
 import os
-import sys
 import copy
 from configparser import ConfigParser
+
+from libcuflynx.errors import CAInputError
 
 
 def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_file, conn_1d_0d_info):
@@ -87,9 +88,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         if len(idxParam)==1:
             vess[i]['type'] = int(float(df_params.at[idxParam[0],"value"]))
             if vess[i]['type'] not in (0, 1):
-                sys.exit(f"Parameter {nameP} must be 1 (artery) or 0 (vein), got {vess[i]['type']}.")
+                raise CAInputError(f"Parameter {nameP} must be 1 (artery) or 0 (vein), got {vess[i]['type']}.")
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
         elif nameV.startswith(("A_","a_")) or any(sub in nameV for sub in ("art", "Art", "aort", "Aort")):
             vess[i]['type'] = 1 # artery
         elif nameV.startswith(("V_","v_")) or any(sub in nameV for sub in ("ven", "Ven", "vein", "Vein")):
@@ -97,8 +98,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         else:
             # An undetermined type (-1) used to be written to the vessel file, and the 1D solver
             # then stopped with "undetermined art/ven type" at run time.
-            sys.exit(f"Artery/vein type couldn't be determined for 1D vessel {nameV}: add parameter "
-                     f"global/{nameP} (1 = artery, 0 = vein, units dimensionless) to the parameters file.")
+            raise CAInputError(f"Artery/vein type couldn't be determined for 1D vessel {nameV}: add parameter "
+                               f"global/{nameP} (1 = artery, 0 = vein, units dimensionless) to the parameters file.")
 
 
         nameP = "l_"+nameV
@@ -106,9 +107,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         if len(idxParam)==1:
             vess[i]['len'] = float(df_params.at[idxParam[0],"value"])*convLen
         elif len(idxParam)==0:
-            sys.exit(f"Parameter {nameP} not found in parameters dataframe.")
+            raise CAInputError(f"Parameter {nameP} not found in parameters dataframe.")
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
         nameP = "rProx_0_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
@@ -119,16 +120,16 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 vess[i]['r_prox'] = float(df_params.at[idxParam[0],"value"])*convLen
                 vess[i]['r_dist'] = float(df_params.at[idxParam2[0],"value"])*convLen
             elif len(idxParam2)==0:
-                sys.exit(f"Parameter {nameP} found in parameters dataframe, but not parameter {nameP2}. They should go in pair.")
+                raise CAInputError(f"Parameter {nameP} found in parameters dataframe, but not parameter {nameP2}. They should go in pair.")
             elif len(idxParam2)>1:
-                sys.exit(f"Multiple matches for parameter {nameP2} found in parameters dataframe.")
+                raise CAInputError(f"Multiple matches for parameter {nameP2} found in parameters dataframe.")
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
         elif len(idxParam)==0:
             if len(idxParam2)==1:
-                sys.exit(f"Parameter {nameP2} found in parameters dataframe, but not parameter {nameP}. They should go in pair.")
+                raise CAInputError(f"Parameter {nameP2} found in parameters dataframe, but not parameter {nameP}. They should go in pair.")
             elif len(idxParam2)>1:
-                sys.exit(f"Parameter {nameP2} found in parameters dataframe (with multiple matches), but not parameter {nameP}. They should go in pair and be unique.")
+                raise CAInputError(f"Parameter {nameP2} found in parameters dataframe (with multiple matches), but not parameter {nameP}. They should go in pair and be unique.")
             elif len(idxParam2)==0:
                 nameP0 = "r_0_"+nameV
                 print(f"Parameters {nameP} and {nameP2} not found in parameters dataframe. Searching for {nameP0}.")
@@ -137,9 +138,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                     vess[i]['r_prox'] = float(df_params.at[idxParam0[0],"value"])*convLen
                     vess[i]['r_dist'] = float(df_params.at[idxParam0[0],"value"])*convLen
                 elif len(idxParam0)==0:
-                    sys.exit(f"Parameter {nameP0} not found in parameters dataframe.")
+                    raise CAInputError(f"Parameter {nameP0} not found in parameters dataframe.")
                 elif len(idxParam0)>1:
-                    sys.exit(f"Multiple matches for parameter {nameP0} found in parameters dataframe.")
+                    raise CAInputError(f"Multiple matches for parameter {nameP0} found in parameters dataframe.")
 
         nameP = "E_K_tube_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
@@ -155,9 +156,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning default value.")
                 vess[i]['Ee'] = EeRef*convP
             elif len(idxParam2)>1:
-                sys.exit(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
+                raise CAInputError(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
         nameP = "K_m_K_tube_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
@@ -173,9 +174,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning default value.")
                 vess[i]['Km'] = 0.0
             elif len(idxParam2)>1:
-                sys.exit(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
+                raise CAInputError(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
         nameP = "u_0_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
@@ -185,7 +186,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
             print(f"Parameter {nameP} not found in parameters dataframe. Assigning default value.")
             vess[i]['P0'] = 0.0
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
         nameP = "u_ext_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
@@ -195,7 +196,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
             print(f"Parameter {nameP} not found in parameters dataframe. Assigning default value.")
             vess[i]['Pext'] = 0.0
         elif len(idxParam)>1:
-            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+            raise CAInputError(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
 
     # for i in range(nV):
