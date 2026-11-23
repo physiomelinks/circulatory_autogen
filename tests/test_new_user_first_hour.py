@@ -164,7 +164,7 @@ def test_a_key_the_parser_derives_is_not_refused():
 
 @pytest.mark.unit
 @pytest.mark.parametrize('key', ['num_calls_to_function', 'cost_convergence', 'num_elite',
-                                 'sigma0', 'num_starts'])
+                                 'max_patience', 'num_starts'])
 def test_an_optimiser_option_at_the_top_level_is_pointed_to_optimiser_options(key):
     assert unknown_user_inputs_keys({key: 100}) == {key: 'optimiser_options'}
     with pytest.raises(UserInputsError, match=f"'{key}'.*an optimiser option: put it under "
