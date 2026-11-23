@@ -178,6 +178,27 @@ def _load_progress(run_dir, step_id, result):
     return progress
 
 
+@input_kind('fit_errors', ('calibration',),
+            'the best fit\'s error per data_item, which a calibration writes when it ends '
+            '(param_id.plot_outputs.ERROR_VEC_FILES): names, percent_error (100 (model - '
+            'data) / data), std_error ((model - data) / std; a series: averaged over its '
+            'points), data_references, in obs_data order')
+def _load_fit_errors(run_dir, step_id, result):
+    from libcuflynx.param_id.plot_outputs import ERROR_VEC_FILES
+    output_dir = result.get('param_id_output_dir') or ''
+    loaded = {}
+    for key, name in ERROR_VEC_FILES.items():
+        path = os.path.join(output_dir, name)
+        if not os.path.isfile(path):
+            raise WorkflowError(
+                f'step "{step_id}" has no best-fit errors to read ({path}): run the step again '
+                f'with this libcuflynx, or write them for its best fit with '
+                f'CVS0DParamID.save_best_fit_errors().')
+        values = np.load(path, allow_pickle=True)
+        loaded[key] = [str(v) for v in values] if values.dtype.kind in 'OUS' else values
+    return loaded
+
+
 @input_kind('mcmc_chain', ('calibration',),
             'a calibration\'s MCMC chain (do_uq, store_distribution): chain, an array (steps, '
             'walkers, parameters) cut to the draws every walker reached; param_labels; and '

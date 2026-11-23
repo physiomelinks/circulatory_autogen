@@ -80,13 +80,30 @@ next release; add to that section as you land a change.
   runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
   parameters are unchanged. The start value is still the first point evaluated, so a search
   started at a known optimum (a profile likelihood point) never returns a worse cost.
+### Changed — a calibration writes its best fit's error per observable when it ends
+
+- `CVS0DParamID.run()` ends by simulating once at the best fit and saving `percent_error_vec.npy`,
+  `std_error_vec.npy`, `error_vec_names.npy` and `error_vec_data_references.npy`
+  (`plot_outputs.ERROR_VEC_FILES`) in its output directory, with no figure. These were written
+  only by `plot_outputs` (`cuflynx-plot`). One extra simulation per calibration; a failure to
+  write them is a warning, not a failed calibration.
+- A calibration interrupted (Ctrl-C, `KeyboardInterrupt`) writes them for its best fit so far
+  (`best_param_vals.npy`, which the optimisers keep current). A run that is killed writes none:
+  `CVS0DParamID.save_best_fit_errors()`, on an object built from the same inputs, writes them
+  afterwards from its `best_param_vals.npy`.
+- A run removes the last run's error files when it starts, so they always belong to the
+  `best_param_vals.npy` beside them.
+- `ParamIDPlotOutputs.plot_reconstruction_pages(..., save_figures=False)` computes the vectors
+  without saving a figure; its label checks, which stopped the process, apply only when it saves.
+
 ### Added — figure and simulate steps in a calibration workflow; `external_figures` is refused
 
 - **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
-  `params_for_id`, `sensitivity`, `progress`, `emulator_validation`, `distribution`, `laplace`,
-  `reduction`, `mcmc_chain`, `validation`, `posterior_predictive`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
+  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `emulator_validation`,
+  `distribution`, `laplace`, `reduction`, `mcmc_chain`, `validation`,
+  `posterior_predictive`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
   helpers the script reads. A run draws every figure step that is out of date (its script, files
   or declaration changed, or a step it reads ran again) and whose inputs are current, whatever
@@ -114,9 +131,11 @@ next release; add to that section as you land a change.
   `mcmc_diagnostics` (each walker's trace, running mean and autocorrelation, from the
   `mcmc_chain` input: a calibration's MCMC chain),
   `emulator_validation` (parity and residual plots at an emulation step's held-out points),
-  `posterior`, `laplace` and `posterior_predictive` (a uq step's check: each scalar
-  observable's model intervals in noise stds from its data, titled with the coverage, and the
-  kept traces against the recorded ones). A `sensitivity` input also carries `local` (a local analysis's
+  `fit_errors` (the best fit's error per data_item, in percent and in noise stds, from a
+  calibration step's `fit_errors` input), `posterior`, `laplace` and
+  `posterior_predictive` (a uq step's check: each scalar observable's model intervals
+  in noise stds from its data, titled with the coverage, and the kept traces against
+  the recorded ones). A `sensitivity` input also carries `local` (a local analysis's
   relative and absolute sensitivities), and a `reduction` input is a reduction step's report
   with its PCA modes.
   `figures.write_standard_figures(<dir>)` copies it beside a workflow, where figure steps name
