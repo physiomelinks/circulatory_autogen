@@ -34,8 +34,7 @@ class Normalise_class:
                  (self.param_maxs.reshape(-1, 1) - self.param_mins.reshape(-1, 1))).reshape(x.shape[0], x.shape[1],
                                                                                             x.shape[2])
         else:
-            print('normalising not set up for xDim = {}, exiting'.format(xDim))
-            exit()
+            raise ValueError(f'normalising not set up for xDim = {xDim}')
 
         return y
 
@@ -49,8 +48,7 @@ class Normalise_class:
             y = (x.reshape(x.shape[0], -1)*(self.param_maxs.reshape(-1, 1) - self.param_mins.reshape(-1, 1)) +
                  self.param_mins.reshape(-1, 1)).reshape(x.shape[0], x.shape[1], x.shape[2])
         else:
-            print('normalising not set up for xDim = {}, exiting'.format(xDim))
-            exit()
+            raise ValueError(f'normalising not set up for xDim = {xDim}')
         return y
 
 

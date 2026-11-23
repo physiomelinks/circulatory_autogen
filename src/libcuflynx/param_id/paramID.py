@@ -6,10 +6,10 @@ import contextlib
 import numpy as np
 import os
 import sys
-from sys import exit
 import math as math
 import time
 import matplotlib
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
@@ -2501,9 +2501,8 @@ class ParamID():
             # multi-modal cost surface doesn't trap us in the basin of the initial params.
             return MultiStartSciPyMinimizeOptimiser(*args, **kwargs, do_ad=self.do_ad,
                                                     model_type=self.model_type)
-        print(f"param_id_method '{method}' is not implemented. Valid options: "
-              f"{list(PARAM_ID_METHODS.keys())}")
-        exit()
+        raise CAInputError(f"param_id_method '{method}' is not implemented. Valid options: "
+                           f"{list(PARAM_ID_METHODS.keys())}")
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -3169,8 +3168,7 @@ class ParamID():
         #     cost = np.sum(np.abs(updated_weight_const_vec*(const -
         #                                                   self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"]))
         # else:
-        #     print(f'cost type of {self.cost_type} not implemented')
-        #     exit()
+        #     raise CAInputError(f'cost type of {self.cost_type} not implemented')
         cost = 0.0
         if const is not None:
             for const_idx in range(len(const)):
@@ -3993,8 +3991,7 @@ A caller that steps through the segments in order does so inside
                 'produce -- it predicts the scalar data_item features only. Re-run with '
                 'use_emulator: false to simulate, plot or save outputs.')
         if MPI.COMM_WORLD.Get_rank() != 0:
-            print('simulate once should only be done on one rank')
-            exit()
+            raise RuntimeError('simulate_once should only be done on rank 0')
         else:
             # The sim object has already been opened so the best cost doesn't need to be opened
             pass
@@ -4086,8 +4083,8 @@ A caller that steps through the segments in order does so inside
 
     def set_bayesian_parameters(self, n_calls, n_initial_points, acq_func, random_state, acq_func_kwargs={}):
         if not self.param_id_method == 'bayesian':
-            print('param_id is not set up as a bayesian optimization process')
-            exit()
+            raise RuntimeError('set_bayesian_parameters needs param_id_method: bayesian, not '
+                               f'{self.param_id_method}')
         self.optimiser_options['num_calls_to_function'] = n_calls
         self.n_initial_points = n_initial_points
         self.acq_func = acq_func  # the acquisition function

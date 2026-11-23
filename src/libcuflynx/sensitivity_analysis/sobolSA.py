@@ -7,7 +7,6 @@ import json
 import os
 import re
 import sys
-from sys import exit
 
 
 def sanitize_for_filename(name):

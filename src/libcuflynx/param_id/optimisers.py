@@ -11,6 +11,7 @@ import numpy as np
 # on macOS when a NIC goes away (#396). get_MPI hands back the real
 # mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
 # stub otherwise, so a serial run never opens MPI at all.
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
@@ -307,12 +308,12 @@ class GeneticAlgorithmOptimiser(Optimiser):
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
         if self.optimiser_options['num_calls_to_function'] < num_pop:
-            print(f'Number of calls (n_calls={self.optimiser_options["num_calls_to_function"]}) must be greater than the '
-                  f'gen alg population (num_pop={num_pop}), exiting')
-            exit()
+            raise CAInputError(
+                f'Number of calls (n_calls={self.optimiser_options["num_calls_to_function"]}) must '
+                f'be greater than the gen alg population (num_pop={num_pop})')
         if num_procs > num_pop:
-            print(f'Number of processors must be less than number of population, exiting')
-            exit()
+            raise CAInputError(f'Number of processors ({num_procs}) must be less than the gen alg '
+                               f'population (num_pop={num_pop})')
         
         self.max_generations = math.floor(self.optimiser_options['num_calls_to_function']/num_pop)
         

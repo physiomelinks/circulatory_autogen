@@ -16,6 +16,12 @@ next release; add to that section as you land a change.
 - The model checks run during generation (`checks/LumpedModelChecks.py`: a module type/subtype the
   library lacks, a port variable the module does not have, a calibrated parameter missing from the
   parameters file) raise `CAInputError` too.
+- So do calibration and sensitivity analysis on bad settings: an unknown `param_id_method` or
+  sensitivity `method`, a genetic-algorithm population larger than `num_calls_to_function` or
+  smaller than the MPI rank count, bad `multimodal_gaussian` `prob_dist_params`, an obs_data
+  `plot_type` or plot name that cannot be drawn, and a sensitivity data item with more than one
+  operand. Calling these objects out of order (SA before its data is set, `simulate_once` off rank
+  0, `set_bayesian_parameters` on a non-bayesian run) raises `RuntimeError`.
 - The console commands still exit non-zero, printing the traceback with the message.
 - Code that caught `SystemExit` from these modules catches `CAInputError` instead. A calibration
   workflow step reports the message in its `WorkflowStepError`.
