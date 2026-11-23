@@ -263,6 +263,54 @@ def test_obs_reducers_cover_the_shipped_operations():
 
 
 @pytest.mark.unit
+def test_the_3compartment_synthetic_obs_data_keeps_the_template_form(tmp_path, monkeypatch):
+    """The synthetic obs_data is the shipped template with each data_item's value replaced by
+    the model's: its protocol_info stays, so the obs_data reader accepts it, and each std keeps
+    its fraction of the value. The simulation is a stub returning a known trace."""
+    import libcuflynx.solver_wrappers as solver_wrappers
+    from benchmarks.benchmark_specs import (THREE_COMPARTMENT_TRUE_PARAMS,
+                                            _write_three_compartment_synthetic_obs)
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+
+    trace = np.array([2.0, 6.0, 4.0])
+
+    class _Sim:
+        def set_param_vals(self, names, values):
+            pass
+
+        def reset_states(self):
+            pass
+
+        def run(self):
+            return True
+
+        def get_results(self, names, flatten=True):
+            return [trace]
+
+        def close_simulation(self):
+            pass
+
+    monkeypatch.setattr(solver_wrappers, 'get_simulation_helper', lambda **kwargs: _Sim())
+    template = os.path.join(ROOT, 'resources', '3compartment_obs_data.json')
+    out = str(tmp_path / 'synthetic_obs_data.json')
+    config = {'model_type': 'cellml', 'solver': 'CVODE_myokit', 'dt': 0.01, 'sim_time': 1.0,
+              'pre_time': 0.0}
+    assert _write_three_compartment_synthetic_obs(config, 'model.cellml', template, out) is \
+        THREE_COMPARTMENT_TRUE_PARAMS
+    with open(template) as f:
+        original = json.load(f)
+    with open(out) as f:
+        written = json.load(f)
+    assert written['protocol_info'] == original['protocol_info']
+    assert len(written['data_items']) == len(original['data_items'])
+    expected = {'mean': 4.0, 'max': 6.0, 'min': 2.0, 'max_minus_min': 4.0}
+    for old, new in zip(original['data_items'], written['data_items']):
+        assert new['value'] == pytest.approx(expected[old['operation']])
+        assert new['std'] / new['value'] == pytest.approx(old['std'] / old['value'])
+    ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=out)
+
+
+@pytest.mark.unit
 def test_every_benchmark_reports_relative_parameter_error():
     """The max param err column must mean the same thing in every row.
 
