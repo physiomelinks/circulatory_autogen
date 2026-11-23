@@ -1,0 +1,133 @@
+{
+ "names": [
+  "global/q_lv_init",
+  "aortic_root/C",
+  "global/E_lv_A",
+  "global/E_lv_B"
+ ],
+ "bounds": [
+  [
+   0.0002,
+   0.0015
+  ],
+  [
+   1e-09,
+   5e-08
+  ],
+  [
+   100000000.0,
+   500000000.0
+  ],
+  [
+   1000000.0,
+   50000000.0
+  ]
+ ],
+ "num_samples": 64,
+ "sample_type": "saltelli",
+ "calc_second_order": true,
+ "failed_samples": 0,
+ "outputs": [
+  {
+   "output": "v_{AR} (mean) (Exp0, Sub0)",
+   "kind": "data_item",
+   "std": 1e-05,
+   "weight": 1.0
+  },
+  {
+   "output": "v_{AR} (max) (Exp0, Sub0)",
+   "kind": "data_item",
+   "std": 5e-05,
+   "weight": 1.0
+  },
+  {
+   "output": "q_{lv} (max_minus_min) (Exp0, Sub0)",
+   "kind": "data_item",
+   "std": 5e-05,
+   "weight": 2.0
+  },
+  {
+   "output": "u_{AR} (max) (Exp0, Sub0)",
+   "kind": "data_item",
+   "std": 1600.0,
+   "weight": 5.0
+  },
+  {
+   "output": "u_{AR} (min) (Exp0, Sub0)",
+   "kind": "data_item",
+   "std": 1050.0,
+   "weight": 5.0
+  }
+ ],
+ "local_jacobian": {
+  "jacobian_points": 8,
+  "jacobian_location": "base_points",
+  "jacobian_scheme": "central",
+  "jacobian_step": 0.01,
+  "jacobian_check_steps": false,
+  "points": [
+   0,
+   10,
+   20,
+   30,
+   40,
+   50,
+   60,
+   70
+  ],
+  "bases": [
+   [
+    0.00023046875000000001,
+    2.0523437499999997e-08,
+    428125000.0,
+    41960937.5
+   ],
+   [
+    0.00088046875,
+    4.50234375e-08,
+    228125000.0,
+    17460937.5
+   ],
+   [
+    0.00120546875,
+    8.2734375e-09,
+    328125000.0,
+    29710937.5
+   ],
+   [
+    0.00055546875,
+    3.27734375e-08,
+    128125000.0,
+    5210937.5
+   ],
+   [
+    0.00071796875,
+    2.1484375e-09,
+    278125000.0,
+    11335937.5
+   ],
+   [
+    0.00136796875,
+    2.6648437499999997e-08,
+    478125000.0,
+    35835937.5
+   ],
+   [
+    0.00104296875,
+    1.43984375e-08,
+    178125000.0,
+    23585937.5
+   ],
+   [
+    0.00039296875,
+    3.88984375e-08,
+    378125000.0,
+    48085937.5
+   ]
+  ],
+  "steps": [
+   0.01
+  ],
+  "failed_points": []
+ }
+}

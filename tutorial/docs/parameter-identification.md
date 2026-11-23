@@ -912,12 +912,12 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 - **optimiser_options**: Dictionary for optimizer-specific options. Common options shared across optimisers:
     - **num_calls_to_function**: Maximum number of function evaluations (default: 10000)
     - **cost_convergence**: Convergence tolerance for cost (default: 0.0001)
-    - **max_patience**: Maximum patience for convergence (default: 10)
+    - **max_patience**: Stop after this many generations without an improvement in cost (default: 10). For CMA-ES a generation is one population of candidates (4 for two bounded parameters, and at least the MPI rank count + 1), on any number of ranks
     - **cost_type**: Cost function type (e.g., 'MSE')
   
     CMA-ES specific options:
 
-    - **sigma0**: Initial standard deviation for CMA-ES (optional, default: 0.2 of parameter range)
+    - **sigma0**: not applied: Nevergrad's CMA-ES picks the initial step itself, in a space scaled per parameter to (max - min) / 6, and a run given `sigma0` says so
     - Note: 
         - The number of parallel workers is automatically determined from the number of MPI processes
         - Initial parameter values are automatically loaded from `{file_prefix}_parameters.json`
@@ -972,7 +972,6 @@ param_id_method: CMA-ES
 optimiser_options:
   num_calls_to_function: 10000  # shared option
   cost_convergence: 0.001         # shared option
-  sigma0: 0.1                      # CMA-ES specific (optional, initial standard deviation)
   # Note: Initial parameter values are automatically loaded from {file_prefix}_parameters.json
 ```
 
