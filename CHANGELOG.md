@@ -5,6 +5,19 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — casadi_python uses CVODE_myokit's output times when dt does not divide the run
+
+- When `dt` did not divide `sim_time` (or `pre_time`), `casadi_python` stepped at exactly `dt`
+  and reported one more point than `CVODE_myokit`, ending past `sim_time` (138 points ending at
+  1.0001 s for `dt: 0.0073`, `sim_time: 1`). It now takes Myokit's grid: `int(sim_time/dt)`
+  steps spanning exactly `sim_time`, after `pre_time` run in full in `int(pre_time/dt)` steps
+  (at least one). Those steps are slightly longer than `dt`. The two backends now give the same
+  times sample by sample.
+- **casadi_python results change** where `dt` does not divide `sim_time` or `pre_time`: the
+  samples move to Myokit's times, and a `pre_time` shorter than `dt` is now run. Where `dt`
+  divides both, results are unchanged.
+- The python, aadc_python and external_python helpers still step at exactly `dt` on such grids.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
