@@ -21,6 +21,8 @@ sobol_indices       S1 and ST per output, and a heatmap of ST                sen
                                                                              sensitivity
 calibration_        the best cost and each normalised parameter per          progress: progress
 progress            generation (per iteration of each start)
+emulator_           the emulator against the simulator at its held-out       emulator:
+validation          points, and the residuals against each parameter        emulator_validation
 posterior           a histogram per parameter, its mean and 5-95% band       distribution:
                                                                              distribution
 laplace             the normal density of each parameter over +-4 std        laplace: laplace
@@ -298,6 +300,61 @@ def calibration_progress(progress, out_dir):
     return paths
 
 
+def emulator_validation(emulator, out_dir):
+    '''``emulator_parity.png``: per feature, the emulator's prediction against the simulated
+    value at each held-out point, on a shared range with the y = x line, titled with the R2 and
+    NRMSE; and ``emulator_residuals_<feature>.png``: per feature, the normalised residual
+    (prediction - truth) / truth against each parameter (divided by the range of the truths
+    when a truth is 0, and raw when that range is 0 too), symmetric about 0.'''
+    theta, y_true, y_pred = emulator['theta'], emulator['y_true'], emulator['y_pred']
+    features, parameters = emulator['feature_labels'], emulator['param_entry_labels']
+    if not len(theta):
+        raise ValueError('the emulator saved no held-out points.')
+    plt = _pyplot()
+    figure, axes = _grid(len(features), width=3.0, height=3.0)
+    for f, (ax, feature) in enumerate(zip(axes, features)):
+        true, pred = y_true[:, f], y_pred[:, f]
+        low, high = min(true.min(), pred.min()), max(true.max(), pred.max())
+        pad = 0.05 * (high - low or abs(high) or 1.0)
+        ax.plot([low - pad, high + pad], [low - pad, high + pad], color='0.6', linestyle='--',
+                linewidth=1)
+        ax.scatter(true, pred, s=9, color=PALETTE[0], alpha=0.75)
+        ax.set_xlim(low - pad, high + pad)
+        ax.set_ylim(low - pad, high + pad)
+        ax.set_aspect('equal')
+        ax.set_xlabel('simulated', fontsize=8)
+        ax.set_ylabel('emulator', fontsize=8)
+        ax.tick_params(labelsize=7)
+        scores = [f'{name} {values[f]:.3g}'
+                  for name, values in (('R2', emulator.get('feature_r2')),
+                                       ('NRMSE', emulator.get('feature_nrmse')))
+                  if values is not None and f < len(values) and values[f] is not None]
+        ax.set_title(feature + (f'\n{", ".join(scores)}' if scores else ''), fontsize=8)
+    figure.tight_layout()
+    paths = [_save(figure, out_dir, 'emulator_parity.png')]
+    for f, feature in enumerate(features):
+        true, residual = y_true[:, f], y_pred[:, f] - y_true[:, f]
+        if np.all(true != 0):
+            normalised, label = residual / true, '(emulator - simulated) / simulated'
+        elif np.ptp(true) > 0:
+            normalised, label = residual / np.ptp(true), '(emulator - simulated) / range'
+        else:
+            normalised, label = residual, 'emulator - simulated'
+        limit = float(np.max(np.abs(normalised))) or 1.0
+        figure, axes = _grid(len(parameters))
+        for p, (ax, parameter) in enumerate(zip(axes, parameters)):
+            ax.axhline(0.0, color='0.6', linestyle='--', linewidth=1)
+            ax.scatter(theta[:, p], normalised, s=9, color=PALETTE[0], alpha=0.75)
+            ax.set_ylim(-1.05 * limit, 1.05 * limit)
+            ax.set_xlabel(parameter, fontsize=8)
+            ax.tick_params(labelsize=7)
+        axes[0].set_ylabel(label, fontsize=7)
+        figure.suptitle(feature, fontsize=10)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, f'emulator_residuals_{_stem(feature)}.png'))
+    return paths
+
+
 def _shade(colour, n, count):
     '''``colour`` lightened toward white by up to 60% as ``n`` goes from 0 to ``count - 1``.'''
     from matplotlib.colors import to_rgb
@@ -331,7 +388,7 @@ def laplace(laplace, out_dir):
 
 
 FIGURES = [sweep_traces, sweep_features, prediction_plots, sobol_indices, calibration_progress,
-           posterior, laplace]
+           emulator_validation, posterior, laplace]
 
 
 def main(argv=None):

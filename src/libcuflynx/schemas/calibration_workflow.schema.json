@@ -1312,6 +1312,7 @@
           "sweep",
           "values",
           "progress",
+          "emulator_validation",
           "obs_data",
           "params_for_id",
           "sensitivity",
