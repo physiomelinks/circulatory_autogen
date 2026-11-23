@@ -28,7 +28,9 @@ pca_modes           per PCA mode its feature loadings and the ST of each     red
                     parameter, and a heatmap of ST per mode                  reduction
 calibration_        the best cost and each normalised parameter per          progress: progress
 progress            generation (per iteration of each start)
-mcmc_diagnostics    each walker's trace, running mean and autocorrelation    chain: mcmc_chain
+fit_errors          the best fit's error per data_item, in percent and in    errors: fit_errors
+                    noise stds
+mcmc_diagnostics   each walker's trace, running mean and autocorrelation    chain: mcmc_chain
 emulator_           the emulator against the simulator at its held-out       emulator:
 validation          points, and the residuals against each parameter        emulator_validation
 posterior           a histogram per parameter, its mean and 5-95% band       distribution:
@@ -673,9 +675,49 @@ def laplace(laplace, out_dir):
     return [_save(figure, out_dir, 'laplace.png')]
 
 
+def fit_errors(errors, out_dir):
+    '''The best fit's error per data_item, from a calibration step: ``fit_errors.csv`` (name,
+    percent and std error, data_reference); ``fit_percent_error.png``, a bar per item of
+    100 (model - data) / data; and ``fit_std_error.png``, a bar per item in noise stds, over
+    the +-1 and +-2 std bands.'''
+    import csv
+    names = list(errors['names'])
+    percent = np.asarray(errors['percent_error'], dtype=float)
+    std = np.asarray(errors['std_error'], dtype=float)
+    if not names:
+        raise ValueError('the calibration scored no data_item.')
+    references = list(errors.get('data_references') or [''] * len(names))
+    paths = [os.path.join(out_dir, 'fit_errors.csv')]
+    with open(paths[0], 'w', newline='') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(('data_item', 'percent_error', 'std_error', 'data_reference'))
+        for row in zip(names, percent, std, references):
+            writer.writerow([row[0], f'{row[1]:.6g}', f'{row[2]:.6g}', row[3]])
+    plt = _pyplot()
+    rows = np.arange(len(names))[::-1]
+    height = max(2.4, 1.0 + 0.3 * len(names))
+    for values, name, label, bands in (
+            (percent, 'fit_percent_error.png', 'error [%]: 100 (model - data) / data', ()),
+            (std, 'fit_std_error.png', 'error [noise stds]: (model - data) / std', (2, 1))):
+        figure, ax = plt.subplots(figsize=(6.0, height))
+        for n, band in enumerate(bands):
+            ax.axvspan(-band, band, color=str(0.92 - 0.06 * n), linewidth=0)
+        ax.axvline(0, color='0.5', linewidth=1)
+        colours = [PALETTE[0] if not bands or abs(v) <= 2 else PALETTE[1] for v in values]
+        ax.barh(rows, values, color=colours, height=0.6)
+        ax.set_yticks(rows)
+        ax.set_yticklabels(names, fontsize=7)
+        ax.set_ylim(-0.7, len(names) - 0.3)
+        ax.set_xlabel(label, fontsize=8)
+        ax.tick_params(axis='x', labelsize=7)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, name))
+    return paths
+
+
 FIGURES = [sweep_traces, sweep_features, prediction_plots, validation, protocol_inputs,
            sobol_indices,
-           local_sensitivity, pca_modes, calibration_progress, mcmc_diagnostics,
+           local_sensitivity, pca_modes, calibration_progress, fit_errors, mcmc_diagnostics,
            emulator_validation, posterior, laplace]
 
 

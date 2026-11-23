@@ -18,6 +18,14 @@ from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labe
                                                     obs_trace_labels, obs_item_references,
                                                     data_reference_line)
 
+#: The best fit's error per observable, in a calibration's output directory: percent and
+#: noise-std error, and each observable's name and data_reference in the same order. A
+#: calibration writes them when it ends (CVS0DParamID.save_best_fit_errors) and removes them
+#: when it starts.
+ERROR_VEC_FILES = {'percent_error': 'percent_error_vec.npy', 'std_error': 'std_error_vec.npy',
+                   'names': 'error_vec_names.npy',
+                   'data_references': 'error_vec_data_references.npy'}
+
 
 def distribution_reference_lines(prob_dist_params):
     """Horizontal reference values summarising a distribution ground truth, as (value, label).
@@ -128,6 +136,23 @@ class ParamIDPlotOutputs:
         self.print_observable_errors(
             phase, percent_error_vec, phase_error_vec
         )
+
+    def save_best_fit_errors(self) -> None:
+        """Simulate once at ``param_id.best_param_vals`` and save the error vectors
+        (ERROR_VEC_FILES) without drawing a figure: what a calibration writes when it ends."""
+        if getattr(self.client.param_id, "emulates_features", False):
+            percent_error_vec, std_error_vec = self.emulator_error_vectors()
+        else:
+            list_of_obs_dicts, list_of_all_series = self._fetch_best_fit_data()
+            tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count = (
+                self._compute_subexperiment_time_axes()
+            )
+            percent_error_vec, std_error_vec, _ = self.plot_reconstruction_pages(
+                self._uses_phase(), list_of_obs_dicts, list_of_all_series,
+                tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count,
+                save_figures=False,
+            )
+        self.save_error_vectors(percent_error_vec, std_error_vec)
 
     def save_emulator_outputs(self) -> None:
         """Error vectors and error-bar pages for a run that used an emulator.
@@ -278,12 +303,14 @@ class ParamIDPlotOutputs:
         tSim_per_sub_count,
         sim_time_tot_per_exp,
         n_steps_per_sub_count,
+        save_figures=True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Produce ``reconstruct_*`` and optional ``phase_reconstruct_*`` figures;
         accumulate percent / std / phase error vectors.
 
         Each unique (observable, experiment) corresponds to one saved reconstruction file.
+        ``save_figures=False`` computes the error vectors and saves no figure.
         """
         m3_to_cm3 = 1e6
         Pa_to_kPa = 1e-3
@@ -383,7 +410,7 @@ class ParamIDPlotOutputs:
                 # grouping cannot disagree -- an item whose trace name is empty would
                 # otherwise be grouped under its item name and labelled '$$'.
                 obs_name_for_plot = group_keys[II]
-                if obs_name_for_plot.count("_") > 1:
+                if save_figures and obs_name_for_plot.count("_") > 1:
                     print(
                         f'obs_data variable "{obs_name_for_plot}" has too many underscores',
                         'for plotting a label. Include a "trace_name_for_plotting" key in ',
@@ -580,7 +607,7 @@ class ParamIDPlotOutputs:
                         "nan",
                     ):
                         pass
-                    else:
+                    elif save_figures:
                         print(
                             f'plot_type for {obs_item_names(obs_info)[II]} '
                             f"of {obs_info['plot_type'][II]} is not recognised",
@@ -732,20 +759,21 @@ class ParamIDPlotOutputs:
             axs.legend(fontsize=10)
             if phase:
                 axs_phase.legend(loc="upper right", fontsize=10)
-            fig.tight_layout()
-            if phase:
-                fig_phase.tight_layout()
-            self._save_reconstruction_figure_bundle(
-                plot_dir,
-                prefix,
-                obs_stub,
-                plot_idx,
-                fig,
-                axs,
-                fig_phase,
-                axs_phase,
-                phase,
-            )
+            if save_figures:
+                fig.tight_layout()
+                if phase:
+                    fig_phase.tight_layout()
+                self._save_reconstruction_figure_bundle(
+                    plot_dir,
+                    prefix,
+                    obs_stub,
+                    plot_idx,
+                    fig,
+                    axs,
+                    fig_phase,
+                    axs_phase,
+                    phase,
+                )
             plt.close(fig)
             if phase:
                 plt.close(fig_phase)
@@ -760,9 +788,14 @@ class ParamIDPlotOutputs:
                     axs_phase = axs_phase[0, 0]
                 plot_saved = False
 
-        self.finalize_reconstruction_if_unsaved(
-            plot_saved, axs, plot_dir, prefix, obs_stub, plot_idx
-        )
+        if save_figures:
+            self.finalize_reconstruction_if_unsaved(
+                plot_saved, axs, plot_dir, prefix, obs_stub, plot_idx
+            )
+        elif not plot_saved:
+            plt.close(fig)
+            if phase:
+                plt.close(fig_phase)
 
         return percent_error_vec, std_error_vec, phase_error_vec
 
@@ -821,8 +854,8 @@ class ParamIDPlotOutputs:
         self, percent_error_vec: np.ndarray, std_error_vec: np.ndarray
     ) -> None:
         out = self.client.output_dir
-        np.save(os.path.join(out, "percent_error_vec.npy"), percent_error_vec)
-        np.save(os.path.join(out, "std_error_vec.npy"), std_error_vec)
+        np.save(os.path.join(out, ERROR_VEC_FILES["percent_error"]), percent_error_vec)
+        np.save(os.path.join(out, ERROR_VEC_FILES["std_error"]), std_error_vec)
         # The error vectors are positional: entry i belongs to data_items[i]. Every
         # consumer therefore re-derives the labels by reading obs_data.json in the
         # same order, so reordering that file silently relabels every bar -- a wrong
@@ -834,10 +867,10 @@ class ParamIDPlotOutputs:
         # for whoever reads it. A consumer wanting mathtext can add the delimiters; one
         # wanting the plain name could not reliably strip them, since a name may
         # legitimately contain '$'.
-        np.save(os.path.join(out, "error_vec_names.npy"), self.observable_names())
+        np.save(os.path.join(out, ERROR_VEC_FILES["names"]), self.observable_names())
         # Each observable's data_reference, in the same order ('' where an item has none).
         references = obs_item_references(self.client.obs_info)
-        np.save(os.path.join(out, "error_vec_data_references.npy"),
+        np.save(os.path.join(out, ERROR_VEC_FILES["data_references"]),
                 np.array([str(references[II]) if II < len(references) and references[II]
                           else "" for II in range(self.client.obs_info["num_obs"])]))
 

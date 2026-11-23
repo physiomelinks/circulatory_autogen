@@ -910,6 +910,7 @@
           "validation",
           "values",
           "progress",
+          "fit_errors",
           "mcmc_chain",
           "emulator_validation",
           "obs_data",

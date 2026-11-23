@@ -86,6 +86,15 @@ def _optimiser_histories(run):
             with open(os.path.join(directory, name), 'w') as f:
                 f.write(text)
         np.save(os.path.join(directory, 'best_cost.npy'), np.array(0.5))
+        if step_id == 'ga':
+            # the best fit's errors, as save_error_vectors writes them: one within 2 stds,
+            # one 3.5 stds off
+            np.save(os.path.join(directory, 'percent_error_vec.npy'), np.array([1.5, -12.0]))
+            np.save(os.path.join(directory, 'std_error_vec.npy'), np.array([0.4, -3.5]))
+            np.save(os.path.join(directory, 'error_vec_names.npy'),
+                    np.array(['z_max', 'w_mean']))
+            np.save(os.path.join(directory, 'error_vec_data_references.npy'),
+                    np.array(['Smith 2020', '']))
         _write_json(os.path.join(run, step_id, 'step_result.json'),
                     {'kind': 'calibration', 'status': 'done', 'param_id_output_dir': directory,
                      'params_for_id_used': params_for_id})
@@ -199,6 +208,7 @@ def _analysis_run(root):
     steps = [_figure_step('emulator', 'emulator_validation',
                           {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
+             _figure_step('fit', 'fit_errors', {'errors': ('fit_errors', 'ga')}),
              _figure_step('starts_progress', 'calibration_progress',
                           {'progress': ('progress', 'starts')}),
              _figure_step('posterior', 'posterior', {'distribution': ('distribution', 'fit')}),
@@ -220,6 +230,7 @@ def analysis_run(tmp_path_factory):
 @pytest.mark.parametrize('step_id, files', [
     ('indices', ['sobol_z.png', 'sobol_w.png', 'sobol_ST_heatmap.png']),
     ('ga_progress', ['cost_history.png', 'param_history.png']),
+    ('fit', ['fit_errors.csv', 'fit_percent_error.png', 'fit_std_error.png']),
     ('starts_progress', ['cost_history.png', 'param_history.png']),
     ('emulator', ['emulator_parity.png', 'emulator_residuals_z.png',
                   'emulator_residuals_w.png']),
@@ -279,6 +290,22 @@ def test_the_mcmc_input_reads_the_sampled_chain_and_the_burn_in(analysis_run):
     assert loaded['chain'].shape == (190, 4, 2) and np.isfinite(loaded['chain']).all()
     assert loaded['param_labels'] == ['A/p', 'C/q']
     assert loaded['burn_in_index'] == 47
+
+
+@pytest.mark.unit
+def test_the_fit_errors_input_reads_what_a_calibration_saved(analysis_run):
+    """The four files a calibration writes when it ends, names and references as text; a
+    calibration without them (its run stopped before it could write them) says how to get
+    them."""
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'e': {'kind': 'fit_errors', 'step': 'ga'}})['e']
+    assert loaded['names'] == ['z_max', 'w_mean']
+    assert loaded['data_references'] == ['Smith 2020', '']
+    assert loaded['percent_error'].tolist() == [1.5, -12.0]
+    assert loaded['std_error'].tolist() == [0.4, -3.5]
+    with pytest.raises(figures.WorkflowError, match='no best-fit errors to read.*'
+                                                    'save_best_fit_errors'):
+        figures.load_inputs(run, {'e': {'kind': 'fit_errors', 'step': 'starts'}})
 
 
 @pytest.mark.unit

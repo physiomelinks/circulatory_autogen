@@ -83,7 +83,7 @@ from libcuflynx.parsers.PrimitiveParsers import (apply_modifier_identity_nominal
                                       param_entry_labels,
                                       resolve_modifier_baselines,
                                       save_param_modifiers)
-from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
+from libcuflynx.param_id.plot_outputs import ERROR_VEC_FILES, ParamIDPlotOutputs
 from libcuflynx.param_id import casadi_backend
 from libcuflynx.param_id import fsa_backend
 from libcuflynx.param_id import aadc_backend
@@ -558,8 +558,16 @@ class CVS0DParamID():
         """
         self._require_data_items('calibration')
         self._check_info_available()
+        self._remove_best_fit_errors()
         with self._run_recorded(self.param_id_method):
-            self.param_id.run()
+            try:
+                self.param_id.run()
+            except KeyboardInterrupt:
+                # stopped: the optimisers keep best_param_vals.npy current, so the errors of
+                # the best fit so far can still be written
+                self._write_best_fit_errors()
+                raise
+            self._write_best_fit_errors()
 
             # Some execution paths (or older optimiser flows) can finish without writing
             # the per-experiment full output dumps. Ensure they exist for downstream
@@ -591,6 +599,45 @@ class CVS0DParamID():
                     print(f"[param_id] WARNING: failed to write all-outputs npz dumps: {e}")
                 except Exception:
                     pass
+
+    def save_best_fit_errors(self, param_vals=None):
+        """Simulate once at the best fit and save its error per observable (``ERROR_VEC_FILES``
+        in ``plot_outputs``: percent and noise-std errors, names, data_references) in
+        ``output_dir``, with no figure. The best fit is ``param_vals``, else
+        ``best_param_vals.npy`` in ``output_dir``, else the one in memory. ``run`` calls it
+        when the calibration ends or is interrupted; call it on a rebuilt object to write the
+        errors of a run that was killed (its ``best_param_vals.npy`` is its best so far).
+        Rank 0 only; returns ``{key: path}``, or None without a best fit."""
+        if getattr(self, "rank", 0) != 0:
+            return None
+        if param_vals is None and self.output_dir is not None:
+            saved = os.path.join(self.output_dir, "best_param_vals.npy")
+            if os.path.isfile(saved):
+                param_vals = np.load(saved)
+        if param_vals is None:
+            param_vals = self.param_id.best_param_vals
+        if param_vals is None:
+            return None
+        self.set_best_param_vals(np.atleast_1d(np.asarray(param_vals, dtype=float)))
+        ParamIDPlotOutputs(self).save_best_fit_errors()
+        return {key: os.path.join(self.output_dir, name)
+                for key, name in ERROR_VEC_FILES.items()}
+
+    def _write_best_fit_errors(self):
+        try:
+            self.save_best_fit_errors()
+        except (Exception, SystemExit) as exc:
+            # optional output: never fail (or mask the interrupt of) the calibration
+            print(f"[param_id] WARNING: could not write the best fit's error vectors: {exc}")
+
+    def _remove_best_fit_errors(self):
+        """A new run removes the last run's error vectors, so a run that is killed before it
+        writes its own never leaves errors of another best fit beside its best_param_vals."""
+        if getattr(self, "rank", 0) == 0 and self.output_dir:
+            for name in ERROR_VEC_FILES.values():
+                path = os.path.join(self.output_dir, name)
+                if os.path.isfile(path):
+                    os.remove(path)
 
     @contextlib.contextmanager
     def _run_recorded(self, method):
