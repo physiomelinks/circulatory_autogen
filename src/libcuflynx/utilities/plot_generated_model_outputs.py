@@ -4,7 +4,8 @@ from libcuflynx.solver_wrappers.libopencor_helper import SimulationHelper
 from libcuflynx.utilities import paperPlotSetup
 paperPlotSetup.Setup_Plot(3)
 import matplotlib
-matplotlib.use('Agg')
+from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
+use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 from libcuflynx.utilities.paths import default_generated_models_dir
 
