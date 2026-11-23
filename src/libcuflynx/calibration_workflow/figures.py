@@ -202,10 +202,56 @@ def _load_params_for_id(run_dir, step_id, result):
 
 
 @input_kind('sensitivity', ('sensitivity',),
-            'a Sobol step\'s indices, {"S1": {output: {parameter: value}}, "ST": {...}}')
+            'a sensitivity step\'s indices: Sobol, {"S1": {output: {parameter: value}}, '
+            '"ST": {...}} (empty for a local analysis); and "local", {"relative": {output: '
+            '{parameter: value}}, "absolute": {...}} from a local analysis, else None')
 def _load_sensitivity(run_dir, step_id, result):
     from libcuflynx.sensitivity_analysis.sobol_ranking import read_sobol_indices
-    return read_sobol_indices(_existing(result.get('sobol_indices'), 'Sobol indices', step_id))
+    import pandas as pd
+    local = {}
+    for key in ('relative', 'absolute'):
+        path = os.path.join(result.get('sensitivity_dir') or '', f'local_sensitivity_{key}.csv')
+        if os.path.isfile(path):
+            table = pd.read_csv(path, index_col='output')
+            local[key] = {str(output): {str(p): float(v) for p, v in row.items()}
+                          for output, row in table.iterrows()}
+    if not result.get('sobol_indices') and not local:
+        raise WorkflowError(f'step "{step_id}" has no sensitivity indices to read '
+                            f'({result.get("sensitivity_dir")}).')
+    indices = (read_sobol_indices(_existing(result['sobol_indices'], 'Sobol indices', step_id))
+               if result.get('sobol_indices') else {'S1': {}, 'ST': {}})
+    indices['local'] = local or None
+    return indices
+
+
+@input_kind('reduction', ('reduction',),
+            'a reduction step\'s report (param_reduction.json: reduction, selected, ...) and, '
+            'for a PCA reduction, "modes", [{mode, variance, variance_share, informative, '
+            'loadings: {feature: value}}], and "mode_indices", {"S1": {"mode_<k>": '
+            '{parameter: value}}, "ST": {...}}; both None for a Sobol reduction')
+def _load_reduction(run_dir, step_id, result):
+    import pandas as pd
+    from libcuflynx.sensitivity_analysis.parameter_reduction import (PCA_MODE_INDICES_FILE,
+                                                                     PCA_MODES_FILE)
+    from libcuflynx.sensitivity_analysis.sobol_ranking import read_sobol_indices
+    with open(_existing(result.get('report'), 'reduction report', step_id)) as f:
+        loaded = json.load(f)
+    directory = os.path.dirname(result['report'])
+    modes_path = os.path.join(directory, PCA_MODES_FILE)
+    loaded['modes'] = loaded['mode_indices'] = None
+    if os.path.isfile(modes_path):
+        table = pd.read_csv(modes_path)
+        loaded['modes'] = [
+            {'mode': int(row['mode']), 'variance': float(row['variance']),
+             'variance_share': float(row['variance_share']),
+             'informative': bool(row['informative']),
+             'loadings': {column[len('loading_'):]: float(row[column])
+                          for column in table.columns if column.startswith('loading_')}}
+            for _, row in table.iterrows()]
+        loaded['mode_indices'] = read_sobol_indices(
+            _existing(os.path.join(directory, PCA_MODE_INDICES_FILE), 'PCA mode indices',
+                      step_id))
+    return loaded
 
 
 @input_kind('distribution', ('calibration',),

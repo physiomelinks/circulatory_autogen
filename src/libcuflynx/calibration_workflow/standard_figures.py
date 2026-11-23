@@ -17,8 +17,13 @@ sweep_traces        every output over time, a line per point, per experiment swe
 sweep_features      each feature against the swept parameters                sweep: sweep
 prediction_plots    the obs_data's prediction_plots, from one simulation     simulation: sweep,
                                                                              obs_data: obs_data
+protocol_inputs     each params_to_change entry over time, per experiment    obs_data: obs_data
 sobol_indices       S1 and ST per output, and a heatmap of ST                sensitivity:
                                                                              sensitivity
+local_sensitivity   a heatmap of a local analysis's relative sensitivities   sensitivity:
+                                                                             sensitivity
+pca_modes           per PCA mode its feature loadings and the ST of each     reduction:
+                    parameter, and a heatmap of ST per mode                  reduction
 calibration_        the best cost and each normalised parameter per          progress: progress
 progress            generation (per iteration of each start)
 emulator_           the emulator against the simulator at its held-out       emulator:
@@ -178,6 +183,60 @@ class _Scalar:
     series_to_constant = True
 
 
+def protocol_inputs(obs_data, out_dir):
+    '''``inputs_exp_<e>.png``: per experiment, a panel per ``params_to_change`` entry over the
+    logged time (the sub-experiments end to end, the pre-pass left out). A number is held over
+    its sub-experiment; a trace name is drawn from ``protocol_traces`` (``protocol_shapes``
+    expanded), from the sub-experiment's start, held at its ends as Myokit holds it.'''
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+    protocol = ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=obs_data)[
+        'protocol_info']
+    changes = protocol.get('params_to_change') or {}
+    if not changes:
+        raise ValueError('the obs_data changes no parameter: its protocol_info has no '
+                         'params_to_change.')
+    traces = protocol.get('protocol_traces') or {}
+    labels = protocol.get('experiment_labels') or []
+    paths = []
+    for e, durations in enumerate(protocol['sim_times']):
+        starts = np.concatenate([[0.0], np.cumsum(durations)])
+        figure, axes = _grid(len(changes))
+        for ax, (name, per_experiment) in zip(axes, changes.items()):
+            for k, value in enumerate(per_experiment[e]):
+                start, end = starts[k], starts[k + 1]
+                if isinstance(value, str):
+                    trace = traces[value]
+                    order = np.argsort(trace['t'], kind='stable')
+                    t, v = _trace_points(np.asarray(trace['t'], dtype=float)[order],
+                                         np.asarray(trace['values'], dtype=float)[order],
+                                         end - start)
+                    ax.plot(start + t, v, color=PALETTE[0], linewidth=1.5)
+                else:
+                    ax.plot([start, end], [float(value)] * 2, color=PALETTE[0], linewidth=1.5)
+            for boundary in starts[1:-1]:
+                ax.axvline(boundary, color='0.75', linestyle=':', linewidth=1)
+            ax.set_title(name, fontsize=9)
+            ax.set_xlabel('time [s]', fontsize=8)
+            ax.tick_params(labelsize=7)
+        label = labels[e] if e < len(labels) and labels[e] else None
+        figure.suptitle(f'experiment {e}' + (f': {label}' if label else ''), fontsize=10)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, f'inputs_exp_{e}.png'))
+    return paths
+
+
+def _trace_points(t, values, length):
+    '''A trace's points over ``[0, length]``: those inside it, with repeated times kept as
+    jumps, and its value interpolated (held at the trace's ends) at 0 and at ``length``.'''
+    inside = (t > 0.0) & (t < length)
+    times = np.concatenate([[0.0], t[inside], [length]])
+    held = np.concatenate([[np.interp(0.0, t, values)], values[inside],
+                           [np.interp(length, t, values)]])
+    if np.any(t <= 0.0):
+        held[0] = values[np.flatnonzero(t <= 0.0)[-1]]
+    return times, held
+
+
 # --------------------------------------------------------------------------------------------
 # analyses
 # --------------------------------------------------------------------------------------------
@@ -216,6 +275,87 @@ def sobol_indices(sensitivity, out_dir):
     figure.colorbar(image, ax=ax)
     figure.tight_layout()
     paths.append(_save(figure, out_dir, 'sobol_ST_heatmap.png'))
+    return paths
+
+
+def local_sensitivity(sensitivity, out_dir):
+    '''``local_sensitivity_heatmap.png``: a local analysis's relative sensitivities
+    (|p| d(feature)/dp / |feature|), parameters by outputs, on a blue-white-red scale symmetric
+    about zero.'''
+    local = (sensitivity.get('local') or {}).get('relative')
+    if not local:
+        raise ValueError('the sensitivity step wrote no local sensitivities (sa_options '
+                         'method "local").')
+    plt = _pyplot()
+    outputs = list(local)
+    parameters = list(local[outputs[0]])
+    table = np.array([[local[o].get(p, np.nan) for o in outputs] for p in parameters])
+    limit = float(np.nanmax(np.abs(table))) if np.isfinite(table).any() else 1.0
+    limit = limit or 1.0
+    figure, ax = plt.subplots(figsize=(max(4.0, 2.0 + 0.8 * len(outputs)),
+                                       max(3.0, 1.5 + 0.4 * len(parameters))))
+    image = ax.imshow(table, cmap='RdBu_r', vmin=-limit, vmax=limit, aspect='auto')
+    for (row, column), value in np.ndenumerate(table):
+        ax.text(column, row, f'{value:.2f}', ha='center', va='center', fontsize=7,
+                color='white' if abs(value) > 0.6 * limit else 'black')
+    ax.set_xticks(range(len(outputs)), outputs, rotation=45, ha='right', fontsize=7)
+    ax.set_yticks(range(len(parameters)), parameters, fontsize=7)
+    ax.set_title('relative local sensitivity', fontsize=9)
+    figure.colorbar(image, ax=ax)
+    figure.tight_layout()
+    return [_save(figure, out_dir, 'local_sensitivity_heatmap.png')]
+
+
+def pca_modes(reduction, out_dir):
+    '''Per PCA mode of a PCA reduction, ``pca_mode_<k>.png``: the mode's loading on each
+    feature (signed, sorted by size) and the ST of each parameter for the mode (sorted); and
+    ``pca_mode_ST_heatmap.png``: ST, modes by parameters, on a 0-1 scale (* marks a mode below
+    the noise floor).'''
+    modes = reduction.get('modes')
+    if not modes:
+        raise ValueError(f'the reduction has no PCA modes (method '
+                         f'{reduction.get("reduction", {}).get("method")!r}); pca_modes draws '
+                         f'a PCA reduction.')
+    plt = _pyplot()
+    ST = reduction['mode_indices']['ST']
+    parameters = list(ST[f'mode_{modes[0]["mode"]}'])
+    paths = []
+    for mode in modes:
+        k = mode['mode']
+        loadings = sorted(mode['loadings'].items(), key=lambda item: -abs(item[1]))
+        indices = sorted(ST[f'mode_{k}'].items(), key=lambda item: -item[1])
+        figure, (left, right) = plt.subplots(
+            1, 2, figsize=(8.0, max(2.6, 0.9 + 0.3 * max(len(loadings), len(indices)))))
+        left.barh(range(len(loadings)), [v for _, v in loadings],
+                  color=[PALETTE[0] if v >= 0 else PALETTE[1] for _, v in loadings])
+        left.axvline(0.0, color='0.4', linewidth=1)
+        left.set_yticks(range(len(loadings)), [name for name, _ in loadings], fontsize=7)
+        left.invert_yaxis()
+        left.set_title('loading per feature', fontsize=9)
+        right.barh(range(len(indices)), [v for _, v in indices], color=PALETTE[0])
+        right.set_xlim(0, max(1.0, right.get_xlim()[1]))
+        right.set_yticks(range(len(indices)), [name for name, _ in indices], fontsize=7)
+        right.invert_yaxis()
+        right.set_title('ST of each parameter', fontsize=9)
+        for ax in (left, right):
+            ax.tick_params(labelsize=7)
+        note = '' if mode['informative'] else ', below the noise floor'
+        figure.suptitle(f'mode {k} ({mode["variance_share"]:.0%} of the variance{note})',
+                        fontsize=10)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, f'pca_mode_{k}.png'))
+    table = np.array([[ST[f'mode_{m["mode"]}'].get(p, np.nan) for p in parameters]
+                      for m in modes])
+    figure, ax = plt.subplots(figsize=(1.2 + 0.9 * len(parameters), 1.2 + 0.5 * len(modes)))
+    image = ax.imshow(np.clip(table, 0, 1), vmin=0, vmax=1, cmap='viridis', aspect='auto')
+    ax.set_xticks(range(len(parameters)), parameters, rotation=45, ha='right', fontsize=7)
+    ax.set_yticks(range(len(modes)),
+                  [f'mode {m["mode"]} ({m["variance_share"]:.0%})'
+                   f'{"" if m["informative"] else " *"}' for m in modes], fontsize=7)
+    ax.set_title('ST per PCA mode (* below the noise floor)', fontsize=9)
+    figure.colorbar(image, ax=ax)
+    figure.tight_layout()
+    paths.append(_save(figure, out_dir, 'pca_mode_ST_heatmap.png'))
     return paths
 
 
@@ -387,8 +527,9 @@ def laplace(laplace, out_dir):
     return [_save(figure, out_dir, 'laplace.png')]
 
 
-FIGURES = [sweep_traces, sweep_features, prediction_plots, sobol_indices, calibration_progress,
-           emulator_validation, posterior, laplace]
+FIGURES = [sweep_traces, sweep_features, prediction_plots, protocol_inputs, sobol_indices,
+           local_sensitivity, pca_modes, calibration_progress, emulator_validation, posterior,
+           laplace]
 
 
 def main(argv=None):
