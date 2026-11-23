@@ -117,7 +117,7 @@ DEFAULT_PARAM_ID_METHOD = 'genetic_algorithm'
 MAX_ID_LENGTH = 80
 # the order a built step's keys are written in (the schema's)
 _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'params_for_id',
-              'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
+              'submodule', 'module', 'module_map', 'fixed_from', 'priors_from',
               'store_distribution', 'on_target', 'settings', 'emulator_from', 'emulator_dir',
               'result_from', 'start_from', 'sensitivity_from', 'params_for_id_from', 'set',
               'point', 'combine_from', 'combine', 'sweep', 'simulate', 'function', 'inputs',
@@ -252,7 +252,7 @@ def set_value(parameter, value, *, reason, units=None):
     '''An entry of :meth:`WorkflowBuilder.add_set`: a value set by hand.
 
     Args:
-        parameter: ``<vessel>/<parameter>`` in the target.
+        parameter: ``<module>/<parameter>`` in the target.
         value: the value.
         reason: why it is set by hand (required; shown in the provenance).
         units: the value's units; by default those the target gives it.
@@ -270,7 +270,7 @@ def scale_value(parameter, scale, *, of, reason, units=None):
     '''An entry of :meth:`WorkflowBuilder.add_set`: a value scaled by hand.
 
     Args:
-        parameter: ``<vessel>/<parameter>`` in the target.
+        parameter: ``<module>/<parameter>`` in the target.
         scale: the factor.
         of: the step whose value of the parameter is scaled, or ``"inherited"`` for the
             target's own value.
@@ -576,8 +576,8 @@ class WorkflowBuilder:
 
     def add_calibration(self, id, *, obs_data, params_for_id=None, params_for_id_from=None,
                         model=None, fixed_from=(), priors_from=(), store_distribution=False,
-                        start_from=None, emulator_from=None, emulator_dir=None, vessel=None,
-                        submodule=None, vessel_map=None, settings=None, description=None,
+                        start_from=None, emulator_from=None, emulator_dir=None, module=None,
+                        submodule=None, module_map=None, settings=None, description=None,
                         comment=None):
         """Add a calibration: fit parameters of a model to an obs_data.
 
@@ -616,11 +616,11 @@ class WorkflowBuilder:
                 at their values in the emulation step's model.
             emulator_dir: instead of ``emulator_from``, the directory of an emulator trained
                 outside the workflow.
-            vessel: for a library module in a module-array target, the vessel it is (inferred
+            module: for a library module in a module-array target, the module it is (inferred
                 when the module occurs once).
             submodule: for a library module in a library supermodule target, where it sits
                 (inferred when the module occurs once).
-            vessel_map: for a module-array model, ``{its vessel name: the target's}``.
+            module_map: for a module-array model, ``{its module name: the target's}``.
             settings: this step's settings, merged over the workflow's one dict level deep.
             description: free text, shown in reports.
             comment: free text, kept in the file.
@@ -635,7 +635,7 @@ class WorkflowBuilder:
 
     def add_sensitivity(self, id, *, obs_data, params_for_id, sa_options, model=None,
                         fixed_from=(), result_from=None, emulator_from=None, emulator_dir=None,
-                        vessel=None, submodule=None, vessel_map=None, settings=None,
+                        module=None, submodule=None, module_map=None, settings=None,
                         description=None, comment=None):
         """Add a sensitivity analysis of ``params_for_id`` against ``obs_data``.
 
@@ -737,8 +737,8 @@ class WorkflowBuilder:
                              **_given({'description': description, 'comment': comment}))
 
     def add_emulation(self, id, *, obs_data, emulator_settings=None, params_for_id=None,
-                      params_for_id_from=None, model=None, fixed_from=(), vessel=None,
-                      submodule=None, vessel_map=None, settings=None, description=None,
+                      params_for_id_from=None, model=None, fixed_from=(), module=None,
+                      submodule=None, module_map=None, settings=None, description=None,
                       comment=None):
         """Add an emulator training: a surrogate of the obs_data's features over the
         ``params_for_id`` ranges, for calibration and sensitivity steps that name this step as
@@ -759,7 +759,7 @@ class WorkflowBuilder:
 
     def add_identifiability(self, id, *, obs_data, params_for_id, ia_options, result_from=None,
                             model=None, fixed_from=(), emulator_from=None, emulator_dir=None,
-                            vessel=None, submodule=None, vessel_map=None, settings=None,
+                            module=None, submodule=None, module_map=None, settings=None,
                             description=None, comment=None):
         """Add an identifiability analysis of ``params_for_id`` at a step's values.
 
@@ -780,8 +780,8 @@ class WorkflowBuilder:
         return self.add_step(id, kind='identifiability', **given)
 
     def add_uq(self, id, *, obs_data, params_for_id, uq_options={}, result_from=None,
-               model=None, fixed_from=(), emulator_from=None, emulator_dir=None, vessel=None,
-               submodule=None, vessel_map=None, settings=None, description=None, comment=None):
+               model=None, fixed_from=(), emulator_from=None, emulator_dir=None, module=None,
+               submodule=None, module_map=None, settings=None, description=None, comment=None):
         """Add an uncertainty quantification of ``params_for_id`` at a step's values, with
         no fit of its own. Its distribution is stored, for a later step's ``priors_from``, and
         checked by a posterior predictive check unless ``posterior_predictive`` is false.
@@ -841,7 +841,7 @@ class WorkflowBuilder:
 
     def add_sweep(self, id, *, parameters, model=None, on_target=False, obs_data=None,
                   design=None, outputs=None, zip=None, fixed_from=(), result_from=None,
-                  vessel=None, submodule=None, vessel_map=None, settings=None,
+                  module=None, submodule=None, module_map=None, settings=None,
                   description=None, comment=None):
         """Add a parameter sweep: simulate a model over a grid of parameter values.
 
@@ -869,8 +869,8 @@ class WorkflowBuilder:
         return self.add_step(id, kind='sweep', sweep=sweep, **given)
 
     def add_simulate(self, id, *, model=None, on_target=False, obs_data=None, outputs=None,
-                     fixed_from=(), result_from=None, vessel=None, submodule=None,
-                     vessel_map=None, settings=None, description=None, comment=None):
+                     fixed_from=(), result_from=None, module=None, submodule=None,
+                     module_map=None, settings=None, description=None, comment=None):
         """Add a simulate step: one run of a model through its protocol (a sweep of no
         parameters), for a figure step to read.
 
@@ -1722,7 +1722,7 @@ class WorkflowBuilder:
             ``'finished'``, ``'duration_s'``, ``'inputs'`` and ``'step_dir'``, and the kind's
             own keys, its files and directories as absolute ``pathlib.Path``:
 
-            - calibration: ``'values'`` (``{"<vessel>/<parameter>": best value}``),
+            - calibration: ``'values'`` (``{"<module>/<parameter>": best value}``),
               ``'best_cost'``, ``'calibrated'`` (each value with its units and where it
               lands in the target), ``'fixed'``, ``'point_estimate'``,
               ``'param_id_output_dir'``, ``'distribution_dir'``;
@@ -1751,7 +1751,7 @@ class WorkflowBuilder:
             if isinstance(result.get(key), str):
                 result[key] = Path(os.path.normpath(os.path.join(output_dir, result[key])))
         if result['kind'] == 'calibration':
-            result['values'] = {f'{row["vessel"]}/{row["param"]}': row['value']
+            result['values'] = {f'{row["module"]}/{row["param"]}': row['value']
                                 for row in result.get('calibrated', [])}
         if result['kind'] == 'reduction':
             result['parameters'] = [row['parameter'] for row in result.get('selected', [])]

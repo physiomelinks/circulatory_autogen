@@ -432,9 +432,9 @@ def _quantity(value, units=''):
 
 
 def _record_name(record):
-    '''A step result's record named as a params_for_id names it: ``vessel/param``.'''
-    if record.get('vessel') and record.get('param'):
-        return f'{record["vessel"]}/{record["param"]}'
+    '''A step result's record named as a params_for_id names it: ``module/param``.'''
+    if record.get('module') and record.get('param'):
+        return f'{record["module"]}/{record["param"]}'
     return record.get('model_name')
 
 

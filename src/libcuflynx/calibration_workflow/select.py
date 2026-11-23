@@ -4,7 +4,7 @@ module-array target calibrated as they are in it. A selection runs as one of the
 a workflow already has:
 
 * one instance (a record, or ``heart/lv`` inside a super instance) is its library module,
-  placed at that instance (``naming.Placed``), as a step naming ``vessel`` would be. Its
+  placed at that instance (``naming.Placed``), as a step naming ``module`` would be. Its
   parameterisation is the record's; a submodule's is its version's default. A selected
   supermodule instance is generated with the model's values for it as its instance's values;
 * several records are the module array they form, cut from the target (``naming.Renamed``,

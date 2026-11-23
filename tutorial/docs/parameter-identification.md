@@ -1655,8 +1655,8 @@ print(wf.result('fit')['best_fit'], wf.result('posterior')['distribution_dir'])
 | `settings` | user_inputs settings for every step: `param_id_method`, `optimiser_options`, `solver`, `solver_info`, `dt`, `pre_time`, `sim_time`, `UQ_options`, `DEBUG`, ... (the model, obs_data, params_for_id and output paths are the workflow's, and cannot be set) |
 | step `id` | a label for the step, unique in the file: other steps refer to it, and it names the step's output directory. It is not a module or parameter name. |
 | step `model`, `obs_data`, `params_for_id` | what the step calibrates, and against what |
-| step `vessel_map` | a module array whose vessels are named differently in the target: `{"aorta": "aortic_root"}` |
-| step `submodule` / `vessel` | where a library module sits in the target: a submodule of a library supermodule target (`i_M`, or `soma/i_M` when nested), or a vessel of a module-array target; inferred when the module occurs once |
+| step `module_map` | a module array whose modules are named differently in the target: `{"aorta": "aortic_root"}` |
+| step `submodule` / `module` | where a library module sits in the target: a submodule of a library supermodule target (`i_M`, or `soma/i_M` when nested), or a module of a module-array target; inferred when the module occurs once |
 | step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself. An entry `{"step": "fit_a", "parameters": ["p_A"]}` fixes only those of the step's own calibrated or set values (model names in that step), and none it was given |
 | step `priors_from` | steps whose stored posterior becomes this step's prior (below) |
 | step `store_distribution` | sample the posterior by MCMC after the fit and store it |
@@ -1683,7 +1683,7 @@ A selection runs as one of the other models:
 
 - **one instance** -- a record, or `heart/lv` inside a super instance -- is its library module,
   the record's version and parameterisation (a submodule's: its version's default), placed at that
-  instance as `"vessel"` would place it. A selected supermodule instance is generated with the
+  instance as `"module"` would place it. A selected supermodule instance is generated with the
   model's values for it;
 - **several records** are the module array they form, cut from the target. A link to a record
   outside the selection is dropped, which leaves that port open.
@@ -2032,22 +2032,30 @@ step with `"params_for_id_from": "keep"`, then a calibration with the same
 
 ### How values move between models
 
-A value is named by its vessel and parameter (`aortic_root/C`, which is `C_aortic_root` in the
+A value is named by its module and parameter (`aortic_root/C`, which is `C_aortic_root` in the
 generated model), and moves through the target's names:
 
-- **A module array** keeps its vessel names. A value calibrated on `aortic_root` in one model
+- **A module array** keeps its module names. A value calibrated on `aortic_root` in one model
   fixes `aortic_root` in another, and lands on `aortic_root` in the target. When the names
-  differ, `vessel_map` renames the step's vessels into the target's.
-- **A library module** is generated alone as one vessel named `mod`, so its params_for_id targets
+  differ, `module_map` renames the step's modules into the target's.
+- **A library module** is generated alone as one module named `mod`, so its params_for_id targets
   are `mod/<param>` (`mod/<submodule>/<param>` for a supermodule) and its obs_data operands
   `mod/<variable>`. In the target it is renamed to where it sits: the submodule `i_M` of a
   supermodule target (`rho_M_mod__i_M` in the model, `i_M/rho_M` in its parameterisation),
-  or the vessel of a module-array target that it is.
+  or the module of a module-array target that it is.
 
-`--dry-run` checks that every calibrated parameter lands on a vessel the target has, and prints
+Each value a step calibrates or sets is recorded in its `step_result.json` with its `module`,
+`param` and `model_name`.
+
+`--dry-run` checks that every calibrated parameter lands on a module the target has, and prints
 where each one lands and what each step is given. After the run, a value with no parameter of
-its name in the target is an error. A value passed to a model that lacks its vessel (an aorta
-value into a model without that vessel) is left out of that model with a warning.
+its name in the target is an error. A value passed to a model that lacks its module (an aorta
+value into a model without that module) is left out of that model with a warning.
+
+A workflow file whose steps name `vessel` or `vessel_map`, or a run whose `step_result.json`
+records name `vessel`, is refused. Convert it once with
+`cuflynx-upgrade workflow <workflow file or directory>`: given a directory (a study, or a
+workflow's output directory), it converts every workflow file and `step_result.json` below it.
 
 The other checks: a step's files exist; a library module exists in the library, and is in the
 target; a target written as a library module names its parameter set with `parameterisation`

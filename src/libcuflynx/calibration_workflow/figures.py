@@ -155,7 +155,7 @@ def _load_validation(run_dir, step_id, result):
 def _load_values(run_dir, step_id, result):
     from libcuflynx.utilities.params_for_id_file import target_name
     records = result.get('calibrated', []) + result.get('set', [])
-    return {target_name(record['vessel'], record['param']): float(record['value'])
+    return {target_name(record['module'], record['param']): float(record['value'])
             for record in records}
 
 
@@ -500,8 +500,8 @@ def _step_result(run_dir, step_id):
     path = os.path.join(run_dir, step_id, STEP_RESULT)
     if not os.path.isfile(path):
         raise WorkflowError(f'{run_dir} holds no result of step "{step_id}".')
-    with open(path) as f:
-        result = json.load(f)
+    from libcuflynx.calibration_workflow.runner import read_step_result
+    result = read_step_result(path)
     if result.get('status') != 'done':
         raise WorkflowError(f'step "{step_id}" in {run_dir} has not finished.')
     return result

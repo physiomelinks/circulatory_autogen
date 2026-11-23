@@ -111,7 +111,7 @@ def _write_parameters(path, text):
 @pytest.mark.unit
 @pytest.mark.parametrize('edit, message', [
     (lambda w: w.update(target={'select': ['A']}), "at target: .*'select' was unexpected"),
-    (lambda w: w['steps'][0].update(vessel='C'), 'has no "submodule", "vessel" or "vessel_map"'),
+    (lambda w: w['steps'][0].update(module='C'), 'has no "submodule", "module" or "module_map"'),
     (lambda w: w['steps'][0]['model'].update(select=[]), 'should be non-empty|is too short'),
     (lambda w: w.update(target={'module_type': 'chain', 'version': 'v1',
                                 'parameterisation': 'rest'}),
@@ -137,6 +137,12 @@ def test_one_instance_runs_as_its_library_module_placed_there(library):
                                                                          'mod/k': '1.0'}
     assert [(p.vessel, p.param) for p in step.parameters] == [('mod', 'q')]
     assert step.target_parameterisation_name(step.parameters[0]) == 'C/q'
+    # the plan says where in the target its library module sits
+    plan = plan_workflow(parse_workflow(_workflow(library, [_c_alone(library, x=Y_A)]),
+                                        path=os.path.join(library['arrays'], 'w.json')))
+    selection = plan['steps'][0]['selection']
+    assert (selection['runs_as'], selection['place']) == ('library_module', 'C')
+    assert selection['module']['module_type'] == 'lin_c'
 
 
 @pytest.mark.unit

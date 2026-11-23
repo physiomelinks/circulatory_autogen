@@ -240,7 +240,7 @@ workflow's `target` and as the `model` of every step that runs one:
   values the step is given (`fixed_from`, `result_from`) over them. CA passes that file as the
   step's `external_parameters_file`.
 - **The model is also the target.** Every step that names a model names the same file. A
-  `vessel_map`, `submodule`, `vessel` or `select` is refused.
+  `module_map`, `submodule`, `module` or `select` is refused.
 - **Parameters keep your names.** In a params_for_id, a `set` step or a sweep, a parameter is
   `component/variable`, as your `parameters` declares it. A name your class does not declare is
   refused before anything runs.

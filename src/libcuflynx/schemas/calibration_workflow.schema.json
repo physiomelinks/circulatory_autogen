@@ -426,7 +426,7 @@
         "parameter": {
           "type": "string",
           "pattern": "^\\s*\\S.*/\\S+\\s*$",
-          "description": "the parameter, <vessel>/<parameter> as the target names it (global/<parameter> for a global)"
+          "description": "the parameter, <module>/<parameter> as the target names it (global/<parameter> for a global)"
         },
         "value": {
           "type": "number",
@@ -685,18 +685,18 @@
           "type": "string",
           "description": "a library module in a library supermodule target: where it sits, a submodule name or a nested one as soma/i_M (soma_i_M is also read). Inferred when the module type and version occur once."
         },
-        "vessel": {
+        "module": {
           "type": "string",
           "minLength": 1,
-          "description": "a library module in a module-array target: the vessel it is. Inferred when the module type and version occur once."
+          "description": "a library module in a module-array target: the module (instance) it is. Inferred when the module type and version occur once."
         },
-        "vessel_map": {
+        "module_map": {
           "type": "object",
           "additionalProperties": {
             "type": "string",
             "minLength": 1
           },
-          "description": "a module-array model: its vessel names -> the target's (a submodule path for a library target). Unmapped vessels keep their names."
+          "description": "a module-array model: its module names -> the target's (a submodule path for a library target). Unmapped modules keep their names."
         },
         "fixed_from": {
           "type": "array",
@@ -851,7 +851,7 @@
               "additionalProperties": {
                 "$ref": "#/$defs/sweep_range"
               },
-              "description": "<vessel>/<parameter>, as a params_for_id names it, and the values it takes. Empty: one run of the protocol as the model has it"
+              "description": "<module>/<parameter>, as a params_for_id names it, and the values it takes. Empty: one run of the protocol as the model has it"
             },
             "zip": {
               "type": "array",

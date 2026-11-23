@@ -123,9 +123,9 @@ def test_an_external_model_is_a_step_model_and_the_target(example):
     (lambda raw: raw.update(target='other_module_array.csv'), 'the target must be that file'),
     (lambda raw: raw['steps'][1].update(model='other_module_array.csv'),
      'name another model'),
-    (lambda raw: raw['steps'][1].update(vessel_map={'heat': 'other'}), 'vessel_map'),
+    (lambda raw: raw['steps'][1].update(module_map={'heat': 'other'}), 'module_map'),
     (lambda raw: raw['steps'][1].update(submodule='heat'), 'submodule'),
-    (lambda raw: raw['steps'][1].update(vessel='heat'), 'vessel'),
+    (lambda raw: raw['steps'][1].update(module='heat'), 'module'),
     (lambda raw: raw['steps'][1].update(model={'select': ['heat']}), 'module-array target'),
     # the schema: only the path, and a .py
     (lambda raw: raw['steps'][1].update(model={'external_model_path': 'heat1d_model.py',

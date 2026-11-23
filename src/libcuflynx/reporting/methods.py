@@ -352,7 +352,7 @@ def results_text(result, symbols):
     lines = [r'\begin{center}', r'\small', r'\begin{tabular}{ll}', r'\toprule',
              f'Parameter & Calibrated value ({estimate}) \\\\', r'\midrule']
     for record in result.get('calibrated', []):
-        lines.append(f'{symbols.parameter(record["vessel"], record["param"])} & '
+        lines.append(f'{symbols.parameter(record["module"], record["param"])} & '
                      f'{_number(record["value"])} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}', r'\end{center}']
     cost = result.get('best_cost')
@@ -693,7 +693,7 @@ def _target_name(fixed_record, step):
     if to_target is None:
         return fixed_record['model_name']
     try:
-        return model_name(to_target(fixed_record['vessel']), fixed_record['param'])
+        return model_name(to_target(fixed_record['module']), fixed_record['param'])
     except ValueError:
         return fixed_record['model_name']
 
@@ -714,6 +714,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     ``bib_out`` is a .bib file to write the cited entries to, for ``\\bibliography``.
     '''
     from libcuflynx.calibration_workflow import load_workflow, resolve_workflow, workflow_model
+    from libcuflynx.calibration_workflow.runner import read_step_result
 
     workflow = load_workflow(workflow_path, module_library_dirs)
     if workflow.target.kind == 'external':
@@ -739,7 +740,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
         if run_dir:
             path = os.path.join(run_dir, step.id, 'step_result.json')
             if os.path.isfile(path):
-                result = _load_json(path)
+                result = read_step_result(path)
                 if result.get('status') != 'done':
                     result = None
         results[step.id] = result
@@ -977,7 +978,7 @@ def _param_id_result(run_dir, params):
     calibrated = []
     for entry, value in zip(params, best):
         for vessel, param in entry['targets']:
-            calibrated.append({'vessel': vessel, 'param': param, 'value': float(value)})
+            calibrated.append({'module': vessel, 'param': param, 'value': float(value)})
     cost_path = os.path.join(run_dir, 'best_cost.npy')
     cost = float(np.load(cost_path)) if os.path.isfile(cost_path) else None
     return {'calibrated': calibrated, 'best_cost': cost, 'point_estimate': 'best_fit'}

@@ -330,7 +330,7 @@ def test_the_best_fit_replaces_its_inputs_in_later_steps_and_the_target(library,
     assert best['fixed'] == []
     [record] = best['calibrated']
     assert record == {
-        'vessel': 'mod__C', 'param': 'q', 'model_name': 'q_mod__C',
+        'module': 'mod__C', 'param': 'q', 'model_name': 'q_mod__C',
         'target_model_name': 'q_mod__C', 'target_host_name': 'mod__C/q',
         'target_parameterisation_name': 'C/q',
         'value': step['good']['calibrated'][0]['value'], 'units': record['units'],

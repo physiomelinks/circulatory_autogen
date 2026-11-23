@@ -556,11 +556,11 @@ def test_a_module_array_workflow_draws_each_model_s_source_and_names_its_values(
 @pytest.mark.unit
 def test_a_step_box_names_four_values_of_each_list_and_counts_the_rest():
     from libcuflynx.reporting.provenance import _step_value_lines
-    calibrated = [{'vessel': 'V', 'param': f'p{i}', 'model_name': f'p{i}_V', 'value': i + 0.5,
+    calibrated = [{'module': 'V', 'param': f'p{i}', 'model_name': f'p{i}_V', 'value': i + 0.5,
                    'units': ''} for i in range(6)]
-    fixed = [{'vessel': 'V', 'param': 'u', 'model_name': 'u_V', 'value': 0.1, 'units': 'K',
+    fixed = [{'module': 'V', 'param': 'u', 'model_name': 'u_V', 'value': 0.1, 'units': 'K',
               'from_step': 'hand', 'origin': 'set_by_hand', 'reason': 'measured'},
-             {'vessel': 'V', 'param': 'w', 'model_name': 'w_V', 'value': 2.0, 'units': '',
+             {'module': 'V', 'param': 'w', 'model_name': 'w_V', 'value': 2.0, 'units': '',
               'from_step': 'fit'}]
     result = {'calibrated': calibrated, 'fixed': fixed, 'point_estimate': 'posterior_median',
               'priors': [{'step': 'fit', 'kind': 'mvnormal', 'inflate': 2.0,

@@ -7,8 +7,8 @@ A step's values reach the target, and other steps, through a vessel map (``namin
 * a library module in a library supermodule target sits at a submodule (``Nested``; the step's
   ``submodule``, inferred when its module type occurs once);
 * a library module in a module-array target is one of its records (``Placed``; the step's
-  ``vessel``, inferred likewise);
-* a module array keeps its vessel names, unless its ``vessel_map`` renames them (``Renamed``);
+  ``module``, inferred likewise);
+* a module array keeps its module names, unless its ``module_map`` renames them (``Renamed``);
 * a selection of the target's instances is one of these (``select.resolve_selection``).
 '''
 
@@ -466,10 +466,10 @@ def resolve_workflow(workflow, target_overlap='warn'):
             landing = resolved_step.to_target(parameter.vessel)
             if not naming.is_global(landing) and landing not in target.vessels:
                 raise WorkflowError(
-                    f'{where}: "{parameter.vessel}/{parameter.param}" lands on vessel '
+                    f'{where}: "{parameter.vessel}/{parameter.param}" lands on module '
                     f'"{landing}" of the target {workflow.target.label()}, which has no such '
-                    f'vessel (its vessels: {sorted(target.vessels)}). Map it with '
-                    f'"vessel_map" (a module array) or "vessel"/"submodule" (a library module).')
+                    f'module (its modules: {sorted(target.vessels)}). Map it with '
+                    f'"module_map" (a module array) or "module"/"submodule" (a library module).')
             if not workflow.chosen_at_run(step):
                 # a reduction's candidates are not what it calibrates: the run checks those
                 claimed.setdefault(name, []).append(step.id)
@@ -631,46 +631,46 @@ def _vessel_map(step, model, workflow_target, target, supermodules):
     if model.kind in ('external', 'cellml'):
         return naming.Renamed({}, model.vessels)    # the target is the same file
     if model.kind == 'array':
-        mapping = dict(step.vessel_map)
+        mapping = dict(step.module_map)
         if target.kind == 'library':
             # a library target is generated as ``mod``: name its submodules by their path
             mapping = {k: _library_vessel(v, target, step) for k, v in mapping.items()}
         return naming.Renamed(mapping, model.vessels)
     if target.kind == 'library':
-        if step.vessel:
-            raise WorkflowError(f'step "{step.id}": "vessel" places a library module in a '
+        if step.module:
+            raise WorkflowError(f'step "{step.id}": "module" places a library module in a '
                                 f'module-array target; in a supermodule target it is '
                                 f'"submodule".')
         path = _submodule_path(step, workflow_target, target.entry, supermodules)
         return naming.Nested(path, model.vessels)
     if step.submodule:
         raise WorkflowError(f'step "{step.id}": "submodule" places a library module in a '
-                            f'supermodule target; in a module-array target it is "vessel".')
+                            f'supermodule target; in a module-array target it is "module".')
     key = (step.model.module_type, step.model.version)
     places = target.places(key)
-    if step.vessel:
-        if step.vessel not in places:
+    if step.module:
+        if step.module not in places:
             raise WorkflowError(
-                f'step "{step.id}": "vessel" is "{step.vessel}", but {step.model.module_type} '
+                f'step "{step.id}": "module" is "{step.module}", but {step.model.module_type} '
                 f'{step.model.version} is at {places or "no vessel"} in '
                 f'{workflow_target.label()}.')
-        return naming.Placed(step.vessel, model.vessels)
+        return naming.Placed(step.module, model.vessels)
     if len(places) != 1:
         raise WorkflowError(
             f'step "{step.id}": {step.model.module_type} {step.model.version} is at '
             f'{places or "no vessel"} in {workflow_target.label()}; '
-            + ('say which with "vessel".' if places else 'its values have nowhere to go.'))
+            + ('say which with "module".' if places else 'its values have nowhere to go.'))
     return naming.Placed(places[0], model.vessels)
 
 
 def _library_vessel(path, target, step):
-    '''A vessel_map value for a library supermodule target: a submodule path (``A``,
+    '''A module_map value for a library supermodule target: a submodule path (``A``,
     ``soma/i_M``) as the target names it when generated as ``mod``.'''
     parts = tuple(path.split('/')) if '/' in path else None
     for p in target.paths:
         if p == parts or flat_name(p) == path:
             return flat_name((naming.STEP_VESSEL,) + tuple(p))
-    raise WorkflowError(f'step "{step.id}": vessel_map maps to "{path}", which is not a '
+    raise WorkflowError(f'step "{step.id}": module_map maps to "{path}", which is not a '
                         f'submodule of the target (its submodules: '
                         f'{sorted("/".join(p) for p in target.paths)}).')
 

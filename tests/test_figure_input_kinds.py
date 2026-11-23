@@ -46,7 +46,7 @@ def test_a_profile_likelihood_is_not_read_from_a_uq_step():
 
 
 def test_combined_values_are_named_as_the_target_names_them():
-    result = {'calibrated': [{'vessel': 'heart', 'param': 'E_max', 'value': 2.5,
+    result = {'calibrated': [{'module': 'heart', 'param': 'E_max', 'value': 2.5,
                               'combined_from': ['a', 'b']}]}
     assert figures.INPUT_KINDS['values'].load('run', 'mix', result) == {'heart/E_max': 2.5}
 

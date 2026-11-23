@@ -76,8 +76,8 @@ from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, SWEEP_KINDS,
                                                   WORKFLOW_FILE_NAME, WorkflowError,
-                                                  load_workflow, uq_method,
-                                                  uq_options as _uq_options,
+                                                  load_workflow, refuse_older_step_keys,
+                                                  uq_method, uq_options as _uq_options,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.mpi_utils import run_on_root
@@ -353,6 +353,18 @@ def _read_json(path):
         return json.load(f)
 
 
+def read_step_result(path):
+    '''The step_result.json at ``path``. One whose records name their module ``vessel`` is
+    refused, naming the upgrade that renames it.'''
+    from libcuflynx.upgrade import hint, is_older_step_result
+    result = _read_json(path)
+    if is_older_step_result(result):
+        run_dir = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+        raise WorkflowError(f'{path} names the module of each value "vessel" (now "module"). '
+                            + hint('workflow', run_dir))
+    return result
+
+
 def given_values(result):
     '''The records of what a step's result passes on: what it calibrated, combined or set by
     hand.'''
@@ -414,7 +426,7 @@ class _Run:
         path = os.path.join(self.step_dir(step_id), STEP_RESULT)
         if not os.path.isfile(path):
             return None
-        return _read_json(path)
+        return read_step_result(path)
 
     def library_input(self):
         '''The ``module_library`` entry of a step's inputs, read once a run.'''
@@ -545,13 +557,13 @@ class _Run:
                 records = [r for r in given_values(result)
                            if r['model_name'] in subsets[source]]
             for record in records:
-                vessel = vessel_of(record['vessel'])
+                vessel = vessel_of(record['module'])
                 if vessel is None:
                     left_out.append(record['model_name'])
                     continue
                 name = naming.model_name(vessel, record['param'])
                 origin = record.get('from_step', source)
-                row = {'vessel': vessel,
+                row = {'module': vessel,
                        'param': record['param'], 'model_name': name,
                        'host_name': naming.host_row_name(vessel, record['param']),
                        'value': record['value'], 'units': record.get('units', ''),
@@ -915,7 +927,7 @@ class _Run:
                     parameter = resolved.in_model(CalibratedParameter(vessel=vessel, param=param))
                     vessel, param = parameter.vessel, parameter.param
                     rows.append({
-                        'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
+                        'module': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
                         'target_host_name': naming.host_row_name(resolved.to_target(vessel),
                                                                  param),
@@ -1341,7 +1353,7 @@ class _Run:
                     base = float(target[name]['value'])
             value = entry['value'] if source is None else entry['scale'] * base
             records.append({
-                'vessel': parameter.vessel, 'param': parameter.param, 'model_name': name,
+                'module': parameter.vessel, 'param': parameter.param, 'model_name': name,
                 'target_model_name': name,
                 'target_host_name': naming.host_row_name(parameter.vessel, parameter.param),
                 'target_parameterisation_name': resolved.target_parameterisation_name(parameter),
@@ -1394,9 +1406,9 @@ class _Run:
                                                  f'units: {units}.')
             value = record['value'] if method == 'best_fit' else \
                 float(np.mean([r['value'] for _, r in rows]))
-            vessel = self.resolved.steps[source].to_target(record['vessel'])
+            vessel = self.resolved.steps[source].to_target(record['module'])
             combined = {
-                'vessel': vessel, 'param': record['param'], 'model_name': name,
+                'module': vessel, 'param': record['param'], 'model_name': name,
                 'target_model_name': name, 'target_host_name': record['target_host_name'],
                 'target_parameterisation_name': record['target_parameterisation_name'],
                 'value': float(value), 'units': units[0],
@@ -1701,7 +1713,7 @@ class _Run:
                 raise WorkflowError(
                     f'the target {self.workflow.target.label()} has no parameter {missing}, '
                     f'which the steps calibrated. Name where each step\'s model sits in the '
-                    f'target: "submodule" or "vessel" for a library module, "vessel_map" for a '
+                    f'target: "submodule" or "module" for a library module, "module_map" for a '
                     f'module array.')
             workflow_result['target_model'] = {
                 'model_path': generated['model_path'],
@@ -2037,7 +2049,7 @@ def plan_workflow(source, module_library_dirs=None):
             # what the selection runs as: its library module at one instance, or the cut array
             entry['selection'] = (
                 {'runs_as': 'library_module', 'module': rs.selection.model.as_dict(),
-                 'vessel': rs.selection.vessel} if rs.selection.vessel else
+                 'place': rs.selection.vessel} if rs.selection.vessel else
                 {'runs_as': 'module_array',
                  'records': [r['name'] for r in rs.selection.model.records]})
         if step.kind == 'reduction':
@@ -2305,7 +2317,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                 records = [r for r in given_values(result)
                            if r['model_name'] in step.fixed_parameters[source_id]]
             for record in records:
-                vessel = vessel_of(record['vessel'])
+                vessel = vessel_of(record['module'])
                 if vessel is None:
                     continue
                 name = naming.model_name(vessel, record['param'])
@@ -2325,7 +2337,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                           for r in own_result['calibrated']]
             if with_own_results:
                 for r, record in zip(own_result['calibrated'], calibrated):
-                    overrides.setdefault(naming.host_row_name(r['vessel'], r['param']),
+                    overrides.setdefault(naming.host_row_name(r['module'], r['param']),
                                          (record, step.id))
     rows = [{'variable_name': name, 'units': rec.get('units', ''),
              'value': repr(float(rec['value'])),
@@ -2379,11 +2391,12 @@ def load_workflow_run(output_dir):
         raise WorkflowError(f'{output_dir} is not a calibration workflow run (no '
                             f'{WORKFLOW_FILE_NAME}).')
     raw = _read_json(snapshot)
+    refuse_older_step_keys(raw, snapshot)
     result_path = os.path.join(output_dir, WORKFLOW_RESULT)
     steps = {}
     for step in raw.get('steps', []):
         path = os.path.join(output_dir, step.get('id', ''), STEP_RESULT)
-        steps[step.get('id')] = _read_json(path) if os.path.isfile(path) else None
+        steps[step.get('id')] = read_step_result(path) if os.path.isfile(path) else None
     return {'output_dir': output_dir, 'workflow': raw,
             'result': _read_json(result_path) if os.path.isfile(result_path) else None,
             'steps': steps}

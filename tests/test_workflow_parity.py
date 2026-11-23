@@ -478,7 +478,7 @@ def test_a_modifier_entry_gives_its_parameters_values_not_theta(lv, tmp_path):
     theta = step['best_fit'][0]
     # alpha is 5.0 in the CellML and the data was made at 4.0
     assert theta == pytest.approx(_TRUE[_ALPHA] / _OWN[_ALPHA], rel=0.02)
-    calibrated = {f"{c['vessel']}/{c['param']}": c['value'] for c in step['calibrated']}
+    calibrated = {f"{c['module']}/{c['param']}": c['value'] for c in step['calibrated']}
     assert calibrated[_ALPHA] == pytest.approx(theta * _OWN[_ALPHA], rel=1e-12)
     assert calibrated[_GAMMA] == step['best_fit'][1]
     assert step['modifiers'] == [{'name': 'alpha_scale', 'modifier': 'scale',
@@ -551,7 +551,7 @@ def test_a_cellml_step_reads_names_as_the_engine_does(lv, tmp_path):
     assert result['complete']
 
     step = _step(out, 'fit')
-    assert [(c['vessel'], c['param']) for c in step['calibrated']] == [
+    assert [(c['module'], c['param']) for c in step['calibrated']] == [
         ('parameters_global', 'alpha'), ('parameters_global', 'gamma')]
     # started at the set step's value of the constant
     assert [(r['host_name'], r['value']) for r in step['start_from']['values']] == [
@@ -1067,7 +1067,7 @@ def test_a_reduction_is_calibrated_on_an_emulator_trained_on_its_parameters(lv, 
     kept = _kept(out)
     assert len(kept) == 2 and set(kept) < set(_FOUR)
     fit = _step(out, 'fit')
-    assert [f"{row['vessel']}/{row['param']}" for row in fit['calibrated']] == kept
+    assert [f"{row['module']}/{row['param']}" for row in fit['calibrated']] == kept
     assert 'held' not in fit
     meta = _read_json(os.path.join(_step(out, 'surrogate-reduced')['emulator_dir'],
                                    'emulator_metadata.json'))
@@ -1093,8 +1093,8 @@ def test_a_reduction_is_calibrated_on_the_emulator_of_all_the_parameters(lv, tmp
     assert not os.path.isdir(os.path.join(out, 'surrogate-reduced'))
 
     fit = _step(out, 'fit')
-    calibrated = {f"{row['vessel']}/{row['param']}": row['value'] for row in fit['calibrated']}
-    held = {f"{row['vessel']}/{row['param']}": row['value'] for row in fit['held']}
+    calibrated = {f"{row['module']}/{row['param']}": row['value'] for row in fit['calibrated']}
+    held = {f"{row['module']}/{row['param']}": row['value'] for row in fit['held']}
     assert list(calibrated) == kept
     assert held == {name: _MODEL_VALUES[name] for name in dropped}
     assert fit['held_at'] == 'the model of "surrogate"'
