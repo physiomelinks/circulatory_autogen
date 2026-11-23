@@ -12,6 +12,9 @@ next release; add to that section as you land a change.
   evaluations. Set `param_id_method: genetic_algorithm` to keep the old behaviour. The output
   directory name follows the method (`CMA-ES_<prefix>_<obs>`). A front end reads the default
   from `SOLVER_SCHEMA['default_param_id_method']` (`DEFAULT_PARAM_ID_METHOD`).
+- The shipped `user_run_files/user_inputs.yaml` names `param_id_method: CMA-ES` (it named
+  `genetic_algorithm`), so a calibration run from it, or from a test config read from it that
+  sets no method, runs CMA-ES.
 - The genetic algorithm's default population is unchanged. `benchmarks/README.md` notes the
   test that would decide whether it should scale with the number of parameters.
 

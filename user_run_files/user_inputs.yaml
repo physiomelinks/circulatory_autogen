@@ -28,8 +28,8 @@ model_type: cellml
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize, multi_start_sp_minimize]
-param_id_method: genetic_algorithm
-# param_id_method: CMA-ES
+param_id_method: CMA-ES
+# param_id_method: genetic_algorithm
 # param_id_method: sp_minimize
 # multi_start_sp_minimize runs L-BFGS-B from many scattered starts, so it uses the gradient
 # but still escapes local minima. It works for any model_type: AD gradients for casadi_python
