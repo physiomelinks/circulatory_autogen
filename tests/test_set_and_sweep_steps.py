@@ -487,6 +487,7 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     np.testing.assert_allclose(z, Y_A + np.array([1.0, 2.0, 3.0]) ** 2, rtol=1e-6)
     manifest = _read_json(step['sweep_manifest'])
     assert manifest['parameters'][0]['nominal'] == 1.0
+    assert manifest['plot_groups'] == [{'x': 'mod__C/q', 'series': None, 'points': [0, 1, 2]}]
     assert manifest['failures'] == []
 
     graph = provenance_graph(out)

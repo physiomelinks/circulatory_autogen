@@ -2245,7 +2245,7 @@ script reads or imports (helpers, a style module beside it).
 
 | Input kind | Read from a | The function gets |
 |---|---|---|
-| `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment |
+| `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment; and `manifest`, `sweep_manifest.json` as its JSON document |
 | `values` | calibration, set or combine step | `{"<vessel>/<parameter>": value}`: what it calibrated, set by hand or combined, named as that step names them (a combine step: as the target names them) |
 | `obs_data` | step with an obs_data | the obs_data file as its JSON document |
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
@@ -2319,6 +2319,37 @@ A figure that fails does not stop the other figures or the merge: its error is r
 run's results are written. Figure steps pass nothing on, so the calibrated parameters file does
 not wait for them, and adding or changing a figure step after a run leaves the other steps
 current. `pack_workflow` copies each script with its `files` into `figures/<step_id>/`.
+
+#### Standard figures
+
+libcuflynx ships a script of standard figures, one function per figure. Copy it beside the
+workflow and name its functions in figure steps; the copy is the workflow's own script, hashed
+and packed like any other, so a later libcuflynx does not change a finished run's figures:
+
+```python
+from libcuflynx.calibration_workflow.figures import write_standard_figures
+write_standard_figures('figures')   # figures/standard_figures.py; an existing copy is kept
+```
+
+```json
+{"id": "z_traces", "kind": "figure",
+ "function": "figures/standard_figures.py:sweep_traces",
+ "inputs": {"sweep": {"sweep": "scan"}}}
+```
+
+The input names are the function's parameters:
+
+| Function | Draws | Inputs |
+|---|---|---|
+| `sweep_traces` | per experiment, every output over time, a line per point (`traces_exp_<e>.png`) | `sweep`: `sweep` |
+| `sweep_features` | each feature against the swept parameters, as the sweep step draws them | `sweep`: `sweep` |
+| `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
+| `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
+| `posterior` | per parameter a histogram, its mean and 5-95% band (`posterior.png`) | `distribution`: `distribution` |
+| `laplace` | per parameter the normal density over ±4 std (`laplace.png`) | `laplace`: `laplace` |
+
+The calibration fit plot is not among them yet: it needs a calibration's best-fit outputs as an
+input kind.
 
 A workflow's older `external_figures` key (commands that libcuflynx recorded but never ran) is
 refused: write each as a figure step. A script may call other software itself if it must.
