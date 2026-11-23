@@ -91,6 +91,24 @@ def _optimiser_histories(run):
                      'params_for_id_used': params_for_id})
 
 
+def _emulation_step(run):
+    """An emulation step ``emu`` with 12 held-out points of two parameters and two features,
+    z (all truths positive) and w (a truth of 0)."""
+    rng = np.random.default_rng(5)
+    theta = rng.uniform([0.0, 1.0], [10.0, 3.0], (12, 2))
+    y_true = np.column_stack([2 * theta[:, 0] ** 2 + 1, theta[:, 1] - theta[0, 1]])
+    y_pred = y_true * (1 + 0.02 * rng.standard_normal(y_true.shape)) + 0.01
+    directory = os.path.join(run, 'emu', 'emulator')
+    os.makedirs(directory)
+    np.savez(os.path.join(directory, 'emulator_validation.npz'), theta=theta, y_true=y_true,
+             y_pred=y_pred, feature_labels=np.array(['z', 'w'], dtype=object),
+             param_entry_labels=np.array(['A/p', 'C/q'], dtype=object))
+    _write_json(os.path.join(directory, 'emulator_metadata.json'),
+                {'feature_r2': [0.998, 0.91], 'feature_nrmse': [0.012, 0.05]})
+    _write_json(os.path.join(run, 'emu', 'step_result.json'),
+                {'kind': 'emulation', 'status': 'done'})
+
+
 def _analysis_run(root):
     """A finished run with a sensitivity, a calibration that stored its distribution and an
     identifiability step, and a figure step per analysis function."""
@@ -118,7 +136,9 @@ def _analysis_run(root):
                  'laplace': {'mean': [2.0, 1.0], 'covariance': [[0.04, 0.0], [0.0, 1e300]],
                              'std': [0.2, float('inf')]}})
     _optimiser_histories(run)
-    steps = [_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
+    _emulation_step(run)
+    steps = [_figure_step('emulator', 'emulator_validation',
+                          {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
              _figure_step('starts_progress', 'calibration_progress',
                           {'progress': ('progress', 'starts')}),
@@ -138,6 +158,8 @@ def analysis_run(tmp_path_factory):
     ('indices', ['sobol_z.png', 'sobol_w.png', 'sobol_ST_heatmap.png']),
     ('ga_progress', ['cost_history.png', 'param_history.png']),
     ('starts_progress', ['cost_history.png', 'param_history.png']),
+    ('emulator', ['emulator_parity.png', 'emulator_residuals_z.png',
+                  'emulator_residuals_w.png']),
     ('posterior', ['posterior.png']),
     ('laplace', ['laplace.png']),
 ])
@@ -158,6 +180,16 @@ def test_the_progress_input_reads_the_history_and_the_bounds(analysis_run):
     np.testing.assert_allclose(ga['param_history'][-1], [2.0, 2.0])
     assert (ga['param_mins'], ga['param_maxs']) == ([0.0, 1.0], [10.0, 3.0])
     assert [s['cost'] for s in starts['starts']] == [[3.0, 1.0], [6.0, 0.5]]
+
+
+@pytest.mark.unit
+def test_the_emulator_input_reads_the_points_and_the_scores(analysis_run):
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'e': {'kind': 'emulator_validation', 'step': 'emu'}})['e']
+    assert loaded['theta'].shape == (12, 2) and loaded['y_pred'].shape == (12, 2)
+    assert (loaded['feature_labels'], loaded['param_entry_labels']) == (['z', 'w'],
+                                                                        ['A/p', 'C/q'])
+    assert loaded['feature_r2'] == [0.998, 0.91] and loaded['feature_rmse'] is None
 
 
 @pytest.mark.unit

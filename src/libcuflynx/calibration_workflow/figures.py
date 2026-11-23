@@ -159,6 +159,30 @@ def _load_progress(run_dir, step_id, result):
     return progress
 
 
+@input_kind('emulator_validation', ('emulation',),
+            'an emulation step\'s held-out points (emulator_validation.npz) in real units: '
+            'theta (points, parameters), y_true and y_pred (points, features), '
+            'feature_labels, param_entry_labels; and feature_r2 / feature_rmse / '
+            'feature_nrmse from emulator_metadata.json (None where not recorded)')
+def _load_emulator_validation(run_dir, step_id, result):
+    from libcuflynx.emulators.emulator_bundle import METADATA_FILE, VALIDATION_FILE
+    from libcuflynx.calibration_workflow.runner import EMULATOR_DIR
+    directory = os.path.join(run_dir, step_id, EMULATOR_DIR)
+    path = _existing(os.path.join(directory, VALIDATION_FILE), 'emulator validation points',
+                     step_id)
+    with np.load(path, allow_pickle=True) as data:
+        loaded = {name: np.asarray(data[name], dtype=float)
+                  for name in ('theta', 'y_true', 'y_pred')}
+        for name in ('feature_labels', 'param_entry_labels'):
+            loaded[name] = [str(label) for label in data[name]]
+    with open(_existing(os.path.join(directory, METADATA_FILE), 'emulator metadata',
+                        step_id)) as f:
+        meta = json.load(f)
+    for name in ('feature_r2', 'feature_rmse', 'feature_nrmse'):
+        loaded[name] = meta.get(name)
+    return loaded
+
+
 @input_kind('obs_data', _MODEL_KINDS, 'the step\'s obs_data file, as its JSON document')
 def _load_obs_data(run_dir, step_id, result):
     path = _existing((result.get('inputs', {}).get('obs_data') or {}).get('path'), 'obs_data',

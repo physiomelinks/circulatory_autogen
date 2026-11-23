@@ -1702,6 +1702,7 @@ script reads or imports (helpers, a style module beside it).
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
 | `sensitivity` | Sobol sensitivity step | `{"S1": {output: {parameter: value}}, "ST": {...}}` |
 | `progress` | calibration step | the optimiser's history (`param_id.run_history.read_run_history`): `param_labels`, `cost_history` (per generation, best first), `param_history_norm` (0-1), `grad_history`, `starts` (per multi-start: `cost`, `params` in actual values), `best_cost`; and `param_mins`, `param_maxs`, the params_for_id bounds |
+| `emulator_validation` | emulation step | the held-out points of `emulator_validation.npz` in real units: `theta` (points, parameters), `y_true` and `y_pred` (points, features), `feature_labels`, `param_entry_labels`; and `feature_r2`, `feature_rmse`, `feature_nrmse` from `emulator_metadata.json` (None where not recorded) |
 | `distribution` | calibration with `store_distribution` | `{"names": [...], "samples": array (samples, parameters)}` |
 | `laplace` | identifiability step | `{"parameters": [...], "mean", "covariance", "std"}` as arrays |
 
@@ -1797,11 +1798,12 @@ The input names are the function's parameters:
 | `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
 | `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
 | `calibration_progress` | the best cost per generation on a log axis, with the band up to the worst recorded best cost (a genetic algorithm's top 10), or a line per start (`cost_history.png`); each parameter normalised by its bounds per generation (`param_history.png`) | `progress`: `progress` |
+| `emulator_validation` | per feature the emulator against the simulator at the held-out points, with y = x, R2 and NRMSE (`emulator_parity.png`); per feature the normalised residual against each parameter (`emulator_residuals_<feature>.png`) | `emulator`: `emulator_validation` |
 | `posterior` | per parameter a histogram, its mean and 5-95% band (`posterior.png`) | `distribution`: `distribution` |
 | `laplace` | per parameter the normal density over ±4 std (`laplace.png`) | `laplace`: `laplace` |
 
-The calibration fit plot is not among them yet: it needs a calibration's best-fit outputs as an
-input kind.
+The calibration fit plot and the error bars per observable are not among them yet: a
+calibration step does not save its best-fit outputs or error vectors.
 
 A workflow's older `external_figures` key (commands that libcuflynx recorded but never ran) is
 refused: write each as a figure step. A script may call other software itself if it must.
