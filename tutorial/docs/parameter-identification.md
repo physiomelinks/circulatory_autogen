@@ -1701,6 +1701,7 @@ script reads or imports (helpers, a style module beside it).
 | `obs_data` | step with an obs_data | the obs_data file as its JSON document |
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
 | `sensitivity` | Sobol sensitivity step | `{"S1": {output: {parameter: value}}, "ST": {...}}` |
+| `progress` | calibration step | the optimiser's history (`param_id.run_history.read_run_history`): `param_labels`, `cost_history` (per generation, best first), `param_history_norm` (0-1), `grad_history`, `starts` (per multi-start: `cost`, `params` in actual values), `best_cost`; and `param_mins`, `param_maxs`, the params_for_id bounds |
 | `distribution` | calibration with `store_distribution` | `{"names": [...], "samples": array (samples, parameters)}` |
 | `laplace` | identifiability step | `{"parameters": [...], "mean", "covariance", "std"}` as arrays |
 
@@ -1795,6 +1796,7 @@ The input names are the function's parameters:
 | `sweep_features` | each feature against the swept parameters, as the sweep step draws them | `sweep`: `sweep` |
 | `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
 | `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
+| `calibration_progress` | the best cost per generation on a log axis, with the band up to the worst recorded best cost (a genetic algorithm's top 10), or a line per start (`cost_history.png`); each parameter normalised by its bounds per generation (`param_history.png`) | `progress`: `progress` |
 | `posterior` | per parameter a histogram, its mean and 5-95% band (`posterior.png`) | `distribution`: `distribution` |
 | `laplace` | per parameter the normal density over ±4 std (`laplace.png`) | `laplace`: `laplace` |
 

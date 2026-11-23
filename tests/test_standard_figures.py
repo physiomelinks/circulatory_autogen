@@ -61,6 +61,36 @@ def _draw_both_ways(run_dir, step, tmp_path):
 # the analysis figures, from hand-written step results
 # --------------------------------------------------------------------------------------------
 
+def _optimiser_histories(run):
+    """Calibration steps ``ga`` (a genetic algorithm's top-3 costs and normalised values per
+    generation) and ``starts`` (two starts of a multi-start run, in actual values), as the
+    optimisers write them, with p in [0, 10] and q in [1, 3]."""
+    from libcuflynx.utilities import params_for_id_file
+    params_for_id = os.path.join(run, 'params_for_id.json')
+    params_for_id_file.write_params_for_id(params_for_id, [
+        {'targets': [params_for_id_file.target_name(vessel, param)], 'min': lo, 'max': hi,
+         'name_for_plotting': param} for vessel, param, lo, hi in (('A', 'p', 0.0, 10.0),
+                                                                   ('C', 'q', 1.0, 3.0))])
+    files = {
+        'ga': {'best_cost_history.csv': '4.0,5.0,9.0\n2.0,2.5,4.0\n0.5,1.0,2.0\n',
+               'best_param_vals_history.csv': 'A/p,C/q\n0.9,0.1\n0.5,0.4\n0.2,0.5\n'},
+        'starts': {'multi_start_cost_history.csv':
+                   'start_idx, iteration, cost\n0, 0, 3.0\n0, 1, 1.0\n1, 0, 6.0\n1, 1, 0.5\n',
+                   'multi_start_param_vals_history.csv':
+                   'start_idx, iteration, A/p, C/q\n0, 0, 8.0, 1.5\n0, 1, 4.0, 2.0\n'
+                   '1, 0, 1.0, 2.8\n1, 1, 2.0, 2.0\n'}}
+    for step_id, written in files.items():
+        directory = os.path.join(run, step_id, 'param_id')
+        os.makedirs(directory)
+        for name, text in written.items():
+            with open(os.path.join(directory, name), 'w') as f:
+                f.write(text)
+        np.save(os.path.join(directory, 'best_cost.npy'), np.array(0.5))
+        _write_json(os.path.join(run, step_id, 'step_result.json'),
+                    {'kind': 'calibration', 'status': 'done', 'param_id_output_dir': directory,
+                     'params_for_id_used': params_for_id})
+
+
 def _analysis_run(root):
     """A finished run with a sensitivity, a calibration that stored its distribution and an
     identifiability step, and a figure step per analysis function."""
@@ -87,7 +117,11 @@ def _analysis_run(root):
                 {'kind': 'identifiability', 'status': 'done', 'parameters': ['A/p', 'C/q'],
                  'laplace': {'mean': [2.0, 1.0], 'covariance': [[0.04, 0.0], [0.0, 1e300]],
                              'std': [0.2, float('inf')]}})
+    _optimiser_histories(run)
     steps = [_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
+             _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
+             _figure_step('starts_progress', 'calibration_progress',
+                          {'progress': ('progress', 'starts')}),
              _figure_step('posterior', 'posterior', {'distribution': ('distribution', 'fit')}),
              _figure_step('laplace', 'laplace', {'laplace': ('laplace', 'ia')})]
     _write_json(os.path.join(run, WORKFLOW_FILE_NAME), {'steps': steps})
@@ -102,6 +136,8 @@ def analysis_run(tmp_path_factory):
 @pytest.mark.unit
 @pytest.mark.parametrize('step_id, files', [
     ('indices', ['sobol_z.png', 'sobol_w.png', 'sobol_ST_heatmap.png']),
+    ('ga_progress', ['cost_history.png', 'param_history.png']),
+    ('starts_progress', ['cost_history.png', 'param_history.png']),
     ('posterior', ['posterior.png']),
     ('laplace', ['laplace.png']),
 ])
@@ -109,6 +145,19 @@ def test_an_analysis_figure_is_the_same_drawn_alone(analysis_run, tmp_path, step
     run, steps = analysis_run
     paths = _draw_both_ways(run, steps[step_id], tmp_path)
     assert [os.path.basename(p) for p in paths] == files
+
+
+@pytest.mark.unit
+def test_the_progress_input_reads_the_history_and_the_bounds(analysis_run):
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'ga': {'kind': 'progress', 'step': 'ga'},
+                                       'starts': {'kind': 'progress', 'step': 'starts'}})
+    ga, starts = loaded['ga'], loaded['starts']
+    assert ga['param_labels'] == ['A/p', 'C/q']
+    assert [row[0] for row in ga['cost_history']] == [4.0, 2.0, 0.5]
+    np.testing.assert_allclose(ga['param_history'][-1], [2.0, 2.0])
+    assert (ga['param_mins'], ga['param_maxs']) == ([0.0, 1.0], [10.0, 3.0])
+    assert [s['cost'] for s in starts['starts']] == [[3.0, 1.0], [6.0, 0.5]]
 
 
 @pytest.mark.unit
