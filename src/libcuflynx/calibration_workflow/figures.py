@@ -161,6 +161,23 @@ def _load_progress(run_dir, step_id, result):
     return progress
 
 
+@input_kind('mcmc_chain', ('calibration',),
+            'a calibration\'s MCMC chain (do_uq, store_distribution): chain, an array (steps, '
+            'walkers, parameters) cut to the draws every walker reached; param_labels; and '
+            'burn_in_index, the first step after the burn-in its UQ options give')
+def _load_mcmc_chain(run_dir, step_id, result):
+    from libcuflynx.calibration_workflow.runner import burn_in_index
+    from libcuflynx.param_id.paramID import drop_unsampled_draws
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, param_entry_labels
+    path = _existing(os.path.join(result.get('param_id_output_dir') or '', 'mcmc_chain.npy'),
+                     'MCMC chain', step_id)
+    chain = drop_unsampled_draws(np.load(path))
+    info = ObsAndParamDataParser().get_param_id_info(
+        _existing(result.get('params_for_id_used'), 'params_for_id', step_id))
+    return {'chain': chain, 'param_labels': param_entry_labels(info),
+            'burn_in_index': burn_in_index(result.get('settings') or {}, chain.shape[0])}
+
+
 @input_kind('emulator_validation', ('emulation',),
             'an emulation step\'s held-out points (emulator_validation.npz) in real units: '
             'theta (points, parameters), y_true and y_pred (points, features), '

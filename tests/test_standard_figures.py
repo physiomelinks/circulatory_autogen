@@ -91,6 +91,23 @@ def _optimiser_histories(run):
                      'params_for_id_used': params_for_id})
 
 
+def _mcmc_step(run):
+    """A calibration step ``mc`` with a 200-step chain of four walkers over p and q (p mixes,
+    q drifts), its last 10 steps unsampled by one walker (NaN), and a burn-in of 0.25."""
+    rng = np.random.default_rng(11)
+    chain = np.empty((200, 4, 2))
+    chain[:, :, 0] = 2.0 + 0.3 * rng.standard_normal((200, 4))
+    chain[:, :, 1] = np.linspace(1.0, 3.0, 200)[:, None] + 0.01 * rng.standard_normal((200, 4))
+    chain[190:, 3, :] = np.nan
+    directory = os.path.join(run, 'mc', 'param_id')
+    os.makedirs(directory)
+    np.save(os.path.join(directory, 'mcmc_chain.npy'), chain)
+    _write_json(os.path.join(run, 'mc', 'step_result.json'),
+                {'kind': 'calibration', 'status': 'done', 'param_id_output_dir': directory,
+                 'params_for_id_used': os.path.join(run, 'params_for_id.json'),
+                 'settings': {'UQ_options': {'burn_in': 0.25}}})
+
+
 def _emulation_step(run):
     """An emulation step ``emu`` with 12 held-out points of two parameters and two features,
     z (all truths positive) and w (a truth of 0)."""
@@ -178,6 +195,7 @@ def _analysis_run(root):
     _optimiser_histories(run)
     _emulation_step(run)
     _local_and_reduction_steps(run)
+    _mcmc_step(run)
     steps = [_figure_step('emulator', 'emulator_validation',
                           {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
@@ -187,7 +205,8 @@ def _analysis_run(root):
              _figure_step('laplace', 'laplace', {'laplace': ('laplace', 'ia')}),
              _figure_step('local', 'local_sensitivity', {'sensitivity': ('sensitivity', 'local')}),
              _figure_step('modes', 'pca_modes', {'reduction': ('reduction', 'reduce')}),
-             _figure_step('inputs', 'protocol_inputs', {'obs_data': ('obs_data', 'proto')})]
+             _figure_step('inputs', 'protocol_inputs', {'obs_data': ('obs_data', 'proto')}),
+             _figure_step('mcmc', 'mcmc_diagnostics', {'chain': ('mcmc_chain', 'mc')})]
     _write_json(os.path.join(run, WORKFLOW_FILE_NAME), {'steps': steps})
     return run, {step['id']: step for step in steps}
 
@@ -209,6 +228,7 @@ def analysis_run(tmp_path_factory):
     ('local', ['local_sensitivity_heatmap.png']),
     ('modes', ['pca_mode_1.png', 'pca_mode_2.png', 'pca_mode_ST_heatmap.png']),
     ('inputs', ['inputs_exp_0.png', 'inputs_exp_1.png']),
+    ('mcmc', ['mcmc_chain.png', 'mcmc_cumulative_mean.png', 'mcmc_autocorrelation.png']),
 ])
 def test_an_analysis_figure_is_the_same_drawn_alone(analysis_run, tmp_path, step_id, files):
     run, steps = analysis_run
@@ -250,6 +270,32 @@ def test_the_sensitivity_input_reads_local_and_sobol_indices(analysis_run):
                                           'w': {'A/p': 0.05, 'C/q': -1.1}}
     assert local['local']['absolute']['w']['C/q'] == pytest.approx(-4.4)
     assert sobol['local'] is None and sobol['ST']['z'] == {'A/p': 0.7, 'C/q': 0.35}
+
+
+@pytest.mark.unit
+def test_the_mcmc_input_reads_the_sampled_chain_and_the_burn_in(analysis_run):
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'c': {'kind': 'mcmc_chain', 'step': 'mc'}})['c']
+    assert loaded['chain'].shape == (190, 4, 2) and np.isfinite(loaded['chain']).all()
+    assert loaded['param_labels'] == ['A/p', 'C/q']
+    assert loaded['burn_in_index'] == 47
+
+
+@pytest.mark.unit
+def test_the_autocorrelation_title_says_whether_a_walker_mixed(tmp_path):
+    """p is white noise and stays within the guides; q drifts and stays correlated."""
+    from unittest import mock
+    from libcuflynx.calibration_workflow import standard_figures
+    rng = np.random.default_rng(2)
+    chain = np.stack([rng.standard_normal((300, 3)),
+                      np.cumsum(rng.standard_normal((300, 3)), axis=0)], axis=2)
+    titles = []
+    with mock.patch.object(standard_figures, '_mcmc_axes',
+                           side_effect=lambda ax, title, xlabel: titles.append(title)):
+        standard_figures.mcmc_diagnostics(
+            {'chain': chain, 'param_labels': ['p', 'q'], 'burn_in_index': 150},
+            str(tmp_path))
+    assert titles[-2:] == ['p: within', 'q: still correlated']
 
 
 @pytest.mark.unit

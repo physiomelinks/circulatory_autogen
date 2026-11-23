@@ -1312,6 +1312,7 @@
           "sweep",
           "values",
           "progress",
+          "mcmc_chain",
           "emulator_validation",
           "obs_data",
           "params_for_id",

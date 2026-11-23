@@ -1491,8 +1491,7 @@ class _Run:
             raise WorkflowStepError(step.id, f'store_distribution is set but MCMC wrote no '
                                              f'chain ({chain_path}).')
         chain = np.load(chain_path)
-        burn_in = float(_uq_options(settings).get('burn_in', 0.5))
-        start = int(chain.shape[0] * burn_in) if burn_in < 1 else int(burn_in)
+        start = burn_in_index(settings, chain.shape[0])
         parameters = parameters_from_info(info['param_names'], info['param_mins'],
                                           info['param_maxs'])
         distribution = StoredDistribution.from_chain(
@@ -1810,6 +1809,13 @@ def _model_files(model):
     '''A step's or target's model as the manifest records it: a module array's files, or a
     library module's ``{module_type, version, parameterisation}``; None for a reduction.'''
     return model.as_dict() if model is not None else None
+
+
+def burn_in_index(settings, num_steps):
+    '''The first step of a chain of ``num_steps`` after the burn-in the step's UQ options give
+    (``burn_in``: a fraction below 1, else a step count; 0.5 by default).'''
+    burn_in = float(_uq_options(settings).get('burn_in', 0.5))
+    return int(num_steps * burn_in) if burn_in < 1 else int(burn_in)
 
 
 def reduced_params_for_id_path(output_dir, step_id):
