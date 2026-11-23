@@ -1316,6 +1316,7 @@
           "obs_data",
           "params_for_id",
           "sensitivity",
+          "reduction",
           "distribution",
           "laplace",
           "profile_likelihood"

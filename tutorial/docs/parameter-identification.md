@@ -2250,12 +2250,13 @@ script reads or imports (helpers, a style module beside it).
 | `values` | calibration, set or combine step | `{"<vessel>/<parameter>": value}`: what it calibrated, set by hand or combined, named as that step names them (a combine step: as the target names them) |
 | `obs_data` | step with an obs_data | the obs_data file as its JSON document |
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
-| `sensitivity` | Sobol sensitivity step | `{"S1": {output: {parameter: value}}, "ST": {...}}` |
+| `sensitivity` | sensitivity step | Sobol indices, `{"S1": {output: {parameter: value}}, "ST": {...}}` (empty for a local analysis); and `local`, `{"relative": {output: {parameter: value}}, "absolute": {...}}` from a local analysis (`sa_options.method: "local"`), else None |
 | `progress` | calibration step | the optimiser's history (`param_id.run_history.read_run_history`): `param_labels`, `cost_history` (per generation, best first), `param_history_norm` (0-1), `grad_history`, `starts` (per multi-start: `cost`, `params` in actual values), `best_cost`; and `param_mins`, `param_maxs`, the params_for_id bounds |
 | `emulator_validation` | emulation step | the held-out points of `emulator_validation.npz` in real units: `theta` (points, parameters), `y_true` and `y_pred` (points, features), `feature_labels`, `param_entry_labels`; and `feature_r2`, `feature_rmse`, `feature_nrmse` from `emulator_metadata.json` (None where not recorded) |
 | `distribution` | calibration with `store_distribution`, or uq step | `{"names": [...], "samples": array (samples, parameters)}`, named by the model's names |
 | `laplace` | identifiability step, or uq step with method `laplace` | `{"parameters": [...], "mean", "covariance", "std"}` as arrays |
 | `profile_likelihood` | identifiability step with method `profile_likelihood` | `{"nll_threshold_95", "profiles": [{"parameter", "param_values", "costs", "best_val", "best_cost", "ci_95"}]}`, the sweeps as arrays |
+| `reduction` | reduction step | its report (`param_reduction.json`: `reduction`, `selected`, ...); for a PCA reduction also `modes`, `[{mode, variance, variance_share, informative, loadings: {feature: value}}]`, and `mode_indices`, `{"S1": {"mode_<k>": {parameter: value}}, "ST": {...}}` (both None for a Sobol reduction) |
 
 The function writes its files into `out_dir` and returns their paths:
 
@@ -2347,7 +2348,10 @@ The input names are the function's parameters:
 | `sweep_traces` | per experiment, every output over time, a line per point (`traces_exp_<e>.png`) | `sweep`: `sweep` |
 | `sweep_features` | each feature against the swept parameters, as the sweep step draws them | `sweep`: `sweep` |
 | `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
+| `protocol_inputs` | per experiment each `params_to_change` entry over the logged time: a number held over its sub-experiment, a trace or shape from the sub-experiment's start (`inputs_exp_<e>.png`) | `obs_data`: `obs_data` |
 | `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
+| `local_sensitivity` | a heatmap of a local analysis's relative sensitivities, parameters by outputs (`local_sensitivity_heatmap.png`) | `sensitivity`: `sensitivity` |
+| `pca_modes` | per PCA mode its loading on each feature and the ST of each parameter (`pca_mode_<k>.png`), and ST per mode (`pca_mode_ST_heatmap.png`) | `reduction`: `reduction` |
 | `calibration_progress` | the best cost per generation on a log axis, with the band up to the worst recorded best cost (a genetic algorithm's top 10), or a line per start (`cost_history.png`); each parameter normalised by its bounds per generation (`param_history.png`) | `progress`: `progress` |
 | `emulator_validation` | per feature the emulator against the simulator at the held-out points, with y = x, R2 and NRMSE (`emulator_parity.png`); per feature the normalised residual against each parameter (`emulator_residuals_<feature>.png`) | `emulator`: `emulator_validation` |
 | `posterior` | per parameter a histogram, its mean and 5-95% band (`posterior.png`) | `distribution`: `distribution` |

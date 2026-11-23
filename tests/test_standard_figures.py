@@ -109,6 +109,46 @@ def _emulation_step(run):
                 {'kind': 'emulation', 'status': 'done'})
 
 
+def _local_and_reduction_steps(run):
+    """A local sensitivity step ``local`` (relative and absolute CSVs, no Sobol indices), a PCA
+    reduction step ``reduce`` (two modes over features z and w, the second below the noise
+    floor) and a simulate step ``proto`` whose obs_data changes q (a number, then a ramp
+    trace) and k (a pulse shape) over two experiments."""
+    directory = os.path.join(run, 'local', 'sensitivity')
+    os.makedirs(directory)
+    for key, scale in (('relative', 1.0), ('absolute', 4.0)):
+        with open(os.path.join(directory, f'local_sensitivity_{key}.csv'), 'w') as f:
+            f.write(f'output,A/p,C/q\nz,{0.9 * scale},{-0.2 * scale}\n'
+                    f'w,{0.05 * scale},{-1.1 * scale}\n')
+    _write_json(os.path.join(run, 'local', 'step_result.json'),
+                {'kind': 'sensitivity', 'status': 'done', 'method': 'local',
+                 'sensitivity_dir': directory, 'sobol_indices': None})
+    reduce = os.path.join(run, 'reduce')
+    os.makedirs(reduce)
+    with open(os.path.join(reduce, 'pca_modes.csv'), 'w') as f:
+        f.write('mode,variance,variance_share,informative,loading_z,loading_w\n'
+                '1,3.0,0.75,True,0.8,-0.6\n2,1.0,0.25,False,0.6,0.8\n')
+    with open(os.path.join(reduce, 'pca_mode_sobol_indices.csv'), 'w') as f:
+        f.write('Parameter,S1_mode_1,ST_mode_1,S1_mode_2,ST_mode_2\n'
+                'A/p,0.7,0.8,0.1,0.15\nC/q,0.1,0.2,0.6,0.9\n')
+    report = _write_json(os.path.join(reduce, 'param_reduction.json'),
+                         {'reduction': {'method': 'pca'}, 'selected': [{'parameter': 'A/p'}]})
+    _write_json(os.path.join(reduce, 'step_result.json'),
+                {'kind': 'reduction', 'status': 'done', 'report': report})
+    obs = _write_json(os.path.join(run, 'data', 'proto_obs.json'), {
+        'protocol_info': {
+            'pre_times': [0.0, 1.0], 'sim_times': [[1.0, 2.0], [1.5]],
+            'experiment_labels': ['step and ramp', 'pulse'],
+            'params_to_change': {'mod__C/q': [[1.0, 'ramp'], [2.0]],
+                                 'mod__C/k': [[3.0, 3.0], ['pulse']]},
+            'protocol_traces': {'ramp': {'t': [0.0, 1.0], 'values': [0.0, 1.0]}},
+            'protocol_shapes': {'pulse': {'events': [
+                {'level': 1.0, 'start': 0.2, 'length': 0.3, 'period': 0, 'multiplier': 0}]}}},
+        'data_items': []})
+    _write_json(os.path.join(run, 'proto', 'step_result.json'),
+                {'kind': 'simulate', 'status': 'done', 'inputs': {'obs_data': {'path': obs}}})
+
+
 def _analysis_run(root):
     """A finished run with a sensitivity, a calibration that stored its distribution and an
     identifiability step, and a figure step per analysis function."""
@@ -137,13 +177,17 @@ def _analysis_run(root):
                              'std': [0.2, float('inf')]}})
     _optimiser_histories(run)
     _emulation_step(run)
+    _local_and_reduction_steps(run)
     steps = [_figure_step('emulator', 'emulator_validation',
                           {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
              _figure_step('starts_progress', 'calibration_progress',
                           {'progress': ('progress', 'starts')}),
              _figure_step('posterior', 'posterior', {'distribution': ('distribution', 'fit')}),
-             _figure_step('laplace', 'laplace', {'laplace': ('laplace', 'ia')})]
+             _figure_step('laplace', 'laplace', {'laplace': ('laplace', 'ia')}),
+             _figure_step('local', 'local_sensitivity', {'sensitivity': ('sensitivity', 'local')}),
+             _figure_step('modes', 'pca_modes', {'reduction': ('reduction', 'reduce')}),
+             _figure_step('inputs', 'protocol_inputs', {'obs_data': ('obs_data', 'proto')})]
     _write_json(os.path.join(run, WORKFLOW_FILE_NAME), {'steps': steps})
     return run, {step['id']: step for step in steps}
 
@@ -162,6 +206,9 @@ def analysis_run(tmp_path_factory):
                   'emulator_residuals_w.png']),
     ('posterior', ['posterior.png']),
     ('laplace', ['laplace.png']),
+    ('local', ['local_sensitivity_heatmap.png']),
+    ('modes', ['pca_mode_1.png', 'pca_mode_2.png', 'pca_mode_ST_heatmap.png']),
+    ('inputs', ['inputs_exp_0.png', 'inputs_exp_1.png']),
 ])
 def test_an_analysis_figure_is_the_same_drawn_alone(analysis_run, tmp_path, step_id, files):
     run, steps = analysis_run
@@ -190,6 +237,58 @@ def test_the_emulator_input_reads_the_points_and_the_scores(analysis_run):
     assert (loaded['feature_labels'], loaded['param_entry_labels']) == (['z', 'w'],
                                                                         ['A/p', 'C/q'])
     assert loaded['feature_r2'] == [0.998, 0.91] and loaded['feature_rmse'] is None
+
+
+@pytest.mark.unit
+def test_the_sensitivity_input_reads_local_and_sobol_indices(analysis_run):
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'local': {'kind': 'sensitivity', 'step': 'local'},
+                                       'sobol': {'kind': 'sensitivity', 'step': 'sobol'}})
+    local, sobol = loaded['local'], loaded['sobol']
+    assert (local['S1'], local['ST']) == ({}, {})
+    assert local['local']['relative'] == {'z': {'A/p': 0.9, 'C/q': -0.2},
+                                          'w': {'A/p': 0.05, 'C/q': -1.1}}
+    assert local['local']['absolute']['w']['C/q'] == pytest.approx(-4.4)
+    assert sobol['local'] is None and sobol['ST']['z'] == {'A/p': 0.7, 'C/q': 0.35}
+
+
+@pytest.mark.unit
+def test_the_reduction_input_reads_the_report_and_the_modes(analysis_run):
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'r': {'kind': 'reduction', 'step': 'reduce'}})['r']
+    assert loaded['selected'] == [{'parameter': 'A/p'}]
+    assert [(m['mode'], m['informative'], m['loadings']) for m in loaded['modes']] == [
+        (1, True, {'z': 0.8, 'w': -0.6}), (2, False, {'z': 0.6, 'w': 0.8})]
+    assert loaded['mode_indices']['ST']['mode_2'] == {'A/p': 0.15, 'C/q': 0.9}
+
+
+@pytest.mark.unit
+def test_an_analysis_figure_without_its_results_says_what_it_needs(tmp_path):
+    from libcuflynx.calibration_workflow import standard_figures
+    out = str(tmp_path / 'out')
+    with pytest.raises(ValueError, match='no local sensitivities'):
+        standard_figures.local_sensitivity({'S1': {}, 'ST': {'z': {'A/p': 0.5}},
+                                            'local': None}, out)
+    with pytest.raises(ValueError, match="no PCA modes \\(method 'sobol'\\)"):
+        standard_figures.pca_modes({'reduction': {'method': 'sobol'}, 'modes': None,
+                                    'mode_indices': None}, out)
+    with pytest.raises(ValueError, match='changes no parameter'):
+        standard_figures.protocol_inputs(
+            {'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]]}, 'data_items': []},
+            out)
+
+
+@pytest.mark.unit
+def test_a_protocol_trace_is_drawn_over_its_sub_experiment():
+    """A trace is cut to its sub-experiment, keeps a jump (a repeated time) and is held at its
+    ends, as Myokit holds it."""
+    from libcuflynx.calibration_workflow.standard_figures import _trace_points
+    t, v = _trace_points(np.array([0.0, 0.5, 0.5, 2.0]), np.array([1.0, 1.0, 3.0, 3.0]), 1.0)
+    np.testing.assert_allclose(t, [0.0, 0.5, 0.5, 1.0])
+    np.testing.assert_allclose(v, [1.0, 1.0, 3.0, 3.0])
+    t, v = _trace_points(np.array([0.2, 0.4]), np.array([2.0, 4.0]), 1.0)
+    np.testing.assert_allclose(t, [0.0, 0.2, 0.4, 1.0])
+    np.testing.assert_allclose(v, [2.0, 2.0, 4.0, 4.0])
 
 
 @pytest.mark.unit
