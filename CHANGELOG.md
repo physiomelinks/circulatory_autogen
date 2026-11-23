@@ -5,6 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — every CMA-ES run evaluates its start value first (changes results)
+
+- A CMA-ES run with two or more parameters sampled around its start value without evaluating
+  it, so a run started at a known optimum (a warm start, a profile likelihood point with several
+  free parameters) could end with a worse cost than its start. Every CMA-ES run now evaluates
+  the start first, as one of `num_calls_to_function`, as one-parameter runs already did; the
+  result is never worse than the start. CMA-ES results change slightly: one fewer CMA
+  candidate fits in the budget, and a run whose candidates never beat the start stops one
+  evaluation later.
 ### Fixed — casadi_python uses CVODE_myokit's output times when dt does not divide the run
 
 - When `dt` did not divide `sim_time` (or `pre_time`), `casadi_python` stepped at exactly `dt`
