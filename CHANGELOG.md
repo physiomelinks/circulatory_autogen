@@ -22,6 +22,14 @@ next release; add to that section as you land a change.
   the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
   given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
   raised inside nevergrad's ask/tell, is silenced.
+### Fixed — a packed workflow leaves out each module version's test output
+
+- `pack_workflow` (and so a workflow run's packed inputs, CUFLynx's OMEX export of a workflow
+  and a study's `inputs/system/`) copied every file of each module version it uses, including
+  what the module library's tests write there: the `results/` and `plots/` directories and the
+  HTML report. These are local output, not part of the module, and were most of an archive's
+  size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
+  directory of those names deeper inside a version is still packed.
 
 ### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
 
@@ -123,6 +131,12 @@ next release; add to that section as you land a change.
   in the model. The cost is evaluated at the full vector (`param_id.held_entries.HeldEntries`,
   which profile likelihood now uses for its held entry); `best_param_vals.npy` is the full
   vector and `held_entries.json` records what was held. Not with `do_uq` or `do_ia`.
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
 
 ### Added — analysis options name the methods that read them
 

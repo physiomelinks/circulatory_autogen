@@ -1370,6 +1370,34 @@ def test_a_packed_workflow_runs_without_the_files_it_was_packed_from(tmp_path, w
 
 
 @pytest.mark.unit
+def test_a_module_version_s_test_output_is_not_packed(tmp_path):
+    """A module library's tests write results/, plots/ and an HTML report into each version
+    directory: local output, not part of the module, and most of an archive's size."""
+    from libcuflynx.calibration_workflow import pack_workflow
+    root = tmp_path / 'library'
+    library = build_workflow_library(str(root))
+    (version,) = [os.path.join(found, 'v1') for found, dirs, _ in os.walk(str(root))
+                  if os.path.basename(found) == 'versions'
+                  and os.path.basename(os.path.dirname(found)) == 'lin_a' and 'v1' in dirs]
+    output = [os.path.join('results', 'run_test.json'),
+              os.path.join('results', 'instances', 'default.json'),
+              os.path.join('plots', 'bc_sweep.png'), 'lin_a_v1.html']
+    kept = os.path.join('parameterisations', 'results', 'notes.txt')
+    for relative in output + [kept]:
+        path = os.path.join(version, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f:
+            f.write('x')
+
+    packed = pack_workflow(library['chain_analysed'], str(tmp_path / 'pack'))
+    in_pack = os.path.join('modules', 'lin_a', 'versions', 'v1')
+    assert os.path.join(in_pack, kept) in packed['files'], 'only the version\'s own output goes'
+    for relative in output:
+        assert os.path.join(in_pack, relative) not in packed['files'], relative
+    assert packed['files'] == _files_under(str(tmp_path / 'pack'))
+
+
+@pytest.mark.unit
 def test_settings_paths_are_relative_to_the_workflow_and_are_packed(library, tmp_path):
     from libcuflynx.calibration_workflow import pack_workflow
     from libcuflynx.scripts.calibration_workflow_run_script import build_parser, run
