@@ -390,6 +390,22 @@ def test_coupled_fv1d_model_with_a_volume_sum_generates(user_inputs_dir, resourc
 
 
 @pytest.mark.integration
+def test_coupled_model_writes_outputs_next_to_the_generated_cpp(user_inputs_dir, resources_dir, tmp_path):
+    """Coupled to 1D, main0d's default output folder is simulation_outputs_cpp/ in the generated
+    C++ models directory, as for an uncoupled model, never a folder above it."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'aortic_bif_hybrid_V1', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir),
+                             cpp_1d_model_config_path=str(tmp_path / '1d' / 'run000' / 'input.ini'),
+                             pre_time=0.0, sim_time=1.1, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    assert generate_with_new_architecture(False, inp)
+    main = (cpp_dir / 'main0d.cpp').read_text()
+    assert f'std::string resFold = "{cpp_dir / "simulation_outputs_cpp"}/";' in main
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
     """End to end: generate aortic_bif_hybrid_V1 (CVODE), build main0d and the coupler with CMake,
@@ -406,7 +422,7 @@ def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
     assert generate_with_new_architecture(False, inp)
     _run_coupled(cpp_dir, tmp_path)
 
-    out0d = tmp_path / 'simulation_outputs_cpp' / 'aortic_bif_hybrid_V1'
+    out0d = cpp_dir / 'simulation_outputs_cpp'
     cv, v = _load_output(out0d / 'sol0D_variables.txt')
     assert v.shape[0] > 50 and np.all(np.isfinite(v))
     u_in = v[:, cv['terminal_1/u_in']]           # pressure received from the 1D solver [Pa]
@@ -466,6 +482,36 @@ def test_coupler_stops_when_a_solver_fails(user_inputs_dir, resources_dir, tmp_p
     message = str(failed.value)
     assert 'timed out' not in message
     assert 'the 1D solver failed (exit status 1); stopping the 0D solver' in message
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_coupler_error_line_is_not_split_by_child_output(user_inputs_dir, resources_dir, tmp_path):
+    """The coupler's children write to the same log as the coupler. Its error line is one write,
+    so output that the children print at that moment cannot land inside it. The fake "1D solver"
+    exits with status 1 while a background process it started floods the log with short writes."""
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    cpp_dir = tmp_path / 'gen' / 'cpp'
+    ini = tmp_path / '1d' / 'run000' / 'input.ini'
+    inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, 'aortic_bif_hybrid_V1', 'CVODE',
+                             couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
+                             cpp_generated_models_dir=str(cpp_dir), cpp_1d_model_config_path=str(ini),
+                             dt=0.01, pre_time=0.0, sim_time=1.1, coupler_pipe_dir=str(tmp_path / 'pipes'))
+    assert generate_with_new_architecture(False, inp)
+    # the flood runs for as long as the coupler (this script's parent) is alive
+    fake_solver = tmp_path / 'failing_solver_with_noisy_neighbour.sh'
+    fake_solver.write_text('#!/bin/sh\n'
+                           'coupler=$PPID\n'
+                           '(while kill -0 "$coupler" 2>/dev/null; do echo FLOOD; done) &\n'
+                           'sleep 0.3\n'
+                           'exit 1\n')
+    fake_solver.chmod(0o755)
+    _short_coupled_run(cpp_dir, t0=0.05, python_path=str(fake_solver))
+    with pytest.raises(AssertionError):
+        _run_coupled(cpp_dir, tmp_path, timeout=120)
+    log = (tmp_path / 'coupler.log').read_text(errors='replace')  # the whole log, not its tail
+    assert 'FLOOD' in log
+    assert 'Coupler :: Error :: the 1D solver failed (exit status 1); stopping the 0D solver.\n' in log
 
 
 @pytest.mark.integration
@@ -600,7 +646,7 @@ def test_coupled_fv1d_model_stays_close_to_the_0d_model(user_inputs_dir, resourc
     t0d, zero_vals = _last_cycle(zero / 'out' / 'sol0D_states.txt', [n for n in names if n.endswith('/v')], t_start)
     _, zero_vars = _last_cycle(zero / 'out' / 'sol0D_variables.txt', [n for n in names if n.endswith('/u')], t_start)
     zero_vals.update(zero_vars)
-    out_hyb = hyb / 'simulation_outputs_cpp' / 'aortic_bif_hybrid'
+    out_hyb = cpp_dir / 'simulation_outputs_cpp'
     thy, hyb_vals = _last_cycle(out_hyb / 'sol0D_states.txt', [n for n in names if n.endswith('/v')], t_start)
     _, hyb_vars = _last_cycle(out_hyb / 'sol0D_variables.txt', [n for n in names if n.endswith('/u')], t_start)
     hyb_vals.update(hyb_vars)

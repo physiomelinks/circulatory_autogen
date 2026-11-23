@@ -1,0 +1,58 @@
+[
+  {
+    "module_type": "flow_merge",
+    "module_subtype": "vp",
+    "module_format": "cellml",
+    "component_file": "flow_merge_vp_modules.cellml",
+    "component_type": "flow_merge_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_in",
+          "u"
+        ],
+        "multi_port": [
+          "sum",
+          "True"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out",
+          "u_d"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "v_in",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_d",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_out",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ]
+    ]
+  }
+]

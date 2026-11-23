@@ -53,7 +53,7 @@ def test_unseeded_runs_differ_from_each_other():
 def test_a_seed_does_not_make_the_search_rank_independent():
     """The half that is easy to assume and is not true.
 
-    CMA-ES asks for one candidate per MPI rank, so the ask/tell interleaving -- and with it the
+    Asked one candidate per worker, the ask/tell interleaving -- and with it the
     trajectory, and the number of evaluations before it stops -- changes with the rank count
     even at a fixed seed. Until the population is decoupled from the rank count, a scaling
     speedup is not a throughput measurement, which is why the sweep records and reports the

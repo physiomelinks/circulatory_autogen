@@ -650,6 +650,36 @@ def test_a_tab_shows_each_model_with_the_values_available_so_far(library, tmp_pa
 
 
 @pytest.mark.integration
+def test_a_tab_can_skip_the_trial_run_of_the_model_it_generates(library, tmp_path, monkeypatch):
+    """validate=False: the same model files, without the Myokit compile generation ends with
+    (the caller runs the model itself)."""
+    from libcuflynx.calibration_workflow import workflow_model
+    from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
+
+    out = str(tmp_path / 'run')
+    trial_runs = []
+    validate_with_myokit = CVS0DCellMLGenerator._validate_with_myokit
+
+    def counted(self, cellml_path):
+        trial_runs.append(cellml_path)
+        return validate_with_myokit(self, cellml_path)
+
+    monkeypatch.setattr(CVS0DCellMLGenerator, '_validate_with_myokit', counted)
+    checked = workflow_model(library['chain_rest'], 'rest', output_dir=out,
+                             work_dir=str(tmp_path / 'checked'))
+    assert len(trial_runs) == 1
+    quick = workflow_model(library['chain_rest'], 'rest', output_dir=out,
+                           work_dir=str(tmp_path / 'quick'), validate=False)
+    assert len(trial_runs) == 1
+    for key in ('model_path', 'flat_model_path', 'parameters_path'):
+        with open(checked[key]) as a, open(quick[key]) as b:
+            assert a.read() == b.read(), key
+    target = workflow_model(library['chain_rest'], 'target', output_dir=out,
+                            work_dir=str(tmp_path / 'quick'), validate=False)
+    assert os.path.isfile(target['flat_model_path']) and len(trial_runs) == 1
+
+
+@pytest.mark.integration
 def test_a_run_made_step_by_step_writes_its_calibrated_parameters_where_asked(library,
                                                                               tmp_path):
     from libcuflynx.calibration_workflow import write_calibrated_parameters_to

@@ -5,6 +5,7 @@ import glob
 import importlib.util
 import inspect
 import os
+import shlex
 import tempfile
 import shutil
 import threading
@@ -79,13 +80,38 @@ def _jit_build(enabled):
 def jit_supports_ad():
     """True when CasADi can differentiate (``ca.forward``) through a jit-compiled CVODES
     integrator: 3.8 and newer. 3.7 does not return from that call."""
+    return ca is not None and _casadi_version() >= (3, 8)
+
+
+def _casadi_version():
+    """CasADi's (major, minor), (0, 0) when it is not installed."""
     if ca is None:
-        return False
+        return (0, 0)
     parts = []
     for piece in str(ca.__version__).split('.')[:2]:
         digits = ''.join(ch for ch in piece if ch.isdigit())
         parts.append(int(digits) if digits else 0)
-    return tuple(parts + [0] * (2 - len(parts))) >= (3, 8)
+    return tuple(parts + [0] * (2 - len(parts)))
+
+
+def shell_executables(options):
+    """The compiler and linker CasADi's 'shell' plugin runs for these jit_options: their
+    ``compiler`` and ``linker`` when given, else the plugin's own defaults
+    (casadi/solvers/shell_compiler.cpp): cl.exe and link.exe on Windows, clang on macOS from
+    CasADi 3.8, gcc elsewhere. Each is a command line; its first word is the program."""
+    if sys.platform == 'win32':
+        compiler, linker = 'cl.exe', 'link.exe'
+    elif sys.platform == 'darwin' and _casadi_version() >= (3, 8):
+        compiler = linker = 'clang'
+    else:
+        compiler = linker = 'gcc'
+    return options.get('compiler', compiler), options.get('linker', linker)
+
+
+def _program(command):
+    """The program a shell command line runs: its first word, quotes removed."""
+    words = shlex.split(command, posix=sys.platform != 'win32') or ['']
+    return words[0].strip('"')
 
 
 def jit_options(solver_info):
@@ -95,19 +121,22 @@ def jit_options(solver_info):
     libraries go to a private temporary directory (``directory``); its C source goes to the
     working directory under a ``libcuflynx_jit_<pid>_`` name, which _jit_build deletes.
     Raises RuntimeError when the
-    'shell' plugin's C compiler is not on PATH or the working directory is not writable."""
+    'shell' plugin's compiler or linker (shell_executables) is not on PATH or the working
+    directory is not writable."""
     compiler = solver_info.get('compiler') or 'shell'
     options = {'flags': ['-O2'], **dict(solver_info.get('jit_options') or {})}
     if compiler == 'shell':
         options.setdefault('directory', os.path.join(_jit_dir(), ''))
     if compiler == 'shell':
-        executable = options.get('compiler', 'gcc')
-        if shutil.which(executable) is None:
-            raise RuntimeError(
-                f"casadi_integrator compiles the model with a C compiler (solver_info jit, "
-                f"on by default), but {executable!r} is not on PATH. Install gcc or clang, "
-                f"name one with solver_info jit_options: {{compiler: <path>}}, or set "
-                f"solver_info jit: false.")
+        for executable in dict.fromkeys(shell_executables(options)):
+            if shutil.which(_program(executable)) is None:
+                install = ("Install the Microsoft C++ Build Tools and run from a developer "
+                           "prompt" if sys.platform == 'win32' else "Install gcc or clang")
+                raise RuntimeError(
+                    f"casadi_integrator compiles the model with a C compiler (solver_info jit, "
+                    f"on by default), but {executable!r} is not on PATH. {install}, name one "
+                    f"with solver_info jit_options: {{compiler: <path>, linker: <path>}}, or "
+                    f"set solver_info jit: false.")
         if not os.access(os.getcwd(), os.W_OK):
             raise RuntimeError(
                 f"casadi_integrator jit: CasADi writes its generated C source to the working "

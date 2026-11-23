@@ -140,14 +140,15 @@ param_reduction_options:
   # min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)
   # variance_fraction: 1.0  # pca; 1 = no relative cut
   # min_index: 0.05      # pca
+  # redundancy_check: true  # pca
   # criterion: max       # sobol
   # threshold: 0.01      # sobol
   # sensitivity_dir: ... # default sa_options.output_dir
   # output_dir: ...      # default <sensitivity_dir>/param_reduction
 ```
 
-**`method: pca`** (the default) asks how many independent ways the parameters move the data,
-and keeps one parameter for each:
+**`method: pca`** (the default) asks in how many independent ways the parameters move the data
+by more than its noise, and keeps one parameter for each:
 
 1. Each output over the Sobol samples is centred and divided by its obs_data `std` over the
    square root of its `weight`, the scale the `gaussian_MLE` cost measures it on. A change of 1
@@ -159,15 +160,112 @@ and keeps one parameter for each:
    `variance_fraction` of the variance are considered. The default, 1, is no relative cut. A
    smaller value ignores the noise: a mode that moves the data by several noise stds but has a
    small share of the variance can be dropped.
-3. Sobol indices are computed for each mode's score, from the same samples.
-4. Going through the informative modes, largest first, the reduction keeps the parameter, not
-   kept already, with the largest index for that mode. A mode that no free parameter reaches
-   `min_index` for is skipped. It stops after `n_params`, by default one per informative mode.
+3. Sobol indices are computed for each mode's score, from the same samples. A parameter whose
+   largest index over the informative modes is below `min_index` is not a candidate.
+4. With `redundancy_check: true` (the default), the reduction asks which candidates move the
+   data in different ways, using local derivatives (see "How the redundancy check works" below).
+   Of the candidates whose effect is at least `min_mode_std` noise stds, it keeps the one with
+   the highest Sobol index over the informative modes, removes that direction from the others'
+   effects, and repeats, stopping when no effect left reaches `min_mode_std`: what such a
+   parameter would add to the fit is inside the noise. Parameters that move the
+   data the same way (only their product or ratio matters, or a scaling symmetry) have the same
+   effect, so only one of them is kept, however many modes they drive: the one the Sobol
+   indices rank highest. The local derivatives decide which parameters are redundant; the
+   Sobol indices, which cover the whole prior box, decide which of them is kept.
+5. With `redundancy_check: false` it goes through the informative modes, largest first, and
+   keeps the parameter, not kept already, with the largest index for that mode, skipping a mode
+   that no free parameter reaches `min_index` for. This keeps at most one parameter per mode, so
+   it reduces only when there are fewer informative modes than parameters. Outputs that are a
+   time course (series binned into features, an oscillation) have many more modes than
+   parameters, and it keeps them all.
 
-The number of informative modes is an upper bound on how many parameters the data can tell
-apart. Two parameters that move the data the same way (only their product matters, say) share
-a mode, so only one is kept. A parameter that drives an output strongly, but by less than that
+Both stop after `n_params`. A parameter that drives an output strongly, but by less than that
 output's noise, is not kept.
+
+#### How the redundancy check works
+
+Sobol indices say how much of a mode's variance each parameter drives, but not in which
+direction, so they cannot tell that two parameters are interchangeable: when only `a * b`
+matters, `a` and `b` get the same large index on the same modes. The check needs, for each
+parameter, the direction it moves the data in, and compares those.
+
+**The derivatives.** Every Sobol run also takes local derivatives, set by `sa_options`:
+
+| key | default | what it sets |
+|---|---|---|
+| `jacobian_points` | 8 | how many points; 0 skips the derivatives |
+| `jacobian_location` | `base_points` | `base_points`: the first `jacobian_points` Saltelli base points, the rows starting each block of 2M + 2 samples, which come from a Sobol sequence and so spread over the box; `centre`: one point at the centre of the box |
+| `jacobian_scheme` | `central` | `central` (2 runs per parameter and point) or `forward` (1, reusing the base point's own run) |
+| `jacobian_step` | 0.01 | the step in ln(parameter), or as a fraction of the range for bounds that straddle 0 |
+| `jacobian_check_steps` | false | also take them with half the step (twice the runs), for `redundancy_converged_only` |
+
+With the defaults a run costs `2 x jacobian_points x M` extra simulations, about
+`jacobian_points / num_samples` of the Sobol run: 192 next to 6656 (2.9%) for 12 parameters and
+`num_samples: 256`; `jacobian_check_steps: true` doubles that. Central differences are the default because a forward step's error is first
+order: in an oscillator a step shifts the phase, the error grows along the time course, and in
+the Goodwin benchmark it hid an exact symmetry. Each derivative is multiplied by the parameter's
+prior range (`ln(max/min)`, or `max - min` for bounds that straddle 0), so it reads as how far the
+data would move if that slope held across the whole range. They are saved in
+`all_outputs_n<N>_Sobol_local_jacobian.csv`, one row per step, point and parameter.
+
+**The effects.** At each point, each derivative is scaled to noise stds like the outputs in
+step 1 and projected onto the informative modes: a parameter's effect at that point, a vector
+with one entry per informative mode.
+
+**The choice.** Pivoted Gram-Schmidt, done at each point separately and chosen jointly. For
+every parameter, take what is left of its effect at each point once the kept parameters'
+effects at that point are removed, and its root mean square length over the points. Keep the
+parameter with the largest, remove its direction at every point, and repeat until the largest
+is below `min_mode_std`. Because each point is explained by the kept parameters at that same
+point, the combination that reproduces a redundant parameter may change across the box, as it
+does for a scaling symmetry or for parameters entering as a sum. The report lists each
+parameter's `effects` (the statistic before anything is removed) and the
+`unexplained_effects` of those not kept (what was left).
+
+Two `param_reduction_options` set how the points are combined:
+
+- `redundancy_statistic`: `median` (the default) keeps a parameter only if it is unexplained at
+  most points, which ignores a minority of points where the derivatives are poor, and also a
+  parameter that matters in less than half the box; `rms` keeps a parameter that is unexplained
+  at any point, however few.
+- `redundancy_converged_only` (default false): leave out the points where the derivatives at
+  `jacobian_step` and at half of it differ by more than `redundancy_convergence_tol` (default
+  0.1) of the effect. It needs `jacobian_check_steps`, and the report lists the
+  `unconverged_points`.
+
+The defaults (central differences of 0.01 at 8 base points, the `median` over the points)
+come from `benchmarks/param_reduction/compare_redundancy.py`, which runs every setting on the
+FitzHugh-Nagumo, Goodwin and Teusink benchmarks and compares the kept count with the Fisher
+information at the truth (`redundancy_comparison_results.md`). FitzHugh-Nagumo and Teusink give
+the same count under every setting. Goodwin is decided by the points below: `rms` over all
+points keeps one parameter too many. `rms` over the converged points and the centre point alone
+also give the right count there, but on a stiff model such as the 3-compartment test model
+solver noise (which grows as 1/step) leaves no point converged at a step of 0.001, and the centre
+point misses a parameter that is flat at the centre. The cost of `median` is a parameter that
+matters in less than half the box: set `redundancy_statistic: rms` to keep such parameters.
+
+**Why local derivatives, at several points.**
+
+- *Products and ratios stay exact.* If only `a * b` matters, a 1% step in `a` and a 1% step in
+  `b` change the data identically at every point, so once `a` is kept nothing of `b` is left.
+  Differences between Saltelli samples cannot do this: each pair of samples jumps by a
+  different random amount, and on a curved response even jumps of the same size in ln(a) and
+  ln(b) leave a remainder (about 20% of the effect, many noise stds, in a test of `a * b`).
+- *A flat spot at one point is not mistaken for no effect.* `p^2` on `[-1, 1]` has slope 0 at
+  the centre of its range, and a derivative there alone would drop it. Across 8 points its
+  effect is many noise stds, and it is kept.
+
+- *Points where the outputs are not smooth.* In the Goodwin benchmark `ai`, `Ai` and `ki` form
+  an exact scaling symmetry, so `ai` is explained by the other two at every point in exact
+  arithmetic. At six of eight points the derivatives show it (under 1 noise std left), but at
+  the two where `ai` is small next to `Ai` they do not settle as the step shrinks, and leave
+  tens of noise stds. The default `median` outvotes those points and drops `ai`;
+  `rms` over every point would keep it.
+
+**Limits.** The derivatives are local: a parameter whose effect lies wholly between the points,
+such as a sharp switch, can still be missed, and more `jacobian_points` make that less likely.
+A point where a run fails is left out, with a warning. `jacobian_points: 0` skips the
+derivatives, and then a reduction needs `redundancy_check: false`.
 
 **`method: sobol`** keeps the `n_params` parameters with the highest Sobol index over the
 outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the
@@ -177,8 +275,15 @@ Both write `param_reduction.json`: the options and the kept parameters with thei
 `pca` each kept parameter also has its mode, and the report lists every mode's std and variance
 share. `pca_modes.csv` holds each mode's loadings on the outputs, `pca_mode_sobol_indices.csv`
 the indices per mode (in the layout of the Sobol indices CSV), and `pca_mode_sobol_ST.png` a
-heatmap of them. A `pca` reduction reads `all_outputs_n<N>_Sobol_samples.csv`,
-`..._outputs.csv` and `sobol_problem.json`, which every Sobol run writes. In a calibration
+heatmap of them; with the redundancy check the report also has each parameter's `effects` and
+the `unexplained_effects` of those not kept. A `pca` reduction reads
+`all_outputs_n<N>_Sobol_samples.csv`, `..._outputs.csv`, `..._local_jacobian.csv` and
+`sobol_problem.json`, which every Sobol run writes.
+
+A sample whose simulation fails cannot be left out (Saltelli's estimators need every row), so
+each output it lacks is filled with that output's mean over the samples that ran. The count is
+`failed_samples` in `sobol_problem.json`, with a warning: it shrinks the indices toward zero by
+about the failed fraction, so narrow the bounds if it is large. In a calibration
 workflow, a `reduction` step does the same (see
 [calibration workflows](parameter-identification.md)).
 

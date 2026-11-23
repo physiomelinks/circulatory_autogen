@@ -98,7 +98,9 @@ def fingerprint(param_id_info, obs_info, protocol_info, model_path=None, predict
     different model. Comparing this digest is what turns that into an error.
 
     ``model_path`` is hashed by content when it exists, so a regenerated CellML invalidates the
-    emulator even if the inputs that produced it are unchanged.
+    emulator even if the inputs that produced it are unchanged. ``model_content_sha256``
+    (:func:`model_content_digest`) is the hash ``check_matches`` compares; ``model_sha256``, the
+    model file's bytes alone, is what it compares for a bundle stored without the other.
 
     ``prediction_info`` with ``prediction_indices`` (the prediction items an emulator trained
     with ``include_prediction_items`` predicts) adds a separate ``prediction_sha256``. Separate
@@ -125,9 +127,37 @@ def fingerprint(param_id_info, obs_info, protocol_info, model_path=None, predict
     if model_path and os.path.isfile(model_path):
         with open(model_path, 'rb') as file:
             digest['model_sha256'] = hashlib.sha256(file.read()).hexdigest()
+        digest['model_content_sha256'] = model_content_digest(model_path)
     if prediction_info is not None and prediction_indices:
         digest['prediction_sha256'] = _prediction_digest(prediction_info, prediction_indices)
     return digest
+
+
+#: Stands for a generated Python model's utilities file name in its content digest.
+_UTILITIES_PLACEHOLDER = b'<model>_utilities.py'
+
+
+def model_content_digest(model_path):
+    """A digest of a model's content that does not depend on what its files are called.
+
+    A generated Python model is two files: ``<prefix>.py``, which loads ``<prefix>_utilities.py``
+    by name. Both are hashed, with that name replaced by a placeholder, so one CellML generated
+    under two prefixes has one digest and a change in either file changes it. Any other model
+    (a CellML, an external model's file) is the hash of its bytes.
+    """
+    with open(model_path, 'rb') as file:
+        content = file.read()
+    stem, ext = os.path.splitext(model_path)
+    utilities_path = stem + '_utilities.py'
+    if ext != '.py' or not os.path.isfile(utilities_path):
+        return hashlib.sha256(content).hexdigest()
+    utilities_name = os.path.basename(utilities_path).encode('utf-8')
+    with open(utilities_path, 'rb') as file:
+        utilities = file.read()
+    digest = hashlib.sha256(content.replace(utilities_name, _UTILITIES_PLACEHOLDER))
+    digest.update(b'\0')
+    digest.update(utilities)
+    return digest.hexdigest()
 
 
 def _prediction_digest(prediction_info, indices):
@@ -310,6 +340,9 @@ class EmulatorBundle:
         ``feature_labels`` are the data_item features (the prediction features, if the bundle
         has any, follow them and are not part of this comparison); ``prediction_feature_labels``
         the prediction features the run needs, ``[]`` for none.
+
+        The model is compared by ``model_content_sha256`` when the bundle stored one, and by
+        ``model_sha256`` (the model file's bytes) otherwise.
         """
         if param_entry_labels is not None and list(param_entry_labels) != self.param_entry_labels:
             raise EmulatorQualityError(
@@ -331,7 +364,10 @@ class EmulatorBundle:
                 f'but this run uses {list(prediction_feature_labels)}. Retrain the emulator '
                 f'with emulator_settings.include_prediction_items set as this run needs.')
         stored = self.meta['fingerprint']
+        by_content = 'model_content_sha256' in stored and 'model_content_sha256' in live_fingerprint
         for key, value in live_fingerprint.items():
+            if key == 'model_sha256' and by_content:
+                continue
             if key in stored and stored[key] != value:
                 raise EmulatorQualityError(
                     f'emulator is stale: {key} has changed since it was trained '
