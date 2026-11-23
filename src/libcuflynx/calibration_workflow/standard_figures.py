@@ -19,6 +19,8 @@ prediction_plots    the obs_data's prediction_plots, from one simulation     sim
                                                                              obs_data: obs_data
 sobol_indices       S1 and ST per output, and a heatmap of ST                sensitivity:
                                                                              sensitivity
+calibration_        the best cost and each normalised parameter per          progress: progress
+progress            generation (per iteration of each start)
 posterior           a histogram per parameter, its mean and 5-95% band       distribution:
                                                                              distribution
 laplace             the normal density of each parameter over +-4 std        laplace: laplace
@@ -235,6 +237,74 @@ def posterior(distribution, out_dir):
     return [_save(figure, out_dir, 'posterior.png')]
 
 
+def calibration_progress(progress, out_dir):
+    '''``cost_history.png``: the best cost per generation (iteration) on a log axis, with the
+    band up to the worst of the recorded best costs when a row holds several (a genetic
+    algorithm's top 10), or one line per start of a multi-start run; and
+    ``param_history.png``: each parameter's value normalised by its params_for_id bounds (0 at
+    its min, 1 at its max) per generation, or per iteration of each start.'''
+    plt = _pyplot()
+    labels, starts = list(progress['param_labels']), progress['starts']
+    costs = [np.asarray(row, dtype=float) for row in progress['cost_history'] if len(row)]
+    if not costs and not starts:
+        raise ValueError('the calibration recorded no cost history.')
+    figure, ax = plt.subplots(figsize=(5.0, 3.4))
+    if starts:
+        for n, start in enumerate(starts):
+            ax.plot(start['cost'], color=_shade(PALETTE[0], n, len(starts)), linewidth=1.2,
+                    label=f'start {n}' if len(starts) <= LEGEND_POINTS else None)
+        ax.set_xlabel('iteration', fontsize=8)
+    else:
+        best = np.array([row[0] for row in costs])
+        ax.plot(best, color=PALETTE[0], linewidth=2, label='best')
+        if any(row.size > 1 for row in costs):
+            worst = np.array([row.max() for row in costs])
+            ax.fill_between(np.arange(len(best)), best, worst, color=PALETTE[0], alpha=0.15,
+                            linewidth=0, label='recorded best costs')
+        ax.set_xlabel('generation', fontsize=8)
+    if all(np.all(np.asarray(s['cost']) > 0) for s in starts) and all(np.all(r > 0) for r in costs):
+        ax.set_yscale('log')
+    ax.set_ylabel('cost', fontsize=8)
+    ax.xaxis.get_major_locator().set_params(integer=True)
+    ax.tick_params(labelsize=7)
+    ax.legend(fontsize=7)
+    figure.tight_layout()
+    paths = [_save(figure, out_dir, 'cost_history.png')]
+
+    histories = ([np.asarray(s['params'], dtype=float) for s in starts] if starts else
+                 [np.asarray(progress['param_history_norm'], dtype=float)])
+    histories = [h for h in histories if h.ndim == 2 and h.size]
+    if not histories:
+        return paths
+    if starts:
+        # a multi-start history holds actual values: normalise by the params_for_id bounds
+        low = np.asarray(progress['param_mins'], dtype=float)
+        span = np.asarray(progress['param_maxs'], dtype=float) - low
+        histories = [(h - low) / np.where(span > 0, span, 1.0) for h in histories]
+    figure, ax = plt.subplots(figsize=(5.0, 3.4))
+    for p in range(histories[0].shape[1]):
+        for n, history in enumerate(histories):
+            ax.plot(history[:, p], linewidth=1.2,
+                    color=_shade(PALETTE[p % len(PALETTE)], n, len(histories)),
+                    label=(labels[p] if p < len(labels) else f'p{p}') if n == 0 else None)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_xlabel('iteration' if starts else 'generation', fontsize=8)
+    ax.set_ylabel('normalised value (0 at min, 1 at max)', fontsize=8)
+    ax.xaxis.get_major_locator().set_params(integer=True)
+    ax.tick_params(labelsize=7)
+    ax.legend(fontsize=6)
+    figure.tight_layout()
+    paths.append(_save(figure, out_dir, 'param_history.png'))
+    return paths
+
+
+def _shade(colour, n, count):
+    '''``colour`` lightened toward white by up to 60% as ``n`` goes from 0 to ``count - 1``.'''
+    from matplotlib.colors import to_rgb
+    fraction = 0.6 * n / max(count - 1, 1)
+    return tuple(c + (1 - c) * fraction for c in to_rgb(colour))
+
+
 def laplace(laplace, out_dir):
     '''``laplace.png``: per parameter the normal density of the Laplace approximation over
     +-4 std; a parameter with no finite positive std is marked not identifiable.'''
@@ -260,7 +330,8 @@ def laplace(laplace, out_dir):
     return [_save(figure, out_dir, 'laplace.png')]
 
 
-FIGURES = [sweep_traces, sweep_features, prediction_plots, sobol_indices, posterior, laplace]
+FIGURES = [sweep_traces, sweep_features, prediction_plots, sobol_indices, calibration_progress,
+           posterior, laplace]
 
 
 def main(argv=None):

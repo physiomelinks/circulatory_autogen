@@ -44,7 +44,7 @@ next release; add to that section as you land a change.
 - **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
-  `params_for_id`, `sensitivity`, `distribution`, `laplace`). libcuflynx loads the results, calls
+  `params_for_id`, `sensitivity`, `progress`, `distribution`, `laplace`). libcuflynx loads the results, calls
   the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
   helpers the script reads. A run draws every figure step that is out of date (its script, files
@@ -63,7 +63,9 @@ next release; add to that section as you land a change.
   sets of outputs: the same files, images pixel by pixel, other files byte for byte.
 - **Standard figures**: libcuflynx ships `standard_figures.py`, a figure script with
   `sweep_traces`, `sweep_features`, `prediction_plots` (an obs_data's `prediction_plots` from a
-  simulate step), `sobol_indices`, `posterior` and `laplace`.
+  simulate step), `sobol_indices`, `calibration_progress` (cost and normalised parameters per
+  generation, from the `progress` input: a calibration's optimiser history), `posterior` and
+  `laplace`.
   `figures.write_standard_figures(<dir>)` copies it beside a workflow, where figure steps name
   its functions. A `sweep` input now also carries `manifest` (`sweep_manifest.json`), which
   records the feature plots' point groups (`plot_groups`).

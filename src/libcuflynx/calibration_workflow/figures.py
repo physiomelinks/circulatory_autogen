@@ -39,7 +39,8 @@ A new input kind is one :func:`input_kind` entry here; the workflow schema's lis
 generated from it (``python -m libcuflynx.schemas.registries --write``).
 
 libcuflynx ships a script of standard figures (``standard_figures.py``: sweep traces and
-features, an obs_data's prediction_plots, Sobol indices, posteriors, a Laplace approximation).
+features, an obs_data's prediction_plots, Sobol indices, a calibration's progress, posteriors, a
+Laplace approximation).
 :func:`write_standard_figures` copies it beside a workflow, where a figure step names it like any
 other script, so it is hashed and packed with the workflow and a later libcuflynx does not change
 a finished run's figures.
@@ -139,6 +140,25 @@ def _load_values(run_dir, step_id, result):
     records = result.get('calibrated', []) + result.get('set', [])
     return {f'{record["vessel"]}/{record["param"]}': float(record['value'])
             for record in records}
+
+
+@input_kind('progress', ('calibration',),
+            'a calibration\'s optimiser history (param_id.run_history.read_run_history): '
+            'param_labels, cost_history (per generation, best first), param_history_norm '
+            '(normalised 0-1), grad_history, starts (per multi-start: cost, params as actual '
+            'values), best_cost; and param_mins / param_maxs, the params_for_id bounds')
+def _load_progress(run_dir, step_id, result):
+    from libcuflynx.param_id.run_history import find_run_dir, read_run_history
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+    output_dir = result.get('param_id_output_dir')
+    if find_run_dir(output_dir) is None:
+        raise WorkflowError(f'step "{step_id}" has no optimiser history to read ({output_dir}).')
+    info = ObsAndParamDataParser().get_param_id_info(
+        _existing(result.get('params_for_id_used'), 'params_for_id', step_id))
+    progress = read_run_history(output_dir, info)
+    progress['param_mins'] = [float(v) for v in np.ravel(info['param_mins'])]
+    progress['param_maxs'] = [float(v) for v in np.ravel(info['param_maxs'])]
+    return progress
 
 
 @input_kind('obs_data', _MODEL_KINDS, 'the step\'s obs_data file, as its JSON document')

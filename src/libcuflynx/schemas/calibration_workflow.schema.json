@@ -1311,6 +1311,7 @@
         "enum": [
           "sweep",
           "values",
+          "progress",
           "obs_data",
           "params_for_id",
           "sensitivity",
