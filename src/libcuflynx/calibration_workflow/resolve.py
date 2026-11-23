@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from libcuflynx.calibration_workflow import naming
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
-from libcuflynx.calibration_workflow.spec import WorkflowError
+from libcuflynx.calibration_workflow.spec import SWEEP_KINDS, WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
 from libcuflynx.utilities.parameterisations import parameterisations_dir
@@ -274,7 +274,7 @@ def resolve_workflow(workflow):
         # a calibration fitting a reduction's choice is checked against every candidate: the
         # params_for_id of the sensitivity step the reduction reads
         params_for_id = None
-        if step.kind != 'sweep':
+        if step.kind not in SWEEP_KINDS:
             params_for_id = step.params_for_id or workflow.step(
                 workflow.step(step.params_for_id_from).sensitivity_from).params_for_id
         for path, what in ((step.obs_data, 'obs_data'), (params_for_id, 'params_for_id')):
@@ -283,7 +283,7 @@ def resolve_workflow(workflow):
         if selection is None:
             vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
         parameters = read_calibrated_parameters(params_for_id, where) if params_for_id else []
-        if step.kind == 'sweep':
+        if step.kind in SWEEP_KINDS:
             parameters = _swept_parameters(step, model)
         if selection is not None and selection.vessel:
             parameters = _in_step_naming(parameters, vessel_map, target.vessels, step)

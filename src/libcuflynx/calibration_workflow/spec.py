@@ -20,10 +20,12 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
   values go no further: no step takes from it and it does not reach the target. With
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
-  as the target merges them (a later step wins), after all of those steps.
+  as the target merges them (a later step wins), after all of those steps;
+* ``simulate`` -- one run of a model through its protocol: a sweep with no parameters, with the
+  same files. ``"simulate": {"outputs": [...]}`` names the variables recorded over time.
 
-Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an ordinary run: a
-``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep names a ``model``, and an
+Every kind but ``reduction``, ``set``, ``sweep`` and ``simulate`` names the three inputs of an ordinary run: a
+``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep or simulate step names a ``model``, and an
 ``obs_data`` file when its protocol or features come from one. A model is either
 
 * a module array of CA (``"resources/aorta_module_array.csv"``, or
@@ -63,7 +65,9 @@ PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
-              'sweep')
+              'sweep', 'simulate')
+#: the kinds that run a model at chosen points and keep every run (``Step.sweep``)
+SWEEP_KINDS = ('sweep', 'simulate')
 DEFAULT_KIND = 'calibration'
 #: the kinds that name no model, and read no files of their own
 _NO_MODEL_KINDS = ('reduction', 'set')
@@ -75,9 +79,9 @@ SOURCE_KINDS = {'fixed_from': ('calibration', 'set'), 'emulator_from': ('emulati
                 'params_for_id_from': ('reduction',), 'scale_from': ('calibration', 'set')}
 #: which kinds may use each source key (priors_from and store_distribution: calibration)
 _SOURCE_USERS = {'fixed_from': ('calibration', 'sensitivity', 'emulation', 'identifiability',
-                                'sweep'),
+                                'sweep', 'simulate'),
                  'emulator_from': ('calibration', 'sensitivity'),
-                 'result_from': ('sensitivity', 'identifiability', 'sweep'),
+                 'result_from': ('sensitivity', 'identifiability', 'sweep', 'simulate'),
                  'sensitivity_from': ('reduction',),
                  'params_for_id_from': ('calibration', 'emulation')}
 #: the analysis options each kind needs in its settings
@@ -191,8 +195,9 @@ class Step:
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
     set_values: list = field(default_factory=list)   # (set) the entries it declares
-    sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
-    on_target: bool = False        # (sweep) runs on the target with the merged values
+    sweep: dict = field(default_factory=dict)        # (sweep, simulate) design, outputs,
+                                                     # parameters, zip
+    on_target: bool = False        # (sweep, simulate) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
     description: str = ''
 
@@ -365,7 +370,7 @@ TARGET_SOURCE_KINDS = ('calibration', 'set')
 
 
 def _place_target_sweeps(workflow):
-    '''An on_target sweep runs on the target, taking every calibration's and set step's values.'''
+    '''An on_target step runs on the target, taking every calibration's and set step's values.'''
     sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS]
     for step in workflow.steps:
         if step.on_target:
@@ -459,6 +464,8 @@ def _step(value, where, base_dir):
         if (kind == options_key) != (options_key in value):
             raise WorkflowError(f'{label}: "{options_key}" (the options) is for a {options_key} '
                                 f'step, and a {options_key} step needs it.')
+    if 'simulate' in value and kind != 'simulate':
+        raise WorkflowError(f'{label}: "simulate" (the options) is for a simulate step.')
     if 'reduction' in value:
         raise WorkflowError(f'{label}: a reduction step\'s options go in '
                             f'"settings": {{"param_reduction_options": {{...}}}}, not "reduction".')
@@ -496,16 +503,17 @@ def _step(value, where, base_dir):
                     description=value.get('description', '') or '')
 
     if value.get('on_target'):
-        if kind != 'sweep':
-            raise WorkflowError(f'{label}: "on_target" is for a sweep step, not a {kind} step.')
+        if kind not in SWEEP_KINDS:
+            raise WorkflowError(f'{label}: "on_target" is for a sweep or simulate step, not a '
+                                f'{kind} step.')
         named = sorted(k for k in ('model', 'fixed_from', 'result_from', 'submodule', 'vessel',
                                    'vessel_map') if k in value)
         if named:
-            raise WorkflowError(f'{label}: a sweep "on_target" runs on the target with every '
+            raise WorkflowError(f'{label}: a {kind} "on_target" runs on the target with every '
                                 f'calibration\'s and set step\'s values, so it names no {named}.')
         return Step(id=step_id, model=None,
                     obs_data=_path(value['obs_data'], base_dir) if 'obs_data' in value else None,
-                    params_for_id=None, kind=kind, on_target=True, sweep=_sweep(value['sweep']),
+                    params_for_id=None, kind=kind, on_target=True, sweep=_step_sweep(value),
                     settings=_settings(value.get('settings', {}), base_dir),
                     description=value.get('description', '') or '')
     if refs['emulator_from'] and (fixed_from or refs['result_from']):
@@ -514,8 +522,8 @@ def _step(value, where, base_dir):
                             f'it has no "fixed_from" or "result_from" of its own.')
     model = _model(value['model'], base_dir)
     submodule, vessel = value.get('submodule'), value.get('vessel')
-    if kind == 'sweep' and model.kind == 'selection':
-        raise WorkflowError(f'{label}: a sweep names its model as a library module or a module '
+    if kind in SWEEP_KINDS and model.kind == 'selection':
+        raise WorkflowError(f'{label}: a {kind} names its model as a library module or a module '
                             f'array, not as a selection of the target.')
     if model.kind == 'selection' and (submodule or vessel or value.get('vessel_map')):
         raise WorkflowError(f'{label}: a selection is calibrated where its instances are in the '
@@ -540,7 +548,7 @@ def _step(value, where, base_dir):
                 fixed_from=fixed_from, priors_from=priors_from, store_distribution=store,
                 emulator_from=refs['emulator_from'], result_from=refs['result_from'],
                 params_for_id_from=refs['params_for_id_from'],
-                sweep=_sweep(value['sweep']) if kind == 'sweep' else {},
+                sweep=_step_sweep(value) if kind in SWEEP_KINDS else {},
                 settings=_settings(value.get('settings', {}), base_dir),
                 description=value.get('description', '') or '')
 
@@ -563,6 +571,22 @@ def _sweep(value):
             'parameters': {name.strip(): copy.deepcopy(spec)
                            for name, spec in value['parameters'].items()},
             'zip': [[name.strip() for name in group] for group in value.get('zip', [])]}
+
+
+def raw_sweep(value):
+    '''The sweep a sweep or simulate step of the file runs, in a sweep's keys: a simulate step
+    is a sweep of no parameters. None for another kind.'''
+    kind = value.get('kind', DEFAULT_KIND)
+    if kind == 'sweep':
+        return value.get('sweep')
+    if kind == 'simulate':
+        return {'outputs': list((value.get('simulate') or {}).get('outputs', [])),
+                'parameters': {}}
+    return None
+
+
+def _step_sweep(value):
+    return _sweep(raw_sweep(value))
 
 
 # --------------------------------------------------------------------------------------------
@@ -628,7 +652,7 @@ def check_workflow(workflow):
                                 f'(or the workflow\'s).')
         if step.kind == 'set':
             _check_set_step(workflow, step)
-        if step.kind == 'sweep':
+        if step.kind in SWEEP_KINDS:
             _check_sweep_step(workflow, step)
 
     for step in workflow.steps:
@@ -677,12 +701,12 @@ def _check_sweep_step(workflow, step):
     needed = ['dt'] + ([] if step.obs_data else ['sim_time'])
     missing = [key for key in needed if settings.get(key) is None]
     if missing:
-        raise WorkflowError(f'sweep step "{step.id}" needs {missing} in its settings (or the '
-                            f'workflow\'s).')
+        raise WorkflowError(f'{step.kind} step "{step.id}" needs {missing} in its settings (or '
+                            f'the workflow\'s).')
     if not step.obs_data and not step.sweep['outputs']:
-        raise WorkflowError(f'sweep step "{step.id}" records nothing: give "outputs", or an '
-                            f'"obs_data" with prediction items.')
-    check_sweep(step.sweep, f'sweep step "{step.id}"')
+        raise WorkflowError(f'{step.kind} step "{step.id}" records nothing: give "outputs", or '
+                            f'an "obs_data" with prediction items.')
+    check_sweep(step.sweep, f'{step.kind} step "{step.id}"')
 
 
 def uses_log_posterior(settings):

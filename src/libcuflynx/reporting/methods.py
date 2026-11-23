@@ -447,7 +447,8 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'emulation': ('emulator training', 'emulator trainings'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
-              'sweep': ('parameter sweep', 'parameter sweeps')}
+              'sweep': ('parameter sweep', 'parameter sweeps'),
+              'simulate': ('simulation', 'simulations')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -497,7 +498,7 @@ def _step_section(step, symbols, entries=()):
             out.append(f'The values {word} step' + ('s ' if len(given) > 1 else ' ')
                        + ', '.join(escape(s) for s in given)
                        + ' were fixed in this step\'s model.')
-    if _kind(step) == 'sweep':
+    if _kind(step) in flowchart.SWEEP_KINDS:
         out.append(r'\paragraph{Method.} ' + _analysis_method(step))
         return '\n\n'.join(out)
     for prior in step['priors_from']:
@@ -541,7 +542,7 @@ ANALYSED = {'sensitivity': 'whose influence was analysed',
 
 def _analysis_method(step):
     settings, kind = step['settings'], _kind(step)
-    if kind == 'sweep':
+    if kind in flowchart.SWEEP_KINDS:
         sweep = step['sweep']
         model = ('The merged target, with every calibrated and hand-set value,'
                  if step.get('on_target') else 'The model')
@@ -614,7 +615,7 @@ def _step_intro(step):
     verb = {'calibration': 'calibrates', 'sensitivity': 'analyses the sensitivity of',
             'emulation': 'trains an emulator of',
             'identifiability': 'analyses the identifiability of',
-            'sweep': 'sweeps parameters of'}[_kind(step)]
+            'sweep': 'sweeps parameters of', 'simulate': 'simulates'}[_kind(step)]
     at = (f', at the values calibrated in step {escape(step["result_from"])}'
           if step.get('result_from') else '')
     against = (f', against the observations in {_tt(os.path.basename(step["obs_path"]))}'
@@ -692,7 +693,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
-        if step.kind == 'sweep':
+        if step.kind in flowchart.SWEEP_KINDS:
             entry.update({'model': step.model.as_dict(), 'place': rs.place,
                           'to_target': rs.to_target, 'obs_path': rs.obs_data_path,
                           'obs': {}, 'params': []})

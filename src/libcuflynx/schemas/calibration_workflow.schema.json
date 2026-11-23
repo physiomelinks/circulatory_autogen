@@ -297,7 +297,10 @@
           "description": "pca: keep a parameter only if its effect on the informative modes, beyond what the kept parameters explain, is at least min_mode_std noise stds (from the Sobol run's local Jacobian). Off: one parameter per informative mode."
         },
         "redundancy_statistic": {
-          "enum": ["rms", "median"],
+          "enum": [
+            "rms",
+            "median"
+          ],
           "default": "median",
           "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
         },
@@ -529,7 +532,8 @@
             "emulation",
             "identifiability",
             "set",
-            "sweep"
+            "sweep",
+            "simulate"
           ],
           "default": "calibration",
           "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
@@ -671,6 +675,21 @@
             }
           },
           "description": "a sweep step: its points, and what each records. An obs_data gives the protocol, and its prediction items a feature per point; without one, settings give dt and sim_time"
+        },
+        "simulate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "variables recorded over time"
+            }
+          },
+          "description": "a simulate step: one run of its model through the protocol of its obs_data (whose prediction items give features), or of settings' pre_time and sim_time. It writes what a sweep of no parameters writes"
         }
       },
       "allOf": [
@@ -785,10 +804,57 @@
           "if": {
             "properties": {
               "kind": {
+                "const": "simulate"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "model"
+                ]
+              },
+              {
+                "required": [
+                  "on_target"
+                ],
+                "properties": {
+                  "on_target": {
+                    "const": true
+                  }
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "params_for_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "params_for_id_from"
+                  ]
+                }
+              ]
+            },
+            "description": "A simulate step names its model (or \"on_target\": true) and no params_for_id."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
                 "enum": [
                   "reduction",
                   "set",
-                  "sweep"
+                  "sweep",
+                  "simulate"
                 ]
               }
             },
@@ -819,7 +885,7 @@
                 "params_for_id_from"
               ]
             },
-            "description": "A step that is not a reduction, set or sweep names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+            "description": "A step that is not a reduction, set, sweep or simulate step names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
           }
         }
       ]

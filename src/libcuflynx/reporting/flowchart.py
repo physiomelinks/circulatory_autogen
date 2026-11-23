@@ -153,6 +153,8 @@ _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from'
                   'params_for_id_from': 'parameters', 'scale_from': 'scaled from'}
 #: the kinds whose values are merged into the target
 MERGED_KINDS = ('calibration', 'set')
+#: the kinds that run a model at chosen points and keep every run
+SWEEP_KINDS = ('sweep', 'simulate')
 
 
 def _kind_line(s):
@@ -197,6 +199,8 @@ def _sweep_lines(s):
     sweep = s.get('sweep') or {}
     parameters = sweep.get('parameters') or {}
     first = 'the merged target' if s.get('on_target') else model_line(s['model'])
+    if s.get('kind') == 'simulate':
+        return [first, 'one run of the protocol']
     if not parameters:
         return [first, 'the protocol, nothing swept']
     zipped = {name: group for group in sweep.get('zip') or [] for name in group}
@@ -219,7 +223,7 @@ def workflow_graph(steps):
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
-    step) ``reduction``, ``set`` or ``sweep`` where a step has them, plus ``model`` (the
+    step) ``reduction``, ``set`` or ``sweep`` where a step has them (a simulate step has none), plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
     target, by default every calibration and set step) in a final dict with ``'id': None``. A
@@ -241,7 +245,7 @@ def workflow_graph(steps):
             lines = [set_line(entry) for entry in s.get('set') or []]
         elif s.get('model') is None:
             lines = ['not run']
-        elif kind == 'sweep':
+        elif kind in SWEEP_KINDS:
             lines = _sweep_lines(s)
         else:
             lines = [model_line(s['model']),

@@ -27,7 +27,7 @@ import os
 import textwrap
 from xml.sax.saxutils import escape, quoteattr
 
-from libcuflynx.calibration_workflow.spec import INHERITED_BASE, scale_sources
+from libcuflynx.calibration_workflow.spec import INHERITED_BASE, raw_sweep, scale_sources
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
 from libcuflynx.utilities.parameters_file import (CALIBRATED, DERIVED, INHERITED, MEASURED,
@@ -146,7 +146,7 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
-            'set': raw.get('set'), 'sweep': raw.get('sweep'),
+            'set': raw.get('set'), 'sweep': raw_sweep(raw),
             'on_target': bool(raw.get('on_target'))})
     return steps
 

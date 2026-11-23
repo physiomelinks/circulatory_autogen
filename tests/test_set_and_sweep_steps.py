@@ -138,7 +138,7 @@ def test_a_sweep_on_the_target_takes_every_calibration_and_set_step(library):
 def test_on_target_is_for_a_sweep(library):
     raw = _raw(library)
     raw['steps'][1]['on_target'] = True
-    with pytest.raises(WorkflowError, match='"on_target" is for a sweep step'):
+    with pytest.raises(WorkflowError, match='"on_target" is for a sweep or simulate step'):
         _parse(library, raw)
 
 

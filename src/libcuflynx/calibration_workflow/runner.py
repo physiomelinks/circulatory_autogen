@@ -1,6 +1,7 @@
 '''
 Running a calibration workflow: every step through the normal path of its kind (param_id,
-sensitivity analysis, emulator training, identifiability analysis, a parameter sweep), in
+sensitivity analysis, emulator training, identifiability analysis, a parameter sweep or one
+simulation), in
 dependency order, then merging the calibrations' results and the values set by hand into the
 workflow's target.
 
@@ -21,7 +22,7 @@ Output layout (``output_dir``)::
         sensitivity/               a sensitivity step's outputs (sa_options.output_dir)
         emulator/                  an emulation step's emulator
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
-        sweep/                     a sweep step's runs (sweep.py)
+        sweep/                     a sweep or simulate step's runs (sweep.py)
     _target/model/                 the target generated with every merged value
 
 A step's model is generated from a library module or from a copy of its module array; the
@@ -60,8 +61,9 @@ from libcuflynx.calibration_workflow.select import (UnsetParametersError, protoc
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
-from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
-                                                  WorkflowError, load_workflow,
+from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, SWEEP_KINDS,
+                                                  WORKFLOW_FILE_NAME, WorkflowError,
+                                                  load_workflow,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.mpi_utils import run_on_root
@@ -90,7 +92,8 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'emulation': ('emulator_dir',),
                 'identifiability': ('laplace',),
                 'set': (),
-                'sweep': ('sweep_dir', 'sweep_results')}
+                'sweep': ('sweep_dir', 'sweep_results'),
+                'simulate': ('sweep_dir', 'sweep_results')}
 #: what a value set by a set step is marked with
 SET_BY_HAND = 'set_by_hand'
 assert SET_BY_HAND in ORIGINS
@@ -385,7 +388,7 @@ class _Run:
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
                'identifiability': self._run_identifiability, 'set': self._run_set,
-               'sweep': self._run_sweep}[step.kind]
+               'sweep': self._run_sweep, 'simulate': self._run_sweep}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
         def finish():
@@ -750,7 +753,7 @@ class _Run:
 
     def _run_sweep(self, step, settings):
         resolved = self.resolved.steps[step.id]
-        where = f'sweep step "{step.id}"'
+        where = f'{step.kind} step "{step.id}"'
         settings = dict({'model_type': STEP_DEFAULTS['model_type']}, **settings)
         generated, _, units, fixed, _ = self.on_root(lambda: self._prepare(step, settings))
 
@@ -1242,7 +1245,7 @@ def plan_workflow(source, module_library_dirs=None):
         if step.kind == 'set':
             entry['set'] = [dict(e, target_model_name=rs.target_model_name(p))
                             for e, p in zip(step.set_values, rs.parameters)]
-        if step.kind == 'sweep':
+        if step.kind in SWEEP_KINDS:
             entry['sweep'] = copy.deepcopy(step.sweep)
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
