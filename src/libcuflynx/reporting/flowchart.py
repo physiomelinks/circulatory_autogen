@@ -223,7 +223,8 @@ def workflow_graph(steps):
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
-    step) ``reduction``, ``set`` or ``sweep`` where a step has them (a simulate step has none), plus ``model`` (the
+    step) ``reduction``, ``set`` or ``sweep`` where a step has them (a simulate step has none; a
+    figure step has ``figure``: ``{function, inputs: {name: {kind, step}}}``), plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
     target, by default every calibration and set step) in a final dict with ``'id': None``. A
@@ -243,6 +244,11 @@ def workflow_graph(steps):
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
+        elif kind == 'figure':
+            figure = s.get('figure') or {}
+            lines = [f'`{figure.get("function", "")}`'] + [
+                f'`{name}`: {source["kind"]} of `{source["step"]}`'
+                for name, source in (figure.get('inputs') or {}).items()]
         elif s.get('model') is None:
             lines = ['not run']
         elif kind in SWEEP_KINDS:
@@ -260,6 +266,14 @@ def workflow_graph(steps):
             # it runs on the merged target, which the merge edges already draw
             edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
                           'style': 'order'})
+            continue
+        if kind == 'figure':
+            inputs = (s.get('figure') or {}).get('inputs') or {}
+            for dep in s['depends_on']:
+                read = list(dict.fromkeys(source['kind'] for source in inputs.values()
+                                          if source['step'] == dep))
+                edges.append({'from': dep, 'to': s['id'], 'label': ' + '.join(read),
+                              'style': 'reads'})
             continue
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()

@@ -23,6 +23,7 @@ Output layout (``output_dir``)::
         emulator/                  an emulation step's emulator
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
         sweep/                     a sweep or simulate step's runs (sweep.py)
+        figure/                    a figure step's files (figures.py)
     _target/model/                 the target generated with every merged value
 
 A step's model is generated from a library module or from a copy of its module array; the
@@ -46,7 +47,7 @@ import warnings
 
 import numpy as np
 
-from libcuflynx.calibration_workflow import naming, sweep as sweep_runs
+from libcuflynx.calibration_workflow import figures, naming, sweep as sweep_runs
 from libcuflynx.parsers.PrimitiveParsers import DEFAULT_DO_AD, DEFAULT_MODEL_TYPE
 from libcuflynx.utilities import cuflynx_study
 from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
@@ -93,7 +94,8 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'identifiability': ('laplace',),
                 'set': (),
                 'sweep': ('sweep_dir', 'sweep_results'),
-                'simulate': ('sweep_dir', 'sweep_results')}
+                'simulate': ('sweep_dir', 'sweep_results'),
+                'figure': ('figure_dir', 'figures')}
 #: what a value set by a set step is marked with
 SET_BY_HAND = 'set_by_hand'
 assert SET_BY_HAND in ORIGINS
@@ -109,6 +111,11 @@ class WorkflowStepError(RuntimeError):
     def __init__(self, step_id, message):
         super().__init__(f'step "{step_id}": {message}')
         self.step_id = step_id
+        self.message = message
+
+    def __reduce__(self):
+        # pickled to reach the other ranks (run_on_root)
+        return (type(self), (self.step_id, self.message))
 
 
 def sha256(path):
@@ -136,8 +143,10 @@ def settings_digest(settings):
 
 def step_settings_digest(workflow, step):
     '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
-    options, or the workflow's settings with the step's on top. Formatting and key order of the
-    file do not change it.'''
+    options, a figure step's declaration, or the workflow's settings with the step's on top.
+    Formatting and key order of the file do not change it.'''
+    if step.kind == 'figure':
+        return settings_digest(figures.declaration(step))
     if step.kind == 'set':
         return settings_digest(step.set_values)
     if step.kind == 'reduction':
@@ -278,10 +287,14 @@ class _Run:
                 SETTINGS_INPUT: settings, **self.library_input()}
 
     def _model_free_inputs(self, step):
-        '''The inputs of a reduction (its options; the rest are its sensitivity step's) or a set
-        step (its entries, and the target's values when it scales them).'''
+        '''The inputs of a reduction (its options; the rest are its sensitivity step's), a set
+        step (its entries, and the target's values when it scales them) or a figure step (its
+        declaration, its script and the files it lists).'''
         inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
                                    'sha256': step_settings_digest(self.workflow, step)}}
+        if step.kind == 'figure':
+            inputs.update({key: {'path': path, 'sha256': sha256(path)}
+                           for key, path in figures.input_files(step).items()})
         if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
             path = self.resolved.target.parameters_path
             if os.path.isfile(path):
@@ -388,7 +401,8 @@ class _Run:
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
                'identifiability': self._run_identifiability, 'set': self._run_set,
-               'sweep': self._run_sweep, 'simulate': self._run_sweep}[step.kind]
+               'sweep': self._run_sweep, 'simulate': self._run_sweep,
+               'figure': self._run_figure}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
         def finish():
@@ -784,6 +798,43 @@ class _Run:
 
         return self.on_root(finish)
 
+    def figure_due(self, step):
+        '''Rank 0: whether a figure step is to be drawn: every step it reads has a current
+        result, and it has none itself, or its script, files or declaration changed, or a step
+        it reads ran again after it.'''
+        try:
+            sources = [self.require_current(source, step.id) for source in step.depends_on]
+        except WorkflowError:
+            return False
+        result = self.step_result(step.id)
+        if result is None or result.get('status') != 'done' or \
+                self.changed_inputs(step.id, result):
+            return True
+        return any((source.get('finished') or '') > (result.get('started') or '')
+                   for source in sources)
+
+    def _run_figure(self, step, settings):
+        def draw():
+            for source in step.depends_on:
+                self.require_current(source, step.id)
+            step_dir = self.step_dir(step.id)
+            if os.path.isdir(step_dir):
+                shutil.rmtree(step_dir)
+            os.makedirs(step_dir)
+            out_dir = os.path.join(step_dir, figures.FIGURE_DIR)
+            try:
+                paths = figures.run_figure(self.output_dir, step, out_dir)
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise WorkflowStepError(
+                    step.id, f'its function raised {type(exc).__name__}: {exc}') from exc
+            declared = figures.declaration(step)
+            return {'function': declared['function'], 'figure_inputs': declared['inputs'],
+                    'figure_dir': out_dir, 'figures': paths}
+
+        return self.on_root(draw)
+
     def _store_distribution(self, step, case_dir, info, settings):
         chain_path = os.path.join(case_dir, 'mcmc_chain.npy')
         if not os.path.isfile(chain_path):
@@ -943,6 +994,9 @@ class _Run:
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id, **_how_set(record)}
         complete = all(r and r.get('status') == 'done' for r in results.values())
+        # a figure passes no value on, so the calibrated parameters do not wait for one
+        values_complete = all(r and r.get('status') == 'done' for sid, r in results.items()
+                              if self.workflow.step(sid).kind != 'figure')
         target = self.resolved.target
         workflow_result = {
             'workflow_name': self.workflow.name,
@@ -994,7 +1048,7 @@ class _Run:
                 'model_path': generated['model_path'],
                 'parameters_path': generated['parameters_path']}
         if write_calibrated and merged:
-            if not complete:
+            if not values_complete:
                 raise WorkflowError('the calibrated parameters file is written only for a '
                                     'complete workflow run; some steps have no result.')
             generated_path = (workflow_result['target_model'] or {}).get('parameters_path')
@@ -1075,7 +1129,8 @@ def write_calibrated_parameters_to(source, output_dir, path, module_library_dirs
         raise WorkflowError(f'{output_dir} holds no run of workflow "{workflow.name}" '
                             f'({WORKFLOW_RESULT} is missing).')
     status = workflow_status(workflow, output_dir)
-    waiting = [s for s, v in status['steps'].items() if v['status'] != 'done' or v['stale']]
+    waiting = [s for s, v in status['steps'].items()
+               if (v['status'] != 'done' or v['stale']) and workflow.step(s).kind != 'figure']
     if waiting:
         raise WorkflowError(f'workflow "{workflow.name}": steps {waiting} have no current result '
                             f'in {output_dir} (not run, or their inputs changed since); run '
@@ -1247,6 +1302,8 @@ def plan_workflow(source, module_library_dirs=None):
                             for e, p in zip(step.set_values, rs.parameters)]
         if step.kind in SWEEP_KINDS:
             entry['sweep'] = copy.deepcopy(step.sweep)
+        if step.kind == 'figure':
+            entry['figure'] = copy.deepcopy(step.figure)
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
@@ -1265,12 +1322,17 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             are reused from ``output_dir`` (an error if missing, or if their obs_data,
             params_for_id or parameters changed since).
         only: run just this step, reusing the results it depends on.
+
+    Figure steps follow their own rule, whatever ``from_step`` and ``only`` say: after the
+    other steps, every figure step that is out of date and whose inputs are current is drawn
+    (``only`` naming a figure step draws it regardless). A figure that fails does not stop the
+    others or the merge; its error is raised once the run's results are written.
         dry_run: resolve and check everything, run nothing; returns :func:`plan_workflow`.
         write_calibrated: write the merged set as the target parameterisation's
             ``<parameterisation>_calibrated_parameters.json`` (complete runs only).
         progress: ``callable(event_dict)``, called on rank 0 with ``event`` in
             ``workflow_started``, ``step_started``, ``step_finished``, ``step_failed``,
-            ``step_skipped``, ``workflow_finished``.
+            ``step_skipped`` (a figure step that is current, or whose inputs are not), ``workflow_finished``.
         comm: an MPI communicator (default COMM_WORLD, or a one-rank stand-in).
 
     Returns the workflow_result dict (also written as ``workflow_result.json``).
@@ -1296,6 +1358,9 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
         to_run = order[ids.index(from_step):]
     else:
         to_run = order
+    figure_steps = [s for s in order if s.kind == 'figure']
+    forced = [s for s in figure_steps if s.id == only]
+    to_run = [s for s in to_run if s.kind != 'figure']
 
     def start():
         os.makedirs(output_dir, exist_ok=True)
@@ -1306,10 +1371,10 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             _write_json(snapshot, workflow.raw)
     run.on_root(start)
     run.record_study(order)
-    run.emit('workflow_started', order=[s.id for s in order], running=[s.id for s in to_run],
-             output_dir=output_dir)
+    run.emit('workflow_started', order=[s.id for s in order],
+             running=[s.id for s in to_run + forced], output_dir=output_dir)
     for step in order:
-        if step not in to_run:
+        if step not in to_run and step not in figure_steps:
             run.emit('step_skipped', step=step.id)
     for index, step in enumerate(to_run):
         try:
@@ -1320,10 +1385,26 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             run.record_study(order, failed=step.id)
             raise
         run.record_study(order)
+    figure_error = None
+    for index, step in enumerate(figure_steps):
+        if step not in forced and not run.on_root(lambda step=step: run.figure_due(step)):
+            run.emit('step_skipped', step=step.id)
+            continue
+        try:
+            run.run_step(step, index, len(figure_steps))
+        except Exception as exc:
+            run.emit('step_failed', step=step.id, index=index, total=len(figure_steps),
+                     error=str(exc))
+            run.record_study(order, failed=step.id)
+            figure_error = figure_error or exc
+            continue
+        run.record_study(order)
     result = run.on_root(lambda: run.merge(order, write_calibrated=write_calibrated))
     run.record_study(order, workflow_result=result)
     run.on_root(run.write_provenance)
     run.emit('workflow_finished', complete=result['complete'], output_dir=output_dir)
+    if figure_error is not None:
+        raise figure_error
     return result
 
 

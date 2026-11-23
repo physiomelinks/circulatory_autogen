@@ -259,6 +259,13 @@ def resolve_workflow(workflow):
         if step.kind == 'set':
             resolved[step.id] = _resolve_set_step(step, target, claimed)
             continue
+        if step.kind == 'figure':
+            # reads other steps' results; its script is checked without importing it
+            from libcuflynx.calibration_workflow.figures import check_script
+            check_script(step)
+            resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
+                                             parameters=[], target=target)
+            continue
         selection = None
         if step.model.kind == 'selection':
             selection = resolve_selection(step, target, components, supermodules)

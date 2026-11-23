@@ -448,7 +448,8 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
               'sweep': ('parameter sweep', 'parameter sweeps'),
-              'simulate': ('simulation', 'simulations')}
+              'simulate': ('simulation', 'simulations'),
+              'figure': ('figure step', 'figure steps')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -465,13 +466,22 @@ def _kind(step):
     return step.get('kind', 'calibration')
 
 
+def _figure_declaration(step):
+    '''A figure step's ``{function, inputs}`` as the flow chart takes it; None for another
+    kind.'''
+    if step.kind != 'figure':
+        return None
+    from libcuflynx.calibration_workflow.figures import declaration
+    return declaration(step)
+
+
 def _step_section(step, symbols, entries=()):
     out = [f'\\subsection{{Step {escape(step["id"])}}}', r'\label{sec:step:'
            + step['id'].replace('_', '-') + '}']
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) in ('reduction', 'set'):
+    if _kind(step) in ('reduction', 'set', 'figure'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
@@ -601,6 +611,12 @@ def _step_intro(step):
                 + (f'component {s["mode"]}, ' if s.get('mode') else '')
                 + f'{_number(s["score"])})' for s in selected]) + '.'
         return text
+    if _kind(step) == 'figure':
+        figure = step['figure']
+        reads = _join([f'{escape(source["kind"].replace("_", " "))} of step '
+                       f'{escape(source["step"])}' for source in figure['inputs'].values()])
+        return (f'This step draws figures with {_tt(figure["function"])} from the {reads}. '
+                f'It runs no simulation.')
     if _kind(step) == 'set':
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
         return 'This step sets values by hand: ' + '; '.join(lines) + '.'
@@ -691,6 +707,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
             'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
+            'figure': _figure_declaration(step),
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
         if step.kind in flowchart.SWEEP_KINDS:

@@ -533,7 +533,8 @@
             "identifiability",
             "set",
             "sweep",
-            "simulate"
+            "simulate",
+            "figure"
           ],
           "default": "calibration",
           "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
@@ -690,6 +691,30 @@
             }
           },
           "description": "a simulate step: one run of its model through the protocol of its obs_data (whose prediction items give features), or of settings' pre_time and sim_time. It writes what a sweep of no parameters writes"
+        },
+        "function": {
+          "type": "string",
+          "pattern": "^.*[^/\\\\]\\.py:[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "a figure step: \"<script>.py:<function>\", the script's path relative to this file. The function's parameters are the names of \"inputs\" and out_dir; it writes its files into out_dir and returns their paths. The script also has a main (libcuflynx.calibration_workflow.figures.figure_main), so it runs on its own on a finished run"
+        },
+        "inputs": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/figure_input"
+          },
+          "description": "a figure step: each parameter of its function by its name (a Python name), and what it is given"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "a figure step: other files its script reads or imports (helpers, a style module), relative to this file. A change to one makes the figure out of date, and they are packed with the script"
         }
       },
       "allOf": [
@@ -850,11 +875,31 @@
           "if": {
             "properties": {
               "kind": {
+                "const": "figure"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "function",
+              "inputs"
+            ],
+            "description": "A figure step names its function and inputs."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
                 "enum": [
                   "reduction",
                   "set",
                   "sweep",
-                  "simulate"
+                  "simulate",
+                  "figure"
                 ]
               }
             },
@@ -885,7 +930,7 @@
                 "params_for_id_from"
               ]
             },
-            "description": "A step that is not a reduction, set, sweep or simulate step names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+            "description": "A step that is not a reduction, set, sweep, simulate or figure step names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
           }
         }
       ]
@@ -902,6 +947,27 @@
           "$ref": "#/$defs/param_reduction_options"
         }
       }
+    },
+    "figure_input": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "sweep",
+          "values",
+          "obs_data",
+          "params_for_id",
+          "sensitivity",
+          "distribution",
+          "laplace"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "\\S"
+      },
+      "description": "{\"<kind>\": \"<step id>\"}: one kind of result of one step. sweep: a sweep or simulate step's arrays; values: what a calibration or set step gave; obs_data and params_for_id: a step's files; sensitivity: Sobol indices; distribution: a stored posterior; laplace: an identifiability step's approximation"
     }
   }
 }

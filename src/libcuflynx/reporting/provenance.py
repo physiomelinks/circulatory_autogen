@@ -86,7 +86,20 @@ def _sources(raw_step):
     scaled = scale_sources(raw_step.get('set') or [])
     if scaled:
         out['scale_from'] = scaled
+    if raw_step.get('kind') == 'figure':
+        out['inputs_from'] = list(dict.fromkeys(
+            source['step'] for source in _figure(raw_step)['inputs'].values()))
     return out
+
+
+def _figure(raw_step):
+    '''A figure step of the workflow file as the flow chart takes it.'''
+    inputs = {}
+    for name, source in (raw_step.get('inputs') or {}).items():
+        (kind, step_id), = source.items()
+        inputs[name] = {'kind': kind, 'step': step_id}
+    script, _, function = (raw_step.get('function') or '').rpartition(':')
+    return {'function': f'{os.path.basename(script)}:{function}', 'inputs': inputs}
 
 
 def _is_helper_item(item):
@@ -135,7 +148,8 @@ def _graph_steps(run):
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
-            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from') else ids[0])
+            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from', 'inputs_from')
+                     else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
             'model': result.get('model') if _done(result) else None,
@@ -147,6 +161,7 @@ def _graph_steps(run):
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
             'set': raw.get('set'), 'sweep': raw_sweep(raw),
+            'figure': _figure(raw) if raw.get('kind') == 'figure' else None,
             'on_target': bool(raw.get('on_target'))})
     return steps
 
@@ -496,12 +511,15 @@ def provenance_graph(output_dir):
             points = step_result['n_points']
             node['lines'].append(f'{points} point{"" if points == 1 else "s"}, '
                                  f'{step_result["n_failed"]} failed')
+        written = []
+        if done:
             written = [p for p in [step_result.get('sweep_results')]
-                       + list(step_result.get('plots') or []) if p]
-            if written:
-                figures.append(_figure_node(step_id, written, run['output_dir'], node['stale']))
-                edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
-                              'style': 'writes'})
+                       + list(step_result.get('plots') or [])
+                       + list(step_result.get('figures') or []) if p]
+        if written:
+            figures.append(_figure_node(step_id, written, run['output_dir'], node['stale']))
+            edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
+                          'style': 'writes'})
         observables = by_id[step_id].get('n_data_items', 0)
         helpers = by_id[step_id].get('n_helper_items', 0)
         if done and observables + helpers:

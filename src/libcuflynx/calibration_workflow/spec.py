@@ -22,7 +22,10 @@ one of :data:`STEP_KINDS` (default ``calibration``):
   ``"on_target": true`` it runs on the target, given every calibration's and set step's values
   as the target merges them (a later step wins), after all of those steps;
 * ``simulate`` -- one run of a model through its protocol: a sweep with no parameters, with the
-  same files. ``"simulate": {"outputs": [...]}`` names the variables recorded over time.
+  same files. ``"simulate": {"outputs": [...]}`` names the variables recorded over time;
+* ``figure`` -- a Python function (``"function": "figures/fig.py:draw"``) drawing figures from
+  the results of the steps its ``inputs`` name (``calibration_workflow/figures.py``). It names
+  no model and passes nothing on.
 
 Every kind but ``reduction``, ``set``, ``sweep`` and ``simulate`` names the three inputs of an ordinary run: a
 ``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep or simulate step names a ``model``, and an
@@ -65,12 +68,14 @@ PRIOR_KINDS = ('mvnormal', 'normal', 'kde')
 DEFAULT_PRIOR_KIND = 'mvnormal'
 
 STEP_KINDS = ('calibration', 'sensitivity', 'reduction', 'emulation', 'identifiability', 'set',
-              'sweep', 'simulate')
+              'sweep', 'simulate', 'figure')
 #: the kinds that run a model at chosen points and keep every run (``Step.sweep``)
 SWEEP_KINDS = ('sweep', 'simulate')
 DEFAULT_KIND = 'calibration'
 #: the kinds that name no model, and read no files of their own
-_NO_MODEL_KINDS = ('reduction', 'set')
+_NO_MODEL_KINDS = ('reduction', 'set', 'figure')
+#: the keys only a figure step has
+FIGURE_KEYS = ('function', 'inputs', 'files')
 #: what a set step's scale ``of`` names to scale the target's own value
 INHERITED_BASE = 'inherited'
 #: the source keys of a step and the kinds of step each may name
@@ -198,6 +203,7 @@ class Step:
     sweep: dict = field(default_factory=dict)        # (sweep, simulate) design, outputs,
                                                      # parameters, zip
     on_target: bool = False        # (sweep, simulate) runs on the target with the merged values
+    figure: dict = field(default_factory=dict)       # (figure) script, function, inputs, files
     settings: dict = field(default_factory=dict)
     description: str = ''
 
@@ -211,6 +217,9 @@ class Step:
         scaled = scale_sources(self.set_values)
         if scaled:
             out['scale_from'] = scaled
+        if self.figure:
+            out['inputs_from'] = list(dict.fromkeys(
+                source['step'] for source in self.figure['inputs'].values()))
         return out
 
 
@@ -474,9 +483,23 @@ def _step(value, where, base_dir):
         present = sorted(k for k in ('model', 'obs_data', 'params_for_id', 'submodule',
                                      'vessel', 'vessel_map') if k in value)
         if present:
-            reads = ('reads a sensitivity step\'s results' if kind == 'reduction'
-                     else 'declares values for the target')
+            reads = {'reduction': 'reads a sensitivity step\'s results',
+                     'set': 'declares values for the target',
+                     'figure': 'reads the results of the steps its inputs name'}[kind]
             raise WorkflowError(f'{label}: a {kind} step {reads} and has no {present}.')
+    figure_keys = sorted(k for k in FIGURE_KEYS if k in value)
+    if figure_keys and kind != 'figure':
+        raise WorkflowError(f'{label}: {figure_keys} are for a figure step, not a {kind} step.')
+    if kind == 'figure':
+        from libcuflynx.calibration_workflow.figures import parse_figure
+        refused = sorted(k for k in ('settings', 'on_target') if k in value)
+        if refused:
+            raise WorkflowError(f'{label}: a figure step draws from the results of the steps '
+                                f'its inputs name and has no {refused}.')
+        figure = parse_figure(value, base_dir, label)
+        return Step(id=step_id, model=None, obs_data=None, params_for_id=None, kind=kind,
+                    depends_on=list(dict.fromkeys(s['step'] for s in figure['inputs'].values())),
+                    figure=figure, description=value.get('description', '') or '')
     if kind == 'set':
         if 'settings' in value:
             raise WorkflowError(f'{label}: a set step declares values for the target and has '
@@ -654,6 +677,9 @@ def check_workflow(workflow):
             _check_set_step(workflow, step)
         if step.kind in SWEEP_KINDS:
             _check_sweep_step(workflow, step)
+        if step.kind == 'figure':
+            from libcuflynx.calibration_workflow.figures import check_figure_step
+            check_figure_step(workflow, step)
 
     for step in workflow.steps:
         prior_steps = [p.step for p in step.priors_from]
