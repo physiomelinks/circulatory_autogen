@@ -94,7 +94,7 @@ def test_summing_nodes_downstream_of_1d_vessels(user_inputs_dir, resources_dir, 
     log = _run_coupled(cpp_dir, tmp_path, timeout=480)
     assert 'integration weights' not in log
 
-    out = tmp_path / 'simulation_outputs_cpp' / PREFIX
+    out = cpp_dir / 'simulation_outputs_cpp'
     cols, values = _load_output(out / 'sol0D_states.txt')
     assert values.shape[0] > 10 and np.all(np.isfinite(values))
 
