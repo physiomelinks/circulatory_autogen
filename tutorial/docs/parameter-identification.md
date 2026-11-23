@@ -1701,7 +1701,7 @@ script reads or imports (helpers, a style module beside it).
 |---|---|---|
 | `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment; and `manifest`, `sweep_manifest.json` as its JSON document |
 | `validation` | simulate step (a sweep of one point) | `validation_results.json` as its JSON document: `items`, per prediction item that carries a value its `data_item_name`, `operation`, `unit`, `data_type`, `n_points`, `rmse`, `nrmse`, `mean_abs_z`, `within_2std`, and `t`, `data`, `std`, `model` at the observation times |
-| `values` | calibration or set step | `{"<vessel>/<parameter>": value}`: what it calibrated or set by hand, named as that step names them |
+| `values` | calibration or set step | `{"<module>/<parameter>": value}`: what it calibrated or set by hand, named as a params_for_id names them (a nested module by its path, `heart/lv/E`; a global as `global/R`) |
 | `obs_data` | step with an obs_data | the obs_data file as its JSON document |
 | `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
 | `sensitivity` | sensitivity step | Sobol indices, `{"S1": {output: {parameter: value}}, "ST": {...}}` (empty for a local analysis); and `local`, `{"relative": {output: {parameter: value}}, "absolute": {...}}` from a local analysis (`sa_options.method: "local"`), else None |

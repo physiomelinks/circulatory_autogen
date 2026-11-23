@@ -147,11 +147,13 @@ def _load_validation(run_dir, step_id, result):
 
 
 @input_kind('values', ('calibration', 'set'),
-            'the values a step calibrated or set by hand, {"<vessel>/<parameter>": value}, '
-            'named as the step names them')
+            'the values a step calibrated or set by hand, {"<module>/<parameter>": value}, '
+            'named as a params_for_id names them (a nested module by its path, heart/lv/E; a '
+            'global as global/R)')
 def _load_values(run_dir, step_id, result):
+    from libcuflynx.utilities.params_for_id_file import target_name
     records = result.get('calibrated', []) + result.get('set', [])
-    return {f'{record["vessel"]}/{record["param"]}': float(record['value'])
+    return {target_name(record['vessel'], record['param']): float(record['value'])
             for record in records}
 
 
