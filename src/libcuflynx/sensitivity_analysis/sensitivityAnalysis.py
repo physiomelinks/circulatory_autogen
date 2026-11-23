@@ -301,16 +301,22 @@ class SensitivityAnalysis():
             print(f'{RED}ERROR: need to set ground truth data and params for id before running sobol sensitivity analysis{RESET}')
             exit()
 
-        S1_all, ST_all, S2_all = self.SA_manager.run()
+        # the progress file is done only once the indices, samples and plots are written
+        S1_all, ST_all, S2_all = self.SA_manager.run(finish_progress=False)
 
         if rank == 0:
             print(f"{GREEN}Sensitivity analysis completed successfully :){RESET}")
             print(f'{CYAN}saving results in {output_dir}{RESET}')
-            self.SA_manager.save_sobol_indices(S1_all, ST_all, S2_all)
-            self.SA_manager.save_sobol_samples_and_outputs()
-            self.SA_manager.plot_sobol_first_order_idx(S1_all, ST_all)
-            self.SA_manager.plot_sobol_S2_idx(S2_all)
-            self.SA_manager.plot_sobol_heatmap(S1_all, ST_all)
+            try:
+                self.SA_manager.save_sobol_indices(S1_all, ST_all, S2_all)
+                self.SA_manager.save_sobol_samples_and_outputs()
+                self.SA_manager.plot_sobol_first_order_idx(S1_all, ST_all)
+                self.SA_manager.plot_sobol_S2_idx(S2_all)
+                self.SA_manager.plot_sobol_heatmap(S1_all, ST_all)
+            except BaseException:
+                self.SA_manager.progress.finish('failed')
+                raise
+            self.SA_manager.progress.finish()
             self._record_in_study('sobol')
 
     def _build_local_engine(self):

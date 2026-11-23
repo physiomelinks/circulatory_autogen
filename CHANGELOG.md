@@ -5,6 +5,23 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — progress files for Sobol, emulator training and profile likelihood
+
+- Each of these runs writes `progress.json` into its output directory while it runs:
+  `{schema_version, kind, state, started, updated, phases}`, each phase with `name`, `state`,
+  `done`, `total` and `failed`. Rank 0 rewrites it atomically, at most about once a second, and
+  the state is `done` only once the result files are written. Schema:
+  `schemas/progress.schema.json`; writer: `libcuflynx.utilities.progress`.
+- The other MPI ranks report the items they finish to rank 0 about once a second
+  (`RankReports`), so the counts cover every rank while the run goes, not rank 0's block alone.
+- An emulator training's `training` phase lists each emulator compared (`models`: `name`,
+  `state`, `score`, `duration_s`); each design stage is its own `sampling` phase.
+- A Sobol run also writes `sobol_design.npy` and `sobol_design_params.json` before the first
+  simulation, `sobol_sample_status.npy` (0 not run, 1 ran, 2 failed per design row; it stays
+  after the run, where the outputs CSV holds the filled values), and `sobol_convergence.json`
+  (S1 and ST with confidence half-widths at num_samples / 8, / 4, / 2 and num_samples).
+- Docs: "Following a run: progress files" in `tutorial/docs/sensitivity-analysis.md`.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
@@ -22,6 +39,7 @@ next release; add to that section as you land a change.
   the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
   given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
   raised inside nevergrad's ask/tell, is silenced.
+
 ### Fixed — a packed workflow leaves out each module version's test output
 
 - `pack_workflow` (and so a workflow run's packed inputs, CUFLynx's OMEX export of a workflow
@@ -30,6 +48,7 @@ next release; add to that section as you land a change.
   HTML report. These are local output, not part of the module, and were most of an archive's
   size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
   directory of those names deeper inside a version is still packed.
+
 ### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
 
 - A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
@@ -70,11 +89,13 @@ next release; add to that section as you land a change.
   point to the model source, whose every generated step model holds them; to the target only
   when no step comes from the model source. A reader of `provenance_graph.json` that draws
   these edges must accept `__source__` as their end (the schema is unchanged).
+
 ### Changed — the 3compartment model starts inside its calibration bounds (changes results)
 
 - `resources/3compartment_parameters.json`: `global/q_lv_init` is 1e-3 m3, inside the bounds
   [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
   calibrations started from its defaults, give different numbers.
+
 ### Changed — `cuflynx-generate` exits 1 when generation fails
 
 - `cuflynx-generate` exits with status 1 when generation, or the trial run that validates the
@@ -82,6 +103,7 @@ next release; add to that section as you land a change.
   that generate first) now stop before calibrating a model that was not written. A missing
   `model_1d_config_path` for a coupled C++ model is a failure (it exited 0), and regenerating a
   CellML 2.0 model with fitted parameters reports success.
+
 ### Fixed — the flattened-CellML cache in TMPDIR keeps at most 200 files
 
 - `CVODE_myokit` writes each model's flattened CellML to
@@ -89,12 +111,14 @@ next release; add to that section as you land a change.
   them: test runs and studies with many model paths filled TMPDIR. After each write only the
   200 newest files are kept (`myokit_helper.FLATTENED_CELLML_CACHE_MAX_FILES`); a removed
   model is flattened again when it is next run.
+
 ### Added — `cuflynx-init` writes a starter study
 
 - `cuflynx-init [DIR]` writes `user_run_files/user_inputs.yaml` and the 3compartment model's
   resources (module array, parameters, params_for_id, obs_data) into DIR (default the current
   directory) and prints what to run next, so a `pip install libcuflynx` has a config to start
   from. It overwrites nothing unless given `--force`.
+
 ### Changed — CMA-ES is the default calibration method (changes results)
 
 - A calibration whose user_inputs name no `param_id_method` runs CMA-ES; it ran the genetic
@@ -684,6 +708,19 @@ the module, the port's variables, the 1D vessel and the 0D modules.
 - The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
   vessel `v` ends sum, couple to 1D.
 
+- `cuflynx-upgrade junctions <module_array> --module-library-dir <library>/modules` converts a
+  model: each junction version is retyped to the version the library's `renames.json` names in an
+  entry marked `"by": "cuflynx-upgrade junctions"` (same equations); an `inlet_flow constant_2`
+  becomes two `constant` sources; a `flow_merge`/`flow_split` is removed and its neighbours joined.
+  It renames what changed in `<prefix>_parameters.json`, `<prefix>_obs_data*.json` and
+  `<prefix>_params_for_id*.json`: `v_in_sum`/`v_out_sum` to `v_in`/`v_out`, and a numbered port
+  flow (`J/v_out_1`) to the inflow of the neighbour on that port (`s1/v`). Values the new version
+  has no variable for are dropped and listed. Run it after `cuflynx-upgrade module-names`.
+- The refusal of a node with several ends on both sides no longer suggests a `2in2out_junction`;
+  it suggests a lumped `vv` vessel between them.
+- The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
+  `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+
 ### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
 - Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
@@ -757,6 +794,7 @@ the module, the port's variables, the 1D vessel and the 0D modules.
   tolerances, maximum step and output grid, and writes setup, first-run and median run times,
   CVODE step counts where exposed and the error against a reference backend, as JSON and
   Markdown.
+
 ### Changed — the PCA parameter reduction checks for redundant parameters
 
 - `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its

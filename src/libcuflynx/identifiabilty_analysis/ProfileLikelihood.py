@@ -29,6 +29,7 @@ from libcuflynx.param_id.held_entries import HeldEntries
 from libcuflynx.param_id.paramID import ensure_mle_cost_type_for_bayesian_inner
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
+from libcuflynx.utilities.progress import ProgressFile
 from libcuflynx.utilities.utility_funcs import Normalise_class
 
 MPI = _get_MPI()
@@ -88,6 +89,10 @@ def _file_stem(param_idx, param_name):
     return f"param_{param_idx}_" + param_label(param_name).replace("/", "_").replace("+", "__")
 
 
+def _phase_key(param_idx):
+    return f'param_{param_idx}'
+
+
 def _optimum_row(cost, optimum):
     """A profile point's optimum as a JSON row: ``None`` where the point's cost is not finite,
     and ``None`` for each value that is not finite."""
@@ -134,6 +139,8 @@ class ProfileLikelihood:
         self.rank = self.comm.Get_rank()
         self.num_procs = self.comm.Get_size()
 
+        # the run's progress file (run); None outside a run
+        self.progress = None
         self.profile_results = {}
         self.best_param_vals = None
         self.best_cost = None
@@ -295,8 +302,13 @@ class ProfileLikelihood:
                 costs[i], optima[i] = self._optimize_with_fixed_parameter(
                     param_idx, param_values[i], param_init=x0
                 )
-                if np.isfinite(costs[i]) and np.all(np.isfinite(optima[i])):
+                converged = np.isfinite(costs[i]) and np.all(np.isfinite(optima[i]))
+                if converged:
                     x0 = optima[i]
+                if self.progress is not None:
+                    # every point is a calibration, so each one is written as it finishes
+                    self.progress.advance(_phase_key(param_idx), failed=0 if converged else 1,
+                                          force=True)
 
         param_names = self.param_id.param_id_info["param_names"]
         ci_95 = self.confidence_interval_95(param_values, costs, best_val, self.best_cost)
@@ -432,11 +444,25 @@ class ProfileLikelihood:
         """Profile every calibrated entry, then save and plot the results (rank 0).
 
         Collective: every MPI rank must call it, since each profile point is a calibration.
+
+        Rank 0 writes the run's progress.json (libcuflynx.utilities.progress, kind
+        ``profile_likelihood``) into ``profile_likelihood/``: a phase per calibrated entry,
+        named by its label, with ``param_index``, the points evaluated of ``num_points``, and
+        those whose re-calibration gave no finite cost as failed.
         """
         if self.best_param_vals is None:
             raise ValueError("Best parameter values must be set first - Run param_id script first")
 
         num_params = len(self.best_param_vals)
+        with ProgressFile(os.path.join(self.output_dir, "profile_likelihood"),
+                          'profile_likelihood', self.comm) as self.progress:
+            self._run_profiles(num_params)
+            # inside the block: the state is done only once the results are written
+            if self.rank == 0:
+                self._save_results()
+                self._plot_profiles()
+
+    def _run_profiles(self, num_params):
         saved_costs = self._use_mle_costs()
         try:
             # get_cost throughout: the cost the re-fits minimise (the CasADi or AADC one when
@@ -444,6 +470,10 @@ class ProfileLikelihood:
             self.best_cost = float(self.param_id.get_cost(self.best_param_vals))
             if self.rank == 0:
                 print(f"Starting profile likelihood analysis for {num_params} parameters")
+            names = self.param_id.param_id_info['param_names']
+            for param_idx in range(num_params):
+                self.progress.phase(_phase_key(param_idx), self.num_points,
+                                    name=param_label(names[param_idx]), param_index=param_idx)
 
             for param_idx in range(num_params):
                 if self.rank == 0:
@@ -457,7 +487,3 @@ class ProfileLikelihood:
         finally:
             if saved_costs is not None:
                 self.param_id.obs_info["cost_type"], self.param_id.cost_type = saved_costs
-
-        if self.rank == 0:
-            self._save_results()
-            self._plot_profiles()

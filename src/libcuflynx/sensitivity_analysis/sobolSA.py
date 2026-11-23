@@ -49,6 +49,8 @@ import csv
 from tqdm import tqdm  # make sure tqdm is installed
 from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 from libcuflynx.param_id import prediction_features
+from libcuflynx.utilities.progress import (ProgressFile, RankReports, write_atomic,
+                                           write_json_atomic)
 
 #: The file naming every Sobol output column, written only with include_prediction_items so
 #: a reader (CUFLynx) can tell a prediction feature from a data_item feature.
@@ -57,6 +59,38 @@ SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
 #: weight), written beside the samples and outputs so a later analysis (a PCA parameter
 #: reduction) can recompute Sobol indices of any function of the outputs.
 SOBOL_PROBLEM_FILE = 'sobol_problem.json'
+#: The files a Sobol run writes while it runs, beside its progress.json
+#: (libcuflynx.utilities.progress):
+#:
+#: * ``sobol_design.npy`` -- the design (samples x parameters) in run order, written before the
+#:   first simulation; ``sobol_design_params.json`` names its columns (``names``, ``bounds``,
+#:   ``num_samples``, ``sample_type``, ``rows``);
+#: * ``sobol_sample_status.npy`` -- one int8 per design row (SAMPLE_NOT_RUN, SAMPLE_OK,
+#:   SAMPLE_FAILED), rewritten as the ranks report and kept after the run. A failed sample is
+#:   one with an output that is not finite: fill_failed_outputs fills it before the indices
+#:   are computed, so the outputs CSV no longer shows which they were.
+SOBOL_DESIGN_FILE = 'sobol_design.npy'
+SOBOL_DESIGN_PARAMS_FILE = 'sobol_design_params.json'
+SOBOL_SAMPLE_STATUS_FILE = 'sobol_sample_status.npy'
+SAMPLE_NOT_RUN, SAMPLE_OK, SAMPLE_FAILED = 0, 1, 2
+#: S1 and ST with their confidence intervals at increasing numbers of base samples, written at
+#: the end of a run (sobol_convergence).
+SOBOL_CONVERGENCE_FILE = 'sobol_convergence.json'
+#: The base-sample counts of the convergence file, as fractions of num_samples, and the fewest
+#: base samples a prefix is analysed at.
+CONVERGENCE_FRACTIONS = (8, 4, 2, 1)
+CONVERGENCE_MIN_SAMPLES = 4
+#: Seed of the bootstrap of a prefix's confidence intervals, so the file is reproducible. The
+#: full run's intervals are those of the indices' own analysis.
+CONVERGENCE_SEED = 1
+
+
+def _row_ok(row):
+    """Whether every output of one sample is finite."""
+    try:
+        return bool(np.all(np.isfinite(np.asarray(row, dtype=float))))
+    except (TypeError, ValueError):
+        return True
 #: The local derivatives a Sobol run takes for a PCA reduction's redundancy check
 #: (run_local_jacobian), as sa_options keys with their defaults:
 #:
@@ -538,8 +572,60 @@ class sobol_SA():
         # return y, t
         return operands
     
+    def _start_sample_status(self, samples):
+        """On rank 0, write the design and its column names, and a status file with no sample
+        run."""
+        if self.rank != 0 or not self.progress.active:
+            return
+        samples = np.asarray(samples, dtype=float)
+        write_atomic(os.path.join(self.output_dir, SOBOL_DESIGN_FILE),
+                     lambda tmp: np.save(tmp, samples))
+        write_json_atomic(os.path.join(self.output_dir, SOBOL_DESIGN_PARAMS_FILE), {
+            'names': [str(name) for name in self._param_labels()],
+            'bounds': [[float(lo), float(hi)] for lo, hi in
+                       zip(self.SA_info['param_mins'], self.SA_info['param_maxs'])],
+            'num_samples': int(self.SA_info['num_samples']),
+            'sample_type': self.SA_info['sample_type'], 'rows': int(len(samples))})
+        self.sample_status = np.full(len(samples), SAMPLE_NOT_RUN, dtype=np.int8)
+        self._save_sample_status()
+
+    def _save_sample_status(self):
+        status = self.sample_status
+        write_atomic(os.path.join(self.output_dir, SOBOL_SAMPLE_STATUS_FILE),
+                     lambda tmp: np.save(tmp, status))
+
+    def _item_reports(self, phase):
+        """The RankReports that counts the items of progress phase ``phase`` and, for the
+        Sobol samples themselves, records each one's status. None with no progress file."""
+        progress = getattr(self, 'progress', None)
+        if phase is None or progress is None:
+            return None
+        track_status = phase == 'sampling' and getattr(self, 'sample_status', None) is not None
+
+        def on_report(indices, ok):
+            if track_status:
+                self.sample_status[indices] = np.where(ok, SAMPLE_OK, SAMPLE_FAILED)
+            wrote = progress.advance(phase, done=len(indices),
+                                     failed=int(np.count_nonzero(~ok)))
+            if wrote and track_status:
+                self._save_sample_status()
+
+        return RankReports(getattr(self, 'comm', None), on_report)
+
+    def _outputs_counted_in(self, phase, samples):
+        """generate_outputs_mpi(samples), its rows counted in progress phase ``phase``."""
+        self._progress_phase = phase
+        try:
+            return self.generate_outputs_mpi(samples)
+        finally:
+            self._progress_phase = None
+
     def generate_outputs_mpi(self, samples):
-        #need to added an array to save tmp data, each calibration need to updated/re-initial
+        """The outputs of every row of ``samples``, run in one block per MPI rank and gathered
+        on rank 0 (None on the others). Within run, the rows count towards a phase of the
+        progress file (_outputs_counted_in)."""
+        reports = self._item_reports(getattr(self, '_progress_phase', None))
+
         
         # Split samples across ranks
         n_samples = len(samples)
@@ -614,6 +700,8 @@ class sobol_SA():
                     if pred_indices:
                         row += list(self.sim_helper.get_predicted_prediction_features(pred_names))
                     local_outputs.append(row)
+                    if reports is not None:
+                        reports.add(start + len(local_outputs) - 1, _row_ok(row))
                     pbar.update(1)
                     continue
 
@@ -659,9 +747,14 @@ class sobol_SA():
                                     for value in predicted)
 
                 local_outputs.append(features)
+                if reports is not None:
+                    reports.add(start + len(local_outputs) - 1, _row_ok(features))
                 pbar.update(1)
 
         self._rank0_print(f"[MPI Rank {self.rank}] Finished processing samples {start}:{end}")
+        if reports is not None:
+            # rank 0 waits here for the other ranks' last reports, as it would in the gather
+            reports.close()
 
         # Gather results at rank 0
         all_outputs = self.comm.gather(local_outputs, root=0)
@@ -737,13 +830,62 @@ class sobol_SA():
         # change names to series here as SALib has an issue with lists https://github.com/SALib/SALib/issues/671
         self.problem['names'] = pd.Series(self.problem['names'])
 
+        # the confidence half-widths of S1 and ST, for sobol_convergence
+        self.sobol_confidence = {'S1': np.zeros_like(S1_all), 'ST': np.zeros_like(ST_all)}
         for i in range(n_outputs):
             Si = sobol.analyze(self.problem, outputs[:,i], print_to_console=self.verbose)
             S1_all[i, :] = Si['S1']
             ST_all[i, :] = Si['ST']
             S2_all[i, :] = np.array(Si['S2'])
+            self.sobol_confidence['S1'][i, :] = Si['S1_conf']
+            self.sobol_confidence['ST'][i, :] = Si['ST_conf']
 
         return S1_all, ST_all, S2_all
+
+    def sobol_convergence(self, S1_all, ST_all):
+        """S1 and ST with their confidence half-widths at increasing numbers of base samples:
+        ``{"n": [...], "outputs": {output: {"S1": {parameter: [[value, conf], ...]},
+        "ST": {...}}}}``, one ``[value, conf]`` per entry of ``n``. ``n`` is num_samples over
+        CONVERGENCE_FRACTIONS, from CONVERGENCE_MIN_SAMPLES up: the first ``n`` blocks of
+        2M + 2 rows of a Saltelli design are the design of ``n`` base samples, so each is the
+        analysis the run would have given had it stopped there (on the filled outputs of the
+        whole run). The last entry is the run's own analysis. A value that is not finite is
+        null."""
+        outputs = np.asarray(self.outputs, dtype=float)
+        n_total = int(self.num_samples)
+        block = len(outputs) // n_total
+        counts = sorted({n_total // k for k in CONVERGENCE_FRACTIONS
+                         if n_total // k >= CONVERGENCE_MIN_SAMPLES} | {n_total})
+        names, _ = self._output_columns(outputs.shape[1])
+        params = [str(label) for label in self._param_labels()]
+
+        def number(value):
+            value = float(value)
+            return value if np.isfinite(value) else None
+
+        table = {name: {'S1': {p: [] for p in params}, 'ST': {p: [] for p in params}}
+                 for name in names}
+        for n in counts:
+            for i, name in enumerate(names):
+                if n == n_total:
+                    values = {'S1': S1_all[i], 'ST': ST_all[i],
+                              'S1_conf': self.sobol_confidence['S1'][i],
+                              'ST_conf': self.sobol_confidence['ST'][i]}
+                else:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        values = sobol.analyze(self.problem, outputs[:n * block, i],
+                                               seed=CONVERGENCE_SEED)
+                for index in ('S1', 'ST'):
+                    for j, p in enumerate(params):
+                        table[name][index][p].append(
+                            [number(values[index][j]), number(values[f'{index}_conf'][j])])
+        return {'n': counts, 'outputs': table}
+
+    def save_sobol_convergence(self, S1_all, ST_all):
+        """Write sobol_convergence as SOBOL_CONVERGENCE_FILE; returns its path."""
+        path = os.path.join(self.output_dir, SOBOL_CONVERGENCE_FILE)
+        write_json_atomic(path, self.sobol_convergence(S1_all, ST_all))
+        return path
 
     def plot_sobol_first_order_idx(self, S1_all, ST_all):
 
@@ -1202,7 +1344,10 @@ class sobol_SA():
         need_base = not central and rows[0] < 0
         if need_base:
             points = list(bases) + points
-        results = self.generate_outputs_mpi(np.array(points))
+        progress = getattr(self, 'progress', None)
+        if progress is not None:
+            progress.phase('local_jacobian', len(points))
+        results = self._outputs_counted_in('local_jacobian', np.array(points))
         if self.rank != 0:
             return None
         results = np.asarray(results, dtype=float)
@@ -1222,17 +1367,40 @@ class sobol_SA():
         self.local_jacobian_steps = steps
         return self.local_jacobian
 
-    def run(self):
+    def run(self, finish_progress=True):
         """The Sobol indices ``(S1, ST, S2)`` on rank 0 (None on the others), after the Saltelli
         samples and the local Jacobian (run_local_jacobian) have run, spread over the MPI ranks;
-        one process runs them all."""
+        one process runs them all.
+
+        Rank 0 writes the run's progress.json (kind ``sobol``; phases ``sampling``,
+        ``local_jacobian`` when there are derivatives to take, and ``analysis``), the design
+        and each sample's status as the ranks report it (SOBOL_DESIGN_FILE,
+        SOBOL_SAMPLE_STATUS_FILE), and at the end SOBOL_CONVERGENCE_FILE. The progress file's
+        state is ``done`` when this returns; a caller that writes the results afterwards
+        passes ``finish_progress=False`` and calls ``self.progress.finish()`` once they are
+        written (``finish('failed')`` if that fails), so ``done`` means the files are there."""
         samples = self.generate_samples()
         self.samples = samples
-        outputs = self.generate_outputs_mpi(samples)
-        self.run_local_jacobian(samples, outputs)
-        if self.rank != 0:
-            return None, None, None
-        return self.sobol_index(outputs)
+        self.progress = progress = ProgressFile(getattr(self, 'output_dir', None), 'sobol',
+                                                getattr(self, 'comm', None))
+        try:
+            self._start_sample_status(samples)
+            progress.phase('sampling', len(samples))
+            outputs = self._outputs_counted_in('sampling', samples)
+            self.run_local_jacobian(samples, outputs)
+            if self.rank != 0:
+                return None, None, None
+            progress.phase('analysis', 1, state='running')
+            indices = self.sobol_index(outputs)
+            if progress.active:
+                self.save_sobol_convergence(indices[0], indices[1])
+            progress.update('analysis', done=1)
+        except BaseException:
+            progress.finish('failed')
+            raise
+        if finish_progress:
+            progress.finish()
+        return indices
 
 
 def observable_indices(obs_info):
