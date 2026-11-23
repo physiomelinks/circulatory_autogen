@@ -66,12 +66,14 @@ def _stale(output_dir):
 
 
 def _stopping_run(pid, exception, seen=None):
-    """param_id.run that saves BEST_SO_FAR as the optimisers do mid-run, then raises."""
+    """param_id.run that saves BEST_SO_FAR as the optimisers do mid-run (on rank 0, the only
+    rank with an output_dir), then raises on every rank."""
     def run():
-        if seen is not None:
-            seen.extend(name for name in ERROR_VEC_FILES.values()
-                        if os.path.exists(os.path.join(pid.output_dir, name)))
-        np.save(os.path.join(pid.output_dir, "best_param_vals.npy"), BEST_SO_FAR)
+        if pid.rank == 0:
+            if seen is not None:
+                seen.extend(name for name in ERROR_VEC_FILES.values()
+                            if os.path.exists(os.path.join(pid.output_dir, name)))
+            np.save(os.path.join(pid.output_dir, "best_param_vals.npy"), BEST_SO_FAR)
         raise exception
     pid.param_id.run = run
 
