@@ -965,6 +965,10 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 - **Pros**: Efficient gradient-free optimization, supports parallel execution, good convergence properties
 - **Cons**: Requires Nevergrad package (`pip install nevergrad`)
 - **Best for**: Smooth optimization landscapes, when you want faster convergence with parallel execution
+- **One parameter**: Nevergrad runs a different search (OnePlusOne) in one dimension, which can stall on a
+  parameter's bounds, so a one-parameter calibration searches a second, unused variable beside it and runs
+  CMA-ES (`benchmarks/cmaes_one_parameter.py`). For a single parameter of a smooth cost, `sp_minimize` is
+  usually faster.
 
 Example configuration for CMA-ES:
 ```yaml

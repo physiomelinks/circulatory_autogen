@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
+
+- A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
+  bounds and stop far from the minimum of a smooth cost. In one dimension nevergrad's `CMA`
+  runs its OnePlusOne search, not CMA; on a stand-in cost it ended more than 1% of the box from
+  the minimum in about a tenth of the seeds, and in a third when started on a bound. The
+  optimiser now gives nevergrad a second, unused variable, so it runs CMA: none of 1,000 such
+  runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
+  parameters are unchanged. The first point evaluated is no longer the start value, as for
+  several parameters.
+
 ### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
 
 - Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
