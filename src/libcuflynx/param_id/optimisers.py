@@ -11,6 +11,7 @@ import numpy as np
 # on macOS when a NIC goes away (#396). get_MPI hands back the real
 # mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
 # stub otherwise, so a serial run never opens MPI at all.
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
@@ -307,19 +308,19 @@ class GeneticAlgorithmOptimiser(Optimiser):
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
         if self.optimiser_options.get('num_calls_to_function') is None:
-            raise ValueError(
+            raise CAInputError(
                 'the genetic algorithm (param_id_method: genetic_algorithm, the method when '
                 'none is set) needs optimiser_options.num_calls_to_function, the number of '
                 'cost-function evaluations it may use.')
         if self.optimiser_options['num_calls_to_function'] < num_pop:
-            raise ValueError(
+            raise CAInputError(
                 f'optimiser_options num_calls_to_function='
                 f'{self.optimiser_options["num_calls_to_function"]} is less than the genetic '
                 f'algorithm population (num_pop={num_pop}): no generation can run. Set '
                 f'num_calls_to_function to at least {num_pop}, or use another param_id_method '
                 f'(CMA-ES runs on any budget).')
         if num_procs > num_pop:
-            raise ValueError(
+            raise CAInputError(
                 f'{num_procs} MPI ranks is more than the genetic algorithm population '
                 f'(num_pop={num_pop}): run on at most {num_pop} ranks, or raise the population '
                 f'sizes in optimiser_options.')

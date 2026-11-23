@@ -6,10 +6,10 @@ import copy
 import numpy as np
 import os
 import sys
-from sys import exit
 import math as math
 import time
 import matplotlib
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
@@ -249,8 +249,8 @@ class SensitivityAnalysis():
         self.model_out_names = []
         for item in obs_data_dict["data_items"]:
             if len(item["operands"]) > 1:
-                print(f'{RED}ERROR: more than one operand for {item["data_item_name"]}, not supported{RESET}')
-                exit()
+                raise CAInputError(f'more than one operand for {item["data_item_name"]}: '
+                                   'sensitivity analysis supports one')
             self.model_out_names.append(item["operands"][0])
 
     def run_sensitivity_analysis(self, sa_options=None):
@@ -272,14 +272,12 @@ class SensitivityAnalysis():
         # define run_<method>_sensitivity -- nothing here is hardcoded.
         method = sa_options['method']
         if method not in sa_method_choices():
-            print(f'{RED}ERROR: sensitivity analysis method {method!r} not recognised; '
-                  f'valid methods are {sa_method_choices()}{RESET}')
-            exit()
+            raise CAInputError(f'sensitivity analysis method {method!r} not recognised; '
+                               f'valid methods are {sa_method_choices()}')
         handler = getattr(self, f'run_{method}_sensitivity', None)
         if handler is None:
-            print(f'{RED}ERROR: sensitivity method {method!r} is in the schema but no '
-                  f'run_{method}_sensitivity handler is defined{RESET}')
-            exit()
+            raise NotImplementedError(f'sensitivity method {method!r} is in the schema but no '
+                                      f'run_{method}_sensitivity handler is defined')
         handler(sa_options)
 
     def run_sobol_sensitivity(self, sa_options=None):
@@ -298,8 +296,8 @@ class SensitivityAnalysis():
         self.SA_manager.set_sa_options(sa_options)
 
         if self.SA_manager.gt_df is None or self.SA_manager.param_id_info is None:
-            print(f'{RED}ERROR: need to set ground truth data and params for id before running sobol sensitivity analysis{RESET}')
-            exit()
+            raise RuntimeError('set the ground truth data and params for id before running '
+                               'sobol sensitivity analysis')
 
         # the progress file is done only once the indices, samples and plots are written
         S1_all, ST_all, S2_all = self.SA_manager.run(finish_progress=False)

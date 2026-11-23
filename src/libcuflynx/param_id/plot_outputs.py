@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 import re
-from sys import exit
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+from libcuflynx.errors import CAInputError
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -384,12 +385,10 @@ class ParamIDPlotOutputs:
                 # otherwise be grouped under its item name and labelled '$$'.
                 obs_name_for_plot = group_keys[II]
                 if obs_name_for_plot.count("_") > 1:
-                    print(
-                        f'obs_data variable "{obs_name_for_plot}" has too many underscores',
-                        'for plotting a label. Include a "trace_name_for_plotting" key in ',
-                        "obs_data json file entry",
-                    )
-                    exit()
+                    raise CAInputError(
+                        f'obs_data variable "{obs_name_for_plot}" has too many underscores '
+                        'for plotting a label. Include a "trace_name_for_plotting" key in '
+                        'its obs_data json file entry')
 
                 unit = obs_info["units"][II]
                 if unit == "m3_per_s":
@@ -581,12 +580,10 @@ class ParamIDPlotOutputs:
                     ):
                         pass
                     else:
-                        print(
+                        raise CAInputError(
                             f'plot_type for {obs_item_names(obs_info)[II]} '
-                            f"of {obs_info['plot_type'][II]} is not recognised",
-                            "for constants it must be in [None, horizontal, veritical, horizontal_from_min], exiting",
-                        )
-                        exit()
+                            f"of {obs_info['plot_type'][II]} is not recognised: "
+                            "for constants it must be in [None, horizontal, vertical, horizontal_from_min]")
                 elif obs_info["data_types"][II] == "series":
                     start_time = np.sum(
                         protocol_info["sim_times"][exp_idx][:this_sub_idx]

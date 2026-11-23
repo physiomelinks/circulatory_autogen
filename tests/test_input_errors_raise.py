@@ -20,19 +20,42 @@ pytestmark = pytest.mark.unit
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src', 'libcuflynx')
 RESOURCES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources')
 
-# Modules a caller runs in-process; none of them may exit the interpreter.
+# Modules (or whole directories) a caller runs in-process; none of them may exit the
+# interpreter outside an ``if __name__ == '__main__':`` block.
 NO_EXIT_MODULES = [
     'parsers/PrimitiveParsers.py',
     'parsers/ModelParsers.py',
     'generators/CVSCellMLGenerator.py',
     'generators/Python1DModelFilesGenerator.py',
     'checks/LumpedModelChecks.py',
+    'funcs',
+    'param_id',
+    'sensitivity_analysis',
+    'utilities',
 ]
 
 
+def _python_files(entry):
+    path = os.path.join(SRC, entry)
+    if os.path.isfile(path):
+        return [entry]
+    return sorted(os.path.relpath(os.path.join(root, f), SRC)
+                  for root, _, files in os.walk(path) for f in files if f.endswith('.py'))
+
+
+NO_EXIT_FILES = [f for entry in NO_EXIT_MODULES for f in _python_files(entry)]
+
+
+def _is_main_block(node):
+    test = node.test if isinstance(node, ast.If) else None
+    return (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name)
+            and test.left.id == '__name__')
+
+
 def _exit_calls(tree):
+    main_blocks = {id(n) for top in ast.walk(tree) if _is_main_block(top) for n in ast.walk(top)}
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call) or id(node) in main_blocks:
             continue
         func = node.func
         if isinstance(func, ast.Name) and func.id in ('exit', 'quit'):
@@ -42,7 +65,7 @@ def _exit_calls(tree):
             yield node.lineno
 
 
-@pytest.mark.parametrize('module', NO_EXIT_MODULES)
+@pytest.mark.parametrize('module', NO_EXIT_FILES)
 def test_the_module_never_exits(module):
     with open(os.path.join(SRC, module)) as f:
         tree = ast.parse(f.read())
@@ -237,6 +260,36 @@ def test_a_port_variable_the_module_lacks_raises():
     with pytest.raises(CAInputError, match='port variable u is not a variable for vessel type: '
                                            'vessel, module_subtype: simple'):
         LumpedPortVariableCheck().execute_for_row(row, None)
+
+
+# --- cost functions, optimisers, plots, sensitivity analysis -------------------------------------
+
+
+@pytest.mark.parametrize('prob_dist_params, message', [
+    ([1.0], 'needs to be a dict with entries'),
+    ({'means': [1.0], 'stds': [1.0]}, r'got \['),
+    ({'means': [1.0, 2.0], 'stds': [1.0, 1.0], 'scales': [0.5, 0.6]}, 'need to sum to 1'),
+], ids=['not a dict', 'missing key', 'scales'])
+def test_bad_multimodal_gaussian_params_raise(prob_dist_params, message):
+    from libcuflynx.funcs.cost_funcs_user import multimodal_gaussian
+    with pytest.raises(CAInputError, match=message):
+        multimodal_gaussian(1.0, prob_dist_params, 1.0)
+
+
+def test_an_unknown_param_id_method_raises():
+    from libcuflynx.param_id.paramID import ParamID
+    pid = ParamID.__new__(ParamID)
+    pid.optimiser_options, pid.DEBUG, pid.param_id_method = {}, False, 'hill_climb'
+    with pytest.raises(CAInputError, match="param_id_method 'hill_climb' is not implemented"):
+        pid.make_optimiser(None, {'param_names': []}, None, None)
+
+
+def test_an_unknown_sensitivity_method_raises():
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    sa = SensitivityAnalysis.__new__(SensitivityAnalysis)
+    sa.SA_manager = SimpleNamespace(set_sa_options=lambda options: None)
+    with pytest.raises(CAInputError, match="sensitivity analysis method 'morris_x' not recognised"):
+        sa.run_sensitivity_analysis({'method': 'morris_x'})
 
 
 # --- the calibration workflow -----------------------------------------------------------------
