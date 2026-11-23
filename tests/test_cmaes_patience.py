@@ -62,3 +62,25 @@ def test_cmaes_reaches_the_optimum_of_a_badly_scaled_two_parameter_problem(seed)
                              "cost_convergence": 1e-6, "seed": seed})
     assert opt.best_cost < 1e-6
     assert np.allclose(opt.best_param_vals, TRUTH, rtol=2e-3)
+
+
+@pytest.mark.unit
+def test_sigma0_is_deprecated_with_a_future_warning_and_marked_in_the_schema():
+    """A run given sigma0 warns that the option goes in the next release; a run without it
+    does not; and the option's descriptor says so, for a front end to hide it."""
+    import warnings
+    from libcuflynx.param_id.optimisers import SIGMA0_DEPRECATED
+    from libcuflynx.parsers.PrimitiveParsers import param_id_method_options
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opt = _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
+    future = [w for w in caught if issubclass(w.category, FutureWarning)]
+    if opt.rank == 0:
+        assert [str(w.message) for w in future] == [SIGMA0_DEPRECATED]
+        assert "removed in the next release" in SIGMA0_DEPRECATED
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _run(_log_misfit, {"num_calls_to_function": 8, "seed": 1})
+    assert not [w for w in caught if issubclass(w.category, FutureWarning)]
+    deprecated = [o["name"] for o in param_id_method_options("CMA-ES") if o.get("deprecated")]
+    assert deprecated == ["sigma0"]

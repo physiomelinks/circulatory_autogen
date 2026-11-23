@@ -1583,8 +1583,10 @@ PARAM_ID_METHODS = {
             # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
             {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
             {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
-             'description': ('Not applied: nevergrad chooses the initial CMA-ES step from '
-                             'the parameter bounds, and a run given sigma0 says so.')},
+             'deprecated': True,
+             'description': ('Deprecated, to be removed in the next release. Not applied: '
+                             'nevergrad chooses the initial CMA-ES step from the parameter '
+                             'bounds, and a run given sigma0 warns (FutureWarning).')},
             _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE, _OPT_SEED,
         ],
     },

@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Deprecated — the CMA-ES `sigma0` option
+
+- `sigma0` was never applied (nevergrad picks the initial step from the bounds). A CMA-ES run
+  given it now raises a `FutureWarning`, and its `PARAM_ID_METHODS` descriptor carries
+  `'deprecated': True` so a front end can hide it. It will be removed in the next release:
+  remove it from `optimiser_options`.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
