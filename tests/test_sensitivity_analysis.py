@@ -575,3 +575,79 @@ def test_a_failed_sobol_sample_is_filled_from_its_own_outputs(
     ran = raw[[1, 2, 4, 5]].mean(axis=0)
     assert filled[0] == pytest.approx(ran) and filled[3] == pytest.approx(ran)
     assert manager.failed_samples == 2
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_a_sobol_run_writes_its_progress_design_and_sample_status(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """A Sobol run leaves progress.json (done, every sample counted, on any number of ranks),
+    the design it ran, each sample's status with the failed ones marked, and the convergence
+    file, beside its indices."""
+    import warnings
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.schemas import PROGRESS_SCHEMA
+    from libcuflynx.schemas.validation import validate
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    from libcuflynx.sensitivity_analysis.sobolSA import (
+        SAMPLE_FAILED, SAMPLE_OK, SOBOL_CONVERGENCE_FILE, SOBOL_DESIGN_FILE,
+        SOBOL_SAMPLE_STATUS_FILE)
+    out_dir = os.path.join(temp_output_dir, 'sobol_progress')
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment', 'input_param_file': '3compartment_parameters.json',
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'pre_time': 20, 'sim_time': 2,
+        'dt': 0.01, 'solver_info': {'MaximumStep': 0.001},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir, 'generated_models_dir': temp_generated_models_dir,
+        'sa_options': {'method': 'sobol', 'num_samples': 2, 'sample_type': 'saltelli',
+                       'jacobian_points': 0, 'output_dir': out_dir}})
+    _ensure_cellml_model_generated(config, mpi_comm)
+    config = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=True,
+                                                     do_generation_with_fit_parameters=False)
+    analysis = SensitivityAnalysis.init_from_dict(config)
+    manager = analysis.SA_manager
+    manager.set_sa_options(config['sa_options'])
+    executor = manager._protocol_executor
+    run_protocol, calls = executor.run_protocol, []
+
+    def every_fourth_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) % 4 == 1:
+            return False, {}, None, None
+        return run_protocol(*args, **kwargs)
+
+    executor.run_protocol = every_fourth_fails
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')     # the failed samples are filled, with a warning
+        analysis.run_sobol_sensitivity(config['sa_options'])
+    if mpi_comm.Get_rank() != 0:
+        return
+
+    samples = np.asarray(manager.samples)
+    # each rank fails the first of every four of its own block
+    expected, size = np.full(len(samples), SAMPLE_OK), mpi_comm.Get_size()
+    per_rank, extra = divmod(len(samples), size)
+    start = 0
+    for rank in range(size):
+        count = per_rank + (1 if rank < extra else 0)
+        expected[start:start + count:4] = SAMPLE_FAILED
+        start += count
+
+    status = np.load(os.path.join(out_dir, SOBOL_SAMPLE_STATUS_FILE))
+    assert status.tolist() == expected.tolist()
+    assert np.load(os.path.join(out_dir, SOBOL_DESIGN_FILE)) == pytest.approx(samples)
+    with open(os.path.join(out_dir, 'progress.json')) as f:
+        document = json.load(f)
+    validate(PROGRESS_SCHEMA, document, source='progress.json', what='progress file')
+    assert document['kind'] == 'sobol' and document['state'] == 'done'
+    failed = int(np.count_nonzero(expected == SAMPLE_FAILED))
+    assert [(p['name'], p['state'], p['done'], p['total'], p['failed'])
+            for p in document['phases']] == [
+        ('sampling', 'done', len(samples), len(samples), failed), ('analysis', 'done', 1, 1, 0)]
+    assert manager.failed_samples == failed
+    with open(os.path.join(out_dir, SOBOL_CONVERGENCE_FILE)) as f:
+        convergence = json.load(f)
+    assert convergence['n'] == [2] and len(convergence['outputs']) > 0
+    indices = pd.read_csv(os.path.join(out_dir, 'all_outputs_n2_Sobol_indices.csv'))
+    assert len(indices) > 0, 'the indices were written before the state became done'

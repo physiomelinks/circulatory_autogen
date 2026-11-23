@@ -5,6 +5,23 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — progress files for Sobol, emulator training and profile likelihood
+
+- Each of these runs writes `progress.json` into its output directory while it runs:
+  `{schema_version, kind, state, started, updated, phases}`, each phase with `name`, `state`,
+  `done`, `total` and `failed`. Rank 0 rewrites it atomically, at most about once a second, and
+  the state is `done` only once the result files are written. Schema:
+  `schemas/progress.schema.json`; writer: `libcuflynx.utilities.progress`.
+- The other MPI ranks report the items they finish to rank 0 about once a second
+  (`RankReports`), so the counts cover every rank while the run goes, not rank 0's block alone.
+- An emulator training's `training` phase lists each emulator compared (`models`: `name`,
+  `state`, `score`, `duration_s`); each design stage is its own `sampling` phase.
+- A Sobol run also writes `sobol_design.npy` and `sobol_design_params.json` before the first
+  simulation, `sobol_sample_status.npy` (0 not run, 1 ran, 2 failed per design row; it stays
+  after the run, where the outputs CSV holds the filled values), and `sobol_convergence.json`
+  (S1 and ST with confidence half-widths at num_samples / 8, / 4, / 2 and num_samples).
+- Docs: "Following a run: progress files" in `tutorial/docs/sensitivity-analysis.md`.
+
 ### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
 
 - Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or

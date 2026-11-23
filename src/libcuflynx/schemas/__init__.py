@@ -32,6 +32,9 @@
   which checks what it writes against the schema). CUFLynx draws the same file. The schema is
   closed, so its ``schema_version`` goes up whenever it gains or changes a kind, style or key,
   and a reader refuses a version it does not know.
+* ``progress.schema.json`` -- ``progress.json``, an output: how far a running Sobol analysis,
+  emulator training or profile likelihood is (``libcuflynx.utilities.progress``). Open: a phase
+  may carry keys a reader does not know.
 
 Every reader checks its file against its schema when it loads it
 (:mod:`libcuflynx.schemas.validation`), so a schema is the definition of its file's structure:
@@ -60,6 +63,7 @@ VARIABLE_MAPPING_SCHEMA = 'variable_mapping.schema.json'
 PARAMETERS_SCHEMA = 'parameters.schema.json'
 DERIVATIONS_SCHEMA = 'derivations.schema.json'
 PROVENANCE_GRAPH_SCHEMA = 'provenance_graph.schema.json'
+PROGRESS_SCHEMA = 'progress.schema.json'
 
 
 def schema_file(name):

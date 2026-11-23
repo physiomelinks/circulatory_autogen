@@ -135,6 +135,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 | `models/` | `LumpedModels.py` (`CVS0DModel`). `checks/LumpedModelChecks.py` validates structure/connectivity. |
 | `funcs/` | The built-in cost / operation / modifier funcs the library ships (`cost_funcs_user.py`, `operation_funcs_user.py`, `modifier_funcs_user.py`). Library files — users add their own via the `*_funcs_external_path` config keys, never by editing these (#433). |
 | `utilities/` | `utility_funcs.py`, `libcellml_utilities.py`, `obs_data_helpers.py`, `diagnostics.py`, plotting helpers. |
+| `utilities/progress.py` | `progress.json`, the live progress of a Sobol run, an emulator training and a profile likelihood (`ProgressFile`: rank 0, atomic, rate-limited; `RankReports`: the other ranks' counts, sent to rank 0 while the items run). Schema `schemas/progress.schema.json`; CUFLynx reads the file, so change the schema, its `schema_version` and the docs section with it. |
 | `scripts/` | Entry points (see table above). |
 | `coupler/`, `solver1d/` | 0D–1D coupling / 1D solver (in development). |
 
@@ -187,6 +188,7 @@ Add/extend tests in `tests/` for **every feature and bugfix**; a bugfix should i
 |---|---|
 | `test_solvers.py` | All four solver backends (markers: `solver`, `need_libopencor`) |
 | `test_libopencor_solver.py` | `CVODE_libopencor` against `CVODE_myokit` (`need_libopencor`) |
+| `test_progress_files.py` | `progress.json`: the writer, the ranks' reports, Sobol convergence and status files, the emulator training phase (`unit`) |
 | `test_solver_comparison_benchmark.py` | `benchmarks/solver_comparison.py` on one tiny model |
 | `test_autogeneration.py` | CSV → model generation (markers: `integration`, `slow`, `autogen_rank(idx)`) |
 | `test_param_id.py` | Calibration across optimisers (`integration`, `slow`, `mpi`, `compare_optimisers`) |

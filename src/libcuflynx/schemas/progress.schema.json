@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/progress.schema.json",
+  "title": "Progress of a running analysis",
+  "description": "progress.json in the output directory of a Sobol run, an emulator training or a profile likelihood (libcuflynx.utilities.progress): how far the run is, rewritten by MPI rank 0 while it runs. A phase may carry further keys of its kind; a reader ignores those it does not know. schema_version goes up when a key changes meaning or is removed.",
+  "type": "object",
+  "required": ["schema_version", "kind", "state", "started", "updated", "phases"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "The version of this file's layout."
+    },
+    "kind": {
+      "enum": ["sobol", "emulation", "profile_likelihood"],
+      "description": "The analysis that is running."
+    },
+    "state": {
+      "enum": ["running", "done", "failed"],
+      "description": "running until the run's result files are written (done) or it raised an error (failed). A run that was killed stays running: compare updated with the clock."
+    },
+    "started": {
+      "type": "string",
+      "description": "When the run started: ISO 8601, UTC, to the second."
+    },
+    "updated": {
+      "type": "string",
+      "description": "When the file was last written: ISO 8601, UTC, to the second."
+    },
+    "phases": {
+      "type": "array",
+      "description": "The parts of the run, in the order they run. A phase is added when its size is known, so later phases can be missing while an earlier one runs.",
+      "items": {"$ref": "#/$defs/phase"}
+    }
+  },
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "required": ["name", "state", "done", "total", "failed"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "sobol: sampling, local_jacobian, analysis. emulation: sampling (one phase per design stage) and training. profile_likelihood: the label of the calibrated entry profiled."
+        },
+        "state": {
+          "enum": ["queued", "running", "done", "failed"],
+          "description": "queued until the phase's first item is done; failed when the run failed while it was running."
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Items finished, the failed ones included."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Items in the phase. An emulation's training phase has 0 until the models to compare are known."
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Of the items done, those that failed: a simulation that did not converge or gave an output that is not finite, a profile point with no finite cost, an emulator that could not be fitted."
+        },
+        "stage": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "emulation, sampling: the design stage, from 1."
+        },
+        "method": {
+          "type": "string",
+          "description": "emulation, sampling: the stage's sampling method."
+        },
+        "param_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "profile_likelihood: the index of the profiled entry in params_for_id."
+        },
+        "metric": {
+          "type": ["string", "null"],
+          "description": "emulation, training: the metric each model's score is in; null until the first model is done."
+        },
+        "models": {
+          "type": "array",
+          "description": "emulation, training: the emulators compared, in the order they are fitted.",
+          "items": {
+            "type": "object",
+            "required": ["name", "state", "score", "duration_s"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "description": "The emulator's name."},
+              "state": {"enum": ["queued", "running", "done", "failed"]},
+              "score": {
+                "type": ["number", "null"],
+                "description": "The model's held-out value of the phase's metric; null until it is done."
+              },
+              "duration_s": {
+                "type": ["number", "null"],
+                "description": "Seconds the model took; null until it is done, and for a model that failed (its time is counted in the next one that finishes)."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

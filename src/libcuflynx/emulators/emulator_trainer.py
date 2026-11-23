@@ -15,6 +15,7 @@ and is *not* real for a single GA calibration, which may well be cheaper run dir
 """
 import json
 import os
+import time
 import warnings
 
 import numpy as np
@@ -23,6 +24,7 @@ from scipy.stats import qmc
 from libcuflynx.emulators.emulator_bundle import (METADATA_FILE, TRAINING_DATA_FILE, EmulatorBundle,
                                        EmulatorQualityError, EmulatorReuseError, fingerprint)
 from libcuflynx.param_id import prediction_features
+from libcuflynx.utilities.progress import ProgressFile, RankReports
 
 AUTOEMULATE_MISSING_MESSAGE = (
     'autoemulate is not installed. Install it with `pip install '
@@ -67,6 +69,105 @@ def _load_autoemulate():
         raise RuntimeError(AUTOEMULATE_MISSING_MESSAGE)
     from autoemulate import AutoEmulate
     return AutoEmulate
+
+
+class ModelProgress:
+    """The ``training`` phase of an emulation's progress file: one entry of ``models`` per
+    emulator compared, ``{"name", "state", "score", "duration_s"}`` with state ``queued``,
+    ``running``, ``done`` or ``failed``. ``score`` is the model's held-out value of the phase's
+    ``metric`` (None until it is done), ``duration_s`` the seconds it took (None for a model
+    that failed: its time is counted in the next model that finishes)."""
+
+    KEY = 'training'
+
+    def __init__(self, progress):
+        self.progress = progress
+        self.models = []
+        self._since = time.monotonic()
+        progress.phase(self.KEY, 0, state='running', metric=None, models=self.models)
+
+    def start(self, names):
+        """The models about to be compared, in order; the first is running."""
+        self.models[:] = [{'name': str(name), 'state': 'queued', 'score': None,
+                           'duration_s': None} for name in names]
+        self._since = time.monotonic()
+        self._run_next()
+        self._write()
+
+    def finished(self, index, score, metric=None):
+        """Model ``index`` is done with ``score``; the models before it that are not have
+        failed, and the one after it is running."""
+        if not 0 <= index < len(self.models):
+            return
+        for entry in self.models[:index]:
+            if entry['state'] != 'done':
+                entry['state'] = 'failed'
+        now = time.monotonic()
+        self.models[index].update(state='done', score=_finite_or_none(score),
+                                  duration_s=round(now - self._since, 3))
+        self._since = now
+        if metric is not None:
+            self.progress.update(self.KEY, metric=str(metric))
+        self._run_next()
+        self._write()
+
+    def close(self, model_name, score, metric):
+        """The fit has returned ``model_name``. Models still queued or running have failed;
+        a fit that reported no model (a phased emulator, fitted as one) is the one entry
+        ``model_name`` with ``score``."""
+        if not self.models:
+            self.models.append({'name': str(model_name), 'state': 'done',
+                                'score': _finite_or_none(score),
+                                'duration_s': round(time.monotonic() - self._since, 3)})
+            self.progress.update(self.KEY, metric=str(metric))
+        for entry in self.models:
+            if entry['state'] != 'done':
+                entry['state'] = 'failed'
+        self._write(state='done')
+
+    def _run_next(self):
+        for entry in self.models:
+            if entry['state'] == 'queued':
+                entry['state'] = 'running'
+                return
+
+    def _write(self, state=None):
+        closed = [entry for entry in self.models if entry['state'] in ('done', 'failed')]
+        self.progress.update(
+            self.KEY, total=len(self.models), done=len(closed), state=state or 'running',
+            failed=sum(entry['state'] == 'failed' for entry in closed), force=True)
+
+
+def _finite_or_none(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def reporting_autoemulate(autoemulate_cls, model_progress):
+    """``autoemulate_cls`` reporting each model it compares to ``model_progress`` (a
+    ModelProgress, or None for the class unchanged): the models when the comparison starts,
+    and each one's score, on its first evaluation metric (the one the best model is chosen
+    on), as its result is added."""
+    if model_progress is None:
+        return autoemulate_cls
+
+    class ReportingAutoEmulate(autoemulate_cls):
+        def compare(self):
+            model_progress.start([model.__name__ for model in self.models])
+            return super().compare()
+
+        def add_result(self, result):
+            super().add_result(result)
+            metric, score = None, None
+            for metric, value in getattr(result, 'test_metrics', {}).items():
+                score = value[0]
+                break
+            model_progress.finished(result.id, score, getattr(metric, 'name', metric))
+
+    return ReportingAutoEmulate
 
 
 def emulator_model_names():
@@ -128,6 +229,9 @@ class EmulatorTrainer:
         self.comm = comm if comm is not None else _discover_comm()
         self.rank = self.comm.Get_rank() if self.comm is not None else 0
         self.num_procs = self.comm.Get_size() if self.comm is not None else 1
+        # The run's progress file (train) and its training phase; None outside a train().
+        self.progress = None
+        self.model_progress = None
         self._check_observables_are_scalar()
         # Prediction items with an operation, as extra outputs (include_prediction_items).
         # Resolved once here so the warning naming the items left out is given once.
@@ -341,25 +445,37 @@ class EmulatorTrainer:
             return np.exp(np.log(mins) + unit * (np.log(maxs) - np.log(mins)))
         return mins + unit * (maxs - mins)
 
-    def evaluate(self, design):
+    def evaluate(self, design, phase=None):
         """Run the truth model at every design point; returns ``(x, y)`` on rank 0.
 
         Contiguous block split across ranks then a gather, the same shape as the Sobol
         sampler's parallel loop. A sample whose simulation fails is dropped rather than
         imputed: an imputed training target is a fabricated observation, and the emulator
-        would learn it as fact.
+        would learn it as fact. ``phase`` is the key of the progress phase the points count
+        towards (in a train()); None reports nothing.
         """
         n_samples = len(design)
         start, end = _block_for_rank(n_samples, self.rank, self.num_procs)
+        reports = None
+        if phase is not None and self.progress is not None:
+            progress = self.progress
+            reports = RankReports(self.comm, lambda indices, ok: progress.advance(
+                phase, done=len(indices), failed=int(np.count_nonzero(~ok))))
         local_rows = []
         for local_idx, theta in enumerate(design[start:end]):
             features = self._features_at(theta)
-            if features is None or not np.all(np.isfinite(features)):
+            failed = features is None or not np.all(np.isfinite(features))
+            if reports is not None:
+                reports.add(start + local_idx, not failed)
+            if failed:
                 print(f'[emulator rank {self.rank}] sample {start + local_idx} failed; dropping it')
                 continue
             local_rows.append((start + local_idx, np.asarray(features, dtype=float)))
             if self.rank == 0 and (local_idx + 1) % 10 == 0:
                 print(f'[emulator] rank 0 has run {local_idx + 1}/{end - start} of its samples')
+        if reports is not None:
+            # rank 0 waits here for the other ranks' last reports, as it would in the gather
+            reports.close()
 
         gathered = self.comm.gather(local_rows, root=0) if self.comm is not None else [local_rows]
         if self.rank != 0:
@@ -414,8 +530,13 @@ class EmulatorTrainer:
             if self.rank == 0 and num_stages > 1:
                 print(f'[emulator] stage {index + 1}/{num_stages}: {n_samples} {method} points')
 
+        phase = None
+        if self.progress is not None:
+            phase = f'sampling_{index + 1}'
+            self.progress.phase(phase, len(points), name='sampling', stage=index + 1,
+                                method=method)
         try:
-            new_x, new_y = self.evaluate(points)
+            new_x, new_y = self.evaluate(points, phase=phase) if phase else self.evaluate(points)
         except RuntimeError:
             # evaluate refuses a stage in which every simulation failed. For the first
             # stage that is fatal and stays fatal; for a later one it is not -- the
@@ -523,7 +644,8 @@ class EmulatorTrainer:
             validation = _validation_report(model, x_test, y_test, x_scale, y_scale)
             return (model, validation, two_phase_name(base_name), x_scale, y_scale)
 
-        emulation = _load_autoemulate()(x_train, y_train, test_data=(x_test, y_test), **kwargs)
+        autoemulate = reporting_autoemulate(_load_autoemulate(), self.model_progress)
+        emulation = autoemulate(x_train, y_train, test_data=(x_test, y_test), **kwargs)
         result = emulation.best_result()
         validation = _validation_report(result.model, x_test, y_test, x_scale, y_scale)
         return (result.model, validation, _result_model_name(result), x_scale, y_scale)
@@ -721,7 +843,20 @@ class EmulatorTrainer:
         samples a previous run saved are fitted instead -- see :meth:`load_previous_samples`.
         The rest of the path (fit, metadata, bundle, save) is the same one a fresh run takes,
         so the artefact is not a lesser kind of emulator.
+
+        Rank 0 writes the run's progress.json (libcuflynx.utilities.progress, kind
+        ``emulation``) into the emulator's directory: a ``sampling`` phase per design stage
+        (``stage``, ``method``; the training simulations done, and failed among them) and a
+        ``training`` phase listing the ``models`` compared (ModelProgress).
         """
+        with ProgressFile(self.output_directory(), 'emulation', self.comm) as progress:
+            self.progress = progress
+            try:
+                return self._train()
+            finally:
+                self.progress = self.model_progress = None
+
+    def _train(self):
         require_autoemulate()
         if self.reuse_samples:
             x, y, design_meta = self.load_previous_samples()
@@ -768,8 +903,10 @@ class EmulatorTrainer:
                            # So provenance never has to be read as "presumably simulated here".
                            'reused_samples': False}
 
+        self.model_progress = ModelProgress(self.progress)
         model, validation, model_name, x_scale, y_scale = self.fit(
             x, y, space_filling=space_filling)
+        self.model_progress.close(model_name, np.mean(validation['r2']), 'r2')
         meta = {
             'param_entry_labels': [str(label) for label in _param_labels(self.pid)],
             'param_mins': [float(v) for v in self.pid.param_id_info['param_mins']],
