@@ -25,6 +25,24 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
+// One write() per status line, so a line is not split by output from the child processes that
+// share the log. Use COUPLER_ERROR(a << b << ...) for every stderr message.
+static void logError(const std::string &line) {
+    const std::string text = line + "\n";
+    const char *p = text.data();
+    size_t left = text.size();
+    while (left > 0) {
+        const ssize_t n = ::write(STDERR_FILENO, p, left);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return;
+        }
+        p += n;
+        left -= static_cast<size_t>(n);
+    }
+}
+#define COUPLER_ERROR(expr) do { std::ostringstream coupler_error_stream_; coupler_error_stream_ << expr; logError(coupler_error_stream_.str()); } while (0)
+
 #include "coupler_auxFun.h"
 
 class ProcessManager {
@@ -157,7 +175,7 @@ public:
                 std::error_code ec;
                 std::filesystem::create_directories(user_pipePath, ec);
                 if (ec) {
-                    std::cerr << "Coupler :: cannot create the pipe folder " << user_pipePath << ": " << ec.message() << std::endl;
+                    COUPLER_ERROR("Coupler :: cannot create the pipe folder " << user_pipePath << ": " << ec.message());
                     exit(1);
                 }
             }
@@ -255,7 +273,7 @@ public:
                 (mkfifo(parent_to_one_dt, 0666) < 0 && errno != EEXIST) ||
                 (mkfifo(zero_to_parent_dt, 0666) < 0 && errno != EEXIST) ||
                 (mkfifo(parent_to_zero_dt, 0666) < 0 && errno != EEXIST)) {
-                std::cerr << "mkfifo failed: " << strerror(errno) << std::endl;
+                COUPLER_ERROR("mkfifo failed: " << strerror(errno));
                 throw std::runtime_error("Failed to create named pipes for time step");
             }
 
@@ -264,7 +282,7 @@ public:
                     (mkfifo(parent_to_one[i], 0666) < 0 && errno != EEXIST) ||
                     (mkfifo(zero_to_parent[i], 0666) < 0 && errno != EEXIST) ||
                     (mkfifo(parent_to_zero[i], 0666) < 0 && errno != EEXIST)) {
-                    std::cerr << "mkfifo failed: " << strerror(errno) << std::endl;
+                    COUPLER_ERROR("mkfifo failed: " << strerror(errno));
                     throw std::runtime_error("Failed to create named pipes for 1d-0d connections");
                 }
             }
@@ -272,7 +290,7 @@ public:
             if (couple_volume_sum){
                 if ((mkfifo(one_to_parent_vol, 0666) < 0 && errno != EEXIST) ||
                     (mkfifo(parent_to_zero_vol, 0666) < 0 && errno != EEXIST)) {
-                    std::cerr << "mkfifo failed: " << strerror(errno) << std::endl;
+                    COUPLER_ERROR("mkfifo failed: " << strerror(errno));
                     throw std::runtime_error("Failed to create named pipes for time step");
                 }
             }
@@ -425,7 +443,7 @@ public:
                             // read volume sum data from main1D
                             ssize_t N_one = read(one_read_vol_fd, one_buffer_vol.data(), one_buffer_vol.size());
                             if (N_one <= 0) {
-                                std::cerr << "Coupler :: Error :: Volume sum read from 1d failed or returned 0 bytes" << std::endl;
+                                COUPLER_ERROR("Coupler :: Error :: Volume sum read from 1d failed or returned 0 bytes");
                             }
                             else{
                                 all_pipes_closed = false;
@@ -436,7 +454,7 @@ public:
                             // write and send volume sum data to main0d
                             ssize_t N_zero = write(zero_write_vol_fd, one_buffer_vol.data(), N_one_wr);
                             if (N_zero < 0) {
-                                std::cerr << "Coupler :: Error :: Volume sum write to 0d failed" << std::endl;
+                                COUPLER_ERROR("Coupler :: Error :: Volume sum write to 0d failed");
                             }
                         }
                     }
@@ -446,7 +464,7 @@ public:
                         // read time step data from main0d
                         ssize_t N_zero = read(zero_read_dt_fd, zero_buffer_dt.data(), zero_buffer_dt.size());
                         if (N_zero <= 0) {
-                            std::cerr << "Coupler :: Error :: Time step read from 0d failed or returned 0 bytes" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step read from 0d failed or returned 0 bytes");
                         } else{
                             all_pipes_closed = false;
                         }
@@ -456,13 +474,13 @@ public:
                         // write and send time step data to main1D
                         ssize_t N_one = write(one_write_dt_fd, zero_buffer_dt.data(), N_zero_wr);
                         if (N_one < 0) {
-                            std::cerr << "Coupler :: Error :: Time step write to 1d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step write to 1d failed");
                         }
                         
                         // read time step data from main1D
                         N_one = read(one_read_dt_fd, one_buffer_dt.data(), one_buffer_dt.size());
                         if (N_one <= 0) {
-                            std::cerr << "Coupler :: Error :: Time step read from 1d failed or returned 0 bytes" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step read from 1d failed or returned 0 bytes");
                         }
                         else{
                             all_pipes_closed = false;
@@ -473,7 +491,7 @@ public:
                         // write and send time step data back to main0d
                         N_zero = write(zero_write_dt_fd, one_buffer_dt.data(), N_one_wr);
                         if (N_zero < 0) {
-                            std::cerr << "Coupler :: Error :: Time step write to 0d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step write to 0d failed");
                         }
                         
                         if (all_pipes_closed){
@@ -492,7 +510,7 @@ public:
                     // read time step data from main0d
                     ssize_t N_zero = read(zero_read_dt_fd, zero_buffer_dt.data(), zero_buffer_dt.size());
                     if (N_zero <= 0) {
-                        std::cerr << "Coupler :: Error :: Time step read from 0d failed or returned 0 bytes" << std::endl;
+                        COUPLER_ERROR("Coupler :: Error :: Time step read from 0d failed or returned 0 bytes");
                     } else{
                         all_pipes_closed = false;
                     }
@@ -512,12 +530,12 @@ public:
                         // write and send time step data to main1D
                         ssize_t N_one = write(one_write_dt_fd, zero_buffer_dt.data(), N_zero_wr);
                         if (N_one < 0) {
-                            std::cerr << "Coupler :: Error :: Time step write to 1d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step write to 1d failed");
                         }
                         
                         N_one = read(one_read_dt_fd, one_buffer_dt.data(), one_buffer_dt.size());
                         if (N_one <= 0) {
-                            std::cerr << "Coupler :: Error :: Time step read from 1d failed or returned 0 bytes" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step read from 1d failed or returned 0 bytes");
                         }
                         else{
                             all_pipes_closed = false;
@@ -528,7 +546,7 @@ public:
                         // write and send time step data back to main0d
                         N_zero = write(zero_write_dt_fd, one_buffer_dt.data(), N_one_wr);
                         if (N_zero < 0) {
-                            std::cerr << "Coupler :: Error :: Time step write to 0d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error :: Time step write to 0d failed");
                         }
 
                         if (couple_volume_sum){
@@ -536,7 +554,7 @@ public:
                                 // read volume sum data from main1D
                                 ssize_t N_one = read(one_read_vol_fd, one_buffer_vol.data(), one_buffer_vol.size());
                                 if (N_one <= 0) {
-                                    std::cerr << "Coupler :: Error :: Volume sum read from 1d failed or returned 0 bytes" << std::endl;
+                                    COUPLER_ERROR("Coupler :: Error :: Volume sum read from 1d failed or returned 0 bytes");
                                 }
                                 else{
                                     all_pipes_closed = false;
@@ -547,7 +565,7 @@ public:
                                 // write and send volume sum data to main0d
                                 ssize_t N_zero = write(zero_write_vol_fd, one_buffer_vol.data(), N_one_wr);
                                 if (N_zero < 0) {
-                                    std::cerr << "Coupler :: Error :: Volume sum write to 0d failed" << std::endl;
+                                    COUPLER_ERROR("Coupler :: Error :: Volume sum write to 0d failed");
                                 }
                             }
                         }
@@ -578,7 +596,7 @@ public:
                     // write and send time step data to main1D
                     ssize_t N_one = write(one_write_dt_fd, zero_buffer_dt.data(), N_zero_wr);
                     if (N_one < 0) {
-                        std::cerr << "Coupler :: Error :: Time step write to 1d failed" << std::endl;
+                        COUPLER_ERROR("Coupler :: Error :: Time step write to 1d failed");
                     }
 
                     // std::cout << std::setprecision(16)
@@ -592,7 +610,7 @@ public:
                         // read data from main0d for each 1D-0D connection
                         ssize_t N_zero = read(zero_read_fd[i], zero_buffer[i].data(), zero_buffer[i].size());
                         if (N_zero <= 0) {
-                            std::cerr << "Coupler :: Error for pipe " << i << " :: Data read from 0d failed or returned 0 bytes" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error for pipe " << i << " :: Data read from 0d failed or returned 0 bytes");
                             continue;  // skip this pipe but continue with others
                         }
                         all_pipes_closed = false;
@@ -602,7 +620,7 @@ public:
                         // write and send data to main1D for each 1D-0D connection
                         ssize_t N_one = write(one_write_fd[i], zero_buffer[i].data(), N_zero_wr);
                         if (N_one < 0) {
-                            std::cerr << "Coupler :: Error for pipe " << i << " :: Data write to 1d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error for pipe " << i << " :: Data write to 1d failed");
                         }
                     }
 
@@ -610,7 +628,7 @@ public:
                         // read data from main1D for each 1D-0D connection
                         ssize_t N_one = read(one_read_fd[i], one_buffer[i].data(), one_buffer[i].size());
                         if (N_one <= 0) {
-                            std::cerr << "Coupler :: Error for pipe " << i << " :: Data read from 1d failed or returned 0 bytes" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error for pipe " << i << " :: Data read from 1d failed or returned 0 bytes");
                             continue;  // skip this pipe but continue with others
                         }
                         all_pipes_closed = false;
@@ -620,7 +638,7 @@ public:
                         // write and send data back to main0d for each 1D-0D connection
                         ssize_t N_zero = write(zero_write_fd[i], one_buffer[i].data(), N_one_wr);
                         if (N_zero < 0) {
-                            std::cerr << "Coupler :: Error for pipe " << i << " :: Data write to 0d failed" << std::endl;
+                            COUPLER_ERROR("Coupler :: Error for pipe " << i << " :: Data write to 0d failed");
                         }
                     }
 
@@ -685,11 +703,9 @@ public:
             }
             if (failed || !other_done) {
                 if (failed) {
-                    std::cerr << "Coupler :: Error :: the " << first_name << " failed (" << describeStatus(status)
-                              << "); stopping the " << other_name << "." << std::endl;
+                    COUPLER_ERROR("Coupler :: Error :: the " << first_name << " failed (" << describeStatus(status) << "); stopping the " << other_name << ".");
                 } else {
-                    std::cerr << "Coupler :: Error :: the " << first_name << " finished but the " << other_name
-                              << " did not within " << exit_grace_s << " s; stopping it." << std::endl;
+                    COUPLER_ERROR("Coupler :: Error :: the " << first_name << " finished but the " << other_name << " did not within " << exit_grace_s << " s; stopping it.");
                 }
                 kill(other, SIGKILL);
                 waitpid(other, &status, 0);
@@ -712,7 +728,7 @@ public:
             process_zero = -1;
 
             if (failed) {
-                std::cerr << "Coupler :: Error :: the " << other_name << " failed (" << describeStatus(status) << ")." << std::endl;
+                COUPLER_ERROR("Coupler :: Error :: the " << other_name << " failed (" << describeStatus(status) << ").");
                 cleanup();
                 std::cout.flush();
                 std::_Exit(1);
@@ -752,7 +768,7 @@ int main(int argc, char* argv[]) {
         if (argc > 1) {
             init_file_path = argv[1];
         } else {
-            std::cerr << "Coupler :: Error: Input file path needs to be passed as command-line argument when executing your coupler. Exiting." << std::endl;
+            COUPLER_ERROR("Coupler :: Error: Input file path needs to be passed as command-line argument when executing your coupler. Exiting.");
             return 1;
         }
 
@@ -761,7 +777,7 @@ int main(int argc, char* argv[]) {
         manager.start_processes();
     } 
     catch (const std::exception& e) {
-        std::cerr << "Coupler :: Error: " << e.what() << std::endl;
+        COUPLER_ERROR("Coupler :: Error: " << e.what());
         return 1;
     }
     return 0;
