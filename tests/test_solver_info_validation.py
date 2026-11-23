@@ -89,7 +89,7 @@ def test_param_id_method_options_match_optimiser_reads():
                                           'num_mutations_per_survivor', 'num_cross_breed',
                                           'objective_function', 'use_relative_cost_tolerance',
                                           'relative_cost_tolerance', 'seed'}
-    assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
+    assert names('CMA-ES') == {'num_calls_to_function', 'cost_convergence',
                                'max_patience', 'seed'}
     assert names('bayesian') == {'num_calls_to_function'}
     assert names('sp_minimize') == {'cost_convergence'}

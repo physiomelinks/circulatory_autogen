@@ -45,15 +45,6 @@ def test_patience_counts_generations_of_the_population():
 
 
 @pytest.mark.unit
-def test_an_unapplied_sigma0_is_reported_not_printed_as_the_step(capsys):
-    """nevergrad picks the initial step; the run must not print a sigma it does not use."""
-    opt = _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
-    out = capsys.readouterr().out
-    assert "Initial sigma" not in out
-    assert opt.rank != 0 or "sigma0=0.1 is not applied" in out
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_cmaes_reaches_the_optimum_of_a_badly_scaled_two_parameter_problem(seed):
     """Parameters 16 orders of magnitude apart, as R and C of a windkessel. With patience
@@ -65,22 +56,23 @@ def test_cmaes_reaches_the_optimum_of_a_badly_scaled_two_parameter_problem(seed)
 
 
 @pytest.mark.unit
-def test_sigma0_is_deprecated_with_a_future_warning_and_marked_in_the_schema():
-    """A run given sigma0 warns that the option goes in the next release; a run without it
-    does not; and the option's descriptor says so, for a front end to hide it."""
-    import warnings
-    from libcuflynx.param_id.optimisers import SIGMA0_DEPRECATED
+def test_a_cmaes_run_given_sigma0_is_refused(capsys):
+    """sigma0 was never applied (nevergrad picks the initial step) and has been removed: a run
+    given it stops with a message saying to delete the line, and the schema no longer lists it.
+    A run without it prints no initial step either."""
     from libcuflynx.parsers.PrimitiveParsers import param_id_method_options
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        opt = _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
-    future = [w for w in caught if issubclass(w.category, FutureWarning)]
-    if opt.rank == 0:
-        assert [str(w.message) for w in future] == [SIGMA0_DEPRECATED]
-        assert "removed in the next release" in SIGMA0_DEPRECATED
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _run(_log_misfit, {"num_calls_to_function": 8, "seed": 1})
-    assert not [w for w in caught if issubclass(w.category, FutureWarning)]
-    deprecated = [o["name"] for o in param_id_method_options("CMA-ES") if o.get("deprecated")]
-    assert deprecated == ["sigma0"]
+    with pytest.raises(ValueError, match="'sigma0' has been removed.*Delete the sigma0 line "
+                                         "from optimiser_options"):
+        _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
+    _run(_log_misfit, {"num_calls_to_function": 8, "seed": 1})
+    assert "sigma" not in capsys.readouterr().out.lower()
+    assert "sigma0" not in [o["name"] for o in param_id_method_options("CMA-ES")]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("where", ["optimiser_options", "debug_optimiser_options"])
+def test_user_inputs_naming_sigma0_are_refused(where):
+    from libcuflynx.parsers.PrimitiveParsers import refuse_removed_user_inputs
+    with pytest.raises(ValueError, match=f"Delete the sigma0 line from {where}"):
+        refuse_removed_user_inputs({where: {"num_calls_to_function": 8, "sigma0": 0.1}})
+    refuse_removed_user_inputs({where: {"num_calls_to_function": 8}})

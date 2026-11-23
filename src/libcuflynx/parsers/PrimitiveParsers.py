@@ -1596,11 +1596,6 @@ PARAM_ID_METHODS = {
         'options': [
             # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
             {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
-            {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
-             'deprecated': True,
-             'description': ('Deprecated, to be removed in the next release. Not applied: '
-                             'nevergrad chooses the initial CMA-ES step from the parameter '
-                             'bounds, and a run given sigma0 warns (FutureWarning).')},
             _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE, _OPT_SEED,
         ],
     },
@@ -2359,6 +2354,20 @@ REMOVED_USER_INPUTS_KEYS = {
     'do_mcmc': 'do_uq',
 }
 
+# optimiser_options keys CA does not read, with what to do instead.
+REMOVED_OPTIMISER_OPTIONS = {
+    'sigma0': ("The CMA-ES option 'sigma0' has been removed: it was never applied (nevergrad "
+               "chooses the initial step from the parameter bounds). Delete the sigma0 line "
+               "from {where}."),
+}
+
+
+def refuse_removed_optimiser_options(options, where='optimiser_options'):
+    """Raise ValueError for an option in REMOVED_OPTIMISER_OPTIONS."""
+    for key, message in REMOVED_OPTIMISER_OPTIONS.items():
+        if key in (options or {}):
+            raise ValueError(message.format(where=where))
+
 
 def refuse_removed_user_inputs(inp_data_dict):
     """Raise ValueError naming the replacement for a key or value CA does not accept."""
@@ -2366,6 +2375,8 @@ def refuse_removed_user_inputs(inp_data_dict):
         if old_key in inp_data_dict:
             raise ValueError(f'user_inputs key {old_key!r} is not supported; '
                              f'write {new_key!r} instead.')
+    for where in ('optimiser_options', 'debug_optimiser_options'):
+        refuse_removed_optimiser_options(inp_data_dict.get(where), where)
     if inp_data_dict.get('model_type') == 'cellml_only':
         raise ValueError("model_type 'cellml_only' is not supported; write 'cellml' instead.")
     solver_info = inp_data_dict.get('solver_info') or {}
