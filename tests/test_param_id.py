@@ -5298,7 +5298,7 @@ _3COMP_OTHER_VOLUMES = {
     'venous_svc/q_C_init': 1.3e-3,
     'venous_svc/q_us_0': 0.0,
 }
-_3COMP_Q_LV_DEFAULT = 2e-3
+_3COMP_Q_LV_DEFAULT = 1e-3  # global/q_lv_init in resources/3compartment_parameters.json
 
 
 @pytest.mark.integration
@@ -5324,7 +5324,7 @@ def test_param_id_3compartment_remainder_calibration_fsa(
     rank = mpi_comm.Get_rank()
 
     others_sum = sum(_3COMP_OTHER_VOLUMES.values())          # 3.868e-3
-    q_tot_baseline = _3COMP_Q_LV_DEFAULT + others_sum        # 5.868e-3
+    q_tot_baseline = _3COMP_Q_LV_DEFAULT + others_sum        # 4.868e-3
 
     params_doc = {
         'version': 1,
