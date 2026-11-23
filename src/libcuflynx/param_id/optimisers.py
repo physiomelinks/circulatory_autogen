@@ -680,6 +680,13 @@ class BayesianOptimiser(Optimiser):
         self._save_best_params()
 
 
+#: The warning a CMA-ES run given ``sigma0`` raises.
+SIGMA0_DEPRECATED = (
+    "The CMA-ES option 'sigma0' is deprecated and will be removed in the next release. It is "
+    "not applied: nevergrad chooses the initial step from the parameter bounds. Remove it "
+    "from optimiser_options.")
+
+
 class CMAESOptimiser(Optimiser):
     """
     CMA-ES optimiser for parameter identification using Nevergrad.
@@ -696,7 +703,8 @@ class CMAESOptimiser(Optimiser):
         Args:
             optimiser_options: Dictionary with keys:
                 - num_calls_to_function: Number of function evaluations (default: 10000)
-                - sigma0: not applied; nevergrad sets the initial step itself (see run())
+                - sigma0: deprecated and not applied; nevergrad sets the initial step itself
+                  (see run() and SIGMA0_DEPRECATED)
                 - cost_convergence: Convergence tolerance (shared across optimisers)
                 - max_patience: generations (populations of candidates) without an
                   improvement in cost before stopping (shared across optimisers)
@@ -727,7 +735,7 @@ class CMAESOptimiser(Optimiser):
         
         # nevergrad.optimizers.CMA takes no initial step: with bounds on every parameter it
         # samples in a space scaled per parameter to (max - min) / 6 and picks the step there.
-        # A sigma0 given is reported in run() and not applied.
+        # A sigma0 given is reported in run(), with a FutureWarning, and not applied.
         self.sigma0 = self.optimiser_options.get('sigma0')
     
     def _search_box(self, x0):
@@ -812,6 +820,7 @@ class CMAESOptimiser(Optimiser):
             if self.sigma0 is not None:
                 print(f'  sigma0={self.sigma0} is not applied: nevergrad chooses the initial '
                       f'step from the parameter bounds')
+                warnings.warn(SIGMA0_DEPRECATED, FutureWarning, stacklevel=2)
             print(f'  Initial parameters: {x0}')
         
         # Broadcast initial guess to all ranks

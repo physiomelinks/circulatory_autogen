@@ -21,6 +21,12 @@ next release; add to that section as you land a change.
   after the run, where the outputs CSV holds the filled values), and `sobol_convergence.json`
   (S1 and ST with confidence half-widths at num_samples / 8, / 4, / 2 and num_samples).
 - Docs: "Following a run: progress files" in `tutorial/docs/sensitivity-analysis.md`.
+### Deprecated — the CMA-ES `sigma0` option
+
+- `sigma0` was never applied (nevergrad picks the initial step from the bounds). A CMA-ES run
+  given it now raises a `FutureWarning`, and its `PARAM_ID_METHODS` descriptor carries
+  `'deprecated': True` so a front end can hide it. It will be removed in the next release:
+  remove it from `optimiser_options`.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
