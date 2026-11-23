@@ -1554,7 +1554,8 @@ _OPT_SEED = {'name': 'seed', 'type': 'int', 'default': None, 'required': False,
              'description': ('Random seed. Omitted, the search is unseeded and two runs of the '
                              'same configuration differ; set, two runs at the same MPI rank '
                              'count draw the same candidates. Note the search is still not '
-                             'rank-independent: the candidate batch is one per rank.')}
+                             'rank-independent: CMA-ES sizes its population from the rank count '
+                             'too, so above a few ranks the candidates change.')}
 
 PARAM_ID_METHODS = {
     'genetic_algorithm': {
@@ -1585,8 +1586,8 @@ PARAM_ID_METHODS = {
             # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
             {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
             {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
-             'description': ('Initial CMA-ES step size (standard deviation) in normalised '
-                             'parameter space; omitted lets CMA choose.')},
+             'description': ('Not applied: nevergrad chooses the initial CMA-ES step from '
+                             'the parameter bounds, and a run given sigma0 says so.')},
             _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE, _OPT_SEED,
         ],
     },
