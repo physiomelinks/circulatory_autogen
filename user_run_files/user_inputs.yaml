@@ -167,7 +167,7 @@ sa_options:
   # jacobian_location: base_points   # or centre
   # jacobian_scheme: central   # or forward
   # jacobian_step: 0.01
-  # jacobian_check_steps: false     # also half the step, for redundancy_converged_only
+  # jacobian_check_steps: true      # also half the step, for redundancy_converged_only
     # output_dir: /non/default/path
 
 # Parameter reduction: after the Sobol analysis (run_sensitivity_analysis.sh), choose the
@@ -184,7 +184,7 @@ param_reduction_options:
   # min_index: 0.05      # pca: a parameter below this index on every informative mode is not kept
   # redundancy_check: true  # pca: keep a parameter only for what the kept ones do not explain
   # redundancy_statistic: median     # pca: median or rms over the Jacobian points
-  # redundancy_converged_only: false # pca: needs sa_options.jacobian_check_steps
+  # redundancy_converged_only: true  # pca: needs sa_options.jacobian_check_steps
   # redundancy_convergence_tol: 0.1
   # criterion: max       # sobol: max or mean over the outputs
   # threshold: 0.01      # sobol: drop parameters scoring below it
