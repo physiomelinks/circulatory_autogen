@@ -23,6 +23,8 @@ Layout of the packed directory::
                                   directories and its HTML report
     settings/                     the files and directories its settings name
                                   (external_modules_dir, *_funcs_external_path)
+    figures/<step_id>/            a figure step's script and the files it lists, laid out as
+                                  they are beside each other
 
 Built-in modules are not packed: they come with libcuflynx.
 '''
@@ -39,6 +41,7 @@ from libcuflynx.calibration_workflow.spec import (PATH_SETTINGS, WORKFLOW_FILE_N
 INPUTS_DIR = 'inputs'
 MODULES_DIR = 'modules'
 SETTINGS_DIR = 'settings'
+FIGURES_DIR = 'figures'
 TARGET_OWNER = '_target'
 #: what a pack writes at the top of its directory
 PACKED_NAMES = (WORKFLOW_FILE_NAME, INPUTS_DIR, MODULES_DIR, SETTINGS_DIR)
@@ -139,6 +142,19 @@ class _Packer:
             self._copy(path, os.path.join(relative, os.path.relpath(path, source)))
         self.packed[real] = relative
         return relative
+    def figure(self, step):
+        '''Copy a figure step's script and ``files`` into ``figures/<step id>/``, laid out as
+        they are beside each other; their paths in the pack, the script first.'''
+        sources = [step.figure['script']] + list(step.figure['files'])
+        base = os.path.commonpath([os.path.dirname(os.path.abspath(p)) for p in sources])
+        packed = []
+        for source in sources:
+            relative = os.path.join(FIGURES_DIR, step.id,
+                                    os.path.relpath(os.path.abspath(source), base))
+            self._copy(source, relative)
+            self.packed.setdefault(os.path.realpath(source), relative)
+            packed.append(relative)
+        return packed
 
     def derivations(self, parameters_source, packed_parameters):
         '''Copy the derivations file beside ``parameters_source``, if there is one, beside its
@@ -305,6 +321,12 @@ def pack_workflow(source, dest_dir, module_library_dirs=None, overwrite=False):
     if not raw['settings']:
         del raw['settings']
     for raw_step, step in zip(raw['steps'], workflow.steps):
+        if step.kind == 'figure':
+            packed = packer.figure(step)
+            raw_step['function'] = f'{packed[0]}:{step.figure["function"]}'
+            if packed[1:]:
+                raw_step['files'] = packed[1:]
+            continue
         if step.model is None:
             # a reduction, set or combine step names no files, but a reduction chosen by
             # hand: the params_for_id it keeps entries of

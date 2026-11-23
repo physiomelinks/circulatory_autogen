@@ -10,7 +10,8 @@ model (either of which must also be the target), or (with a module-array target)
 the target's instances, which runs as one of the first two (``select``). A step's ``kind`` makes
 it a sensitivity analysis, a reduction (the parameters a later calibration fits, chosen by Sobol
 indices), an emulator training, an identifiability analysis, an uncertainty quantification at a
-point (``uq``), a declaration of values set by hand or a parameter sweep instead (see ``spec``).
+point (``uq``), a declaration of values set by hand, a parameter sweep, one simulation or a
+figure drawn from other steps' results instead (see ``spec`` and ``figures``).
 A later step can take earlier steps' calibrated or hand-set values as fixed values
 (``fixed_from``) or as its start (``start_from``), and their stored posteriors as priors
 (``priors_from``). Editing an input and re-running the workflow redoes everything downstream of

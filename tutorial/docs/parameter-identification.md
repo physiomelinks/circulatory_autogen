@@ -1738,6 +1738,8 @@ step's `model` (an external Python model).
 | `set` | declares values or scales by hand, each with a reason; with `"point": true` they are only a point for other steps and never reach the target | `set`; no model or files | the calibration or set steps it scales |
 | `combine` | gives one value per parameter from several steps: the values of the calibration with the lowest cost (`best_fit`), or each parameter's mean (`mean`). Its values are used in place of theirs, in later steps and in the target ([below](#one-value-per-parameter)) | `combine_from`, `combine`; no model or files | the calibration, set or combine steps it combines |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
+| `simulate` | runs a model once through its protocol; a sweep of no parameters | `model` (or `"on_target": true`), `dt`, and `sim_time` or an `obs_data`; `simulate.outputs` or prediction items | `fixed_from`, `result_from` |
+| `figure` | calls a Python function that draws figures from other steps' results | `function`, `inputs`; no model or files of data | the steps its `inputs` name |
 
 The keys that pass something on, each naming one step of the kind shown:
 
@@ -1949,6 +1951,21 @@ The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, 
 (points, outputs, times); `sweep_manifest.json` has the design, each parameter's values and the
 errors. Under MPI the points are spread across the ranks. A failed point stays as a NaN row, and
 the step fails only when every point fails.
+
+A **simulate** step is one run of a model through its protocol: the simulation behind a figure,
+with the values a calibration found (`result_from`), values fixed by earlier steps (`fixed_from`)
+or the merged target (`"on_target": true`). It is a sweep of no parameters and writes the same
+files, so whatever reads a sweep reads it. `simulate.outputs` names the variables recorded over
+time; with an `obs_data` its protocol is run and its `prediction_items` give features.
+
+```json
+{"id": "paper_run", "kind": "simulate", "on_target": true,
+ "obs_data": "protocols/glucose_step_obs_data.json", "settings": {"dt": 1.0},
+ "simulate": {"outputs": ["enterocyte/c_Na", "enterocyte/v_NKA"]}}
+```
+
+A **figure** step calls a Python function that draws from the results of other steps; see
+[Figure steps](#figure-steps).
 
 A **reduction** chooses the parameters a calibration fits from a Sobol `sensitivity` step, and
 writes those entries of the sensitivity step's params_for_id -- bounds and all -- as
@@ -2199,26 +2216,112 @@ again after it, and a later step refuses to reuse it (`Run the workflow from ...
 module library is shown and warned about but does not make a step stale, because a library holds
 far more than one model uses. A build before the workflow is not tracked.
 
-Figure scripts that run after the workflow and read its results are declared, never run, in the
-optional top-level `external_figures`:
+A figure step is a box like any other step, with a dotted arrow from each step it reads, labelled
+with what it reads, and one box under it naming the files it wrote. Its inputs in the graph are
+its declaration (`settings`), its script and each file it lists, each `current`, `stale` or
+`missing`.
+
+### Figure steps
+
+A figure of a workflow is a step: a Python function in a script file, given the results of the
+steps it names. libcuflynx loads the results and calls the function, so the figure is drawn by
+the run, is out of date when anything it reads changes, and is in the provenance diagram and
+the packed workflow.
 
 ```json
-"external_figures": [
-  {"id": "paper_plots", "command": "make paper-plots WF_OUT=<run>", "from": "target",
-   "description": "the authors' figure scripts on the calibrated model",
-   "reads": ["paper_plots/calibrated_parameters.json"],
-   "writes": ["paper_plots/calibrated/Fig9/fig9.png", "~/papers/enterocyte/fig15.png"]}
-]
+{"id": "dose_response", "kind": "figure",
+ "function": "figures/dose_response.py:draw",
+ "inputs": {"curves": {"sweep": "sglt1_dose"},
+            "fit": {"values": "whole_cell"},
+            "data": {"obs_data": "whole_cell"}},
+ "files": ["figures/paper_style.py"]}
 ```
 
-`from` is the step whose results the script reads, or `"target"` for the merged model. A path in
-`reads` or `writes` is absolute (`~` allowed) or relative to the run's output directory. Each
-script is a dashed box, outside the workflow, with an arrow from `from` and one box under it naming
-the files it writes (their folder once, then each file). It is `stale` when a file it reads, or the
-result of `from`, is newer than the oldest file it writes, or when `from` is stale; it is not run
-while a file it writes is missing. The files and their status are in the box's `inputs` in the
-graph. `external_figures` can be added after a run: the graph reads them from the workflow file
-as it is now, and adding them does not make the run stale.
+`function` is `<script>.py:<function>`, the script's path relative to the workflow file. Each
+entry of `inputs` is one parameter of the function, by name, and what it is given:
+`{"<kind>": "<step>"}`. The function's parameters are exactly those names and `out_dir`; this is
+checked when the workflow is read, without running the script. `files` lists other files the
+script reads or imports (helpers, a style module beside it).
+
+| Input kind | Read from a | The function gets |
+|---|---|---|
+| `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment |
+| `values` | calibration, set or combine step | `{"<vessel>/<parameter>": value}`: what it calibrated, set by hand or combined, named as that step names them (a combine step: as the target names them) |
+| `obs_data` | step with an obs_data | the obs_data file as its JSON document |
+| `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
+| `sensitivity` | Sobol sensitivity step | `{"S1": {output: {parameter: value}}, "ST": {...}}` |
+| `distribution` | calibration with `store_distribution`, or uq step | `{"names": [...], "samples": array (samples, parameters)}`, named by the model's names |
+| `laplace` | identifiability step, or uq step with method `laplace` | `{"parameters": [...], "mean", "covariance", "std"}` as arrays |
+| `profile_likelihood` | identifiability step with method `profile_likelihood` | `{"nll_threshold_95", "profiles": [{"parameter", "param_values", "costs", "best_val", "best_cost", "ci_95"}]}`, the sweeps as arrays |
+
+The function writes its files into `out_dir` and returns their paths:
+
+```python
+"""Na against the SGLT1 scale, with the fitted value marked."""
+import os
+
+import matplotlib.pyplot as plt
+
+
+def draw(curves, fit, data, out_dir):
+    scale = curves['points'][:, 0]
+    sodium = curves['trace_0'][:, 0, -1]
+    with plt.style.context('seaborn-v0_8-paper'):
+        figure, axes = plt.subplots()
+        axes.semilogx(scale, sodium)
+        axes.axvline(fit['SGLT1/Scale_SGLT1'], linestyle=':')
+        path = os.path.join(out_dir, 'dose_response.png')
+        figure.savefig(path, dpi=200)
+        plt.close(figure)
+    return [path]
+
+
+def main(argv=None):
+    from libcuflynx.calibration_workflow.figures import figure_main
+    return figure_main(draw, argv)
+
+
+if __name__ == '__main__':
+    main()
+```
+
+Rules a figure function follows:
+
+- **It runs no simulation.** Every simulation is a step with its own protocol (a `sweep`, or a
+  `simulate` step for one run), so each run is recorded and the figure only reads results. A
+  figure that needs a curve at the calibrated values reads a `simulate` step with
+  `"on_target": true` or `result_from`.
+- **It sets its style inside the function.** The function is called with Matplotlib's settings as
+  the rc file gives them, whatever was drawn or imported before, so the figure does not depend on
+  what ran before it. Settings changed at the top of the script do not reach the call.
+- **It has a `main`**, as above, so the script also runs on its own on a finished run, through
+  the same loaders and so with the same objects:
+
+  ```
+  python figures/dose_response.py <run directory> [--step dose_response] [--out-dir DIR]
+  python figures/dose_response.py <run directory> --input curves=sweep:sglt1_dose \
+      --input fit=values:whole_cell --input data=obs_data:whole_cell
+  ```
+
+  The first form draws the run's figure step that names this script (`--step` picks one of
+  several); the second gives the inputs directly. Both give the files the workflow gives: the
+  same file names, images equal pixel by pixel and other files byte for byte
+  (`libcuflynx.calibration_workflow.figures.output_differences(dir_a, dir_b)` lists any
+  difference, for a test of your own scripts). `figure_main` takes one function or a list of the
+  script's figure functions.
+
+The files are in `<step_id>/figure/`, listed under `figures` in the step's `step_result.json`. A
+figure step is out of date when its script, a file in `files` or its declaration changed, or a
+step it reads ran again after it. **Every run draws the figure steps that are out of date and
+whose inputs are current**, after its other steps, whatever `--from-step` or `--only` say;
+`--only <figure step>` draws that one regardless. A figure whose inputs are out of date waits.
+A figure that fails does not stop the other figures or the merge: its error is raised once the
+run's results are written. Figure steps pass nothing on, so the calibrated parameters file does
+not wait for them, and adding or changing a figure step after a run leaves the other steps
+current. `pack_workflow` copies each script with its `files` into `figures/<step_id>/`.
+
+A workflow's older `external_figures` key (commands that libcuflynx recorded but never ran) is
+refused: write each as a figure step. A script may call other software itself if it must.
 
 ### Distributions and priors
 

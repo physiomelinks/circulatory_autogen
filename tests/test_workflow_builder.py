@@ -106,12 +106,13 @@ def test_every_schema_step_key_is_an_argument_of_the_builder():
                                                            'add_cost_func', 'add_modifier_func')]
     keywords = set().union(*(_keywords(m) for m in adders))
     # the keys a method sets from its own arguments: kind (add_step), set (add_set's
-    # entries), combine (add_combine's method) and sweep (add_sweep's design, outputs,
-    # parameters, zip, checked below)
+    # entries), combine (add_combine's method), simulate (add_simulate's outputs) and sweep
+    # (add_sweep's design, outputs, parameters, zip, checked below)
     keywords |= {'kind'} & _keywords(WorkflowBuilder.add_step)
     keywords |= {'set'} if 'entries' in _keywords(WorkflowBuilder.add_set) else set()
     keywords |= {'sweep'} if 'parameters' in _keywords(WorkflowBuilder.add_sweep) else set()
     keywords |= {'combine'} if 'method' in _keywords(WorkflowBuilder.add_combine) else set()
+    keywords |= {'simulate'} if 'outputs' in _keywords(WorkflowBuilder.add_simulate) else set()
     defs = schema['$defs']
     for where, keys in (('step', defs['step']['properties']),
                         ('param_reduction_options', defs['param_reduction_options']['properties']),
@@ -166,6 +167,15 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
                  settings={'sim_time': 1.0}, fixed_from=['fit'])
     wf.add_sweep('on_target', on_target=True, parameters={'C/k': {'values': [1.0]}},
                  obs_data=obs, design='one_at_a_time')
+    wf.add_simulate('once', outputs=['C/z'], settings={'sim_time': 1.0}, fixed_from=['fit'])
+    script = tmp_path / 'figs' / 'draw.py'
+    script.parent.mkdir()
+    script.write_text('def draw(fit, curve, out_dir):\n    return []\n\n\n'
+                      'def main(argv=None):\n    pass\n')
+    (script.parent / 'style.py').write_text('')
+    wf.add_figure('fig', function=f'{script}:draw',
+                  inputs={'fit': {'values': 'fit_a'}, 'curve': {'sweep': 'once'}},
+                  files=[script.parent / 'style.py'])
     path = wf.write()
 
     with open(path) as f:
@@ -203,11 +213,18 @@ def test_every_kind_of_step_is_written_as_the_schema_reads_it(library, tmp_path)
                                   'sweep': {'design': 'one_at_a_time',
                                             'parameters': {'C/k': {'values': [1.0]}}}}
     assert steps['fit_a']['description'] == 'A alone'
+    assert steps['once'] == {'id': 'once', 'kind': 'simulate', 'model': chain,
+                             'fixed_from': ['fit'], 'settings': {'sim_time': 1.0},
+                             'simulate': {'outputs': ['C/z']}}
+    assert steps['fig'] == {'id': 'fig', 'kind': 'figure', 'function': '../figs/draw.py:draw',
+                            'inputs': {'fit': {'values': 'fit_a'}, 'curve': {'sweep': 'once'}},
+                            'files': ['../figs/style.py']}
 
     workflow = load_workflow(path)
     assert [s.kind for s in workflow.steps] == [
         'calibration', 'sensitivity', 'reduction', 'emulation', 'calibration', 'calibration',
-        'identifiability', 'set', 'set', 'combine', 'sweep', 'sweep']
+        'identifiability', 'set', 'set', 'combine', 'sweep', 'sweep', 'simulate', 'figure']
+    assert workflow.step('fig').figure['script'] == str(script)
     assert workflow.step('fit_a').obs_data == os.path.join(wf.directory, 'data',
                                                            'fit_a_obs_data.json')
     assert WorkflowBuilder.load(path).to_dict() == raw

@@ -108,7 +108,7 @@ _USER_ENV = ('OMPI_MCA_orte_tmpdir_base', 'OMPI_MCA_orte_default_hostfile',
 #: TARGET_DIR, cuflynx_study.INPUTS_DIR); the schema refuses them too
 _RESERVED_IDS = frozenset({'models', 'target', '_target', 'inputs'})
 #: the kinds of step that name no model (spec._NO_MODEL_KINDS)
-_NO_MODEL_KINDS = ('reduction', 'set', 'combine')
+_NO_MODEL_KINDS = ('reduction', 'set', 'combine', 'figure')
 #: the file formats plot_outputs saves a figure in
 PLOT_FORMATS = ('png', 'pdf', 'eps')
 #: the calibration method of a step whose settings name none (the parser's default)
@@ -120,7 +120,8 @@ _STEP_KEYS = ('id', 'kind', 'description', 'comment', 'model', 'obs_data', 'para
               'submodule', 'vessel', 'vessel_map', 'fixed_from', 'priors_from',
               'store_distribution', 'on_target', 'settings', 'emulator_from', 'emulator_dir',
               'result_from', 'start_from', 'sensitivity_from', 'params_for_id_from', 'set',
-              'point', 'combine_from', 'combine', 'sweep')
+              'point', 'combine_from', 'combine', 'sweep', 'simulate', 'function', 'inputs',
+              'files')
 #: the keys of a model that are paths, relative to the workflow file when written
 _MODEL_PATH_KEYS = ('module_array', 'parameters', 'external_model_path', 'cellml_model_path')
 #: the keys of a step that are paths, relative to the workflow file when written
@@ -867,6 +868,43 @@ class WorkflowBuilder:
                         if k not in ('design', 'outputs', 'parameters', 'zip', 'sweep')})
         return self.add_step(id, kind='sweep', sweep=sweep, **given)
 
+    def add_simulate(self, id, *, model=None, on_target=False, obs_data=None, outputs=None,
+                     fixed_from=(), result_from=None, vessel=None, submodule=None,
+                     vessel_map=None, settings=None, description=None, comment=None):
+        """Add a simulate step: one run of a model through its protocol (a sweep of no
+        parameters), for a figure step to read.
+
+        Args:
+            outputs: the variables recorded over time (the schema's ``simulate.outputs``).
+
+        The other arguments are as for :meth:`add_sweep`.
+        """
+        given = _given({k: v for k, v in locals().items() if k != 'outputs'})
+        if outputs:
+            given['simulate'] = {'outputs': list(outputs)}
+        return self.add_step(id, kind='simulate', **given)
+
+    def add_figure(self, id, *, function, inputs, files=None, description=None,
+                   comment=None):
+        """Add a figure step: a Python function that draws from other steps' results
+        (``calibration_workflow/figures.py`` has the contract).
+
+        Args:
+            function: ``'<script.py>:<function>'``, the script's path relative to the working
+                directory (written relative to the workflow file).
+            inputs: ``{parameter: {input kind: step id}}``, one per parameter of the function
+                but ``out_dir``.
+            files: other files the script reads (helpers, a style module); editing one makes
+                the figure out of date.
+            description, comment: free text.
+
+        Returns ``id``.
+        """
+        return self.add_step(id, kind='figure', function=function,
+                             inputs={name: dict(source) for name, source in inputs.items()},
+                             **_given({'files': list(files) if files else None,
+                                       'description': description, 'comment': comment}))
+
     def add_step(self, id, kind='calibration', **raw):
         """Add a step of any kind from its raw schema keys (``model``, ``obs_data``,
         ``settings``, ...; see ``schemas/calibration_workflow.schema.json``). The ``add_*``
@@ -875,7 +913,8 @@ class WorkflowBuilder:
         Args:
             id: the step's name (see :meth:`add_calibration`).
             kind: ``'calibration'``, ``'sensitivity'``, ``'reduction'``, ``'emulation'``,
-                ``'identifiability'``, ``'uq'``, ``'set'``, ``'combine'`` or ``'sweep'``.
+                ``'identifiability'``, ``'uq'``, ``'set'``, ``'combine'``, ``'sweep'``,
+                ``'simulate'`` or ``'figure'``.
             **raw: the step's keys. ``obs_data`` and ``params_for_id`` take what
                 :meth:`add_calibration` takes; ``model`` defaults to the target for the
                 kinds that run a model (not for a sweep with ``on_target``); a key given
@@ -901,6 +940,7 @@ class WorkflowBuilder:
             step['params_for_id'] = self._params_for_id(id, step['params_for_id'])
         if 'emulator_dir' in step:
             step['emulator_dir'] = self._abs(step['emulator_dir'])
+        step = self._figure_paths(step, self._abs)
         if 'model' in step:
             step['model'] = self._abs_model(step['model'])
         for key in ('fixed_from', 'priors_from'):
@@ -1890,6 +1930,20 @@ class WorkflowBuilder:
             step['model'] = self._abs_model(step['model'], base)
         if isinstance(step.get('settings'), dict) and step.get('kind') != 'reduction':
             step['settings'] = self._abs_settings(step['settings'], base)
+        return self._figure_paths(step, lambda path: self._abs(path, base))
+
+    @staticmethod
+    def _figure_paths(step, convert):
+        '''A figure step with its script (in ``function``) and ``files`` passed through
+        ``convert``.'''
+        if step.get('kind') != 'figure':
+            return step
+        step = dict(step)
+        if isinstance(step.get('function'), str):
+            script, _, name = step['function'].rpartition(':')
+            step['function'] = f'{convert(script)}:{name}'
+        if isinstance(step.get('files'), list):
+            step['files'] = [convert(path) for path in step['files']]
         return step
 
     def _rel_step(self, step, by_text):
@@ -1904,7 +1958,7 @@ class WorkflowBuilder:
             elif key == 'settings' and step.get('kind') != 'reduction':
                 value = self._rel_settings(value)
             out[key] = copy.deepcopy(value)
-        return out
+        return self._figure_paths(out, self._rel)
 
 
 def _forward_slashes(relative, sep=os.sep):

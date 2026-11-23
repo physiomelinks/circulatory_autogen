@@ -39,6 +39,45 @@ next release; add to that section as you land a change.
   runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
   parameters are unchanged. The start value is still the first point evaluated, so a search
   started at a known optimum (a profile likelihood point) never returns a worse cost.
+### Added — figure and simulate steps in a calibration workflow; `external_figures` is refused
+
+- **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
+  Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
+  gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
+  `params_for_id`, `sensitivity`, `distribution`, `laplace`). libcuflynx loads the results, calls
+  the function with them and `out_dir`, and records the files it returns. The function runs no
+  simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
+  helpers the script reads. A run draws every figure step that is out of date (its script, files
+  or declaration changed, or a step it reads ran again) and whose inputs are current, whatever
+  `--from-step` and `--only` say; a failing figure does not stop the merge. Figure steps are in
+  the provenance diagram, `plan_workflow`, the methods LaTeX and `pack_workflow`
+  (`figures/<step_id>/`). See "Figure steps" in the parameter-identification docs.
+- A figure input also reads the newer step kinds: `values` a combine step, `distribution` and
+  `laplace` a uq step, and `profile_likelihood` an identifiability step's profiles.
+- `WorkflowBuilder.add_simulate(...)` and `add_figure(id, function='figs/draw.py:draw',
+  inputs={...}, files=[...])` write these steps, with their paths relative to the workflow file.
+- **Every figure script runs on its own too**: its `main` calls
+  `libcuflynx.calibration_workflow.figures.figure_main(draw, argv)`, which loads the same inputs
+  from a run directory with the same loaders (`python fig.py <run_dir> [--step ID] [--out-dir
+  DIR]`, or `--input name=kind:step`). `figures.output_differences(dir_a, dir_b)` compares two
+  sets of outputs: the same files, images pixel by pixel, other files byte for byte.
+- **A `simulate` step** runs a model once through its protocol: a sweep of no parameters, with
+  the same files, `fixed_from`, `result_from` and `on_target`. `"simulate": {"outputs": [...]}`
+  names the variables recorded over time.
+- **Migration: `external_figures` is refused.** The key recorded commands that libcuflynx never
+  ran. A workflow file with it now fails to load, with a message naming the entries: write each
+  as a `figure` step (a `simulate` step runs the model for it). Nothing converts it
+  automatically, because a command is not a Python function. The provenance graph keeps
+  `schema_version` 3: it no longer produces `external` nodes, and still draws one in a graph
+  written earlier.
+- A run's recorded workflow digest leaves figure steps out, so adding or changing one after a
+  run keeps the run's values current.
+
+### Fixed — a step error raised on rank 0 reaches the other ranks
+
+- A `WorkflowStepError` raised inside rank 0's part of a step (a reduction that fails, a Sobol
+  run that wrote no indices) could not be unpickled on the way to the other ranks, so the run
+  ended with a `TypeError` about `__init__` in place of the step's message.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 

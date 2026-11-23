@@ -449,7 +449,9 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
               'combine': ('combination of steps', 'combinations of steps'),
               'sweep': ('parameter sweep', 'parameter sweeps'),
-              'uq': ('uncertainty quantification', 'uncertainty quantifications')}
+              'uq': ('uncertainty quantification', 'uncertainty quantifications'),
+              'simulate': ('simulation', 'simulations'),
+              'figure': ('figure step', 'figure steps')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -466,13 +468,22 @@ def _kind(step):
     return step.get('kind', 'calibration')
 
 
+def _figure_declaration(step):
+    '''A figure step's ``{function, inputs}`` as the flow chart takes it; None for another
+    kind.'''
+    if step.kind != 'figure':
+        return None
+    from libcuflynx.calibration_workflow.figures import declaration
+    return declaration(step)
+
+
 def _step_section(step, symbols, entries=()):
     out = [f'\\subsection{{Step {escape(step["id"])}}}', r'\label{sec:step:'
            + step['id'].replace('_', '-') + '}']
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) in ('reduction', 'set', 'combine'):
+    if _kind(step) in ('reduction', 'set', 'combine', 'figure'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
@@ -505,7 +516,7 @@ def _step_section(step, symbols, entries=()):
             out.append(f'The values {word} step' + ('s ' if len(given) > 1 else ' ')
                        + ', '.join(escape(s) for s in given)
                        + ' were fixed in this step\'s model.')
-    if _kind(step) == 'sweep':
+    if _kind(step) in flowchart.SWEEP_KINDS:
         out.append(r'\paragraph{Method.} ' + _analysis_method(step))
         return '\n\n'.join(out)
     for prior in step['priors_from']:
@@ -550,7 +561,7 @@ ANALYSED = {'sensitivity': 'whose influence was analysed',
 
 def _analysis_method(step):
     settings, kind = step['settings'], _kind(step)
-    if kind == 'sweep':
+    if kind in flowchart.SWEEP_KINDS:
         sweep = step['sweep']
         model = ('The merged target, with every calibrated and hand-set value,'
                  if step.get('on_target') else 'The model')
@@ -623,6 +634,12 @@ def _step_intro(step):
                 + (f'component {s["mode"]}, ' if s.get('mode') else '')
                 + f'{_number(s["score"])})' for s in selected]) + '.'
         return text
+    if _kind(step) == 'figure':
+        figure = step['figure']
+        reads = _join([f'{escape(source["kind"].replace("_", " "))} of step '
+                       f'{escape(source["step"])}' for source in figure['inputs'].values()])
+        return (f'This step draws figures with {_tt(figure["function"])} from the {reads}. '
+                f'It runs no simulation.')
     if _kind(step) == 'set':
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
         return 'This step sets values by hand: ' + '; '.join(lines) + '.'
@@ -655,7 +672,7 @@ def _step_intro(step):
     verb = {'calibration': 'calibrates', 'sensitivity': 'analyses the sensitivity of',
             'emulation': 'trains an emulator of',
             'identifiability': 'analyses the identifiability of',
-            'sweep': 'sweeps parameters of',
+            'sweep': 'sweeps parameters of', 'simulate': 'simulates',
             'uq': 'quantifies the uncertainty of the parameters of'}[_kind(step)]
     at = (f', at the values calibrated in step {escape(step["result_from"])}'
           if step.get('result_from') else '')
@@ -739,9 +756,10 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'set': step.set_values + step.set_thetas, 'sweep': step.sweep,
             'on_target': step.on_target,
             'combine': step.combine, 'combine_from': list(step.combine_from),
+            'figure': _figure_declaration(step),
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
-        if step.kind == 'sweep':
+        if step.kind in flowchart.SWEEP_KINDS:
             entry.update({'model': step.model.as_dict(), 'place': rs.place,
                           'to_target': rs.to_target, 'obs_path': rs.obs_data_path,
                           'obs': {}, 'params': []})

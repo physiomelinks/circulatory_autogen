@@ -181,6 +181,8 @@ def combine_line(combine, combine_from):
     return f'{COMBINE_LINES.get(method, method)} {", ".join(combine_from or [])}'
 #: the line of a set step with ``"point": true``, whose values the target does not merge
 POINT_ONLY = 'point only, not in the target'
+#: the kinds that run a model at chosen points and keep every run
+SWEEP_KINDS = ('sweep', 'simulate')
 
 
 def _kind_line(s):
@@ -243,6 +245,8 @@ def _sweep_lines(s):
     sweep = s.get('sweep') or {}
     parameters = sweep.get('parameters') or {}
     first = 'the merged target' if s.get('on_target') else model_line(s['model'])
+    if s.get('kind') == 'simulate':
+        return [first, 'one run of the protocol']
     if not parameters:
         return [first, 'the protocol, nothing swept']
     zipped = {name: group for group in sweep.get('zip') or [] for name in group}
@@ -266,7 +270,8 @@ def workflow_graph(steps):
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
     step) ``reduction``, ``set`` or ``sweep``, and (a combine step) ``combine`` and
-    ``combine_from``, where a step has them, plus ``model`` (the
+    ``combine_from``, where a step has them (a simulate step has none; a figure step has
+    ``figure``: ``{function, inputs: {name: {kind, step}}}``), plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
     target, by default every calibration, set and combine step) in a final dict with ``'id': None``. A
@@ -292,9 +297,14 @@ def workflow_graph(steps):
                 lines.append(POINT_ONLY)
         elif kind == 'combine':
             lines = [combine_line(s.get('combine'), s.get('combine_from'))]
+        elif kind == 'figure':
+            figure = s.get('figure') or {}
+            lines = [f'`{figure.get("function", "")}`'] + [
+                f'`{name}`: {source["kind"]} of `{source["step"]}`'
+                for name, source in (figure.get('inputs') or {}).items()]
         elif s.get('model') is None:
             lines = ['not run']
-        elif kind == 'sweep':
+        elif kind in SWEEP_KINDS:
             lines = _sweep_lines(s)
         else:
             lines = [model_line(s['model']),
@@ -310,6 +320,14 @@ def workflow_graph(steps):
             # it runs on the merged target, which the merge edges already draw
             edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
                           'style': 'order'})
+            continue
+        if kind == 'figure':
+            inputs = (s.get('figure') or {}).get('inputs') or {}
+            for dep in s['depends_on']:
+                read = list(dict.fromkeys(source['kind'] for source in inputs.values()
+                                          if source['step'] == dep))
+                edges.append({'from': dep, 'to': s['id'], 'label': ' + '.join(read),
+                              'style': 'reads'})
             continue
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()

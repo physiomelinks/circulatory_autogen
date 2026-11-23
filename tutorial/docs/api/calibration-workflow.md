@@ -29,6 +29,8 @@ plan and read a workflow file however it was written.
         - add_set
         - add_combine
         - add_sweep
+        - add_simulate
+        - add_figure
         - add_step
         - remove_step
         - add_operation

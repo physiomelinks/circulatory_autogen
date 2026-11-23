@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from libcuflynx.calibration_workflow import naming, spec
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
-from libcuflynx.calibration_workflow.spec import WorkflowError
+from libcuflynx.calibration_workflow.spec import SWEEP_KINDS, WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, param_entry_labels
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
 from libcuflynx.utilities.parameterisations import parameterisations_dir
@@ -397,6 +397,13 @@ def resolve_workflow(workflow, target_overlap='warn'):
             continue
         if step.kind == 'combine':
             continue      # after the steps it combines, below
+        if step.kind == 'figure':
+            # reads other steps' results; its script is checked without importing it
+            from libcuflynx.calibration_workflow.figures import check_script
+            check_script(step)
+            resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
+                                             parameters=[], target=target)
+            continue
         selection = None
         if step.model.kind == 'selection':
             selection = resolve_selection(step, target, components, supermodules)
@@ -413,7 +420,7 @@ def resolve_workflow(workflow, target_overlap='warn'):
         # params_for_id of the sensitivity step the reduction reads. A choice made by hand is
         # known: the entries it names of the reduction's params_for_id
         params_for_id, keep = None, None
-        if step.kind != 'sweep':
+        if step.kind not in SWEEP_KINDS:
             params_for_id = step.params_for_id
             if step.params_for_id_from:
                 reduction = workflow.step(step.params_for_id_from)
@@ -429,7 +436,7 @@ def resolve_workflow(workflow, target_overlap='warn'):
             vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
         parameters = read_calibrated_parameters(params_for_id, where, keep=keep) \
             if params_for_id else []
-        if step.kind == 'sweep':
+        if step.kind in SWEEP_KINDS:
             parameters = _swept_parameters(step, model)
         if model.kind == 'cellml':
             parameters = [cellml_parameter(model, p, f'{where}: {params_for_id or "its sweep"}')
@@ -779,7 +786,7 @@ def _check_steps_given_once(result):
     # a parameter is (vessel, param) in a step's model; a step is not given a parameter it
     # calibrates or analyses itself (a sweep is given the values it sweeps about)
     own = {s.id: {(p.vessel, p.param): p.model_name for p in resolved[s.id].parameters}
-           for s in workflow.steps if s.kind != 'sweep'}
+           for s in workflow.steps if s.kind not in SWEEP_KINDS}
     passes = {}     # {step id: {(vessel, param) in the step: [owner ids]}}
 
     def received(step):
