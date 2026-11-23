@@ -166,6 +166,38 @@ def _local_and_reduction_steps(run):
                 {'kind': 'simulate', 'status': 'done', 'inputs': {'obs_data': {'path': obs}}})
 
 
+def _uq_step(run):
+    """A uq step ``uq`` whose posterior predictive check kept one trace: 40 draws of three
+    scalar observables (the third has no std) and 5 traces of v in its one segment, saved by
+    the check's own save; and a uq step ``uq_failed`` whose check failed."""
+    from libcuflynx.calibration_workflow.runner import POSTERIOR_PREDICTIVE_DIR
+    from libcuflynx.param_id import posterior_predictive as pp
+    rng = np.random.default_rng(5)
+    data, std = np.array([1.0, 10.0, 3.0]), np.array([0.1, 1.0, 0.0])
+    predictions = data + std * rng.standard_normal((40, 3)) + [0.0, 2.5, 0.2]
+    t = np.linspace(0.0, 1.0, 50)
+    traces = np.sin(2 * np.pi * t) + 0.05 * rng.standard_normal((5, 50))
+    meta = {'time': {'0': t.tolist()}, 'experiment_labels': ['rest'], 'segments': {'0': [0, 0]},
+            'observables': [{'kind': 'series', 'segment': 0, 'variable': 'C/v',
+                             'label': 'v recorded', 'time': t[::5].tolist(),
+                             'values': np.sin(2 * np.pi * t[::5]).tolist()}]}
+    directory = os.path.join(run, 'uq', POSTERIOR_PREDICTIVE_DIR)
+    result = pp.PosteriorPredictiveResult(
+        rng.standard_normal((40, 2)), predictions, data, std, ['z_max', 'w_mean', 'u_min'],
+        pp.coverage(predictions, data, std), {'source': 'chain', 'n_steps': 100,
+                                              'burn_in_steps': 50, 'pool': 200},
+        0, False, series={(0, 'C/v'): traces}, series_meta=meta)
+    draws, coverage = result.save(directory)
+    _write_json(os.path.join(run, 'uq', 'step_result.json'),
+                {'kind': 'uq', 'status': 'done', 'posterior_predictive_dir': directory,
+                 'posterior_predictive_draws': draws,
+                 'posterior_predictive_coverage': coverage,
+                 'posterior_predictive_series': os.path.join(directory, pp.SERIES_FILE)})
+    _write_json(os.path.join(run, 'uq_failed', 'step_result.json'),
+                {'kind': 'uq', 'status': 'done',
+                 'posterior_predictive_summary': {'error': 'no chain'}})
+
+
 def _analysis_run(root):
     """A finished run with a sensitivity, a calibration that stored its distribution and an
     identifiability step, and a figure step per analysis function."""
@@ -196,7 +228,10 @@ def _analysis_run(root):
     _emulation_step(run)
     _local_and_reduction_steps(run)
     _mcmc_step(run)
-    steps = [_figure_step('emulator', 'emulator_validation',
+    _uq_step(run)
+    steps = [_figure_step('predictive', 'posterior_predictive',
+                          {'predictive': ('posterior_predictive', 'uq')}),
+             _figure_step('emulator', 'emulator_validation',
                           {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
              _figure_step('starts_progress', 'calibration_progress',
@@ -229,6 +264,8 @@ def analysis_run(tmp_path_factory):
     ('modes', ['pca_mode_1.png', 'pca_mode_2.png', 'pca_mode_ST_heatmap.png']),
     ('inputs', ['inputs_exp_0.png', 'inputs_exp_1.png']),
     ('mcmc', ['mcmc_chain.png', 'mcmc_cumulative_mean.png', 'mcmc_autocorrelation.png']),
+    ('predictive', ['posterior_predictive_intervals.csv', 'posterior_predictive_intervals.png',
+                    'posterior_predictive_0_C_v.png']),
 ])
 def test_an_analysis_figure_is_the_same_drawn_alone(analysis_run, tmp_path, step_id, files):
     run, steps = analysis_run
@@ -279,6 +316,35 @@ def test_the_mcmc_input_reads_the_sampled_chain_and_the_burn_in(analysis_run):
     assert loaded['chain'].shape == (190, 4, 2) and np.isfinite(loaded['chain']).all()
     assert loaded['param_labels'] == ['A/p', 'C/q']
     assert loaded['burn_in_index'] == 47
+
+
+@pytest.mark.unit
+def test_the_posterior_predictive_input_reads_the_draws_coverage_and_traces(analysis_run,
+                                                                           tmp_path):
+    """The check's draws, data and coverage, and its kept traces by segment and variable;
+    the figure's table puts each observable's data against the draws' intervals."""
+    import csv
+    from libcuflynx.calibration_workflow import standard_figures
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'p': {'kind': 'posterior_predictive', 'step': 'uq'}})['p']
+    assert loaded['labels'] == ['z_max', 'w_mean', 'u_min']
+    assert loaded['predictions'].shape == (40, 3)
+    assert loaded['ground_truth'].tolist() == [1.0, 10.0, 3.0]
+    assert set(loaded['coverage']['coverage']['levels']) == {'0.8', '0.95'}
+    assert list(loaded['series']['traces']) == ['0|C/v']
+    assert loaded['series']['traces']['0|C/v'].shape == (5, 50)
+    assert loaded['series']['time']['0'].shape == (50,)
+    assert loaded['series']['meta']['observables'][0]['label'] == 'v recorded'
+    paths = standard_figures.posterior_predictive(loaded, str(tmp_path))
+    with open(paths[0]) as f:
+        rows = {row['observable']: row for row in csv.DictReader(f)}
+    assert list(rows) == ['z_max', 'w_mean', 'u_min']
+    # w_mean's draws sit 2.5 stds above its data: outside the 95% interval
+    assert rows['z_max']['inside_95'] == 'true' and rows['w_mean']['inside_95'] == 'false'
+    assert float(rows['w_mean']['median']) == pytest.approx(12.5, abs=0.5)
+    with pytest.raises(figures.WorkflowError, match='no posterior predictive check to read: '
+                                                    'it failed \\(no chain\\)'):
+        figures.load_inputs(run, {'p': {'kind': 'posterior_predictive', 'step': 'uq_failed'}})
 
 
 @pytest.mark.unit

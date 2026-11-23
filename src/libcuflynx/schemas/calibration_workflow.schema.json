@@ -1320,6 +1320,7 @@
           "sensitivity",
           "reduction",
           "distribution",
+          "posterior_predictive",
           "laplace",
           "profile_likelihood"
         ]

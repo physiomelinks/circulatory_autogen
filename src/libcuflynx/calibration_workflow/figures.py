@@ -302,6 +302,43 @@ def _load_distribution(run_dir, step_id, result):
     return {'names': list(distribution.names), 'samples': np.asarray(distribution.samples)}
 
 
+@input_kind('posterior_predictive', ('uq',),
+            'a uq step\'s posterior predictive check: labels (one per scalar observable), '
+            'predictions (draws, observables), ground_truth, std and thetas as arrays; coverage, '
+            'posterior_predictive_coverage.json as its JSON document; and, when it kept traces, '
+            'series: {"meta": its series metadata (time, observables, segments), "traces": '
+            '{"<segment>|<variable>": (draws, points) array}, "time": {"<segment>": array}}, '
+            'else series None')
+def _load_posterior_predictive(run_dir, step_id, result):
+    if not result.get('posterior_predictive_draws'):
+        error = (result.get('posterior_predictive_summary') or {}).get('error')
+        raise WorkflowError(f'step "{step_id}" has no posterior predictive check to read'
+                            + (f': it failed ({error}).' if error else
+                               ' (UQ_options.posterior_predictive is false).'))
+    with np.load(_existing(result['posterior_predictive_draws'], 'posterior predictive draws',
+                           step_id), allow_pickle=True) as arrays:
+        loaded = {name: arrays[name] for name in ('predictions', 'ground_truth', 'std',
+                                                  'thetas')}
+        loaded['labels'] = [str(label) for label in arrays['labels']]
+    with open(_existing(result.get('posterior_predictive_coverage'),
+                        'posterior predictive coverage', step_id)) as f:
+        loaded['coverage'] = json.load(f)
+    loaded['series'] = None
+    if result.get('posterior_predictive_series'):
+        series = {'traces': {}, 'time': {}}
+        with np.load(_existing(result['posterior_predictive_series'],
+                               'posterior predictive series', step_id)) as arrays:
+            for name in arrays.files:
+                if name == '__meta__':
+                    series['meta'] = json.loads(str(arrays[name]))
+                elif name.startswith('y|'):
+                    series['traces'][name[2:]] = arrays[name]
+                elif name.startswith('t|'):
+                    series['time'][name[2:]] = arrays[name]
+        loaded['series'] = series
+    return loaded
+
+
 @input_kind('laplace', ('identifiability', 'uq'),
             'an identifiability step\'s or a laplace uq step\'s Laplace approximation, '
             '{"parameters": [...], "mean", "covariance", "std"} as arrays')

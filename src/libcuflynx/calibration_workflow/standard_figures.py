@@ -34,6 +34,9 @@ validation          points, and the residuals against each parameter        emul
 posterior           a histogram per parameter, its mean and 5-95% band       distribution:
                                                                              distribution
 laplace             the normal density of each parameter over +-4 std        laplace: laplace
+posterior_          a uq step's posterior predictive check: each scalar      predictive:
+predictive          observable's model intervals against its data, and the  posterior_predictive
+                    kept traces against the recorded ones
 ==================  =======================================================  ===================
 
 Run on its own, on a finished run (``--step`` picks among several figure steps)::
@@ -673,10 +676,115 @@ def laplace(laplace, out_dir):
     return [_save(figure, out_dir, 'laplace.png')]
 
 
+#: the model intervals the posterior predictive figure draws, widest first
+PREDICTIVE_LEVELS = (0.95, 0.8)
+
+
+def posterior_predictive(predictive, out_dir):
+    '''A uq step's posterior predictive check, the model simulated at draws of the posterior:
+    ``posterior_predictive_intervals.csv``, per scalar observable its data, std, the draws'
+    median and PREDICTIVE_LEVELS intervals, and whether the data is inside the 95% one;
+    ``posterior_predictive_intervals.png``, each observable's intervals in noise stds from its
+    data (0), over the +-2 std band of the data, titled with the coverage; and
+    ``posterior_predictive_<segment>_<variable>.png`` per kept trace, the draws over time with
+    their median and the recorded trace of that variable, if the obs_data has one.'''
+    import csv
+    predictions = np.asarray(predictive['predictions'], dtype=float)
+    data = np.asarray(predictive['ground_truth'], dtype=float)
+    std = np.asarray(predictive['std'], dtype=float)
+    labels = list(predictive['labels'])
+    with np.errstate(all='ignore'):
+        median = np.nanmedian(predictions, axis=0)
+        bounds = {level: (np.nanpercentile(predictions, 50 * (1 - level), axis=0),
+                          np.nanpercentile(predictions, 50 * (1 + level), axis=0))
+                  for level in PREDICTIVE_LEVELS}
+    scaled = np.isfinite(std) & (std > 0)
+    paths = [os.path.join(out_dir, 'posterior_predictive_intervals.csv')]
+    with open(paths[0], 'w', newline='') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(['observable', 'data', 'std', 'median'] +
+                        [f'{side}_{round(100 * level)}' for level in PREDICTIVE_LEVELS
+                         for side in ('low', 'high')] + ['inside_95'])
+        low95, high95 = bounds[0.95]
+        for k, label in enumerate(labels):
+            writer.writerow([label] + [f'{v:.6g}' for v in (data[k], std[k], median[k])] +
+                            [f'{bounds[level][side][k]:.6g}' for level in PREDICTIVE_LEVELS
+                             for side in (0, 1)] +
+                            [str(bool(low95[k] <= data[k] <= high95[k])).lower()])
+    plt = _pyplot()
+    shown = [k for k in range(len(labels)) if scaled[k]]
+    if shown:
+        figure, ax = plt.subplots(figsize=(7.0, max(2.4, 1.2 + 0.32 * len(shown))))
+        ax.axvspan(-2, 2, color='0.9', linewidth=0, label='data ± 2 std')
+        ax.axvline(0, color='0.5', linewidth=1)
+        rows = np.arange(len(shown))[::-1]
+        for n, level in enumerate(PREDICTIVE_LEVELS):
+            low, high = ((bounds[level][side][shown] - data[shown]) / std[shown]
+                         for side in (0, 1))
+            ax.hlines(rows, low, high, color=_shade(PALETTE[0], len(PREDICTIVE_LEVELS) - 1 - n,
+                                                    len(PREDICTIVE_LEVELS)),
+                      linewidth=4 + 3 * n, label=f'model {round(100 * level)}%')
+        ax.plot((median[shown] - data[shown]) / std[shown], rows, 'o', color=PALETTE[1],
+                markersize=4, label='model median')
+        ax.set_yticks(rows)
+        ax.set_yticklabels([labels[k] for k in shown], fontsize=7)
+        ax.set_ylim(-0.7, len(shown) - 0.3)
+        ax.set_xlabel('(model - data) / std', fontsize=8)
+        ax.tick_params(axis='x', labelsize=7)
+        coverage = (predictive.get('coverage') or {}).get('coverage', {})
+        levels = sorted(coverage.get('levels', {}).items(), key=lambda kv: -float(kv[0]))
+        title = 'data inside the model interval, of %d observables: %s' % (
+            coverage.get('num_observables', len(labels)),
+            ', '.join(f'{100 * row["predictive_coverage"]:.0f}% at {100 * float(level):.0f}%'
+                      for level, row in levels))
+        left_out = [labels[k] for k in range(len(labels)) if not scaled[k]]
+        if left_out:
+            title += '\nnot drawn (no std): ' + ', '.join(left_out)
+        ax.set_title(title, fontsize=8)
+        ax.legend(fontsize=6, loc='upper left', bbox_to_anchor=(1.01, 1.0))
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, 'posterior_predictive_intervals.png'))
+    series = predictive.get('series')
+    if series:
+        meta = series.get('meta') or {}
+        segment_names = meta.get('experiment_labels') or []
+        for key, traces in series['traces'].items():
+            segment, _, variable = key.partition('|')
+            t = np.asarray(series['time'][segment], dtype=float)
+            figure, ax = plt.subplots(figsize=(5.0, 3.2))
+            for n, trace in enumerate(np.asarray(traces, dtype=float)):
+                ax.plot(t, trace, color=PALETTE[0], alpha=0.3, linewidth=0.8,
+                        label='posterior draws' if n == 0 else None)
+            with np.errstate(all='ignore'):
+                ax.plot(t, np.nanmedian(traces, axis=0), color=PALETTE[0], linewidth=1.8,
+                        label='median')
+            for observable in meta.get('observables', []):
+                if observable.get('kind') == 'series' and \
+                        str(observable['segment']) == segment and \
+                        observable['variable'] == variable:
+                    ax.plot(observable['time'], observable['values'], color=PALETTE[1],
+                            linewidth=1.2, label=observable['label'])
+            exp_sub = (meta.get('segments') or {}).get(segment)
+            where = f'segment {segment}'
+            if exp_sub:
+                name = (segment_names[exp_sub[0]] if exp_sub[0] < len(segment_names)
+                        else f'experiment {exp_sub[0]}')
+                where = f'{name}, sub-experiment {exp_sub[1]}'
+            ax.set_title(f'{variable} ({where})', fontsize=9)
+            ax.set_xlabel('time from the sub-experiment start [s]', fontsize=8)
+            ax.set_ylabel(variable, fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.legend(fontsize=7)
+            figure.tight_layout()
+            paths.append(_save(figure, out_dir,
+                               f'posterior_predictive_{_stem(segment)}_{_stem(variable)}.png'))
+    return paths
+
+
 FIGURES = [sweep_traces, sweep_features, prediction_plots, validation, protocol_inputs,
            sobol_indices,
            local_sensitivity, pca_modes, calibration_progress, mcmc_diagnostics,
-           emulator_validation, posterior, laplace]
+           emulator_validation, posterior, laplace, posterior_predictive]
 
 
 def main(argv=None):
