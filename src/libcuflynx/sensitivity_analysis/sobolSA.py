@@ -49,6 +49,7 @@ import csv
 from tqdm import tqdm  # make sure tqdm is installed
 from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 from libcuflynx.param_id import prediction_features
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 #: The file naming every Sobol output column, written only with include_prediction_items so
 #: a reader (CUFLynx) can tell a prediction feature from a data_item feature.
@@ -733,6 +734,7 @@ class sobol_SA():
 
         return S1_all, ST_all, S2_all
 
+    @paper_style()
     def plot_sobol_first_order_idx(self, S1_all, ST_all):
 
         if self.rank !=0:
@@ -771,6 +773,7 @@ class sobol_SA():
             plt.clf()
             plt.close()
 
+    @paper_style()
     def plot_sobol_S2_idx(self, S2_all):
         """
         Plot second-order Sobol interaction indices for multiple outputs.
@@ -851,6 +854,7 @@ class sobol_SA():
 
         return output_labels
     
+    @paper_style()
     def plot_sobol_heatmap(self, S1_all, ST_all):
         
         if self.rank != 0:

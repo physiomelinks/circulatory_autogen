@@ -14,7 +14,7 @@ from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
-from libcuflynx.utilities import paperPlotSetup
+from libcuflynx.utilities.paperPlotSetup import paper_style
 from libcuflynx.utilities import stat_distributions
 from libcuflynx.utilities import diagnostics
 from libcuflynx.utilities import utility_funcs
@@ -22,7 +22,6 @@ from libcuflynx.utilities import cuflynx_study
 import traceback
 from libcuflynx.utilities.utility_funcs import Normalise_class
 from libcuflynx.utilities.paths import default_param_id_output_dir, default_resources_dir
-paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser, cost_experiment_idxs
@@ -948,6 +947,7 @@ class CVS0DParamID():
 
         return flat_samples, samples, num_params
 
+    @paper_style()
     def plot_mcmc(self):
         """Generate MCMC trace and corner plots from the saved chain (rank 0)."""
         flat_samples, samples, num_params = self.get_mcmc_samples()
@@ -1206,6 +1206,7 @@ class CVS0DParamID():
             print('All parameters have r_hat <= 1.01 (walkers mixed).')
         return stats
 
+    @paper_style()
     def plot_autocorrelation(self, samples, num_params=None):
         """One autocorrelation-vs-lag panel per parameter, every walker overlaid.
 
@@ -1249,6 +1250,7 @@ class CVS0DParamID():
         plt.close(fig)
         return all_bounded
 
+    @paper_style()
     def plot_chain_avg(self, samples=None, window_size=10):
         """Running mean of each walker, one panel per parameter.
 
@@ -1431,6 +1433,7 @@ class CVS0DParamID():
         print(f'Saved posterior predictions to {path}')
         return path
 
+    @paper_style()
     def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
         """Violin + box + jittered points per feature: the model's predictive spread against
         the measurements, one figure per feature, plus a summary grid.
@@ -1505,6 +1508,7 @@ class CVS0DParamID():
         self.plot_distribution_grid(values)
         return written
 
+    @paper_style()
     def plot_distribution_grid(self, values):
         """One figure of KDE panels, model posterior against measurement, for every feature."""
         if self.rank != 0:
@@ -1788,6 +1792,7 @@ class CVS0DParamID():
 
         self.remove_params_by_idx(param_idxs_to_remove)
 
+    @paper_style()
     def postprocess_predictions(self):
         # TODO redo this for new prediction_info in obs_data.json 
         # TODO This should be straight forward

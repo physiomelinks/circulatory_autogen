@@ -5,6 +5,19 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — importing libcuflynx no longer changes Matplotlib's settings
+
+- libcuflynx's paper style (serif font, inward ticks, its font sizes and figure size) applies to
+  libcuflynx's own figures only: its plot functions draw inside
+  `libcuflynx.utilities.paperPlotSetup.paper_style()`. Importing `paramID`,
+  `sensitivityAnalysis`, `identifiabilityAnalysis` or `plot_generated_model_outputs` set it in
+  `matplotlib.rcParams` for the whole process, so a notebook's or another program's own figures
+  changed look once libcuflynx was imported. They now keep the caller's settings. libcuflynx's
+  figures look as before. A script that wants the style on its own figures can call
+  `paperPlotSetup.Setup_Plot(3)` (as before, global) or draw inside `paper_style()`.
+- Importing libcuflynx still picks the Agg backend when none was chosen and not in IPython
+  (`mpl_backend.use_agg_unless_interactive`); that is the only `rcParams` entry it sets.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

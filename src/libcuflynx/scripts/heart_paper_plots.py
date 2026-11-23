@@ -17,8 +17,6 @@ MPI = _get_MPI()
 import matplotlib
 import matplotlib.pyplot as plt
 from libcuflynx.utilities import paperPlotSetup
-matplotlib.use('Agg')
-paperPlotSetup.Setup_Plot(3)
 
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_resources_dir,
                                         user_data_root)
@@ -33,6 +31,8 @@ import traceback
 from libcuflynx.solver_wrappers.libopencor_helper import *
 
 if __name__ == '__main__':
+    matplotlib.use('Agg')
+    paperPlotSetup.Setup_Plot(3)
 
     try:
 

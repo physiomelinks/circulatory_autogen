@@ -1,8 +1,7 @@
 import numpy as np
 import os
 from libcuflynx.solver_wrappers.libopencor_helper import SimulationHelper
-from libcuflynx.utilities import paperPlotSetup
-paperPlotSetup.Setup_Plot(3)
+from libcuflynx.utilities.paperPlotSetup import paper_style
 import matplotlib
 from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
@@ -10,6 +9,7 @@ import matplotlib.pyplot as plt
 from libcuflynx.utilities.paths import default_generated_models_dir
 
 
+@paper_style()
 def main():
     """Example: sweep two parameters of the 3compartment model and plot the outputs.
 

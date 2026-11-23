@@ -17,6 +17,7 @@ import numpy as np
 from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labels,
                                                     obs_trace_labels, obs_item_references,
                                                     data_reference_line)
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 
 def distribution_reference_lines(prob_dist_params):
@@ -270,6 +271,7 @@ class ParamIDPlotOutputs:
 
         return tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count
 
+    @paper_style()
     def plot_reconstruction_pages(
         self,
         phase,
@@ -766,6 +768,7 @@ class ParamIDPlotOutputs:
 
         return percent_error_vec, std_error_vec, phase_error_vec
 
+    @paper_style()
     def finalize_reconstruction_if_unsaved(
         self,
         plot_saved: bool,
@@ -790,6 +793,7 @@ class ParamIDPlotOutputs:
         plt.close()
 
     @staticmethod
+    @paper_style()
     def _save_reconstruction_figure_bundle(
         plot_dir,
         prefix,
@@ -856,6 +860,7 @@ class ParamIDPlotOutputs:
         """The same labels wrapped for matplotlib mathtext, for the bar plots."""
         return np.array([f"${name}$" for name in self.observable_names()])
 
+    @paper_style()
     def plot_percent_error_bar_pages(
         self, obs_names_for_plot: np.ndarray, percent_error_vec: np.ndarray
     ) -> None:
@@ -915,6 +920,7 @@ class ParamIDPlotOutputs:
                 )
             plt.close(fig)
 
+    @paper_style()
     def plot_std_error_bar_pages(
         self, obs_names_for_plot: np.ndarray, std_error_vec: np.ndarray
     ) -> None:
@@ -1134,6 +1140,7 @@ class ParamIDPlotOutputs:
     # Experiments wrapped left-to-right, then downward (reading order).
     _PROTOCOL_PARAM_SUBPLOTS_PER_ROW = 3
 
+    @paper_style()
     def plot_protocol_params_to_change(self) -> None:
         """
         One **saved figure file** per ``params_to_change`` key: subplots sit on a grid

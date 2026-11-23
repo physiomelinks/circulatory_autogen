@@ -29,6 +29,7 @@ from libcuflynx.param_id.paramID import ensure_mle_cost_type_for_bayesian_inner
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 from libcuflynx.utilities.utility_funcs import Normalise_class
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 MPI = _get_MPI()
 
@@ -428,6 +429,7 @@ class ProfileLikelihood:
         ax.legend()
         ax.grid(True, alpha=0.3)
 
+    @paper_style()
     def _plot_profiles(self):
         """Plot every profile on one page, and each on its own page."""
         results_dir = os.path.join(self.output_dir, "profile_likelihood")
