@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.solver_wrappers import get_simulation_helper
@@ -95,7 +96,7 @@ def _run_check(df):
 @pytest.mark.parametrize('main_bc, out_bc', [('vv', 'vp'), ('vp', 'pv'), ('pv_micro', 'vv_micro')])
 def test_mismatched_vessel_pair_still_fails(main_bc, out_bc):
     ports = MICRO_PORTS if main_bc.endswith('micro') else VESSEL_PORTS
-    with pytest.raises(SystemExit):
+    with pytest.raises(CAInputError, match='output BC is'):
         _run_check(_pair_df(main_bc, ports, out_bc, ports))
 
 

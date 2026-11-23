@@ -22,6 +22,7 @@ except Exception:
     ScalarFloat = None
 import re
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.parsers.solver_names import canonical_solver_name
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
@@ -51,22 +52,16 @@ mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
 
 
-class ObsDataError(ValueError):
+class ObsDataError(CAInputError):
     """An ``obs_data.json`` the parser cannot use, described well enough to fix it.
 
-    These checks used to ``print()`` and ``exit()``. That is survivable in a script, where
-    the message lands on the terminal the user is already reading, and unrecoverable
-    anywhere else: ``exit()`` raises ``SystemExit``, which inherits from ``BaseException``
-    and so passes straight through the ``except Exception`` an embedding application wraps
-    the parser in. CUFLynx turned one of these into a bare "Internal Server Error", with
-    the explanation visible only in the server's own stdout.
-
-    So they raise, and the message carries the offending numbers rather than naming the
-    keys and leaving the reader to go and look them up.
+    The message carries the offending numbers rather than naming the keys and leaving the
+    reader to go and look them up. See :class:`libcuflynx.errors.CAInputError` for why
+    input errors raise rather than ``exit()``.
     """
 
 
-class UserInputsError(ValueError):
+class UserInputsError(CAInputError):
     """A ``user_inputs`` configuration the parser cannot use. The message says what to change."""
 
 
@@ -3748,14 +3743,13 @@ class JSONFileParser(object):
             module_type = vessel_tup.module_type
             module_subtype = vessel_tup.module_subtype
             if len(module_subtype) <1 or len(module_type) <1:
-                print('You have an empty entry in your module array, exiting')
-                exit()
+                raise CAInputError('You have an empty entry in your module array')
             this_vessel_module_df = module_df.loc[((module_df["module_type"] == module_type)
                                                    & (module_df["module_subtype"] == module_subtype))].squeeze()
             if this_vessel_module_df.empty:
-                print(f'combination of module_type = {module_type} and module_subtype = {module_subtype} doesn\'t exist, check module_config.json',
-                        'for this combination')
-                exit()
+                raise CAInputError(f'combination of module_type = {module_type} and module_subtype = '
+                                   f'{module_subtype} doesn\'t exist, check module_config.json for '
+                                   f'this combination')
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
                 val = this_vessel_module_df[column]
@@ -4665,20 +4659,17 @@ class ObsAndParamDataParser(object):
         if "experiment_colors" not in protocol or protocol["experiment_colors"] is None:
             protocol["experiment_colors"] = ['r'] * N_exp
         elif len(protocol["experiment_colors"]) != N_exp:
-            print('Error: experiment_colors length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_colors length does not match num_experiments')
             
         if "experiment_labels" not in protocol or protocol["experiment_labels"] is None:
             protocol["experiment_labels"] = [None] * N_exp
         elif len(protocol["experiment_labels"]) != N_exp:
-            print('Error: experiment_labels length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_labels length does not match num_experiments')
         
         if "experiment_ids" not in protocol or protocol["experiment_ids"] is None:
             protocol["experiment_ids"] = [None] * N_exp
         elif len(protocol["experiment_ids"]) != N_exp:
-            print('Error: experiment_ids length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_ids length does not match num_experiments')
 
         # --- Weight Mapping Initialization ---
         

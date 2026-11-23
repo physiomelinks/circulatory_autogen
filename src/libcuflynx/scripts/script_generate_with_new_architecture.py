@@ -10,6 +10,7 @@ import re
 import traceback
 import yaml
 import numpy as np
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.paths import default_user_inputs_dir
 
 user_inputs_dir = default_user_inputs_dir()
@@ -181,8 +182,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 if 'cpp_1d_model_config_path' in inp_data_dict:
                     model_1d_config_path = inp_data_dict['cpp_1d_model_config_path']
                 else:
-                    print("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
-                    return False
+                    raise CAInputError("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
             if 'cpp_generated_models_dir' in inp_data_dict:
                 cpp_generated_models_dir = inp_data_dict['cpp_generated_models_dir']
             else:
@@ -227,9 +227,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                                         conn_1d_0d_info=parser.conn_1d_0d_info)
                     elif inp_data_dict['solver_1d_type'].startswith('cpp'):
                         #XXX This would use the class CVS1DCppGenerator() that Finbar was working on.
-                        sys.exit('ERROR :: Class for generating Cpp files for 1D model not yet implemented. Please change your 1D solver type.')
+                        raise CAInputError('Class for generating Cpp files for 1D model not yet implemented. Please change your 1D solver type.')
                 else:
-                    sys.exit('ERROR :: solver_1d_type not found in user input yaml file. Please specify your 1D solver type.')
+                    raise CAInputError('solver_1d_type not found in user input yaml file. Please specify your 1D solver type.')
 
             if DEBUG:
                 print("Check point 3A")

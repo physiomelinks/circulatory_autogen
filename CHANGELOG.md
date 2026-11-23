@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — bad input to the parsers and generators raises `CAInputError` instead of exiting
+
+- The user_inputs, module array and parameters parsers (`PrimitiveParsers`, `ModelParsers`), the
+  CellML and 1D Python generators, and `generate_with_new_architecture` raise
+  `libcuflynx.errors.CAInputError` (a `ValueError`) with the message they used to print before
+  calling `exit()` (#706). A caller running libcuflynx in-process (a notebook, CUFLynx, a
+  calibration workflow step) can catch it with `except Exception` and show the message; `exit()`
+  raised `SystemExit`, which ended a notebook kernel. `ObsDataError` is now a `CAInputError`.
+- The console commands still exit non-zero, printing the traceback with the message.
+- Code that caught `SystemExit` from these modules catches `CAInputError` instead. A calibration
+  workflow step reports the message in its `WorkflowStepError`.
 ### Added — progress files for Sobol, emulator training and profile likelihood
 
 - Each of these runs writes `progress.json` into its output directory while it runs:

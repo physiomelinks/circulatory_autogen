@@ -57,6 +57,7 @@ import warnings
 
 import numpy as np
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.calibration_workflow import figures, naming, sweep as sweep_runs
 from libcuflynx.parsers.PrimitiveParsers import DEFAULT_DO_AD, DEFAULT_MODEL_TYPE
 from libcuflynx.utilities import cuflynx_study
@@ -851,9 +852,11 @@ class _Run:
     def _run_stage(self, step, what, fn, *args):
         try:
             return fn(*args)
+        except CAInputError as exc:
+            raise WorkflowStepError(step.id, f'the {what} configuration was refused: '
+                                             f'{exc}') from exc
         except SystemExit as exc:
-            # a few module-array and protocol checks exit() after printing why; the user_inputs
-            # parser's refusals raise UserInputsError (a ValueError) and pass through
+            # library code that still exit()s on bad input, after printing why (#706)
             raise WorkflowStepError(step.id, f'the {what} configuration was refused (exit '
                                              f'{exc.code}); the messages above say why.')
 
