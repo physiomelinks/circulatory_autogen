@@ -38,18 +38,24 @@ for info in pkgutil.walk_packages(libcuflynx.__path__, 'libcuflynx.'):
         skipped[info.name] = repr(exc)
 after = {k: repr(v) for k, v in matplotlib.rcParams.items()}
 changed = sorted(k for k in after if k != 'backend' and after[k] != before.get(k))
-print(json.dumps({'changed': changed, 'imported': imported, 'skipped': skipped}))
+print(json.dumps({'changed': changed, 'imported': imported, 'skipped': skipped,
+                  'source': libcuflynx.__file__}))
 '''
 
 
 def test_importing_libcuflynx_leaves_rcparams_unchanged():
+    import libcuflynx
     env = {k: v for k, v in os.environ.items() if k != 'MPLBACKEND'}
+    # the subprocess imports the libcuflynx this test runs on, not another install of it
+    source = os.path.dirname(os.path.dirname(os.path.abspath(libcuflynx.__file__)))
+    env['PYTHONPATH'] = os.pathsep.join(filter(None, [source, env.get('PYTHONPATH')]))
     result = subprocess.run([sys.executable, '-c', _IMPORT_ALL], env=env, capture_output=True,
                             text=True, timeout=600)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     missing = [m for m in _PLOTTING_MODULES if m not in report['imported']]
     assert not missing, {m: report['skipped'].get(m) for m in missing}
+    assert report['source'] == os.path.abspath(libcuflynx.__file__)
     assert report['changed'] == []
 
 
