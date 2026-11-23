@@ -127,11 +127,13 @@ def sha256(path):
 
 
 def workflow_digest(path):
-    '''The sha256 of a workflow file's content without its ``external_figures``, whatever the
-    key order: declaring figure scripts after a run leaves the run current.'''
+    '''The sha256 of a workflow file's content without its figure steps, whatever the key
+    order: adding or changing a figure step after a run leaves the run's values current.'''
     with open(path, encoding='utf-8-sig') as f:
         raw = json.load(f)
-    raw.pop('external_figures', None)
+    if isinstance(raw.get('steps'), list):
+        raw['steps'] = [step for step in raw['steps']
+                        if not (isinstance(step, dict) and step.get('kind') == 'figure')]
     return settings_digest(raw)
 
 

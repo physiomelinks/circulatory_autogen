@@ -50,7 +50,7 @@
         },
         "file_status": {
           "$ref": "#/$defs/status",
-          "description": "Whether that file still has the content it ran with, whatever its formatting, key order or external_figures. A step's settings input is judged by that step's settings alone, so a re-formatted file leaves it current."
+          "description": "Whether that file still has the content it ran with, whatever its formatting, key order or figure steps. A step's settings input is judged by that step's settings alone, so a re-formatted file leaves it current."
         },
         "order": {
           "type": "array",
@@ -287,7 +287,7 @@
             "figure",
             "external"
           ],
-          "description": "figure: a file a sweep step or an external script wrote, its title the file name and its line the path in the output directory. external: a script outside the workflow (external_figures) that reads a step's or the target's results; its inputs list the files it reads and writes, and it is stale when one it reads is newer than the oldest it writes."
+          "description": "figure: the files a sweep, simulate or figure step wrote, named in one box. external: a script outside the workflow, in a graph written before figures were steps; no longer produced."
         },
         "title": {
           "type": "string"

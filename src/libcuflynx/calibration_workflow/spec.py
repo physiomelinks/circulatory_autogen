@@ -239,8 +239,6 @@ class Workflow:
     description: str = ''
     path: str = None
     raw: dict = None
-    #: scripts outside the workflow that read its results (``external_figures``), as written
-    external_figures: list = field(default_factory=list)
 
     def step(self, step_id):
         for step in self.steps:
@@ -314,6 +312,20 @@ def _refuse_reduction_options_outside_reduction_steps(raw, where):
                                 f'has no param_reduction_options; ' + hint)
 
 
+def _refuse_external_figures(raw, where):
+    '''A figure is a step of the workflow, a Python function libcuflynx runs.'''
+    if isinstance(raw, dict) and 'external_figures' in raw:
+        names = [entry.get('id') for entry in raw['external_figures'] or []
+                 if isinstance(entry, dict)]
+        raise WorkflowError(
+            f'{where}: "external_figures" {names} are not read: a figure is a step of the '
+            f'workflow. Write each as {{"id": ..., "kind": "figure", "function": '
+            f'"<script>.py:<function>", "inputs": {{"<name>": {{"<kind>": "<step>"}}}}}}, a '
+            f'Python function that draws from the results of the steps its inputs name (a '
+            f'"simulate" step runs a model for it); see "Figure steps" in the '
+            f'parameter-identification docs.')
+
+
 def parse_workflow(raw, path=None, module_library_dirs=None):
     where = path or 'calibration workflow'
     # The schema owns the file's structure (keys, types, enums, what each kind of step needs);
@@ -321,6 +333,7 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA
     from libcuflynx.schemas.validation import SchemaValidationError, validate
     _refuse_reduction_options_outside_reduction_steps(raw, where)
+    _refuse_external_figures(raw, where)
     try:
         validate(CALIBRATION_WORKFLOW_SCHEMA, raw, source=where, what='calibration workflow')
     except SchemaValidationError as exc:
@@ -336,42 +349,14 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
                         steps=[_step(s, where, base_dir) for s in raw['steps']],
                         settings=_settings(raw.get('settings', {}), base_dir),
                         module_library_dirs=library_dirs,
-                        description=raw.get('description', '') or '', path=path, raw=raw,
-                        external_figures=copy.deepcopy(raw.get('external_figures', [])))
+                        description=raw.get('description', '') or '', path=path, raw=raw)
     _place_target_sweeps(workflow)
     check_workflow(workflow)
-    _check_external_figures(workflow, where)
     order = [s.id for s in workflow.topological_order()]
     for step in workflow.steps:
         if step.on_target:
             step.fixed_from.sort(key=order.index)
     return workflow
-
-
-#: what an external figure's ``from`` names when it reads the merged model
-EXTERNAL_FROM_TARGET = 'target'
-
-
-def external_path(path, output_dir):
-    '''An external figure's ``reads`` or ``writes`` path: absolute (``~`` expanded), or
-    relative to the run's output directory.'''
-    path = os.path.expanduser(path)
-    return path if os.path.isabs(path) else os.path.join(output_dir, path)
-
-
-def _check_external_figures(workflow, where):
-    step_ids = {s.id for s in workflow.steps}
-    seen = set()
-    for entry in workflow.external_figures:
-        name = entry['id']
-        if name in step_ids or name in seen:
-            raise WorkflowError(f'{where}: external figure "{name}" has the id of '
-                                f'{"a step" if name in step_ids else "another external figure"};'
-                                f' ids must be unique.')
-        seen.add(name)
-        if entry['from'] != EXTERNAL_FROM_TARGET and entry['from'] not in step_ids:
-            raise WorkflowError(f'{where}: external figure "{name}" reads from "{entry["from"]}",'
-                                f' which is neither a step nor "{EXTERNAL_FROM_TARGET}".')
 
 
 #: the kinds whose values an on_target sweep is given, as the target merges them

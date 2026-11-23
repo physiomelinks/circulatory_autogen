@@ -188,6 +188,19 @@ def test_the_script_is_checked_without_running_it(library, script, message):
 
 
 @pytest.mark.unit
+def test_a_figure_step_leaves_the_workflow_digest_as_it_was(library):
+    '''So adding or changing a figure after a run keeps the run's values current.'''
+    from libcuflynx.calibration_workflow.runner import workflow_digest
+    path = _with_figure(library)
+    with_figure = workflow_digest(path)
+    raw = _read_json(path)
+    raw['steps'] = [s for s in raw['steps'] if s['id'] != 'fig']
+    assert workflow_digest(_write_json(path, raw)) == with_figure
+    raw['steps'][-1]['settings']['sim_time'] = 2.0
+    assert workflow_digest(_write_json(path, raw)) != with_figure
+
+
+@pytest.mark.unit
 def test_every_input_kind_is_in_the_schema():
     from libcuflynx.schemas import CALIBRATION_WORKFLOW_SCHEMA, load_schema
     names = load_schema(CALIBRATION_WORKFLOW_SCHEMA)['$defs']['figure_input']['propertyNames']
