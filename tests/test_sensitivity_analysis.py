@@ -112,13 +112,14 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         # each output's obs_data std and weight (3compartment_obs_data.json's first item)
         assert problem['outputs'][0]['std'] == pytest.approx(1.0731181019893536e-05)
         assert problem['outputs'][0]['weight'] == 1.0
-        # the local Jacobian: one row per parameter at each of the first 8 Saltelli base points
+        # the local Jacobian: one row per parameter at each of the first 8 Saltelli base points,
+        # at the step and at half of it
         jacobian = pd.read_csv(os.path.join(output_dir,
                                             'all_outputs_n16_Sobol_local_jacobian.csv'))
         rows = [10 * k for k in range(8)]          # blocks of 2M + 2 = 10 rows
-        assert list(jacobian['point']) == [r for r in rows for _ in range(4)]
-        assert set(jacobian['step']) == {1e-2}      # central differences, one step
-        assert list(jacobian['Parameter']) == list(indices['Parameter']) * 8
+        assert list(jacobian['point']) == [r for r in rows for _ in range(4)] * 2
+        assert list(jacobian['step']) == [1e-2] * 32 + [5e-3] * 32   # central differences
+        assert list(jacobian['Parameter']) == list(indices['Parameter']) * 16
         assert list(jacobian.columns[3:]) == list(outputs.columns)
         assert np.all(np.isfinite(jacobian.iloc[:, 3:].to_numpy()))
         assert problem['local_jacobian']['jacobian_scheme'] == 'central'
@@ -129,6 +130,11 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         with open(os.path.join(reduction_dir, 'param_reduction.json')) as f:
             report = json.load(f)
         assert report['reduction']['method'] == 'pca' and report['selected']
+        # the default leaves out the points whose derivatives at the two steps disagree;
+        # on this stiff model at a step of 1e-2 most points still converge
+        assert report['reduction']['redundancy_converged_only'] is True
+        assert report['jacobian_points_used'] + len(report['unconverged_points']) == 8
+        assert report['jacobian_points_used'] >= 4, report['unconverged_points']
 
 
 def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
