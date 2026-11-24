@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — a series data item's "error in stds" is mean(|obs - fit| / std): its values change
+
+- `plot_outputs` computed a series item's "error in stds" (`std_error_vec.npy` and the
+  error-in-stds bar plot) as mean(|obs - fit / std|), dividing only the fit by the std. It is
+  now mean(|obs - fit| / std), as for a constant item. Every series item's value changes; constant
+  and frequency items, the percent errors and the calibration cost are unchanged.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
