@@ -28,6 +28,8 @@ pca_modes           per PCA mode its feature loadings and the ST of each     red
                     parameter, and a heatmap of ST per mode                  reduction
 calibration_        the best cost and each normalised parameter per          progress: progress
 progress            generation (per iteration of each start)
+best_fit            each data_item against the calibrated model, over its    fit: best_fit
+                    trace: a page per trace and experiment
 fit_errors          the best fit's error per data_item, in percent and in    errors: fit_errors
                     noise stds
 mcmc_diagnostics   each walker's trace, running mean and autocorrelation    chain: mcmc_chain
@@ -783,6 +785,106 @@ def posterior_predictive(predictive, out_dir):
     return paths
 
 
+#: obs_data units drawn in a unit easier to read, as the calibration's own plots draw them:
+#: unit -> (factor, label)
+DISPLAY_UNITS = {'m3_per_s': (1e6, 'cm^3/s'), 'm3': (1e6, 'cm^3'), 'J_per_m3': (1e-3, 'kPa')}
+
+
+def _constant_span(t, kwargs):
+    '''The times a constant's line spans: its subexperiment, or the part of it an
+    ``*_in_range`` operation reads (``start_frac`` / ``end_frac`` of the subexperiment).'''
+    lo, hi = float(t[0]), float(t[-1])
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    try:
+        start = float(kwargs.get('start_frac') or 0.0)
+        end = float(1.0 if kwargs.get('end_frac') is None else kwargs['end_frac'])
+    except (TypeError, ValueError):
+        return np.array([lo, hi])
+    if not (0.0 <= start < end):
+        return np.array([lo, hi])
+    return np.array([lo + start * (hi - lo), lo + end * (hi - lo)])
+
+
+def best_fit(fit, out_dir):
+    '''``best_fit_<trace>_exp_<e>.png`` per trace a data_item is measured on and experiment,
+    as the calibration draws it: the model's trace over the subexperiments its items read, and
+    per item its data against the calibrated model. A constant (``plot_type`` horizontal) is a
+    dashed line at its value over a +-1 std band and a solid line at the model's, across its
+    subexperiment (or the part of it the operation reads), drawn whether or not the solver
+    logged a trace; one measured
+    from the trace's minimum (horizontal_from_min) is drawn from that minimum; vertical is a
+    time. A series is its values with +-1 std bars.'''
+    items = [item for item in fit['items'] if item['data_type'] in ('constant', 'series')]
+    pages = {}
+    for item in items:
+        pages.setdefault((item['trace_name'], item['experiment_idx']), []).append(item)
+    labels = fit.get('experiment_labels') or []
+    plt = _pyplot()
+    paths = []
+    for (trace, e), page in pages.items():
+        factor, unit = DISPLAY_UNITS.get(page[0]['unit'], (1.0, page[0]['unit']))
+        figure, ax = plt.subplots(figsize=(6.4, 3.8))
+        drawn, segments = False, set()
+        for n, item in enumerate(page):
+            colour = PALETTE[(n + 1) % len(PALETTE)]
+            t, model = item['t'], item['model']
+            if model is not None and item['subexperiment_idx'] not in segments:
+                ax.plot(t, factor * model, color=PALETTE[0], linewidth=1.5,
+                        label='model' if not segments else '_nolegend_')
+                segments.add(item['subexperiment_idx'])
+                drawn = True
+            value, std = item['value'], item['std']
+            if value is None:
+                continue
+            if item['data_type'] == 'series':
+                ax.errorbar(item['obs_t'], factor * np.asarray(value, dtype=float),
+                            yerr=None if std is None else factor * np.asarray(std, dtype=float),
+                            fmt='o', markersize=3, color='k', linewidth=0.8,
+                            label=f'{item["data_item_name"]} data')
+                drawn = True
+                continue
+            plot_type = item['plot_type']
+            if plot_type == 'vertical':
+                ax.axvline(value, color=colour, linestyle='--',
+                           label=f'{item["operation"]} data')
+                if item['fit'] is not None:
+                    ax.axvline(item['fit'], color=colour, label=f'{item["operation"]} model')
+                drawn = True
+                continue
+            if plot_type == 'horizontal':
+                base = 0.0
+            elif plot_type == 'horizontal_from_min' and model is not None:
+                base = float(np.min(model))
+            else:
+                continue
+            span = _constant_span(item['window'], item['operation_kwargs'])
+            if std is not None and np.isfinite(std):
+                ax.fill_between(span, factor * (base + value - std),
+                                factor * (base + value + std), color=colour, alpha=0.15,
+                                linewidth=0)
+            ax.plot(span, factor * np.full(2, base + value), color=colour, linestyle='--',
+                    label=f'{item["operation"]} data')
+            if item['fit'] is not None:
+                ax.plot(span, factor * np.full(2, base + item['fit']), color=colour,
+                        label=f'{item["operation"]} model')
+            drawn = True
+        if not drawn:
+            plt.close(figure)
+            continue
+        ax.set_xlabel('time [s]', fontsize=8)
+        ax.set_ylabel(f'{trace} [{unit}]', fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.legend(fontsize=6)
+        title = labels[e] if e < len(labels) and labels[e] else f'experiment {e}'
+        ax.set_title(title, fontsize=9)
+        figure.tight_layout()
+        paths.append(_save(figure, out_dir, f'best_fit_{_stem(trace)}_exp_{e}.png'))
+    if not paths:
+        raise ValueError('no data_item of the calibration has a model trace or a value to '
+                         'draw.')
+    return paths
+
+
 def fit_errors(errors, out_dir):
     '''The best fit's error per data_item, from a calibration step: ``fit_errors.csv`` (name,
     percent and std error, data_reference); ``fit_percent_error.png``, a bar per item of
@@ -825,8 +927,9 @@ def fit_errors(errors, out_dir):
 
 FIGURES = [sweep_traces, sweep_features, prediction_plots, validation, protocol_inputs,
            sobol_indices,
-           local_sensitivity, pca_modes, calibration_progress, fit_errors, mcmc_diagnostics,
-           emulator_validation, posterior, laplace, posterior_predictive]
+           local_sensitivity, pca_modes, calibration_progress, best_fit, fit_errors,
+           mcmc_diagnostics, emulator_validation, posterior, laplace,
+           posterior_predictive]
 
 
 def main(argv=None):

@@ -39,7 +39,7 @@ A new input kind is one :func:`input_kind` entry here; the workflow schema's lis
 generated from it (``python -m libcuflynx.schemas.registries --write``).
 
 libcuflynx ships a script of standard figures (``standard_figures.py``: sweep traces and
-features, an obs_data's prediction_plots, the validation against held-out data, Sobol indices, a calibration's progress, posteriors, a
+features, an obs_data's prediction_plots, the validation against held-out data, Sobol indices, a calibration's progress and best fit, posteriors, a
 Laplace approximation).
 :func:`write_standard_figures` copies it beside a workflow, where a figure step names it like any
 other script, so it is hashed and packed with the workflow and a later libcuflynx does not change
@@ -197,6 +197,98 @@ def _load_fit_errors(run_dir, step_id, result):
         values = np.load(path, allow_pickle=True)
         loaded[key] = [str(v) for v in values] if values.dtype.kind in 'OUS' else values
     return loaded
+
+
+#: the file a calibration writes per experiment it fits: every model output at the best fit
+BEST_FIT_OUTPUTS = 'all_outputs_with_best_param_vals_exp_{}.npz'
+
+
+def _resolve_output(name, outputs):
+    '''The key of ``outputs`` (a backend's all-outputs dict: Myokit qnames or
+    ``component/variable``) that ``name``, as an obs_data operand, names; None if none does.'''
+    from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
+    for separator in ('.', '/'):
+        _, key = VariableNameResolver.resolve_key(name, [('output', outputs)], separator)
+        if key is not None:
+            return key
+    return None
+
+
+@input_kind('best_fit', ('calibration',),
+            'the best fit against its data, from the outputs a calibration saves per '
+            'experiment it fits (all_outputs_with_best_param_vals_exp_<e>.npz) and its '
+            'obs_data: "items", per data_item its data_item_name, trace_name (what its page is '
+            'about), data_type, operation, operation_kwargs, plot_type (a constant without '
+            'one: horizontal, as the calibration\'s plots read it; "None" is None), unit, '
+            'experiment_idx, subexperiment_idx, window (its subexperiment\'s start and end '
+            'times), value, std, data_reference, t and model (its first operand over its '
+            'subexperiment; None when the solver did not log it), obs_t (a series: '
+            'the times of its values) and fit (a constant: the calibrated model\'s value, '
+            'from the best fit\'s std_error; None without one); "experiment_labels"')
+def _load_best_fit(run_dir, step_id, result):
+    from libcuflynx.param_id.plot_outputs import ERROR_VEC_FILES
+    obs = _load_obs_data(run_dir, step_id, result)
+    protocol = obs.get('protocol_info') or {}
+    sim_times = protocol.get('sim_times') or []
+    output_dir = result.get('param_id_output_dir') or ''
+    data_items = obs.get('data_items') or []
+    # the best fit's std errors, in data_item order (their names are plot labels)
+    path = os.path.join(output_dir, ERROR_VEC_FILES['std_error'])
+    std_error = np.load(path) if os.path.isfile(path) else np.array([])
+    if len(std_error) != len(data_items):
+        std_error = [None] * len(data_items)
+    outputs = {}
+    items = []
+    for entry, error in zip(data_items, std_error):
+        e = int(entry.get('experiment_idx', 0))
+        k = int(entry.get('subexperiment_idx', 0))
+        if e not in outputs:
+            path = _existing(os.path.join(output_dir, BEST_FIT_OUTPUTS.format(e)),
+                             f'best-fit outputs of experiment {e}', step_id)
+            with np.load(path) as arrays:
+                outputs[e] = {name: np.asarray(arrays[name], dtype=float)
+                              for name in arrays.files}
+        durations = [float(d) for d in sim_times[e]]
+        start, end = sum(durations[:k]), sum(durations[:k + 1])
+        operands = list(entry.get('operands') or [])
+        key = _resolve_output(operands[0], outputs[e]) if operands else None
+        t = model = None
+        if key is not None:
+            trace = outputs[e][key]
+            if trace.size == 1:
+                # a constant: not logged over time, so drawn flat over the subexperiment
+                t, model = np.array([start, end]), np.full(2, float(trace.ravel()[0]))
+            else:
+                time = np.linspace(0.0, sum(durations), trace.size)
+                inside = (time >= start - 1e-9 * (end or 1.0)) & (
+                    time <= end + 1e-9 * (end or 1.0))
+                t, model = time[inside], trace[inside]
+        name = str(entry['data_item_name'])
+        value, std = entry.get('value'), entry.get('std')
+        data_type = entry.get('data_type', 'constant')
+        plot_type = entry.get('plot_type', 'horizontal' if data_type == 'constant' else None)
+        if str(plot_type).lower() in ('none', 'null'):
+            plot_type = None
+        obs_t = fit = None
+        if data_type == 'series' and value is not None:
+            obs_t = np.linspace(start, end, len(value))
+        elif (data_type == 'constant' and error is not None and value is not None
+              and std is not None and np.isfinite(std) and std != 0):
+            fit = float(value) + float(error) * float(std)
+        items.append({
+            'data_item_name': name,
+            'trace_name': str(entry.get('trace_name_for_plotting') or
+                              (operands[0] if operands else name)),
+            'data_type': data_type, 'operation': entry.get('operation'),
+            'operation_kwargs': entry.get('operation_kwargs') or {},
+            'plot_type': plot_type, 'unit': entry.get('unit', ''),
+            'experiment_idx': e, 'subexperiment_idx': k, 'window': (start, end),
+            'value': value, 'std': std,
+            'data_reference': entry.get('data_reference'), 't': t, 'model': model,
+            'obs_t': obs_t, 'fit': fit})
+    if not items:
+        raise WorkflowError(f'step "{step_id}" fitted no data_item: its obs_data has none.')
+    return {'items': items, 'experiment_labels': list(protocol.get('experiment_labels') or [])}
 
 
 @input_kind('mcmc_chain', ('calibration',),

@@ -207,6 +207,45 @@ def _uq_step(run):
                  'posterior_predictive_summary': {'error': 'no chain'}})
 
 
+def _best_fit_step(run):
+    """A calibration step ``bf`` as a calibration leaves it: an obs_data of two experiments
+    (experiment 0 in two subexperiments of 1 s), the outputs at its best fit per experiment
+    (Myokit qnames in experiment 0, ``component/variable`` in experiment 1, at dt 0.25) and the
+    best fit's std errors."""
+    directory = os.path.join(run, 'bf', 'param_id')
+    os.makedirs(directory)
+    time = np.linspace(0.0, 2.0, 9)
+    np.savez(os.path.join(directory, 'all_outputs_with_best_param_vals_exp_0.npz'),
+             **{'environment.time': time, 'A_module.z': time ** 2,
+                'A_module.k': np.array([3.0])})
+    np.savez(os.path.join(directory, 'all_outputs_with_best_param_vals_exp_1.npz'),
+             **{'A/w': 1.0 + np.linspace(0.0, 1.0, 5)})
+    np.save(os.path.join(directory, 'std_error_vec.npy'), np.array([0.5, -2.0, 0.0, 0.3]))
+    np.save(os.path.join(directory, 'percent_error_vec.npy'), np.zeros(4))
+    np.save(os.path.join(directory, 'error_vec_names.npy'),
+            np.array(['z_max', 'z_swing', 'k', 'w_course']))
+    obs = _write_json(os.path.join(run, 'bf', 'obs.json'), {
+        'protocol_info': {'pre_times': [0.0, 0.0], 'sim_times': [[1.0, 1.0], [1.0]],
+                          'experiment_labels': ['rest', 'load']},
+        'data_items': [
+            {'data_item_name': 'z_max', 'trace_name_for_plotting': 'z', 'operands': ['A/z'],
+             'operation': 'max', 'unit': 'm3', 'data_type': 'constant', 'value': 3.9,
+             'std': 0.2, 'subexperiment_idx': 1, 'plot_type': 'horizontal'},
+            {'data_item_name': 'z_swing', 'trace_name_for_plotting': 'z', 'operands': ['A/z'],
+             'operation': 'max_minus_min', 'unit': 'm3', 'data_type': 'constant',
+             'value': 1.0, 'std': 0.1, 'subexperiment_idx': 1,
+             'plot_type': 'horizontal_from_min'},
+            {'data_item_name': 'k', 'operands': ['A/k'], 'operation': 'mean',
+             'unit': 'dimensionless', 'data_type': 'constant', 'value': 3.0, 'std': 0.1,
+             'plot_type': 'horizontal'},
+            {'data_item_name': 'w_course', 'operands': ['A/w'], 'unit': 'dimensionless',
+             'data_type': 'series', 'experiment_idx': 1, 'obs_dt': 0.5, 'std': 0.05,
+             'value': [1.0, 1.6, 2.1]}]})
+    _write_json(os.path.join(run, 'bf', 'step_result.json'),
+                {'kind': 'calibration', 'status': 'done', 'param_id_output_dir': directory,
+                 'inputs': {'obs_data': {'path': obs}}})
+
+
 def _analysis_run(root):
     """A finished run with a sensitivity, a calibration that stored its distribution and an
     identifiability step, and a figure step per analysis function."""
@@ -238,12 +277,14 @@ def _analysis_run(root):
     _local_and_reduction_steps(run)
     _mcmc_step(run)
     _uq_step(run)
+    _best_fit_step(run)
     steps = [_figure_step('predictive', 'posterior_predictive',
                           {'predictive': ('posterior_predictive', 'uq')}),
              _figure_step('emulator', 'emulator_validation',
                           {'emulator': ('emulator_validation', 'emu')}),_figure_step('indices', 'sobol_indices', {'sensitivity': ('sensitivity', 'sobol')}),
              _figure_step('ga_progress', 'calibration_progress', {'progress': ('progress', 'ga')}),
              _figure_step('fit', 'fit_errors', {'errors': ('fit_errors', 'ga')}),
+             _figure_step('bf_plot', 'best_fit', {'fit': ('best_fit', 'bf')}),
              _figure_step('starts_progress', 'calibration_progress',
                           {'progress': ('progress', 'starts')}),
              _figure_step('posterior', 'posterior', {'distribution': ('distribution', 'fit')}),
@@ -266,6 +307,8 @@ def analysis_run(tmp_path_factory):
     ('indices', ['sobol_z.png', 'sobol_w.png', 'sobol_ST_heatmap.png']),
     ('ga_progress', ['cost_history.png', 'param_history.png']),
     ('fit', ['fit_errors.csv', 'fit_percent_error.png', 'fit_std_error.png']),
+    ('bf_plot', ['best_fit_z_exp_0.png', 'best_fit_A_k_exp_0.png',
+                 'best_fit_A_w_exp_1.png']),
     ('starts_progress', ['cost_history.png', 'param_history.png']),
     ('emulator', ['emulator_parity.png', 'emulator_residuals_z.png',
                   'emulator_residuals_w.png']),
@@ -372,6 +415,47 @@ def test_the_fit_errors_input_reads_what_a_calibration_saved(analysis_run):
     with pytest.raises(figures.WorkflowError, match='no best-fit errors to read.*'
                                                     'save_best_fit_errors'):
         figures.load_inputs(run, {'e': {'kind': 'fit_errors', 'step': 'starts'}})
+
+
+@pytest.mark.unit
+def test_the_best_fit_input_reads_each_item_over_its_subexperiment(analysis_run):
+    """Each data_item's first operand over its subexperiment, from the outputs of its
+    experiment, whichever form the backend names them in; a constant's model value is its data
+    plus its std error in stds; a series' values are spread over its subexperiment."""
+    run, _ = analysis_run
+    loaded = figures.load_inputs(run, {'f': {'kind': 'best_fit', 'step': 'bf'}})['f']
+    items = {item['data_item_name']: item for item in loaded['items']}
+    assert loaded['experiment_labels'] == ['rest', 'load']
+    z_max = items['z_max']
+    np.testing.assert_allclose(z_max['t'], [1.0, 1.25, 1.5, 1.75, 2.0])
+    np.testing.assert_allclose(z_max['model'], z_max['t'] ** 2)
+    assert (z_max['trace_name'], z_max['fit']) == ('z', pytest.approx(3.9 + 0.5 * 0.2))
+    assert items['z_swing']['fit'] == pytest.approx(1.0 - 2.0 * 0.1)
+    # a model constant is one value: flat over its subexperiment
+    np.testing.assert_allclose(items['k']['t'], [0.0, 1.0])
+    np.testing.assert_allclose(items['k']['model'], [3.0, 3.0])
+    assert items['k']['trace_name'] == 'A/k'
+    course = items['w_course']
+    np.testing.assert_allclose(course['model'], 1.0 + np.linspace(0.0, 1.0, 5))
+    np.testing.assert_allclose(course['obs_t'], [0.0, 0.5, 1.0])
+    assert course['fit'] is None
+
+
+@pytest.mark.unit
+def test_a_best_fit_without_the_saved_outputs_says_what_is_missing(analysis_run, tmp_path):
+    import shutil
+    run, _ = analysis_run
+    with pytest.raises(figures.WorkflowError, match='step "ga" has no obs_data'):
+        figures.load_inputs(run, {'f': {'kind': 'best_fit', 'step': 'ga'}})
+    copy = str(tmp_path / 'run')
+    shutil.copytree(os.path.join(run, 'bf'), os.path.join(copy, 'bf'))
+    result = _read_json(os.path.join(copy, 'bf', 'step_result.json'))
+    result['param_id_output_dir'] = os.path.join(copy, 'bf', 'param_id')
+    _write_json(os.path.join(copy, 'bf', 'step_result.json'), result)
+    os.remove(os.path.join(copy, 'bf', 'param_id', 'all_outputs_with_best_param_vals_exp_1.npz'))
+    with pytest.raises(figures.WorkflowError,
+                       match='step "bf" has no best-fit outputs of experiment 1 to read'):
+        figures.load_inputs(copy, {'f': {'kind': 'best_fit', 'step': 'bf'}})
 
 
 @pytest.mark.unit
@@ -508,6 +592,7 @@ def _with_standard_figures(library):
                                   'mod__C/q': {'values': [1.0, 2.0]}}}},
         {'id': 'run', 'kind': 'simulate', 'model': rest['model'], 'fixed_from': ['fit_a'],
          'obs_data': obs, 'settings': {}, 'simulate': {'outputs': ['mod__C/z']}},
+        _figure_step('rest_fit', 'best_fit', {'fit': ('best_fit', 'rest')}),
         _figure_step('traces', 'sweep_traces', {'sweep': ('sweep', 'scan')}),
         _figure_step('features', 'sweep_features', {'sweep': ('sweep', 'scan')}),
         _figure_step('predictions', 'prediction_plots',
@@ -527,6 +612,7 @@ def finished(tmp_path_factory):
 @pytest.mark.integration
 @pytest.mark.parametrize('step_id, files', [
     ('traces', ['traces_exp_0.png']),
+    ('rest_fit', ['best_fit_mod__C_z_exp_0.png']),
     ('features', ['z_max_vs_mod__C_k.png']),
     ('predictions', ['z_max_vs_q.png', 'q_and_z_exp_0.png', 'q_and_z_exp_1.png']),
     ('valid', ['validation_scores.csv', 'validation_parity.png', 'validation_z_course.png']),
@@ -570,6 +656,23 @@ def test_the_validation_input_scores_the_held_out_items(finished):
     with open(os.path.join(out, 'valid', 'figure', 'validation_scores.csv')) as f:
         assert f.readline().strip() == ('item,operation,unit,n_points,rmse,nrmse,mean_abs_z,'
                                         'within_2std')
+
+
+@pytest.mark.integration
+def test_the_best_fit_is_the_calibrated_model_against_its_data(finished):
+    """The model's z at the best fit is z = 2 p_A^2 + q_C^2 at the values fit_a and rest
+    calibrated; z is constant in time, so Myokit logged no trace of it and it is drawn as lines
+    over its subexperiment."""
+    _, out = finished
+    loaded = figures.load_inputs(out, {'f': {'kind': 'best_fit', 'step': 'rest'},
+                                       'a': {'kind': 'values', 'step': 'fit_a'},
+                                       'c': {'kind': 'values', 'step': 'rest'}})
+    (item,) = loaded['f']['items']
+    (p_a,), (q_c,) = loaded['a'].values(), loaded['c'].values()
+    assert (item['data_item_name'], item['model'], item['window']) == ('z_c', None, (0.0, 1.0))
+    assert item['plot_type'] == 'horizontal'
+    np.testing.assert_allclose(item['fit'], 2 * p_a ** 2 + q_c ** 2, rtol=1e-6)
+    assert item['fit'] != item['value']
 
 
 @pytest.mark.integration

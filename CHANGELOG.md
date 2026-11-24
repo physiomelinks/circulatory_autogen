@@ -101,7 +101,8 @@ next release; add to that section as you land a change.
 - **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
-  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `emulator_validation`,
+  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `best_fit`,
+  `emulator_validation`,
   `distribution`, `laplace`, `reduction`, `mcmc_chain`, `validation`,
   `posterior_predictive`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
@@ -132,7 +133,9 @@ next release; add to that section as you land a change.
   `mcmc_chain` input: a calibration's MCMC chain),
   `emulator_validation` (parity and residual plots at an emulation step's held-out points),
   `fit_errors` (the best fit's error per data_item, in percent and in noise stds, from a
-  calibration step's `fit_errors` input), `posterior`, `laplace` and
+  calibration step's `fit_errors` input), `best_fit` (each data_item against the calibrated
+  model over its trace, a page per trace and experiment, from a calibration step's `best_fit`
+  input: its saved best-fit outputs and obs_data), `posterior`, `laplace` and
   `posterior_predictive` (a uq step's check: each scalar observable's model intervals
   in noise stds from its data, titled with the coverage, and the kept traces against
   the recorded ones). A `sensitivity` input also carries `local` (a local analysis's
