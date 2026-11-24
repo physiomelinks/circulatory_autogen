@@ -216,6 +216,12 @@ next release; add to that section as you land a change.
   error-in-stds bar plot) as mean(|obs - fit / std|), dividing only the fit by the std. It is
   now mean(|obs - fit| / std), as for a constant item. Every series item's value changes; constant
   and frequency items, the percent errors and the calibration cost are unchanged.
+### Changed — the Goodwin benchmark's CMA-ES starts off the truth
+
+`benchmarks/benchmark_specs.py`: CMA-ES starts at its model's values, and the Goodwin CellML's
+values are the truth the synthetic data was made at; since CMA-ES scores its start it stopped at
+once. It now runs on a copy of the CellML whose `ai`, `bi` and `Ai` start at 1.25 x the truth
+(`GOODWIN_CMAES_START`, inside the bounds); the other methods are unchanged.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 

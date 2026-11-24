@@ -242,6 +242,102 @@ def test_three_compartment_ground_truth_is_inside_the_identification_bounds():
         assert lo < value < hi, f'{name} ground truth {value:g} outside bounds [{lo:g}, {hi:g}]'
 
 
+def _goodwin_bounds():
+    from benchmarks.benchmark_specs import GOODWIN_CELLML_NAMES
+    with open(os.path.join(ROOT, 'resources', 'Goodwin_params_for_id.json')) as f:
+        entries = json.load(f)['params']
+    bounds = {entry['targets'][0]: (entry['min'], entry['max']) for entry in entries}
+    return [bounds[f'Xi/{name}'] for name in GOODWIN_CELLML_NAMES]
+
+
+@pytest.mark.unit
+def test_goodwin_cmaes_starts_inside_the_bounds_and_off_the_truth():
+    """CMA-ES starts at its model's values and scores its start; started at the truth it stops at
+    once and the benchmark tests nothing."""
+    from benchmarks.benchmark_specs import GOODWIN_CMAES_START, GOODWIN_TRUE_PARAMS
+    for (lo, hi), start, truth in zip(_goodwin_bounds(), GOODWIN_CMAES_START,
+                                      GOODWIN_TRUE_PARAMS):
+        assert lo < start < hi and lo < truth < hi
+        assert abs(start - truth) > 0.1 * abs(truth)
+
+
+@pytest.mark.unit
+def test_the_goodwin_cmaes_copy_starts_where_it_says(tmp_path):
+    """The copy CMA-ES runs on is the PMR CellML with only the three calibrated values moved,
+    as Myokit reads it; a name the file does not declare once is refused."""
+    import myokit.formats
+    from benchmarks.benchmark_specs import (GOODWIN_CELLML_NAMES, GOODWIN_CMAES_START,
+                                            GOODWIN_TRUE_PARAMS,
+                                            _place_external_cellml_with_values)
+    resources = os.path.join(ROOT, 'resources')
+    _place_external_cellml_with_values(resources, str(tmp_path), 'Goodwin',
+                                       dict(zip(GOODWIN_CELLML_NAMES, GOODWIN_CMAES_START)))
+    importer = myokit.formats.importer('cellml')
+    moved = importer.model(str(tmp_path / 'Goodwin' / 'Goodwin.cellml'))
+    original = importer.model(os.path.join(resources, 'Goodwin.cellml'))
+    for name, start, truth in zip(GOODWIN_CELLML_NAMES, GOODWIN_CMAES_START, GOODWIN_TRUE_PARAMS):
+        assert moved.get(f'Xi.{name}').eval() == pytest.approx(start)
+        assert original.get(f'Xi.{name}').eval() == pytest.approx(truth)
+    for var in original.variables(const=True, deep=True):
+        if var.name() not in GOODWIN_CELLML_NAMES:
+            assert moved.get(var.qname()).eval() == pytest.approx(var.eval()), var.qname()
+    with pytest.raises(ValueError, match='declares variable "nope" with an initial value 0'):
+        _place_external_cellml_with_values(resources, str(tmp_path), 'Goodwin', {'nope': 1.0})
+
+
+@pytest.mark.unit
+def test_goodwin_runs_cmaes_from_its_own_start(tmp_path, monkeypatch):
+    """run_goodwin runs CMA-ES on the copy that starts at GOODWIN_CMAES_START, keeping CMA-ES's
+    own options, and every other method on the PMR values."""
+    import myokit.formats
+    from benchmarks import benchmark_specs as specs
+    seen = {}
+
+    class Comparison:
+        def __init__(self, config, methods, num_calls, extra_method_configs):
+            self.method_configs = {'CMA-ES': {'param_id_method': 'CMA-ES',
+                                              'optimiser_options': {'max_patience': num_calls}}}
+            self.method_configs.update(extra_method_configs)
+            self.config, self.results, self.runtimes = config, {}, {}
+
+        def run_method(self, method):
+            run = dict(self.config, **self.method_configs.get(method, {}))
+            seen[method] = run
+            self.results[method] = {'params': specs.GOODWIN_TRUE_PARAMS, 'cost': 0.0}
+            self.runtimes[method] = 0.0
+            return True
+
+        def get_output_dir(self, method):
+            return str(tmp_path)
+
+        def load_eval_count(self, directory):
+            return None
+
+    class OneRank:
+        def Get_rank(self):
+            return 0
+
+        def Get_size(self):
+            return 1
+
+        def Barrier(self):
+            pass
+
+    monkeypatch.setattr(specs, 'OptimiserComparison', Comparison)
+    monkeypatch.setattr(specs, '_generate_casadi_from_external_cellml',
+                        lambda resources, models, prefix: None)
+    specs.run_goodwin({}, os.path.join(ROOT, 'resources'), str(tmp_path / 'out'),
+                      str(tmp_path / 'models'), OneRank())
+    cmaes = seen['CMA-ES']
+    assert cmaes['optimiser_options'] == {'max_patience': 30000}
+    model = myokit.formats.importer('cellml').model(
+        os.path.join(cmaes['generated_models_dir'], 'Goodwin', 'Goodwin.cellml'))
+    np.testing.assert_allclose([model.get(f'Xi.{n}').eval() for n in specs.GOODWIN_CELLML_NAMES],
+                               specs.GOODWIN_CMAES_START)
+    assert seen['genetic_algorithm']['generated_models_dir'] == str(tmp_path / 'models' /
+                                                                    'goodwin')
+
+
 @pytest.mark.unit
 def test_obs_reducers_cover_the_shipped_operations():
     """Every operation in the 3compartment obs template must have a reducer, or the synthetic
