@@ -328,6 +328,9 @@ def test_differing_outputs_are_named(tmp_path):
         os.makedirs(tmp_path / name)
         figure, axes = plt.subplots(figsize=(1, 1), dpi=30)
         axes.plot([0, 1], [0, height])
+        # fixed limits, so the lines differ: autoscaled, they are the same line, and at this
+        # size Matplotlib 3.11 draws the same pixels for both
+        axes.set_ylim(0.0, 2.0)
         figure.savefig(tmp_path / name / 'plot.png')
         plt.close(figure)
         (tmp_path / name / 'same.txt').write_text('same')
