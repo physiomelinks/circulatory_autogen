@@ -110,7 +110,7 @@ def main(out):
         values = defaults.copy()
         calibrated = []
         for row in result['calibrated']:
-            name = f"{row['vessel']}/{row['param']}"
+            name = f"{row['module']}/{row['param']}"
             values[names.index(name)] = row['value']
             calibrated.append(name)
         idx = [names.index(n) for n in calibrated]
