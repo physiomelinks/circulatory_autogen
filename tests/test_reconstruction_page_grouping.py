@@ -77,9 +77,9 @@ def _protocol_info(num_sub):
     }
 
 
-def _run(tmp_path, items, num_sub, monkeypatch, data_references=None):
+def _run(tmp_path, items, num_sub, monkeypatch, data_references=None, obs_info=None):
     """Drive ``plot_reconstruction_pages`` and capture each page's axes before it closes."""
-    obs_info = _obs_info(items, data_references)
+    obs_info = obs_info or _obs_info(items, data_references)
     protocol_info = _protocol_info(num_sub)
 
     plotter = ParamIDPlotOutputs.__new__(ParamIDPlotOutputs)
@@ -248,3 +248,19 @@ def test_the_error_vectors_stay_one_entry_per_item(tmp_path, monkeypatch):
     assert len(pages) == 2
     assert percent.shape == (len(items),)
     assert std.shape == (len(items),)
+
+
+def test_a_series_std_error_is_its_mean_misfit_in_stds(tmp_path, monkeypatch):
+    """A series item's "error in stds" is mean(|obs - fit| / std): here |3 - 1| / 2 = 1,
+    where dividing only the fit by the std would give |3 - 1/2| = 2.5."""
+    items = [("p_trace", "p", 0)]
+    n = N_STEPS + 1
+    info = _obs_info(items)
+    info.update(data_types=["series"], operations=[None], plot_type=["series"],
+                item_names_for_plotting=["p_trace"], ground_truth_const=np.array([]),
+                std_const_vec=np.array([]), weight_const_vec=np.array([]),
+                ground_truth_series=[np.full(n, 3.0)], std_series_vec=[np.full(n, 2.0)],
+                weight_series_vec=np.ones(1), obs_dt=[DT])
+    _, percent, std = _run(tmp_path, items, 1, monkeypatch, obs_info=info)
+    assert std[0] == pytest.approx(1.0)
+    assert percent[0] == pytest.approx(100 * 2.0 / 3.0)

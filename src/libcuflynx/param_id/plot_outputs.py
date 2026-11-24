@@ -712,7 +712,7 @@ class ParamIDPlotOutputs:
                             / len(obs_entry)
                         )
                         std_error_vec[II] = np.sum(
-                            np.abs((obs_entry - series_entry / (std_entry)))
+                            np.abs((obs_entry - series_entry) / std_entry)
                             / len(obs_entry)
                         )
                     elif obs_info["data_types"][II] == "frequency":
