@@ -233,8 +233,8 @@ def assert_fitzhugh_nagumo(result, mpi_comm):
 
 # Ground-truth parameters the synthetic 3compartment obs data is generated at, by forward
 # simulating the model. All four lie inside the identification bounds in
-# 3compartment_params_for_id.json -- note the model's own q_lv_init default (2e-3) does NOT, so the
-# CSV defaults cannot be used wholesale as a ground truth.
+# 3compartment_params_for_id.json, as does the model's own q_lv_init default (1e-3 m3, in
+# [2e-4, 1.5e-3]).
 THREE_COMPARTMENT_TRUE_PARAMS = np.array([8.0e-4, 1.2028e-8, 3.66575e8, 1.0664e7])
 THREE_COMPARTMENT_PARAM_LABELS = ['q_lv_init', 'C_ao', 'E_lv_A', 'E_lv_B']
 THREE_COMPARTMENT_PARAM_NAMES = ['global/q_lv_init', 'aortic_root/C',
