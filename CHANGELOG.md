@@ -26,7 +26,7 @@ next release; add to that section as you land a change.
 - **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
   Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
   gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
-  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `emulator_validation`, `distribution`, `laplace`,
+  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `best_fit`, `emulator_validation`, `distribution`, `laplace`,
   `reduction`, `mcmc_chain`, `validation`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
   simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
   helpers the script reads. A run draws every figure step that is out of date (its script, files
@@ -52,7 +52,9 @@ next release; add to that section as you land a change.
   `mcmc_chain` input: a calibration's MCMC chain),
   `emulator_validation` (parity and residual plots at an emulation step's held-out points),
   `fit_errors` (the best fit's error per data_item, in percent and in noise stds, from a
-  calibration step's `fit_errors` input), `posterior` and `laplace`. A `sensitivity` input also carries `local` (a local analysis's
+  calibration step's `fit_errors` input), `best_fit` (each data_item against the calibrated
+  model over its trace, a page per trace and experiment, from a calibration step's `best_fit`
+  input: its saved best-fit outputs and obs_data), `posterior` and `laplace`. A `sensitivity` input also carries `local` (a local analysis's
   relative and absolute sensitivities), and a `reduction` input is a reduction step's report
   with its PCA modes.
   `figures.write_standard_figures(<dir>)` copies it beside a workflow, where figure steps name

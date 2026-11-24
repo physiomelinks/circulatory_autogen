@@ -911,6 +911,7 @@
           "values",
           "progress",
           "fit_errors",
+          "best_fit",
           "mcmc_chain",
           "emulator_validation",
           "obs_data",
