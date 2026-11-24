@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the Goodwin benchmark's CMA-ES starts off the truth
+
+`benchmarks/benchmark_specs.py`: CMA-ES starts at its model's values, and the Goodwin CellML's
+values are the truth the synthetic data was made at; since CMA-ES scores its start it stopped at
+once. It now runs on a copy of the CellML whose `ai`, `bi` and `Ai` start at 1.25 x the truth
+(`GOODWIN_CMAES_START`, inside the bounds); the other methods are unchanged.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
