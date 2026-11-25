@@ -154,6 +154,32 @@ def test_the_components_are_the_vessels_and_the_constants_its_parameters(lv):
 
 
 @pytest.mark.unit
+def test_the_plan_lists_every_constant_of_the_target_with_its_origin(lv):
+    from libcuflynx.utilities import parameters_file as pf
+    doc = pf.new_document()
+    doc['Lotka_Volterra_module'] = {
+        'alpha': {'value': '4.0', 'units': 'dimensionless', 'origin': 'measured',
+                  'data_reference': 'smith2001; Table 2'},
+        'beta': {'value': '0.3', 'units': 'dimensionless', 'origin': 'set_by_hand',
+                 'reason': 'a round number'}}
+    pf.write_parameters_file(os.path.join(lv, 'values.json'), doc)
+    raw = _raw([_fit(model=_model('values.json'))], target=_model('values.json'))
+    values = {v['name'].partition('/')[2]: v
+              for v in plan_workflow(_write(lv, raw))['target_values']}
+    # the parameters file's rows, then the constants it does not set
+    assert list(values)[:2] == ['alpha', 'beta']
+    assert sorted(list(values)[2:]) == ['delta', 'gamma', 'u_alpha', 'u_gamma']
+    assert values['alpha'] == {'name': 'Lotka_Volterra_module/alpha', 'value': 4.0,
+                               'units': 'dimensionless', 'origin': 'measured',
+                               'data_reference': 'smith2001; Table 2', 'reason': '',
+                               'calibrated_by': ['fit']}
+    assert (values['beta']['origin'], values['beta']['reason']) == ('set_by_hand',
+                                                                    'a round number')
+    assert values['gamma']['origin'] is None and values['gamma']['calibrated_by'] == ['fit']
+    assert values['delta']['value'] == 0.2 and values['delta']['calibrated_by'] == []
+
+
+@pytest.mark.unit
 def test_a_name_that_is_not_a_constant_is_refused(lv):
     _write_json(os.path.join(lv, 'state.json'), {'version': 1, 'params': [
         {'targets': ['Lotka_Volterra_module/x'], 'min': 1, 'max': 30}]})

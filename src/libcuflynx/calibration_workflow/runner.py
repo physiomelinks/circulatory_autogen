@@ -2065,8 +2065,50 @@ def plan_workflow(source, module_library_dirs=None):
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
+            'target_values': _target_values(resolved.target, steps),
             'module_library_dirs': workflow.module_library_dirs, 'steps': steps,
             'target_overlap': resolved.target_overlap}
+
+
+def _target_values(target, steps):
+    '''Every parameter of the target (a resolve.Resolved* target) before any step runs, as
+    ``plan_workflow`` gives it: ``{name, value, units, origin, data_reference, reason,
+    calibrated_by}`` in its parameters file's order, then a CellML or external model's constants
+    that file does not set. ``name`` is as the parameters file writes it (``aortic_root/C``,
+    ``heart/lv/E``; a library module's ``C``, ``lv/E``, ``global/R``; a CellML model's
+    ``component/variable``). ``origin`` is the file's (``parameters_file.ORIGINS``), None where it
+    records none. ``calibrated_by`` lists the calibration steps (``steps``, the plan's entries)
+    whose values land on it.'''
+    from libcuflynx.utilities import parameters_file as pf
+    from libcuflynx.utilities.parameter_names import model_name
+
+    calibrated_by = {}
+    for step in steps:
+        for p in step['calibrates']:
+            calibrated_by.setdefault(model_name(p['target_parameterisation_name']), []) \
+                .append(step['id'])
+    path = target.parameters_path
+    rows = (pf.read_parameter_rows(path, kind=pf.MODULE if target.kind == 'library' else pf.MODEL)
+            if path and os.path.isfile(path) else [])
+    constants = getattr(target, 'constants', None) or {
+        name: {'value': value} for name, value in (getattr(target, 'parameters', None) or {}).items()}
+    named = {row['variable_name'] for row in rows}
+    rows += [{'variable_name': name, 'value': c.get('value'), 'units': c.get('units', '')}
+             for name, c in constants.items() if name not in named]
+    values = []
+    for row in rows:
+        try:
+            value = float(row.get('value'))
+        except (TypeError, ValueError):
+            value = row.get('value')
+        origin = row.get('origin')
+        values.append({'name': row['variable_name'], 'value': value,
+                       'units': row.get('units') or '',
+                       'origin': origin if origin in pf.ORIGINS else None,
+                       'data_reference': row.get('data_reference') or '',
+                       'reason': row.get('reason') or '',
+                       'calibrated_by': calibrated_by.get(model_name(row['variable_name']), [])})
+    return values
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,
