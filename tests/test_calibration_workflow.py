@@ -214,6 +214,19 @@ def test_plan_names_every_parameter_in_the_target(library):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize('which, fit_p, fit_q', [('chain_rest', 'fit_a', 'rest'),
+                                                 ('chain_array', 'a-alone', 'chain')])
+def test_the_plan_lists_every_value_of_the_target_and_what_calibrates_it(library, which, fit_p,
+                                                                         fit_q):
+    values = {v['name']: v for v in plan_workflow(library[which])['target_values']}
+    assert list(values) == ['A/p', 'C/q', 'C/k']
+    assert [values[n]['calibrated_by'] for n in values] == [[fit_p], [fit_q], []]
+    assert values['C/k'] == {'name': 'C/k', 'value': 1.0, 'units': 'dimensionless',
+                             'origin': None, 'reason': '', 'calibrated_by': [],
+                             'data_reference': 'doe2020gain; Table 1: the gain of C'}
+
+
+@pytest.mark.unit
 def test_every_step_needs_its_own_params_for_id(library):
     os.remove(os.path.join(library['lin_b/fit_b'], 'fit_b_params_for_id.json'))
     with pytest.raises(WorkflowError, match='params_for_id file .* does not exist'):
