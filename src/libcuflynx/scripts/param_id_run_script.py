@@ -21,6 +21,13 @@ import numpy as np
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 
+def select_uq_options(inp_data_dict, DEBUG):
+    """``debug_UQ_options`` when DEBUG is on and it is set, else ``UQ_options``."""
+    if DEBUG and 'debug_UQ_options' in inp_data_dict:
+        return inp_data_dict['debug_UQ_options']
+    return inp_data_dict['UQ_options']
+
+
 def run_param_id(inp_data_dict=None):
     """Calibrate, then optionally run MCMC and identifiability analysis.
 
@@ -122,11 +129,7 @@ def run_param_id(inp_data_dict=None):
     # param_id.close_simulation() comment for identifiability analysis run otherwise the model will be closed before analysis
     do_uq = inp_data_dict['do_uq']
 
-    if DEBUG:
-        # the parser's rule: debug_UQ_options when given, else UQ_options
-        UQ_options = inp_data_dict.get('debug_UQ_options', inp_data_dict['UQ_options'])
-    else:
-        UQ_options = inp_data_dict['UQ_options']
+    UQ_options = select_uq_options(inp_data_dict, DEBUG)
 
     mcmc = None
     if do_uq and (UQ_options or {}).get('method', 'mcmc') == 'laplace':

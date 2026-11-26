@@ -1105,6 +1105,11 @@ the module, the port's variables, the 1D vessel and the 0D modules.
 - Sums on the module's other ports generate; they are ordinary CellML.
 - The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
   vessel `v` ends sum, couple to 1D.
+### Fixed — `DEBUG: true` without `debug_UQ_options`
+
+- A calibration (user_inputs.yaml or a calibration workflow step) with `DEBUG: true` and no
+  `debug_UQ_options` stopped with `KeyError: 'debug_UQ_options'`. It now uses `UQ_options`, as the
+  parser already does.
 
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
