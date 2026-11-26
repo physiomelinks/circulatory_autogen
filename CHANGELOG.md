@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — a sweep step is stale when its `sweep` block changes
+
+- A sweep step's recorded `settings` digest now covers its `sweep` block (parameters, values,
+  outputs, design, zip) as well as its settings, so editing it makes the step stale:
+  `--stale-only` reruns it and the provenance diagram marks it. Before, only the settings were
+  digested, and a changed sweep kept its old results. Sweeps run before this release show as
+  stale once.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

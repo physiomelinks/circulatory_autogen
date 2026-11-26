@@ -133,12 +133,14 @@ def settings_digest(settings):
 
 def step_settings_digest(workflow, step):
     '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
-    options, or the workflow's settings with the step's on top. Formatting and key order of the
-    file do not change it.'''
+    options, or the workflow's settings with the step's on top, and a sweep's ``sweep`` block
+    with them. Formatting and key order of the file do not change it.'''
     if step.kind == 'set':
         return settings_digest(step.set_values)
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
+    if step.kind == 'sweep':
+        return settings_digest({'settings': workflow.step_settings(step), 'sweep': step.sweep})
     return settings_digest(workflow.step_settings(step))
 
 

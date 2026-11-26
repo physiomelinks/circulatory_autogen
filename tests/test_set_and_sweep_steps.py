@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from libcuflynx.calibration_workflow import (WorkflowError, load_workflow_run, plan_workflow,
+                                             workflow_status,
                                              run_calibration_workflow)
 from libcuflynx.calibration_workflow import sweep as sweep_module
 from libcuflynx.calibration_workflow.pack import pack_workflow
@@ -479,6 +480,25 @@ def test_a_sweep_on_the_target_ignores_values_a_step_was_only_given(library, tmp
     with np.load(step['sweep_results']) as results:
         np.testing.assert_allclose(results['trace_0'][:, 0, -1], 2 * 1.5 ** 2 + np.array([1.0, 4.0]),
                                    rtol=1e-6)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('edit', [
+    lambda sweep: sweep['parameters'].update({'mod__C/k': {'values': [1.0]}}),
+    lambda sweep: sweep['parameters']['mod__C/q'].update(values=[1.0, 2.0, 4.0]),
+    lambda sweep: sweep.update(outputs=['mod__C/z', 'mod__A/y']),
+    lambda sweep: sweep.update(design='one_at_a_time'),
+])
+def test_a_sweep_is_stale_when_its_sweep_block_changes(library, tmp_path, edit):
+    raw = _raw(library)
+    raw['steps'].append(dict(_sweep_step(raw), fixed_from=['fit_a']))
+    path, out = _write(library, raw), str(tmp_path / 'out')
+    run_calibration_workflow(path, output_dir=out)
+    assert not workflow_status(path, out)['steps']['scan']['stale']
+    edit(raw['steps'][-1]['sweep'])
+    _write(library, raw)
+    assert workflow_status(path, out)['steps']['scan']['stale']
+    assert not workflow_status(path, out)['steps']['rest']['stale']
 
 
 @pytest.mark.integration
