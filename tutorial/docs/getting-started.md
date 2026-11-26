@@ -34,17 +34,6 @@ pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
     The flat imports (`from param_id.paramID import CVS0DParamID`) were removed in 0.6.0 and
     raise `ModuleNotFoundError`. Use `from libcuflynx.param_id.paramID import CVS0DParamID`.
 
-!!! note "Features newer than the PyPI release"
-    PyPI holds the last release. This documentation describes the `master` branch, which can
-    be ahead of it: calibration workflows (`cuflynx-calibration-workflow`),
-    `cuflynx-methods-latex`, `cuflynx-variable-mapping`, `cuflynx-derive`,
-    `cuflynx-provenance` and `cuflynx-upgrade` are not in libcuflynx 0.7.3 on PyPI. Until the
-    next release, install from GitHub to get them:
-
-    ```
-    pip install "libcuflynx @ git+https://github.com/physiomelinks/circulatory_autogen@master"
-    ```
-
 ### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`
 
 Every stage needs a **user directory** — the one holding `user_run_files/user_inputs.yaml`

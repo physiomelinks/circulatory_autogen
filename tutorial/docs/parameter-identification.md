@@ -1312,10 +1312,6 @@ edit its obs_data and run the workflow again: every step that used its values is
 
 ### Try it
 
-Calibration workflows are newer than libcuflynx 0.7.3 on PyPI: until the next release, install
-from GitHub (`pip install "libcuflynx @ git+https://github.com/physiomelinks/circulatory_autogen@master"`)
-or from a checkout.
-
 libcuflynx ships small example models for trying workflows. They are algebraic, so a run takes
 seconds, and every answer is known. Write them anywhere:
 

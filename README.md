@@ -178,9 +178,9 @@ can never be re-uploaded) are in [CONTRIBUTING.md](CONTRIBUTING.md#making-a-rele
 Cite the project as **circulatory_autogen** — that is the name used by the publications, the
 repository and any archived DOI. The PyPI distribution `libcuflynx` is the *same* software under
 its packaging name, so a paper citing circulatory_autogen and an environment listing
-`libcuflynx==0.7.3` refer to one artifact, not two. When it helps reproducibility, record both:
+`libcuflynx==0.8.0` refer to one artifact, not two. When it helps reproducibility, record both:
 the citation for the project and the exact package version installed, e.g.
-"circulatory_autogen (PyPI package `libcuflynx`, version 0.7.3)".
+"circulatory_autogen (PyPI package `libcuflynx`, version 0.8.0)".
 
 # License
 circulatory_autogen is fully open source and distributed under the very permissive Apache License 2.0. See LICENSE for more information.
