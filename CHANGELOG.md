@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — a config dict resolves its funcs paths against the cwd, like its other paths
+
+- A config passed to `parse_user_inputs_file` as a dict (a study script that changes into its
+  study directory and builds the config) resolved a relative `cost_funcs_external_path`,
+  `operation_funcs_external_path`, `modifier_funcs_external_path`, `external_model_path` or
+  `generated_model_path` against the checkout root (`user_data_root()`), while `resources_dir`
+  and `param_id_obs_path` resolved against the cwd, so `funcs_user/...` was looked for inside
+  circulatory_autogen. They now resolve against the cwd too. A `user_inputs.yaml` read by the
+  launchers still resolves them from the checkout root, and one named by
+  `user_inputs_path_override` from its own directory.
+
 ### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
 
 - **Reduction results change for every user.** `sa_options.jacobian_check_steps` and
