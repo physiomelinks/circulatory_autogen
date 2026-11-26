@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — a note or origin edit leaves workflow steps current
+
+- **A parameters file counts by its values.** A step's recorded `parameters`,
+  `target_parameters` and `target_parameters_file` inputs, and a module library's
+  `*_parameters.json` files, are hashed by each parameter's path, `value` and `units`
+  (`runner.parameters_digest`). Editing a note (`data_reference`), `origin`, `reason` or
+  derivation leaves the steps current; the outputs that show them read the file when they are
+  written, so the next run (`--stale-only` too) writes the calibrated parameters, the
+  calibrated CellML, the target model and the provenance graph's value boxes with the edited
+  notes. A step's own generated model keeps the notes it ran with.
+- Runs recorded before this change are stale once, on the next status or `--stale-only` run.
+
 ### Added — calibration workflows can express a GUI study
 
 - **A CellML model as a workflow's target and steps' model:**

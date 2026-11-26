@@ -1314,6 +1314,47 @@ def test_settings_paths_are_relative_to_the_workflow_and_are_packed(library, tmp
         pack_workflow(path, pack)
 
 
+def _stale_steps(workflow_path, out):
+    from libcuflynx.calibration_workflow import workflow_status
+    return {s: v['stale'] for s, v in workflow_status(workflow_path, out)['steps'].items()}
+
+
+@pytest.mark.unit
+def test_a_note_or_origin_edit_leaves_steps_current_and_reaches_the_outputs(library, tmp_path):
+    out = str(tmp_path / 'run')
+    first = run_calibration_workflow(library['chain_array'], output_dir=out,
+                                     write_calibrated=True)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': False}
+
+    # the target's parameters file (the chain step's own) and a library parameterisation
+    target_path = os.path.join(library['arrays'], 'chain_parameters.json')
+    target = _read_json(target_path)
+    target['C']['k'].update(data_reference='smith2024; Fig. 2', origin='measured')
+    _write_json(target_path, target)
+    library_path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1',
+                                'parameterisations', 'default', 'default_parameters.json')
+    module = _read_json(library_path)
+    for leaf in module.values():
+        if isinstance(leaf, dict) and 'value' in leaf:
+            leaf['data_reference'] = 'a note on the library value'
+    _write_json(library_path, module)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': False}
+
+    # nothing reruns, and the calibrated parameters show the edited note and origin
+    events = []
+    result = run_calibration_workflow(library['chain_array'], output_dir=out, stale_only=True,
+                                      write_calibrated=True, progress=events.append)
+    assert [e['step'] for e in events if e['event'] == 'step_started'] == []
+    assert _merged(result) == _merged(first)
+    k = _read_json(result['calibrated_parameters_file'])['C']['k']
+    assert (k['data_reference'], k['origin']) == ('smith2024; Fig. 2', 'measured')
+
+    # a value is what a step runs with: editing one makes the step that reads it stale
+    target['C']['k']['value'] = 2.0
+    _write_json(target_path, target)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': True}
+
+
 @pytest.mark.unit
 def test_the_command_reports_steps_that_are_not_calibrations(capsys):
     from libcuflynx.scripts.calibration_workflow_run_script import _print_progress
