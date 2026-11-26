@@ -80,7 +80,7 @@ from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, PATH_SETTINGS,
                                                   load_workflow, refuse_older_step_keys,
                                                   uq_method, uq_options as _uq_options,
                                                   uses_log_posterior)
-from libcuflynx.utilities.parameters_file import ORIGINS
+from libcuflynx.utilities.parameters_file import ORIGINS, is_leaf
 from libcuflynx.utilities.mpi_utils import run_on_root
 from libcuflynx.utilities.paths import git_state, repo_root
 
@@ -94,6 +94,12 @@ FUNCS_INPUTS = {'operation_funcs': 'operation_funcs_external_path',
 LIBRARY_INPUT = 'module_library'
 #: the files of a module library a model is generated from
 LIBRARY_FILE_SUFFIXES = ('.cellml', '_modules_config.json', '_parameters.json')
+#: the inputs that may be a parameters file (utilities/parameters_file.py): their digest covers
+#: each value and its units only (:func:`parameters_digest`)
+PARAMETERS_INPUTS = ('parameters', 'target_parameters', 'target_parameters_file')
+#: the leaf keys a step's run depends on: editing any other (a note, an origin, a reason)
+#: leaves the steps that read the file current
+RUN_LEAF_KEYS = ('value', 'units')
 # where a step's calibrated values come from
 POINT_BEST_FIT = 'best_fit'
 POINT_POSTERIOR_MEDIAN = 'posterior_median'
@@ -193,7 +199,7 @@ def step_settings_digest(workflow, step):
     inputs and options, a reduction's options, a figure step's declaration, or the workflow's
     settings with the step's on top, and a sweep's or simulate step's ``sweep`` block with them.
     Formatting and key order of the file do not change it, nor does where the files its path
-    settings name are.'''
+    settings name are (:func:`digest_settings`).'''
     if step.kind == 'figure':
         return settings_digest(figures.declaration(step))
     if step.kind == 'set':
@@ -209,7 +215,10 @@ def step_settings_digest(workflow, step):
 
 
 def digest_settings(settings):
-    '''``settings`` with each path setting replaced by what it names (``path_digest``).'''
+    '''``settings`` with each path setting replaced by what it names (``path_digest``). The user
+    function files (``FUNCS_INPUTS``) are left out: each is an input of its own, by its content.'''
+    for setting in FUNCS_INPUTS.values():
+        settings.pop(setting, None)
     for key in PATH_SETTINGS:
         if settings.get(key):
             settings[key] = path_digest(settings[key])
@@ -225,6 +234,30 @@ def path_digest(path):
     if os.path.isdir(path):
         return module_library_digest([path])
     return path
+
+
+def parameters_digest(path):
+    '''The sha256 of a parameters file's values: each parameter's path, ``value`` and
+    ``units`` (``RUN_LEAF_KEYS``), whatever their order. A note, origin or reason can change
+    without a rerun; the outputs that show them read the file when they are written. A file
+    that is not a parameters file's JSON gets its plain sha256.'''
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return sha256(path)
+    if not isinstance(doc, dict):
+        return sha256(path)
+    values = []
+
+    def walk(node, place):
+        for key, child in node.items():
+            if is_leaf(child):
+                values.append([place + [key]] + [child.get(k) for k in RUN_LEAF_KEYS])
+            elif isinstance(child, dict):
+                walk(child, place + [key])
+    walk(doc, [])
+    return settings_digest(sorted(values, key=lambda v: v[0]))
 
 
 def directory_digest(directory):
@@ -250,20 +283,23 @@ def cellml_digest(path):
 
 def input_digest(key, path):
     '''The digest a step's input ``key`` records for ``path``: the CellML model's covers its
-    imports, an emulator's its directory, the module library's every library directory, and any
-    other input's is the file's sha256. Both the runner and the provenance graph use it.'''
+    imports, an emulator's its directory, the module library's every library directory, a
+    parameters file's its values (:func:`parameters_digest`), and any other input's is the
+    file's sha256. Both the runner and the provenance graph use it.'''
     if key == CELLML_INPUT:
         return cellml_digest(path)
     if key == EMULATOR_INPUT:
         return directory_digest(path)
     if key == LIBRARY_INPUT:
         return module_library_digest(path.split(os.pathsep))
+    if key in PARAMETERS_INPUTS:
+        return parameters_digest(path)
     return sha256(path)
 
 
 def module_library_digest(library_dirs):
     '''The sha256 of the module files under ``library_dirs``: their paths within each directory
-    and their contents.'''
+    and their contents, a parameterisation's values only (:func:`parameters_digest`).'''
     digest = hashlib.sha256()
     for directory in library_dirs:
         for root, dirs, files in os.walk(directory):
@@ -271,8 +307,10 @@ def module_library_digest(library_dirs):
             for name in sorted(files):
                 if name.endswith(LIBRARY_FILE_SUFFIXES):
                     path = os.path.join(root, name)
+                    content = (parameters_digest(path) if name.endswith('_parameters.json')
+                               else sha256(path))
                     digest.update(os.path.relpath(path, directory).encode('utf-8'))
-                    digest.update(sha256(path).encode('ascii'))
+                    digest.update(content.encode('ascii'))
     return digest.hexdigest()
 
 
@@ -499,7 +537,8 @@ class _Run:
         for key, setting in FUNCS_INPUTS.items():
             if merged.get(setting) and os.path.isfile(merged[setting]):
                 files[key] = merged[setting]
-        inputs = {key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()}
+        inputs = {key: {'path': path, 'sha256': input_digest(key, path)}
+                  for key, path in files.items()}
         if rs.model.kind == 'cellml':
             inputs[CELLML_INPUT] = {'path': rs.model.model.path,
                                     'sha256': input_digest(CELLML_INPUT, rs.model.model.path)}
@@ -530,9 +569,11 @@ class _Run:
                 target.parameters_path
             if target.kind == 'cellml' and target.parameters_path:
                 inputs['target_parameters_file'] = {'path': target.parameters_path,
-                                                    'sha256': sha256(target.parameters_path)}
+                                                    'sha256': parameters_digest(
+                                                        target.parameters_path)}
             if os.path.isfile(path):
-                inputs['target_parameters'] = {'path': path, 'sha256': sha256(path)}
+                inputs['target_parameters'] = {'path': path,
+                                               'sha256': input_digest('target_parameters', path)}
             inputs.update(self.library_input())
         return inputs
 

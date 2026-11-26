@@ -5,6 +5,24 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — a workflow step goes stale only when what it runs with changes
+
+- **A parameters file counts by its values.** A step's recorded `parameters`,
+  `target_parameters` and `target_parameters_file` inputs, and a module library's
+  `*_parameters.json` files, are hashed by each parameter's path, `value` and `units`
+  (`runner.parameters_digest`). Editing a note (`data_reference`), `origin`, `reason` or
+  derivation leaves the steps current; the outputs that show them read the file when they are
+  written, so the next run (`--stale-only` too) writes the calibrated parameters, the
+  calibrated CellML, the target model and the provenance graph's value boxes with the edited
+  notes. A step's own generated model keeps the notes it ran with.
+- **The funcs files leave the settings digest.** `operation_funcs_external_path`,
+  `cost_funcs_external_path` and `modifier_funcs_external_path` are not hashed with a
+  step's settings: each file is an input of its own, by its content (`operation_funcs`,
+  ...). So a workflow folder that is moved, or a packed workflow (which carries its funcs
+  under `settings/`) unzipped elsewhere, keeps its steps current; editing a funcs file
+  still makes them stale.
+- Runs recorded before this change are stale once, on the next status or `--stale-only` run.
+
 ### Added — the plan lists every value of the target, with where it comes from
 
 - `plan_workflow` (and `run_calibration_workflow(dry_run=True)`) returns `target_values`:
@@ -20,9 +38,10 @@ next release; add to that section as you land a change.
 
 ### Fixed — a calibration workflow run copied elsewhere stays current
 
-- A step's settings digest counts a path setting (`external_modules_dir`,
-  `operation_funcs_external_path`, `cost_funcs_external_path`, `modifier_funcs_external_path`)
-  by the contents of the file or the module files it names, not by its absolute path. A workflow
+- A step's settings digest counts a path setting (`external_modules_dir`) by the module files
+  it names, not by its absolute path, and leaves the funcs files out (each is an input of its
+  own, by its content; see "a workflow step goes stale only when what it runs with changes"
+  above). A workflow
   and its run copied to another folder no longer show every step stale, and editing the funcs
   file now makes the steps that read it stale. A step with such a setting that ran before
   this release shows its settings as changed until it runs again.
