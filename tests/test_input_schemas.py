@@ -184,8 +184,9 @@ def test_obs_data_keys_match_the_parser():
         _parse_obs_data_rules('prediction_entry_defaults')
     # an input item's source is refused, naming data_reference (parse_input_items)
     assert set(defs['inputItem']['properties']) - {'source'} == set(INPUT_ITEM_KEYS)
-    # the required keys have no default
-    assert set(defs['protocolInfo']['properties']) == \
+    # the required keys have no default; params_to_change_factors is refused by a plain parse
+    # (a workflow step resolves it, calibration_workflow/protocol_factors.py)
+    assert set(defs['protocolInfo']['properties']) - {'params_to_change_factors'} == \
         _parse_obs_data_rules('protocol_defaults') | set(defs['protocolInfo']['required'])
     assert set(defs['dataItem']['properties']['data_type']['enum']) == set(VALID_DATA_TYPES)
 
