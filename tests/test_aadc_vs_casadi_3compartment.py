@@ -94,17 +94,10 @@ def _norm_state_key(name):
 
 def _max_state_rel_l2_vs_cvode(cvode_helper, other_helper):
     """Max over matched ODE states of the whole-trajectory relative-L2 error (%) between
-    a CVODE_myokit reference helper and another backend's helper, at the reference's output
-    times. The other backend is interpolated onto them: when sim_time is not a whole number of
-    dt the two lay out their output grids differently (Myokit spreads its points over
-    [0, sim_time], CasADi steps by dt), so comparing sample by sample would compare different
-    times."""
+    a CVODE_myokit reference helper and another backend's helper."""
     cv_names = cvode_helper.get_all_variable_names()
     cv_res = cvode_helper.get_all_results(flatten=False)
     cv_map = {_norm_state_key(nm): np.asarray(cv_res[i][0]).flatten() for i, nm in enumerate(cv_names)}
-    t_ref = np.asarray(cvode_helper.get_time()).flatten()
-    t_other = np.asarray(other_helper.get_time()).flatten()
-    in_range = (t_ref >= t_other[0] - 1e-12) & (t_ref <= t_other[-1] + 1e-12)
 
     worst, worst_var, compared = 0.0, None, 0
     for sname in other_helper.state_name_to_idx:
@@ -112,10 +105,11 @@ def _max_state_rel_l2_vs_cvode(cvode_helper, other_helper):
         if key not in cv_map:
             continue
         a = np.asarray(other_helper.get_results([[sname]], flatten=True)[0]).flatten()
-        b = cv_map[key][in_range]
-        if len(b) < 2:
+        b = cv_map[key]
+        L = min(len(a), len(b))
+        if L < 2:
             continue
-        a = np.interp(t_ref[in_range], t_other[:len(a)], a)
+        a, b = a[:L], b[:L]
         denom = np.linalg.norm(b)
         if denom < 1e-12:
             continue
