@@ -619,6 +619,33 @@
               "description": "these multiples of the value the step's model gives it"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values",
+            "factors"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these values"
+            },
+            "factors": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these multiples of the value the step's model gives it"
+            }
+          },
+          "description": "these values, then these multiples of the value the step's model gives it"
         }
       ]
     },

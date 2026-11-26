@@ -1922,7 +1922,8 @@ can take from it, and its values do not reach the target. It can start from valu
 
 A parameter is named as in a params_for_id and takes `[min, max]`, `{"min", "max", "points",
 "scale"}` (5 points by default; `"scale": "log"` spaces them by ratio), `{"values": [...]}`, or
-`{"factors": [...]}`, multiples of the value the step's model gives it. `design` is `grid`, every
+`{"factors": [...]}`, multiples of the value the step's model gives it, or both: `{"values": [1, 10,
+100], "factors": [1]}` is 1, 10, 100 and the model's value. `design` is `grid`, every
 combination, or `one_at_a_time`, each parameter's values with the others at the model's values.
 `outputs` are variables recorded over time. An `obs_data` gives the protocol in place of
 `sim_time` and `pre_time`, and its `prediction_items` with an operation give one feature per point.

@@ -222,6 +222,11 @@ next release; add to that section as you land a change.
 values are the truth the synthetic data was made at; since CMA-ES scores its start it stopped at
 once. It now runs on a copy of the CellML whose `ai`, `bi` and `Ai` start at 1.25 x the truth
 (`GOODWIN_CMAES_START`, inside the bounds); the other methods are unchanged.
+### Added — a sweep parameter takes `values` and `factors` together
+
+A calibration workflow's sweep parameter may give both: its values are the `values`, then
+the `factors` x the value the step's model gives it (`{"values": [1, 10, 100], "factors": [1]}`
+sweeps 1, 10, 100 and the model's own value). Other keys are refused.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
