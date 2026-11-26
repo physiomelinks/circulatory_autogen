@@ -214,6 +214,14 @@ def theta_name(entry):
     return f'theta of {entry["entry"]}'
 
 
+def factor_line(record):
+    '''One parameter a step's protocol gives as factors: the value they multiply, and where
+    that value came from.'''
+    units = f' {record["units"]}' if record.get('units') else ''
+    source = f' from `{record["from_step"]}`' if record.get('from_step') else ''
+    return f'`{record["parameter"]}` in the protocol: factors × {record["base"]:g}{units}{source}'
+
+
 def set_line(entry):
     '''One entry of a set step, with its reason: a parameter's value or scale, or the theta of
     a params_for_id modifier entry.'''
@@ -271,7 +279,8 @@ def workflow_graph(steps):
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
     step) ``reduction``, ``set`` or ``sweep``, and (a combine step) ``combine`` and
     ``combine_from``, where a step has them (a simulate step has none; a figure step has
-    ``figure``: ``{function, inputs: {name: {kind, step}}}``), plus ``model`` (the
+    ``figure``: ``{function, inputs: {name: {kind, step}}}``), ``protocol_factors`` (the
+    step_result records of the values its protocol factors multiplied), plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
     target, by default every calibration, set and combine step) in a final dict with ``'id': None``. A
@@ -311,6 +320,7 @@ def workflow_graph(steps):
                      f'{_count(s["n_parameters"], "parameter")}, '
                      f'{_count(s["n_data_items"], "observable")}',
                      _kind_line(s)]
+        lines += [factor_line(r) for r in s.get('protocol_factors') or []]
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,

@@ -172,6 +172,8 @@ A `params_to_change` value is a **float** (constant) or a **string** (trace key 
 
 `protocol_shapes` is the **same waveform written as Myokit `[[protocol]]` events** rather than as a table of points, in Myokit's own field names (`level` / `start` / `length` / `period` / `multiplier`, plus an optional `baseline`) — so a protocol imported from a `.mmt` needs no translation. `libcuflynx.utilities.protocol_shapes.materialise_shapes` expands them **into `protocol_traces`** at parse time (and again, idempotently, in `set_protocol_info`), so **nothing downstream needs to know shapes exist** — keep it that way and add new shape types there rather than teaching the solvers about them. A shape is sized by the sub-experiment that references it unless it names its own `duration`; a name belongs to `protocol_traces` **or** `protocol_shapes`, not both.
 
+`params_to_change_factors` (same shape as `params_to_change`) works the same way one level up: the calibration workflow runner resolves it per step, against the step model's values, into `params_to_change` in `<step>/inputs/<step>_obs_data.json` (`calibration_workflow/protocol_factors.py`; `_Run.obs_data_read` is the path a step reads). `parse_obs_data_json` refuses it, so nothing outside the runner (and `workflow_model`) sees it.
+
 **Timeline conventions** (subtle — get these right):
 - `pre_times[j]` is the **unlogged pre-pass** before the first sub-experiment of experiment `j`; `sim_times[j][k]` is the duration of sub-experiment `(j, k)`.
 - `protocol_traces[...].t` are **seconds from the start of the Myokit segment** where the trace applies; match or exceed the segment length in `sim_times[j][k]`.

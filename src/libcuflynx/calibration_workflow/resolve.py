@@ -18,6 +18,7 @@ import warnings
 from dataclasses import dataclass, field
 
 from libcuflynx.calibration_workflow import naming, spec
+from libcuflynx.calibration_workflow.protocol_factors import has_factors
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
 from libcuflynx.calibration_workflow.spec import SWEEP_KINDS, WorkflowError
@@ -278,6 +279,12 @@ class ResolvedStep:
         '''Whether the step's obs_data and params_for_id name vessels as the target does while
         its model names them otherwise (a selection of one instance, generated as ``mod``).'''
         return bool(self.selection and self.selection.vessel)
+
+    @property
+    def reads_step_inputs(self):
+        '''Whether the step reads the obs_data the runner writes into its directory
+        (select.step_input_paths): renamed, or with its params_to_change_factors resolved.'''
+        return self.renames_inputs or has_factors(self.obs_data_path)
 
     @property
     def obs_data_path(self):

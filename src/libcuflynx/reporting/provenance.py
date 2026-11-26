@@ -184,7 +184,8 @@ def _graph_steps(run):
             'by_hand': _chosen_by_hand(raw),
             'set': raw.get('set'), 'sweep': raw_sweep(raw), 'combine': raw.get('combine'),
             'figure': _figure(raw) if raw.get('kind') == 'figure' else None,
-            'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point'))})
+            'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point')),
+            'protocol_factors': (result or {}).get('protocol_factors') or []})
     return steps
 
 
