@@ -238,6 +238,13 @@ sweeps 1, 10, 100 and the model's own value). Other keys are refused.
   step calibrates or sweeps, is refused, and so is the key outside a workflow
   (`parse_obs_data_json`). `workflow_model` hands over the obs_data resolved against the view's
   model.
+### Fixed — a sweep step is stale when its `sweep` block changes
+
+- A sweep step's recorded `settings` digest now covers its `sweep` block (parameters, values,
+  outputs, design, zip) as well as its settings, so editing it makes the step stale:
+  `--stale-only` reruns it and the provenance diagram marks it. Before, only the settings were
+  digested, and a changed sweep kept its old results. Sweeps run before this release show as
+  stale once.
 
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 

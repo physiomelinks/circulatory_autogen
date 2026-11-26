@@ -191,7 +191,8 @@ def settings_digest(settings):
 def step_settings_digest(workflow, step):
     '''The digest a step's ``settings`` input records: a set step's entries, a combine step's
     inputs and options, a reduction's options, a figure step's declaration, or the workflow's
-    settings with the step's on top. Formatting and key order of the file do not change it.'''
+    settings with the step's on top, and a sweep's or simulate step's ``sweep`` block with them.
+    Formatting and key order of the file do not change it.'''
     if step.kind == 'figure':
         return settings_digest(figures.declaration(step))
     if step.kind == 'set':
@@ -200,6 +201,8 @@ def step_settings_digest(workflow, step):
         return settings_digest({'combine_from': step.combine_from, 'combine': step.combine})
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
+    if step.kind in SWEEP_KINDS:
+        return settings_digest({'settings': workflow.step_settings(step), 'sweep': step.sweep})
     return settings_digest(workflow.step_settings(step))
 
 
