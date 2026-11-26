@@ -297,7 +297,10 @@
           "description": "pca: keep a parameter only if its effect on the informative modes, beyond what the kept parameters explain, is at least min_mode_std noise stds (from the Sobol run's local Jacobian). Off: one parameter per informative mode."
         },
         "redundancy_statistic": {
-          "enum": ["rms", "median"],
+          "enum": [
+            "rms",
+            "median"
+          ],
           "default": "median",
           "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
         },
@@ -500,6 +503,33 @@
               "description": "these multiples of the value the step's model gives it"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values",
+            "factors"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these values"
+            },
+            "factors": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these multiples of the value the step's model gives it"
+            }
+          },
+          "description": "these values, then these multiples of the value the step's model gives it"
         }
       ]
     },

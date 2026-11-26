@@ -5,6 +5,12 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a sweep parameter takes `values` and `factors` together
+
+A calibration workflow's sweep parameter may give both: its values are the `values`, then
+the `factors` x the value the step's model gives it (`{"values": [1, 10, 100], "factors": [1]}`
+sweeps 1, 10, 100 and the model's own value). Other keys are refused.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

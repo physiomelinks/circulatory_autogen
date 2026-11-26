@@ -46,19 +46,21 @@ DEFAULT_SOLVER = 'CVODE_myokit'
 
 
 def parameter_values(spec, nominal=None, where=''):
-    '''The values one sweep ``spec`` gives a parameter whose value in the model is ``nominal``;
-    None for ``factors`` when ``nominal`` is not known yet.'''
+    '''The values one sweep ``spec`` gives a parameter whose value in the model is ``nominal``:
+    ``values`` and then ``factors`` x ``nominal`` when it gives both; None for ``factors`` when
+    ``nominal`` is not known yet.'''
     if isinstance(spec, list):
         spec = {'min': spec[0], 'max': spec[1]}
-    if 'values' in spec:
-        return np.asarray(spec['values'], dtype=float)
-    if 'factors' in spec:
+    if 'values' in spec or 'factors' in spec:
+        values = np.asarray(spec.get('values', []), dtype=float)
+        if 'factors' not in spec:
+            return values
         if nominal is None:
             return None
         if nominal == 0:
             raise WorkflowError(f'{where}: "factors" multiply the model\'s value, which is 0; '
                                 f'give "values" or a range.')
-        return float(nominal) * np.asarray(spec['factors'], dtype=float)
+        return np.concatenate([values, float(nominal) * np.asarray(spec['factors'], dtype=float)])
     low, high = float(spec['min']), float(spec['max'])
     points = int(spec.get('points', DEFAULT_POINTS))
     if not low < high:

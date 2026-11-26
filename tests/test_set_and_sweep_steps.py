@@ -152,6 +152,30 @@ def test_the_range_forms_match_cams():
 
 
 @pytest.mark.unit
+def test_values_and_factors_together_give_both():
+    """The given values, then the factors x the model's value: k_o at 1, 10 and 100 and the
+    cell's own."""
+    spec = {'values': [1.0, 10.0, 100.0], 'factors': [1.0]}
+    assert parameter_values(spec) is None
+    assert parameter_values(spec, 5.4).tolist() == [1.0, 10.0, 100.0, 5.4]
+    with pytest.raises(WorkflowError, match='which is 0'):
+        parameter_values(spec, 0.0, 'here')
+    names, points = sweep_points({'design': 'grid', 'parameters': {'k_o': spec}}, {'k_o': 5.4})
+    assert names == ['k_o'] and points.ravel().tolist() == [1.0, 10.0, 100.0, 5.4]
+
+
+@pytest.mark.unit
+def test_a_sweep_range_takes_values_and_factors_and_refuses_other_keys(library):
+    raw = _raw(library)
+    raw['steps'].append(_sweep_step(raw, parameters={
+        'mod__C/q': {'values': [1.0, 2.0], 'factors': [1.0]}}))
+    _parse(library, raw)
+    raw['steps'][-1]['sweep']['parameters']['mod__C/q']['value'] = 3.0
+    with pytest.raises(WorkflowError):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize('spec, nominal, message', [
     ({'min': 1.0, 'max': 1.0}, None, 'not below max'),
     ({'min': 0.0, 'max': 1.0, 'scale': 'log'}, None, 'positive min'),
