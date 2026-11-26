@@ -952,6 +952,40 @@ number of vessels at a node (node sums #609, node rule D #617).
   directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
 - `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
   directory holding anything a pack does not write is still refused.
+
+### Changed — CMA-ES counts `max_patience` in generations: calibration results change
+
+- **CMA-ES results change.** `max_patience` now counts generations (one population of
+  candidates: 4 for two bounded parameters, at least the MPI rank count + 1) without an
+  improvement, as the schema already documented. It counted single cost evaluations, so on one
+  rank the default of 10 stopped a run after ten candidates without an improvement, under three
+  generations: a 2-parameter windkessel fit with a 600-call budget stopped after 21-42
+  evaluations at costs of 1e2, and now converges (cost < 1e-4, R and C within 0.02% of the
+  truth) in 290-520. Runs use more of `num_calls_to_function` and reach lower costs.
+- CMA-ES asks one whole generation per loop and spreads it over the ranks, instead of one
+  candidate per rank. On one rank the candidates are the same as before; on more ranks the
+  trajectory changes, because asking one per rank split generations so that nevergrad asked pycma
+  for the next generation before the last was told.
+- The CMA-ES `sigma0` option is not applied (nevergrad picks the initial step from the bounds), so
+  the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
+  given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
+  raised inside nevergrad's ask/tell, is silenced.
+
+### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+
+- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
+  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
+  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
+  `plot_prediction_plots` and the PCA-Sobol report now call
+  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
+  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
+  render figures with Agg, with or without a display.
+- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
+  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
+  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
+  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
+  tutorial notebook reads the hybrid run's 0D results from there.
+
 ### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
 
 - With `redundancy_check`, the reduction kept at each step the parameter with the largest
