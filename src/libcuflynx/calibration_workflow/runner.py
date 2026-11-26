@@ -53,6 +53,7 @@ from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
                                                            parameters_from_info)
 from libcuflynx.calibration_workflow.generate import (UnsetModelParameters, generate_model,
                                                       read_parameter_rows)
+from libcuflynx.calibration_workflow.protocol_factors import has_factors, resolve_factors
 from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      read_calibrated_parameters,
                                                      resolve_workflow)
@@ -222,6 +223,8 @@ class _Run:
         self.rank = comm.Get_rank()
         self.progress = progress
         self._library_digest = None
+        # {step id: what its protocol factors multiplied}, recorded in its step_result (rank 0)
+        self._factors = {}
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -235,6 +238,13 @@ class _Run:
 
     def step_dir(self, step_id):
         return os.path.join(self.output_dir, step_id)
+
+    def obs_data_read(self, step):
+        '''The obs_data a step reads: its own, or the copy written into its directory.'''
+        resolved = self.resolved.steps[step.id]
+        if resolved.reads_step_inputs:
+            return step_input_paths(self.step_dir(step.id), step)[0]
+        return resolved.obs_data_path
 
     def step_result(self, step_id):
         path = os.path.join(self.step_dir(step_id), STEP_RESULT)
@@ -396,6 +406,9 @@ class _Run:
                            'duration_s': round(time.time() - t0, 3),
                            'calibrated': [], 'fixed': [], 'inputs': self.inputs(step.id)},
                           **record)
+            factors = self._factors.pop(step.id, None)
+            if factors:
+                result['protocol_factors'] = factors
             _write_json(os.path.join(self.step_dir(step.id), STEP_RESULT), result)
             return result
 
@@ -477,6 +490,15 @@ class _Run:
                     f'step "{step.id}": the value fixed from "{row["from_step"]}" for '
                     f'"{name}" has no parameter of that name in the step model '
                     f'({generated["parameters_path"]}).')
+        if has_factors(obs_data):
+            # against the values the step's model was generated with
+            refused = {n: 'calibrates' for n in own}
+            if step.kind == 'sweep':
+                refused.update({p.model_name: 'sweeps' for p in resolved.parameters})
+            resolved_obs = self.obs_data_read(step)
+            os.makedirs(os.path.dirname(resolved_obs), exist_ok=True)
+            self._factors[step.id] = resolve_factors(
+                obs_data, resolved_obs, model_rows, fixed, refused, f'step "{step.id}"')
         if priors:
             source_path = params_for_id
             params_for_id = os.path.join(step_dir, f'{step.id}_params_for_id.json')
@@ -490,8 +512,7 @@ class _Run:
         step_dir = self.step_dir(step.id)
         prefix = step.emulator_from or step.id
         resolved = self.resolved.steps[step.id]
-        obs_data = (step_input_paths(step_dir, step)[0] if resolved.renames_inputs
-                    else resolved.obs_data_path)
+        obs_data = self.obs_data_read(step)
         inp = copy.deepcopy(STEP_DEFAULTS)
         inp.update(copy.deepcopy(settings))
         inp.update({
@@ -769,7 +790,7 @@ class _Run:
         nominal, swept_units = self.on_root(at_the_model)
         names, points, by_point = self._run_stage(
             step, 'sweep', sweep_runs.run_points, step.sweep, generated, settings,
-            resolved.obs_data_path, nominal, self.comm, where)
+            self.obs_data_read(step), nominal, self.comm, where)
 
         def finish():
             record = sweep_runs.write_results(
@@ -1475,6 +1496,15 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             model, view_dir, view, rows, library_inputs=library_inputs,
             model_type=settings.get('model_type', STEP_DEFAULTS['model_type']),
             solver=settings.get('solver'))
+    if has_factors(obs_data):
+        # resolved against the view's model, as a run resolves them against the step's
+        resolved_obs = step_input_paths(view_dir, own_step)[0]
+        os.makedirs(os.path.dirname(resolved_obs), exist_ok=True)
+        model_rows = {r['variable_name']: r
+                      for r in read_parameter_rows(generated['parameters_path'])}
+        resolve_factors(obs_data, resolved_obs, model_rows,
+                        {v['model_name']: v for v in fixed + calibrated}, {}, f'view "{view}"')
+        obs_data = resolved_obs
 
     def existing(path):
         return path if path and os.path.isfile(path) else None

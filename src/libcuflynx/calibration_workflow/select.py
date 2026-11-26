@@ -230,8 +230,9 @@ def write_step_inputs(step_dir, step, params_for_id, vessel_map, target_vessels)
             if isinstance(item.get('operands'), list):
                 item['operands'] = [rename(o) for o in item['operands']]
     info = obs.get('protocol_info') or {}
-    if isinstance(info.get('params_to_change'), dict):
-        info['params_to_change'] = {rename(k): v for k, v in info['params_to_change'].items()}
+    for key in ('params_to_change', 'params_to_change_factors'):
+        if isinstance(info.get(key), dict):
+            info[key] = {rename(k): v for k, v in info[key].items()}
     for plot in obs.get('prediction_plots') or []:
         for ref in (plot.get('x'), plot.get('series')):
             if isinstance(ref, dict) and 'params_to_change' in ref:

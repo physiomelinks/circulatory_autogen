@@ -1067,6 +1067,22 @@
           },
           "description": "{model parameter qname: one row per experiment of one value per sub-experiment}. A string value names a protocol_traces or protocol_shapes entry (a time-varying input). Default: {}."
         },
+        "params_to_change_factors": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "description": "{model parameter qname: one row per experiment of one factor per sub-experiment}, each multiplying the value the calibration workflow step's model gives that parameter (after fixed_from / result_from). The workflow resolves them into params_to_change for the step, so they are read only in a workflow step, never for a parameter also in params_to_change or one the step calibrates or sweeps. Default: none."
+        },
         "offline_pre_time": {
           "type": [
             "number",

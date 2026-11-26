@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — protocol factors: a workflow step's protocol multiplies the values its model has
+
+- `protocol_info.params_to_change_factors`, in the shape of `params_to_change`, gives a parameter
+  as factors on the value the step's model gives it (after `fixed_from` / `result_from`; on the
+  target, the merged values). The calibration workflow resolves them once per step into absolute
+  `params_to_change` in `<step_id>/inputs/<step_id>_obs_data.json`, which the step reads; the
+  step's `step_result.json` records each base value and the step it came from under
+  `protocol_factors`, and the provenance diagram names them. A parameter in both keys, or one the
+  step calibrates or sweeps, is refused, and so is the key outside a workflow
+  (`parse_obs_data_json`). `workflow_model` hands over the obs_data resolved against the view's
+  model.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

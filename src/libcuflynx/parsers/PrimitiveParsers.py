@@ -3538,14 +3538,15 @@ class JSONFileParser(object):
             vessel_df[column] = add_on_lists[column]
 
 
-def validate_params_to_change(protocol_info):
+def validate_params_to_change(protocol_info, entry="params_to_change"):
     """
-    Raise ValueError if params_to_change rows are not aligned with sim_times.
+    Raise ValueError if the rows of protocol_info[entry] (params_to_change, or another
+    entry of its shape) are not aligned with sim_times.
 
     Every key must have one experiment row per entry in sim_times, and each row
     must have one value per subexperiment (len(sim_times[exp_idx])).
     """
-    ptc = protocol_info.get("params_to_change") or {}
+    ptc = protocol_info.get(entry) or {}
     if not ptc:
         return
 
@@ -3586,7 +3587,7 @@ def validate_params_to_change(protocol_info):
 
     if errors:
         raise ValueError(
-            "params_to_change shape mismatch:\n" + "\n".join(errors)
+            f"{entry} shape mismatch:\n" + "\n".join(errors)
         )
 
 
@@ -3862,6 +3863,13 @@ class ObsAndParamDataParser(object):
             if key not in protocol_info or _is_missing_scalar(protocol_info[key]):
                 protocol_info[key] = copy.deepcopy(default)
 
+        if protocol_info.get('params_to_change_factors'):
+            raise ValueError(
+                "protocol_info.params_to_change_factors multiplies the values a calibration "
+                "workflow step's model gives its parameters, so it is resolved by the workflow "
+                "and read only in a workflow step; in a plain run give absolute values in "
+                "params_to_change.")
+        protocol_info.pop('params_to_change_factors', None)
         validate_params_to_change(protocol_info)
         # Shapes become traces here, once, so every consumer downstream --
         # solver helpers, plotting, anything added later -- keeps seeing only

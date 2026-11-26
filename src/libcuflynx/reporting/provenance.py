@@ -147,7 +147,8 @@ def _graph_steps(run):
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
             'set': raw.get('set'), 'sweep': raw.get('sweep'),
-            'on_target': bool(raw.get('on_target'))})
+            'on_target': bool(raw.get('on_target')),
+            'protocol_factors': (result or {}).get('protocol_factors') or []})
     return steps
 
 

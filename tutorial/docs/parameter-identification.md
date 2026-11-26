@@ -112,6 +112,9 @@ is mainly used to simulate for an amout of time to reach steady state or periodi
 - **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Calibration runs it once, before the first evaluation, and every evaluation starts from its end state. Supported by the `CVODE_myokit`, `CVODE_libopencor`, `casadi_python`, `python` (`solve_ivp`) and `aadc_python` backends; an emulator ignores it (its training already covered the warmup) and an `external_python` model raises, because its `run()` always starts from the initial condition. A traced input (`protocol_traces` / `protocol_shapes`) is held at its value at the start of experiment 0 during this warmup. It cannot be combined with a calibration parameter that sets a state's initial value: the frozen state would not move with that parameter, so the run stops with `OFFLINE_PRE_TIME_INIT_STATE_ERROR` (reformulate in terms of a constant parameter, e.g. total volume rather than initial LV volume). Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
 - **sim_times**: The length in time of each subexperiment. shape=(number of experiments, number of subexperiments) -- Note: the shape isn't completely correct here, the number of subexperiments can be different for each experiment
 - **params_to_change**: A dictionary where the key is a parameter name and the entry is the assigned value of that parameter in each (experiment_idx, subexperiment_idx).
+- **params_to_change_factors** (optional, calibration workflow steps only): The same shape as
+`params_to_change`, each entry a number that multiplies the value the step's model gives that
+parameter -- see [Protocol factors](#protocol-factors).
 - **experiment_colors**: The line color for the plots of each experiment. 
 - **experiment_labels**: The label for each experiment, which is used for plotting and naming plots.
 - **protocol_traces** (optional): Named `{"t": [...], "values": [...]}` waveforms. A `params_to_change`
@@ -1475,6 +1478,26 @@ point runs all its experiments and sub-experiments.
            "parameters": {"GLUT2_api/Scale_GLUT2": {"values": [0, 0.1, 1, 10]},
                           "GLUT2_bas/Scale_GLUT2": {"values": [1, 1, 10, 100]}}}}
 ```
+
+#### Protocol factors
+
+A step's protocol can give a parameter as factors on the value the step's model gives it, rather
+than as values: `protocol_info.params_to_change_factors`, in the shape of `params_to_change`. The
+workflow resolves them once per step (calibration, analysis or sweep), against the step model's
+values after `fixed_from` / `result_from` (on the target, the merged values), into
+`params_to_change` in a copy of the obs_data the step reads, `<step_id>/inputs/<step_id>_obs_data.json`.
+So x1 to x10 of the Kir density another step calibrated need no copy of its value:
+
+```json
+"protocol_info": {"pre_times": [0, 0, 0], "sim_times": [[60], [60], [60]],
+                  "params_to_change_factors": {"Kir/Scale_Kir": [[1], [2], [10]]}}
+```
+
+The step's `step_result.json` lists each value the factors multiplied under `protocol_factors`
+(`parameter`, `base`, `units` and, for a value an earlier step gave, `from_step`), and the
+diagram names them in the step's box. A parameter is refused in both `params_to_change` and
+`params_to_change_factors`, or when the step calibrates or sweeps it. Outside a workflow there is
+no step model to take values from, so `parse_obs_data_json` refuses the key.
 
 The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, `parameters`,
 `outputs`, `features` and `feature_values`, and for each experiment `time_<e>` and `trace_<e>`
