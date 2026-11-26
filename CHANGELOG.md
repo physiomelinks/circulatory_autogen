@@ -233,6 +233,13 @@ next release; add to that section as you land a change.
   launchers still resolves them from the checkout root, and one named by
   `user_inputs_path_override` from its own directory.
 
+### Fixed — a series data item's "error in stds" is mean(|obs - fit| / std): its values change
+
+- `plot_outputs` computed a series item's "error in stds" (`std_error_vec.npy` and the
+  error-in-stds bar plot) as mean(|obs - fit / std|), dividing only the fit by the std. It is
+  now mean(|obs - fit| / std), as for a constant item. Every series item's value changes; constant
+  and frequency items, the percent errors and the calibration cost are unchanged.
+
 ### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
 
 - **Reduction results change for every user.** `sa_options.jacobian_check_steps` and
