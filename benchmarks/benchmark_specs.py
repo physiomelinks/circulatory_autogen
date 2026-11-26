@@ -263,7 +263,7 @@ def _write_three_compartment_synthetic_obs(config, model_path, template_path, ou
     from libcuflynx.solver_wrappers import get_simulation_helper
 
     with open(template_path) as f:
-        items = json.load(f)
+        document = json.load(f)
 
     # generate_with_new_architecture() runs the config through the parser, which moves 'solver'
     # into solver_info -- so accept it from either place.
@@ -279,7 +279,7 @@ def _write_three_compartment_synthetic_obs(config, model_path, template_path, ou
         raise RuntimeError('3compartment ground-truth simulation failed')
 
     out_items = []
-    for item in items:
+    for item in document['data_items']:
         item = dict(item)
         operand = item['operands'][0]
         reducer = _OBS_REDUCERS.get(item['operation'])
@@ -294,8 +294,9 @@ def _write_three_compartment_synthetic_obs(config, model_path, template_path, ou
         out_items.append(item)
     sim.close_simulation()
 
+    # the template's protocol_info and other keys stay; only the data_items' values change
     with open(out_path, 'w') as f:
-        json.dump(out_items, f, indent=2)
+        json.dump(dict(document, data_items=out_items), f, indent=2)
     return THREE_COMPARTMENT_TRUE_PARAMS
 
 
