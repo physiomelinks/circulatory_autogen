@@ -1535,6 +1535,25 @@ def test_a_note_or_origin_edit_leaves_steps_current_and_reaches_the_outputs(libr
 
 
 @pytest.mark.unit
+def test_a_module_directorys_digest_counts_its_parameterisations_values_only(library):
+    # the module library's digest, and an external_modules_dir's (which is digested the same way)
+    from libcuflynx.calibration_workflow.runner import module_library_digest, parameters_digest
+    path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1', 'parameterisations',
+                        'default', 'default_parameters.json')
+    before = (module_library_digest([library['modules']]), parameters_digest(path))
+    module = _read_json(path)
+    module['k'].update(origin='measured', data_reference='smith2024', reason='a note')
+    _write_json(path, module)
+    assert (module_library_digest([library['modules']]), parameters_digest(path)) == before
+    for key, value in (('value', 2.0), ('units', 'second')):
+        edited = copy.deepcopy(module)
+        edited['k'][key] = value
+        _write_json(path, edited)
+        assert module_library_digest([library['modules']]) != before[0]
+        assert parameters_digest(path) != before[1]
+
+
+@pytest.mark.unit
 def test_the_command_reports_steps_that_are_not_calibrations(capsys):
     from libcuflynx.scripts.calibration_workflow_run_script import _print_progress
     _print_progress({'event': 'step_started', 'step': 'reduce', 'index': 2, 'total': 5,
