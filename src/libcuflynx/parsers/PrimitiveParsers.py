@@ -1882,12 +1882,13 @@ ANALYSIS_OPTIONS = {
              'methods': ['sobol'],
              'description': ('The difference step: in ln(parameter), or, for bounds that '
                              'straddle 0, as a fraction of the range.')},
-            {'name': 'jacobian_check_steps', 'type': 'bool', 'default': False,
+            {'name': 'jacobian_check_steps', 'type': 'bool', 'default': True,
              'methods': ['sobol'],
              'required': False,
              'description': ('Also take the derivatives with half the step (twice the runs), so '
                              'a reduction can leave out points where they disagree '
-                             '(redundancy_converged_only).')},
+                             '(redundancy_converged_only). Set false, with '
+                             'redundancy_converged_only: false, to halve the derivative runs.')},
             # Read by sobol_SA (both methods go through it for their options) and by
             # run_local_sensitivity. Off, the outputs are exactly the data_item features, as
             # they always were.
@@ -2030,7 +2031,7 @@ ANALYSIS_OPTIONS = {
              'description': ('For "pca" with redundancy_check: how a parameter\'s unexplained '
                              'effect at the Jacobian points is summarised: rms (any point where '
                              'it is unexplained counts) or median (most points must agree).')},
-            {'name': 'redundancy_converged_only', 'type': 'bool', 'default': False,
+            {'name': 'redundancy_converged_only', 'type': 'bool', 'default': True,
              'methods': ['pca'],
              'required': False,
              'description': ('For "pca" with redundancy_check: leave out Jacobian points where '

@@ -303,7 +303,7 @@
         },
         "redundancy_converged_only": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "pca with redundancy_check: leave out Jacobian points whose derivatives at the step and half of it disagree; needs sa_options.jacobian_check_steps"
         },
         "redundancy_convergence_tol": {
