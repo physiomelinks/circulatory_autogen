@@ -857,6 +857,8 @@ number of vessels at a node (node sums #609, node rule D #617).
   check from the MCMC run's directory, and still reads a bundle's `output/` folder when there is
   one.
 
+### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
+
 ### Fixed — identifiability, plotting and multi-run engines use the user operation, cost and modifier files
 
 - `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
@@ -939,6 +941,125 @@ number of vessels at a node (node sums #609, node rule D #617).
   directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
 - `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
   directory holding anything a pack does not write is still refused.
+### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+
+- With `redundancy_check`, the reduction kept at each step the parameter with the largest
+  local effect not yet explained. Of two parameters that are redundant in the informative
+  modes it could so keep the one with the lower Sobol index, on a small difference in local
+  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
+  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
+  still at least `min_mode_std`, the one with the highest Sobol index over the informative
+  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
+  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
+  decided as before.
+
+### Changed — a workflow tab's model is generated faster
+
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
+### Fixed — a Sobol analysis runs on casadi_python models
+
+- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
+  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
+  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
+  every model type, as a calibration does for its numeric evaluations.
+
+### Fixed — an emulator is not refused because its Python model has another file name
+
+- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
+  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
+  run on an emulator trained under another prefix (a workflow step's emulator used by another
+  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
+  fingerprint now also holds `model_content_sha256`: the model file with that file name left
+  out, and the utilities file, which the earlier hash did not cover. An emulator stored
+  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
+  this refusal.
+
+### Added — analysis options name the methods that read them
+
+- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
+  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
+  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
+  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
+  option without it is read by every method. `analysis_options(mode, method)` returns a
+  method's options, so a settings form shows and sends only those. No run reads the marker:
+  what each method accepts is unchanged.
+
+### Changed — the PCA parameter reduction checks for redundant parameters
+
+- `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
+  effect on the informative PCA modes over its prior range, beyond what the parameters already
+  kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
+  at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
+  with a step of 0.01 in ln(parameter), so 2 x `jacobian_points` x M extra runs, about 2.9% of
+  a 12-parameter run at `num_samples: 256`; `jacobian_location`, `jacobian_scheme`,
+  `jacobian_step` and `jacobian_check_steps` choose others). The redundancy is judged at each
+  point and summarised over the points by `redundancy_statistic` (`median`, or `rms`),
+  optionally leaving out points whose derivatives change with the step
+  (`redundancy_converged_only`). The defaults come from
+  `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
+  (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
+  parameters, and every parameter of a ratio or scaling symmetry.
+
+### Fixed — a failed Sobol sample is filled from its own outputs
+
+- A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
+  of every kind, mixing units. Each is now filled with that output's mean over the samples that
+  ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
+- A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
+  now spreads its samples over the MPI ranks, one process running them all.
+
+### Changed — the built-in hearts compute their chamber phases from the beat phase
+
+- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
+  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
+  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
+  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
+  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
+  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
+  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
+  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
+  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
+  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
+  made the same change.
+- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
+  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
+  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
+  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
+  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
+  state changes by round-off at the onset.
+- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
+  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+
+### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
+### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
+
+The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
+a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
+facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
+neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
+the module, the port's variables, the 1D vessel and the 0D modules.
+
+- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
+  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
+  condition the coupler sets.
+- Sums on the module's other ports generate; they are ordinary CellML.
+- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
+  vessel `v` ends sum, couple to 1D.
 
 ### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
 
