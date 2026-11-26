@@ -564,14 +564,58 @@ def _box_height(node):
     return 2 * _PADDING + 2 * _LINE + (len(_box_lines(node)) + 1) * _LINE
 
 
+def _feeds_target(nodes, edges):
+    '''The ids of the target and of every box with a path to it.'''
+    incoming = {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    feeds, todo = set(), [TARGET_NODE] if any(n['id'] == TARGET_NODE for n in nodes) else []
+    while todo:
+        node_id = todo.pop()
+        if node_id not in feeds:
+            feeds.add(node_id)
+            todo.extend(incoming.get(node_id, []))
+    return feeds
+
+
+def _output_levels(nodes, edges, level):
+    '''``level`` with every output (a box with no path to the target: a sweep, a figure step,
+    the files they wrote) at the target's row or below, so it is drawn beside or after the
+    target rather than among the steps the target is built from.'''
+    feeds = _feeds_target(nodes, edges)
+    if not feeds:
+        return level
+    floor = level[TARGET_NODE]
+    incoming = {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    placed = {}
+    for node_id in sorted(level, key=level.get):
+        below = 1 + max((placed[p] for p in incoming.get(node_id, [])), default=-1)
+        placed[node_id] = level[node_id] if node_id in feeds else max(floor, below)
+    return placed
+
+
 def _layout(graph):
     '''``{node id: (x, y, height, row)}``, ``{(from, to): lane x}`` for the arrows that pass a
     row, and the drawing's width and height.'''
     nodes, edges = graph['nodes'], graph['edges']
-    level = flowchart.levels(nodes, edges)
+    level = _output_levels(nodes, edges, flowchart.levels(nodes, edges))
     rows = {}
     for node in nodes:
         rows.setdefault(level[node['id']], []).append(node)
+    # in a row, the boxes the target is built from first, then the outputs, right of the target
+    # and each under what it reads
+    feeds = _feeds_target(nodes, edges)
+    incoming, column = {}, {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    for depth in sorted(rows):
+        outputs = [n for n in rows[depth] if n['id'] not in feeds]
+        outputs.sort(key=lambda n: max((column[p] for p in incoming.get(n['id'], [])
+                                        if p in column), default=-1))
+        rows[depth] = [n for n in rows[depth] if n['id'] in feeds] + outputs
+        column.update({n['id']: i for i, n in enumerate(rows[depth])})
     widest = max(len(row) for row in rows.values())
     boxes_width = 2 * _MARGIN + widest * _BOX_WIDTH + (widest - 1) * _GAP_X
     long_edges = [(e['from'], e['to']) for e in edges if level[e['to']] - level[e['from']] > 1]

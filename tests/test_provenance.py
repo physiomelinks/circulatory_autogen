@@ -378,6 +378,35 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
 
 
 @pytest.mark.unit
+def test_a_module_sweep_and_its_figure_are_drawn_right_of_the_target():
+    """A sweep of a library module (result_from its calibration, fixed_from whole_cell) and the
+    figure step reading it feed nothing into the target: they are drawn in the target's row,
+    right of it, and below, never among the steps the target is built from (Q-0059 decision 3)."""
+    from libcuflynx.reporting.provenance import FIGURE, TARGET_NODE, _layout
+    edges = [('glut2', 'whole_cell', 'fixed'), ('whole_cell', 'rest', 'fixed'),
+             ('glut2', TARGET_NODE, 'merge'), ('whole_cell', TARGET_NODE, 'merge'),
+             ('rest', TARGET_NODE, 'merge'), ('glut2', 'glut2_sweep', 'order'),
+             ('whole_cell', 'glut2_sweep', 'fixed'), ('glut2_sweep', 'fig3', 'reads'),
+             ('fig3', 'fig3_files', 'writes'), (TARGET_NODE, 'fig15', 'order')]
+    graph = {'nodes': [_box('glut2'), _box('whole_cell'), _box('rest'),
+                       _box(TARGET_NODE, 'target'), _box('glut2_sweep', 'analysis'),
+                       _box('fig3', 'analysis'), _box('fig3_files', FIGURE),
+                       _box('fig15', 'analysis')],
+             'edges': [{'from': a, 'to': b, 'label': '', 'style': style}
+                       for a, b, style in edges]}
+    places, lanes, _, _ = _layout(graph)
+    x, y = {n: p[0] for n, p in places.items()}, {n: p[3] for n, p in places.items()}
+    assert y['glut2_sweep'] == y[TARGET_NODE] > y['rest']
+    assert x['glut2_sweep'] > x[TARGET_NODE]
+    assert y['fig3'] == y['fig15'] == y[TARGET_NODE] + 1 and x['fig3'] > x['fig15']
+    assert y['fig3_files'] == y['fig3'] + 1
+    # the arrows from the module's calibration and from whole_cell pass rows down lanes
+    assert ('glut2', 'glut2_sweep') in lanes and ('whole_cell', 'glut2_sweep') in lanes
+    # the steps the target is built from keep their rows
+    assert (y['glut2'], y['whole_cell'], y['rest']) == (0, 1, 2)
+
+
+@pytest.mark.unit
 def test_an_arrow_past_a_row_crosses_no_box():
     long_name = '/a/very/long/output/directory/' * 6
     graph = {'schema_version': 3, 'workflow': {'name': 'w', 'output_dir': long_name},
