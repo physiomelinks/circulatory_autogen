@@ -31,10 +31,12 @@ from models import SPECS, paths, raw_inputs  # noqa: E402
 
 #: sa_options of each derivative variant.
 DERIVATIVE_VARIANTS = {
-    'centre_central_1e-2': {'jacobian_location': 'centre', 'jacobian_step': 1e-2},
+    'centre_central_1e-2': {'jacobian_location': 'centre', 'jacobian_step': 1e-2,
+                            'jacobian_check_steps': False},
     'K8_forward_1e-2': {'jacobian_points': 8, 'jacobian_scheme': 'forward',
-                        'jacobian_step': 1e-2},
-    'K8_central_1e-2': {'jacobian_points': 8, 'jacobian_step': 1e-2},
+                        'jacobian_step': 1e-2, 'jacobian_check_steps': False},
+    'K8_central_1e-2': {'jacobian_points': 8, 'jacobian_step': 1e-2,
+                        'jacobian_check_steps': False},
     'K8_central_1e-2_checked': {'jacobian_points': 8, 'jacobian_step': 1e-2,
                                 'jacobian_check_steps': True},
     'K8_central_1e-3_checked': {'jacobian_points': 8, 'jacobian_step': 1e-3,
@@ -44,9 +46,11 @@ DERIVATIVE_VARIANTS = {
 }
 
 #: param_reduction_options of each statistic; the converged ones need jacobian_check_steps.
+#: Every variant and statistic names both settings, so the rows do not follow the defaults
+#: (the defaults are K8_central_1e-2_checked with median_converged).
 STATISTICS = {
-    'rms': {'redundancy_statistic': 'rms'},
-    'median': {'redundancy_statistic': 'median'},
+    'rms': {'redundancy_statistic': 'rms', 'redundancy_converged_only': False},
+    'median': {'redundancy_statistic': 'median', 'redundancy_converged_only': False},
     'rms_converged': {'redundancy_statistic': 'rms', 'redundancy_converged_only': True},
     'median_converged': {'redundancy_statistic': 'median', 'redundancy_converged_only': True},
 }

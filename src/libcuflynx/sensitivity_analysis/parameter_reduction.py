@@ -278,7 +278,7 @@ class PCASobolReduction(ParamReduction):
 
     def __init__(self, n_params=None, index_type='ST', min_mode_std=1.0,
                  variance_fraction=1.0, min_index=0.05, redundancy_check=True,
-                 redundancy_statistic='median', redundancy_converged_only=False,
+                 redundancy_statistic='median', redundancy_converged_only=True,
                  redundancy_convergence_tol=0.1):
         self.n_params = None if n_params is None else _check_number('n_params', n_params, low=1,
                                                                      integer=True)
@@ -515,7 +515,8 @@ class PCASobolReduction(ParamReduction):
             raise SensitivityFilesError(
                 f'redundancy_converged_only compares derivatives at two steps, and '
                 f'{files["local_jacobian"]} has one; rerun the Sobol analysis with '
-                f'sa_options.jacobian_check_steps: true.')
+                f'sa_options.jacobian_check_steps: true, or set redundancy_converged_only: '
+                f'false to use every point.')
         informative_idx = [k for k in np.argsort(-variances) if informative[k]]
 
         def effects_of(j):
