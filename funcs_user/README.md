@@ -41,7 +41,9 @@ of your own.
 `user_inputs_path_override`, at the directory holding that config file — so a study kept
 outside the repository stays self-contained. From a `pip install libcuflynx` with no
 checkout, set `CUFLYNX_USER_DIR` to your working directory; otherwise the directory you run
-from is used. An absolute path is always taken as-is.
+from is used. A config passed to libcuflynx as a dict (not read from a yaml) resolves them
+against the directory you run from, as it does `resources_dir`. An absolute path is always
+taken as-is.
 
 ## The functions libcuflynx ships
 

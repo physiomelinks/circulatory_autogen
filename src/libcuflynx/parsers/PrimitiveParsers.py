@@ -65,27 +65,18 @@ class UserInputsError(CAInputError):
     """A ``user_inputs`` configuration the parser cannot use. The message says what to change."""
 
 
-def resolve_user_path(path, user_files_dir):
-    """Resolve a user-supplied relative path from ``user_inputs.yaml``.
+def resolve_user_path(path, base_dir):
+    """Resolve a user-supplied relative file path from user inputs against ``base_dir``.
 
-    Absolute paths are returned unchanged. A relative one is resolved against the directory
-    the config came from when ``user_inputs_path_override`` named one (``user_files_dir``),
-    and otherwise against :func:`~libcuflynx.utilities.paths.user_data_root` -- the
-    checkout root when there is one, ``$CUFLYNX_USER_DIR`` if set, the cwd from a wheel
-    install.
-
-    Not ``os.path.abspath``, which resolves against the *current working directory*. The
-    documented way to start a run is ``cd user_run_files && ./run_param_id.sh 4``, so a
-    config saying ``cost_funcs_external_path: funcs_user/my_costs.py`` -- copied verbatim
-    out of funcs_user/README.md and CHANGELOG.md, both of which promise resolution from the
-    repository root -- looked for ``user_run_files/funcs_user/my_costs.py`` and raised
-    FileNotFoundError.
+    Absolute paths and empty values are returned unchanged. ``parse_user_inputs_file``
+    picks the base: the directory of a config named by ``user_inputs_path_override``; for
+    ``user_run_files/user_inputs.yaml``, :func:`~libcuflynx.utilities.paths.user_data_root`
+    (the checkout root, ``$CUFLYNX_USER_DIR`` if set, the cwd from a wheel install), since
+    the launchers run from ``user_run_files/``; for a dict, the cwd, as for ``resources_dir``.
     """
-    if not path:
+    if not path or os.path.isabs(path):
         return path
-    if os.path.isabs(path):
-        return path
-    return os.path.join(user_files_dir or user_data_root(), path)
+    return os.path.join(base_dir, path)
 
 
 # ---------------------------------------------------------------------------
@@ -2769,20 +2760,14 @@ class YamlFileParser(object):
                   'Set model_type to "casadi_python"/"aadc_python", or use "cellml" with '
                   'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
-        # The user's own cost / operation / modifier funcs files, and the user's own solver
-        # class for model_type: external_python. All four are file paths a user types into
-        # user_inputs.yaml, and funcs_user/README.md, CHANGELOG.md and the commented example
-        # in user_inputs.yaml all show them relative and all say they resolve from the
-        # repository root. Nothing resolved them at all: they reached
-        # external_funcs.register_funcs_from_file(), which does os.path.abspath() -- i.e.
-        # relative to the cwd, which for the documented `cd user_run_files && ./run_*.sh`
-        # workflow is the wrong directory, so the README's own example raised
-        # FileNotFoundError.
+        # The user's own funcs files and external_python model (see resolve_user_path for
+        # the base each kind of caller gets).
+        user_paths_base = user_files_dir or (user_data_root() if loaded_from else os.getcwd())
         for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
                      'modifier_funcs_external_path', 'external_model_path',
                      'external_parameters_file', 'generated_model_path'):
             if inp_data_dict.get(_key):
-                inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
+                inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_paths_base)
 
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():
