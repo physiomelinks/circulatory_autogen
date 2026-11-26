@@ -5,6 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — a calibration workflow run copied elsewhere stays current
+
+- A step's settings digest counts a path setting (`external_modules_dir`,
+  `operation_funcs_external_path`, `cost_funcs_external_path`, `modifier_funcs_external_path`)
+  by the contents of the file or the module files it names, not by its absolute path. A workflow
+  and its run copied to another folder no longer show every step stale, and editing the funcs
+  file now makes the steps that read it stale. A step with such a setting that ran before
+  this release shows its settings as changed until it runs again.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

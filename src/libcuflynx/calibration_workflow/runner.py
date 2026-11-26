@@ -60,8 +60,8 @@ from libcuflynx.calibration_workflow.select import (UnsetParametersError, protoc
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
-from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
-                                                  WorkflowError, load_workflow,
+from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, PATH_SETTINGS,
+                                                  WORKFLOW_FILE_NAME, WorkflowError, load_workflow,
                                                   uses_log_posterior)
 from libcuflynx.utilities.parameters_file import ORIGINS
 from libcuflynx.utilities.mpi_utils import run_on_root
@@ -134,12 +134,27 @@ def settings_digest(settings):
 def step_settings_digest(workflow, step):
     '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
     options, or the workflow's settings with the step's on top. Formatting and key order of the
-    file do not change it.'''
+    file do not change it, nor does where the files its path settings name are.'''
     if step.kind == 'set':
         return settings_digest(step.set_values)
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
-    return settings_digest(workflow.step_settings(step))
+    settings = workflow.step_settings(step)
+    for key in PATH_SETTINGS:
+        if settings.get(key):
+            settings[key] = path_digest(settings[key])
+    return settings_digest(settings)
+
+
+def path_digest(path):
+    '''What a path-valued setting contributes to a step's settings digest: the file's contents
+    or a directory's module files, so that a run copied elsewhere is not stale, and the path
+    itself when there is nothing there.'''
+    if os.path.isfile(path):
+        return sha256(path)
+    if os.path.isdir(path):
+        return module_library_digest([path])
+    return path
 
 
 def module_library_digest(library_dirs):
