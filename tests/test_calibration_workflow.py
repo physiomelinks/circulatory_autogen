@@ -222,8 +222,32 @@ def test_the_plan_lists_every_value_of_the_target_and_what_calibrates_it(library
     assert list(values) == ['A/p', 'C/q', 'C/k']
     assert [values[n]['calibrated_by'] for n in values] == [[fit_p], [fit_q], []]
     assert values['C/k'] == {'name': 'C/k', 'value': 1.0, 'units': 'dimensionless',
-                             'origin': None, 'reason': '', 'calibrated_by': [],
+                             'origin': None, 'reason': '', 'calibrated_by': [], 'source': '',
                              'data_reference': 'doe2020gain; Table 1: the gain of C'}
+
+
+@pytest.mark.unit
+def test_the_plan_lists_a_module_arrays_library_values_by_their_libraries_origin(library):
+    # the target's parameters file leaves C/k to lin_c's default parameterisation, which records
+    # where its value comes from
+    target_path = os.path.join(library['arrays'], 'chain_parameters.json')
+    target = _read_json(target_path)
+    del target['C']['k']
+    _write_json(target_path, target)
+    library_path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1',
+                                'parameterisations', 'default', 'default_parameters.json')
+    module = _read_json(library_path)
+    module['k'].update(origin='measured', data_reference='smith2024; Fig. 2')
+    _write_json(library_path, module)
+
+    values = {v['name']: v for v in plan_workflow(library['chain_array'])['target_values']}
+    assert list(values) == ['A/p', 'C/q', 'C/k']
+    assert values['C/k'] == {'name': 'C/k', 'value': 1.0, 'units': 'dimensionless',
+                             'origin': 'measured', 'reason': '', 'calibrated_by': [],
+                             'source': 'lin_c/v1 parameterisation default',
+                             'data_reference': 'smith2024; Fig. 2'}
+    # what the target's own file sets is its own, though the library sets it too
+    assert values['C/q']['source'] == '' and values['C/q']['calibrated_by'] == ['chain']
 
 
 @pytest.mark.unit

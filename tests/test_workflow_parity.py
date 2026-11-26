@@ -172,7 +172,7 @@ def test_the_plan_lists_every_constant_of_the_target_with_its_origin(lv):
     assert values['alpha'] == {'name': 'Lotka_Volterra_module/alpha', 'value': 4.0,
                                'units': 'dimensionless', 'origin': 'measured',
                                'data_reference': 'smith2001; Table 2', 'reason': '',
-                               'calibrated_by': ['fit']}
+                               'source': '', 'calibrated_by': ['fit']}
     assert (values['beta']['origin'], values['beta']['reason']) == ('set_by_hand',
                                                                     'a round number')
     assert values['gamma']['origin'] is None and values['gamma']['calibrated_by'] == ['fit']

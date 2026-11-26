@@ -2110,22 +2110,26 @@ def plan_workflow(source, module_library_dirs=None):
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
-            'target_values': _target_values(resolved.target, steps),
+            'target_values': _target_values(resolved.target, steps,
+                                            resolved.library_inputs),
             'module_library_dirs': workflow.module_library_dirs, 'steps': steps,
             'target_overlap': resolved.target_overlap}
 
 
-def _target_values(target, steps):
+def _target_values(target, steps, library_inputs=None):
     '''Every parameter of the target (a resolve.Resolved* target) before any step runs, as
-    ``plan_workflow`` gives it: ``{name, value, units, origin, data_reference, reason,
-    calibrated_by}`` in its parameters file's order, then a CellML or external model's constants
-    that file does not set. ``name`` is as the parameters file writes it (``aortic_root/C``,
+    ``plan_workflow`` gives it: ``{name, value, units, origin, data_reference, reason, source,
+    calibrated_by}`` in its parameters file's order, then the values a module array takes from
+    its module library (:func:`_library_rows`), or a CellML or external model's constants, that
+    file does not set. ``name`` is as the parameters file writes it (``aortic_root/C``,
     ``heart/lv/E``; a library module's ``C``, ``lv/E``, ``global/R``; a CellML model's
-    ``component/variable``). ``origin`` is the file's (``parameters_file.ORIGINS``), None where it
-    records none. ``calibrated_by`` lists the calibration steps (``steps``, the plan's entries)
-    whose values land on it.'''
+    ``component/variable``). ``origin`` is the one the file that sets the value records
+    (``parameters_file.ORIGINS``), None where it records none; ``source`` names the library
+    parameterisation a value comes from, '' for the target's own. ``calibrated_by`` lists the
+    calibration steps (``steps``, the plan's entries) whose values land on it.'''
     from libcuflynx.utilities import parameters_file as pf
     from libcuflynx.utilities.parameter_names import model_name
+    from libcuflynx.utilities.parameterisations import SOURCE_ROW_KEY
 
     calibrated_by = {}
     for step in steps:
@@ -2140,6 +2144,10 @@ def _target_values(target, steps):
     named = {row['variable_name'] for row in rows}
     rows += [{'variable_name': name, 'value': c.get('value'), 'units': c.get('units', '')}
              for name, c in constants.items() if name not in named]
+    if target.kind == 'array':
+        named = {model_name(row['variable_name']) for row in rows}
+        rows += [row for row in _library_rows(target, library_inputs)
+                 if model_name(row['variable_name']) not in named]
     values = []
     for row in rows:
         try:
@@ -2152,8 +2160,41 @@ def _target_values(target, steps):
                        'origin': origin if origin in pf.ORIGINS else None,
                        'data_reference': row.get('data_reference') or '',
                        'reason': row.get('reason') or '',
+                       'source': row.get(SOURCE_ROW_KEY) or '',
                        'calibrated_by': calibrated_by.get(model_name(row['variable_name']), [])})
     return values
+
+
+def _library_rows(target, library_inputs):
+    '''The rows a module-array target takes from its module library (its supermodules' and
+    records' parameterisations, as generation merges them in), each as its leaf, with
+    ``variable_name`` as the target's parameters file would write it: ``<vessel>/<variable>``,
+    a supermodule instance's ``<instance>/<sub>/<variable>``, a global by its name. A module
+    name ends with its vessel (``{var}_{vessel}``); the longest vessel of the array that the
+    name ends with is taken. A library that cannot be read gives none, with a warning.'''
+    from libcuflynx.utilities.config_schemas import load_expanded_vessel_records
+    from libcuflynx.utilities.module_library import ModuleSources
+    from libcuflynx.utilities.parameter_names import LEVEL_SEPARATOR, SEPARATOR
+    sources = ModuleSources(dict(library_inputs or {}))
+    try:
+        records, rows = load_expanded_vessel_records(
+            target.model.module_array, sources.supermodule_registry(),
+            sources.component_registry(), target.parameters_path)
+    except (OSError, ValueError) as exc:
+        warnings.warn(f'the values {target.model.module_array} takes from its module library '
+                      f'are not listed: {exc}', UserWarning, stacklevel=2)
+        return []
+    vessels = sorted((r['name'] for r in records), key=len, reverse=True)
+    out = []
+    for row in rows:
+        name = row['variable_name']
+        vessel = next((v for v in vessels
+                       if name.endswith('_' + v) and len(name) > len(v) + 1), None)
+        if vessel is not None:
+            name = (vessel.replace(LEVEL_SEPARATOR, SEPARATOR) + SEPARATOR
+                    + name[:-len(vessel) - 1])
+        out.append(dict(row, variable_name=name))
+    return out
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,

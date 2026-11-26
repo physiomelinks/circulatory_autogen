@@ -5,6 +5,19 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — the plan lists every value of the target, with where it comes from
+
+- `plan_workflow` (and `run_calibration_workflow(dry_run=True)`) returns `target_values`:
+  every value the target's model uses, before any step runs, each
+  `{name, value, units, origin, data_reference, reason, source, calibrated_by}`. They are the
+  target's parameters file's rows, then a module array's values from its module library (its
+  supermodules' and records' parameterisations, as generation merges them in), or a CellML or
+  external model's constants that file does not set. `origin` is the one recorded by the file
+  that sets the value, the library's parameterisation included (`None` where none is
+  recorded); `source` names that parameterisation (`''` for the target's own file);
+  `calibrated_by` lists the calibration steps whose values land on it. Names are written as the
+  target's parameters file writes them (`A/p`, `heart/lv/E`, a global by its name).
+
 ### Fixed — a calibration workflow run copied elsewhere stays current
 
 - A step's settings digest counts a path setting (`external_modules_dir`,
