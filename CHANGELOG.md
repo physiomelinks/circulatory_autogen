@@ -12,6 +12,23 @@ next release; add to that section as you land a change.
   now mean(|obs - fit| / std), as for a constant item. Every series item's value changes; constant
   and frequency items, the percent errors and the calibration cost are unchanged.
 
+### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
+
+- **Reduction results change for every user.** `sa_options.jacobian_check_steps` and
+  `param_reduction_options.redundancy_converged_only` now default to true: a Sobol run takes its
+  local derivatives at `jacobian_step` and at half of it, and a `pca` reduction's redundancy check
+  takes the `median` over the points where the two agree (within `redundancy_convergence_tol`).
+  On the Goodwin benchmark this keeps 4 parameters, its Fisher count, where the old defaults kept
+  5; FitzHugh-Nagumo (5) and Teusink (5) do not change, and on the 3-compartment test model all 8
+  points converge. `benchmarks/param_reduction/redundancy_comparison_results.md` is unchanged: its
+  rows name both settings, and the new defaults are its `K8_central_1e-2_checked`,
+  `median_converged` entries.
+- A Sobol run's derivatives cost twice the runs: `4 x jacobian_points x M` simulations, 5.8% of
+  a 12-parameter run at `num_samples: 256` (was 2.9%).
+- Reducing a Sobol run that has derivatives at one step (one made before this release, or with
+  `jacobian_check_steps: false`) is refused, naming the two fixes: rerun it with both steps, or
+  set `redundancy_converged_only: false` to use every point as before.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of

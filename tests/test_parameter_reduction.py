@@ -342,7 +342,7 @@ def _linear_run(jacobian, n=16):
 @pytest.mark.parametrize('jacobian', [
     {'jacobian_points': 4},
     {'jacobian_points': 4, 'jacobian_scheme': 'forward', 'jacobian_step': 1e-2},
-    {'jacobian_points': 4, 'jacobian_check_steps': True},
+    {'jacobian_points': 4, 'jacobian_check_steps': False},
     {'jacobian_location': 'centre'},
     {'jacobian_location': 'centre', 'jacobian_scheme': 'forward'}])
 def test_the_local_jacobian_is_scaled_to_each_range_for_every_scheme(jacobian):
@@ -352,7 +352,7 @@ def test_the_local_jacobian_is_scaled_to_each_range_for_every_scheme(jacobian):
     sa, j = _linear_run(jacobian)
     centre = jacobian.get('jacobian_location') == 'centre'
     assert list(sa.local_jacobian_rows) == ([-1] if centre else [0, 8, 16, 24])
-    assert j.shape == (2 if jacobian.get('jacobian_check_steps') else 1,
+    assert j.shape == (2 if jacobian.get('jacobian_check_steps', True) else 1,
                        1 if centre else 4, 3, 2)
     for block in j.reshape(-1, 3, 2):   # linear in p0, p2 and in ln p1: the same everywhere
         assert block[0] == pytest.approx([3 * 2, 0], abs=1e-9)        # 3 * (1 - -1)
@@ -386,7 +386,7 @@ def test_a_sobol_run_on_one_process_saves_the_local_jacobian():
 def test_the_jacobian_options_are_checked(bad):
     assert jacobian_options({}) == {'jacobian_points': 8, 'jacobian_location': 'base_points',
                                     'jacobian_scheme': 'central', 'jacobian_step': 1e-2,
-                                    'jacobian_check_steps': False}
+                                    'jacobian_check_steps': True}
     with pytest.raises(ValueError, match=list(bad)[0]):
         jacobian_options(bad)
 
@@ -425,20 +425,24 @@ def test_the_redundancy_statistic_and_converged_points(tmp_path):
     samples = pd.read_csv(os.path.join(run, 'all_outputs_n256_Sobol_samples.csv'))
     rows = [8 * k for k in range(8) if samples.iloc[8 * k]['m/a'] > 1.75]
     assert rows                                     # the design has such points
-    every = PCASobolReduction(redundancy_statistic='rms').reduce(
+    every = PCASobolReduction(redundancy_statistic='rms', redundancy_converged_only=False).reduce(
         run, source, str(tmp_path / 'r1' / 'kept.json'))
     assert {'m/a', 'm/b'} <= {r['parameter'] for r in every}
     with pytest.warns(UserWarning, match='left out'):
-        kept = PCASobolReduction(redundancy_converged_only=True).reduce(
+        kept = PCASobolReduction().reduce(
             run, source, str(tmp_path / 'r2' / 'kept.json'))
     assert len({'m/a', 'm/b'} & {r['parameter'] for r in kept}) == 1
     report = json.loads((tmp_path / 'r2' / 'param_reduction.json').read_text())
     assert report['unconverged_points'] == rows
 
-    one_step = _write_sobol_run(str(tmp_path / 'sa1'), outputs_of=outputs, params=params)
-    with pytest.raises(SensitivityFilesError, match='jacobian_check_steps'):
-        PCASobolReduction(redundancy_converged_only=True).reduce(
-            one_step, source, str(tmp_path / 'out1' / 'kept.json'))
+    one_step = _write_sobol_run(str(tmp_path / 'sa1'), outputs_of=outputs, params=params,
+                                jacobian={'jacobian_check_steps': False})
+    with pytest.raises(SensitivityFilesError,
+                       match='jacobian_check_steps: true, or set redundancy_converged_only: false'):
+        PCASobolReduction().reduce(one_step, source, str(tmp_path / 'out1' / 'kept.json'))
+    kept = PCASobolReduction(redundancy_converged_only=False).reduce(
+        one_step, source, str(tmp_path / 'out2' / 'kept.json'))
+    assert 'm/c' in [r['parameter'] for r in kept] and len(kept) == 2
 
 
 @pytest.mark.unit
@@ -588,7 +592,8 @@ def test_the_3compartment_sobol_run_keeps_the_parameters_its_indices_rank_highes
     effects are within 3% (23.7 and 24.3), and the reduction kept E_lv_B for that."""
     params = ['global/q_lv_init', 'aortic_root/C', 'global/E_lv_A', 'global/E_lv_B']
     source = _params_for_id(str(tmp_path / 'params_for_id.json'), params)
-    kept = PCASobolReduction(n_params=n_params).reduce(
+    # the saved run has derivatives at one step, so every point is used
+    kept = PCASobolReduction(n_params=n_params, redundancy_converged_only=False).reduce(
         _THREE_COMPARTMENT, source, str(tmp_path / 'pca' / 'kept.json'))
     assert [row['parameter'] for row in kept] == expected
     report = json.loads((tmp_path / 'pca' / 'param_reduction.json').read_text())
