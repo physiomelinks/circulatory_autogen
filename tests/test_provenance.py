@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import xml.etree.ElementTree as ElementTree
 
@@ -325,6 +326,30 @@ def test_changed_settings_stop_a_later_step_reusing_a_result(library, tmp_path):
     _write_json(library['chain_rest'], raw)
     with pytest.raises(WorkflowError, match='its settings has changed since "fit_a" ran'):
         run_calibration_workflow(library['chain_rest'], output_dir=out, from_step='rest')
+
+
+@pytest.mark.integration
+def test_a_run_copied_elsewhere_is_current_and_its_funcs_file_is_read(library, tmp_path):
+    """A path setting counts by what it names: copying the workflow and its run leaves every
+    step current, and editing the operation funcs file makes them stale."""
+    raw = _read_json(library['chain_rest'])
+    funcs = os.path.join(os.path.dirname(library['chain_rest']), 'my_operations.py')
+    with open(funcs, 'w') as f:
+        f.write('def doubled(x):\n    return 2 * x\n')
+    raw['settings']['operation_funcs_external_path'] = 'my_operations.py'
+    _write_json(library['chain_rest'], raw)
+    run_calibration_workflow(library['chain_rest'], output_dir=str(tmp_path / 'run'))
+
+    moved = tmp_path / 'moved'
+    shutil.copytree(tmp_path, moved, ignore=shutil.ignore_patterns('moved'))
+    moved_workflow = str(moved / os.path.relpath(library['chain_rest'], tmp_path))
+    for workflow, out in ((library['chain_rest'], tmp_path / 'run'), (moved_workflow, moved / 'run')):
+        steps = workflow_status(workflow, str(out))['steps']
+        assert not any(step['stale'] for step in steps.values()), workflow
+
+    with open(funcs, 'a') as f:
+        f.write('\n\ndef tripled(x):\n    return 3 * x\n')
+    assert workflow_status(library['chain_rest'], str(tmp_path / 'run'))['steps']['fit_a']['stale']
 
 
 @pytest.mark.integration

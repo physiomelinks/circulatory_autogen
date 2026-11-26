@@ -75,7 +75,7 @@ from libcuflynx.calibration_workflow.select import (UnsetParametersError, protoc
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
-from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, SWEEP_KINDS,
+from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, PATH_SETTINGS, SWEEP_KINDS,
                                                   WORKFLOW_FILE_NAME, WorkflowError,
                                                   load_workflow, refuse_older_step_keys,
                                                   uq_method, uq_options as _uq_options,
@@ -192,7 +192,8 @@ def step_settings_digest(workflow, step):
     '''The digest a step's ``settings`` input records: a set step's entries, a combine step's
     inputs and options, a reduction's options, a figure step's declaration, or the workflow's
     settings with the step's on top, and a sweep's or simulate step's ``sweep`` block with them.
-    Formatting and key order of the file do not change it.'''
+    Formatting and key order of the file do not change it, nor does where the files its path
+    settings name are.'''
     if step.kind == 'figure':
         return settings_digest(figures.declaration(step))
     if step.kind == 'set':
@@ -201,9 +202,29 @@ def step_settings_digest(workflow, step):
         return settings_digest({'combine_from': step.combine_from, 'combine': step.combine})
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
+    settings = digest_settings(workflow.step_settings(step))
     if step.kind in SWEEP_KINDS:
-        return settings_digest({'settings': workflow.step_settings(step), 'sweep': step.sweep})
-    return settings_digest(workflow.step_settings(step))
+        return settings_digest({'settings': settings, 'sweep': step.sweep})
+    return settings_digest(settings)
+
+
+def digest_settings(settings):
+    '''``settings`` with each path setting replaced by what it names (``path_digest``).'''
+    for key in PATH_SETTINGS:
+        if settings.get(key):
+            settings[key] = path_digest(settings[key])
+    return settings
+
+
+def path_digest(path):
+    '''What a path-valued setting contributes to a step's settings digest: the file's contents
+    or a directory's module files, so that a run copied elsewhere is not stale, and the path
+    itself when there is nothing there.'''
+    if os.path.isfile(path):
+        return sha256(path)
+    if os.path.isdir(path):
+        return module_library_digest([path])
+    return path
 
 
 def directory_digest(directory):
