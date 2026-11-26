@@ -297,6 +297,17 @@ sweeps 1, 10, 100 and the model's own value). Other keys are refused.
   digested, and a changed sweep kept its old results. Sweeps run before this release show as
   stale once.
 
+### Fixed — identifiability, plotting and multi-run engines use the user operation, cost and modifier files
+
+- `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
+  engine without `operation_funcs_external_path`, `cost_funcs_external_path` and
+  `modifier_funcs_external_path`, so an obs_data naming a user operation stopped with an unknown
+  operation there, although the calibration and sensitivity stages of the same run worked. The
+  script now passes the three paths to the engine, as `param_id_run_script` does.
+- The same paths were also missing from the engines built by `plot_param_id_script.py`,
+  `run_multiple_param_id.py` and `MCMC_plotter.plot_mcmc_and_predictions`; `MCMC_plotter` now
+  takes and keeps the three paths, and the plot script passes them.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
