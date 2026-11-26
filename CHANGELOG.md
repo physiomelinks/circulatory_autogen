@@ -5,7 +5,7 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Changed — a note or origin edit leaves workflow steps current
+### Changed — a workflow step goes stale only when what it runs with changes
 
 - **A parameters file counts by its values.** A step's recorded `parameters`,
   `target_parameters` and `target_parameters_file` inputs, and a module library's
@@ -15,6 +15,12 @@ next release; add to that section as you land a change.
   written, so the next run (`--stale-only` too) writes the calibrated parameters, the
   calibrated CellML, the target model and the provenance graph's value boxes with the edited
   notes. A step's own generated model keeps the notes it ran with.
+- **The funcs files leave the settings digest.** `operation_funcs_external_path`,
+  `cost_funcs_external_path` and `modifier_funcs_external_path` are not hashed with a
+  step's settings: each file is an input of its own, by its content (`operation_funcs`,
+  ...). So a workflow folder that is moved, or a packed workflow (which carries its funcs
+  under `settings/`) unzipped elsewhere, keeps its steps current; editing a funcs file
+  still makes them stale.
 - Runs recorded before this change are stale once, on the next status or `--stale-only` run.
 
 ### Added — calibration workflows can express a GUI study

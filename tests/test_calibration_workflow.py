@@ -1320,6 +1320,35 @@ def _stale_steps(workflow_path, out):
 
 
 @pytest.mark.unit
+def test_a_packed_run_with_its_funcs_stays_current_wherever_it_is_unzipped(library, tmp_path):
+    from libcuflynx.calibration_workflow import pack_workflow
+    raw = _raw(library, 'chain_array')
+    funcs = os.path.join(library['arrays'], 'funcs', 'operation_funcs_chain.py')
+    os.makedirs(os.path.dirname(funcs))
+    with open(funcs, 'w') as f:
+        f.write('# the study\'s operation funcs\n')
+    raw['settings']['operation_funcs_external_path'] = 'funcs/operation_funcs_chain.py'
+    path = os.path.join(library['arrays'], 'with_funcs.json')
+    _write_json(path, raw)
+    packed = pack_workflow(path, str(tmp_path / 'pack'))
+    assert 'settings/operation_funcs_external_path/operation_funcs_chain.py' in packed['files']
+    run_calibration_workflow(packed['workflow'], output_dir=str(tmp_path / 'pack' / 'run'))
+    assert _stale_steps(packed['workflow'], str(tmp_path / 'pack' / 'run')) == {
+        'a-alone': False, 'chain': False}
+
+    # unzipped somewhere else: the funcs file's path changed, its content did not
+    os.rename(str(tmp_path / 'pack'), str(tmp_path / 'unzipped'))
+    moved = str(tmp_path / 'unzipped' / 'calibration_workflow.json')
+    out = str(tmp_path / 'unzipped' / 'run')
+    assert _stale_steps(moved, out) == {'a-alone': False, 'chain': False}
+    # its content still counts
+    with open(str(tmp_path / 'unzipped' / 'settings' / 'operation_funcs_external_path' /
+                  'operation_funcs_chain.py'), 'a') as f:
+        f.write('# edited\n')
+    assert _stale_steps(moved, out) == {'a-alone': True, 'chain': True}
+
+
+@pytest.mark.unit
 def test_a_note_or_origin_edit_leaves_steps_current_and_reaches_the_outputs(library, tmp_path):
     out = str(tmp_path / 'run')
     first = run_calibration_workflow(library['chain_array'], output_dir=out,
