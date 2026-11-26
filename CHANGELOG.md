@@ -953,6 +953,15 @@ number of vessels at a node (node sums #609, node rule D #617).
 - `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
   directory holding anything a pack does not write is still refused.
 
+### Fixed — a packed workflow leaves out each module version's test output
+
+- `pack_workflow` (and so a workflow run's packed inputs, CUFLynx's OMEX export of a workflow
+  and a study's `inputs/system/`) copied every file of each module version it uses, including
+  what the module library's tests write there: the `results/` and `plots/` directories and the
+  HTML report. These are local output, not part of the module, and were most of an archive's
+  size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
+  directory of those names deeper inside a version is still packed.
+
 ### Changed — CMA-ES counts `max_patience` in generations: calibration results change
 
 - **CMA-ES results change.** `max_patience` now counts generations (one population of
