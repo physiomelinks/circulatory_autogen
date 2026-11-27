@@ -47,6 +47,7 @@ check_command() {
 
 ALL_CHECKS=(backends aadc libopencor solver-matrix
             main-rest main-autogeneration main-module-arrays main-simulation main-cpp main-misc
+            main-workflow-steps main-workflow-builds main-workflow-outputs main-models
             mpi-rest-rest mpi-rest-emulators param-id-rest param-id-heavy notebooks)
 
 if [ "${1:-}" = "--list" ]; then

@@ -40,6 +40,44 @@
     ],
     "solver-matrix": [
       "tests/test_solver_matrix.py"
+    ],
+    "workflow-steps": [
+      "tests/test_set_and_sweep_steps.py",
+      "tests/test_figure_steps.py",
+      "tests/test_combine_step.py",
+      "tests/test_simulate_step.py",
+      "tests/test_selection_steps.py",
+      "tests/test_figure_input_kinds.py"
+    ],
+    "workflow-builds": [
+      "tests/test_workflow_parity.py",
+      "tests/test_workflow_builder.py",
+      "tests/test_workflow_external_python.py",
+      "tests/test_workflow_module_keys.py",
+      "tests/test_manual_reduction.py"
+    ],
+    "workflow-outputs": [
+      "tests/test_provenance.py",
+      "tests/test_protocol_factors.py",
+      "tests/test_standard_figures.py",
+      "tests/test_dict_vs_file_routes.py",
+      "tests/test_omex_analysis_pipeline.py",
+      "tests/test_param_reduction_study.py"
+    ],
+    "models": [
+      "tests/test_computed_initial_states.py",
+      "tests/test_vessel_nodes.py",
+      "tests/test_vessel_configurations.py",
+      "tests/test_vessel_bc_prefix.py",
+      "tests/test_vessel_configurations_1d.py",
+      "tests/test_generation_fixes.py",
+      "tests/test_generic_ports.py",
+      "tests/test_heart_clock_phase.py",
+      "tests/test_casadi_linear_solver.py",
+      "tests/test_casadi_protocol_trace.py",
+      "tests/test_offline_warm_up_reset.py",
+      "tests/test_aadc_vs_casadi_3compartment.py",
+      "tests/test_fsa_max_feature_gradient.py"
     ]
   },
   "param-id": {
