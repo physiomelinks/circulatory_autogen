@@ -29,6 +29,14 @@ ERROR_VEC_FILES = {'percent_error': 'percent_error_vec.npy', 'std_error': 'std_e
                    'data_references': 'error_vec_data_references.npy'}
 
 
+def percent_error(value, reference):
+    """``100 (value - reference) / reference``; NaN when the reference is 0, where a percent
+    error has no meaning (e.g. a no-data item, value 0 with a huge std, that a ratio reads)."""
+    if reference == 0:
+        return np.nan
+    return 100 * (value - reference) / reference
+
+
 def distribution_reference_lines(prob_dist_params):
     """Horizontal reference values summarising a distribution ground truth, as (value, label).
 
@@ -215,9 +223,7 @@ class ParamIDPlotOutputs:
             if const_idx >= len(consts):
                 continue
             ground_truth = obs_info["ground_truth_const"][const_idx]
-            percent_error_vec[obs_idx] = (
-                100 * (consts[const_idx] - ground_truth) / (ground_truth + 1e-10)
-            )
+            percent_error_vec[obs_idx] = percent_error(consts[const_idx], ground_truth)
             std_error_vec[obs_idx] = (
                 consts[const_idx] - ground_truth
             ) / obs_info["std_const_vec"][const_idx]
@@ -653,11 +659,8 @@ class ParamIDPlotOutputs:
                         else:
                             gt_const = obs_info["ground_truth_const"][const_idx]
                             gt_std = obs_info["std_const_vec"][const_idx]
-                        percent_error_vec[II] = (
-                            100
-                            * (best_fit_obs_const[const_idx] - gt_const)
-                            / (gt_const + 1e-10)
-                        )
+                        percent_error_vec[II] = percent_error(
+                            best_fit_obs_const[const_idx], gt_const)
                         std_error_vec[II] = (
                             (best_fit_obs_const[const_idx] - gt_const) / gt_std
                             if np.isfinite(gt_std) and gt_std != 0 else 0.0
@@ -899,10 +902,12 @@ class ParamIDPlotOutputs:
             else len(obs_names_for_plot) // 10 + 1
         )
 
-        if len(percent_error_vec) == 0:
+        finite = np.asarray(percent_error_vec, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if len(finite) == 0:
             return
-        y_min_percent = 1.05 * np.min(percent_error_vec)
-        y_max_percent = 1.05 * np.max(percent_error_vec)
+        y_min_percent = 1.05 * np.min(finite)
+        y_max_percent = 1.05 * np.max(finite)
 
         for plot_idx_inner in range(num_plots):
             fig, axs = plt.subplots()
