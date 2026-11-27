@@ -12,6 +12,10 @@ next release; add to that section as you land a change.
   sub-experiments' currents) the value the cost was scored on. They recomputed the referenced
   item from the referencing segment's own trace, so such a ratio read 1.0. The calibration
   itself was not affected.
+- A data_item whose reference value is 0 reports a percent error of NaN in
+  `percent_error_vec.npy` (no bar in the error plots, `nan %` in the console) instead of about
+  ±1e12 times its value from dividing by `value + 1e-10`. A percent error has no meaning there,
+  as for a no-data term of a ratio (value 0, std 1e15). The std error is unchanged.
 
 ## 0.8.0 — 2026-11-27
 
