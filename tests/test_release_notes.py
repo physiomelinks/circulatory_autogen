@@ -78,6 +78,24 @@ def test_long_notes_keep_whole_subsections_in_order_and_list_the_rest():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("subsections", ["### Fixed\n\n- a bug\n\n### Added\n\n- a thing\n", ""])
+def test_an_intro_too_long_by_itself_is_cut_at_a_line_end(subsections):
+    """With or without ``###`` subsections after it, the notes still fit and link the rest."""
+    intro = "".join(f"line {i} " + "y" * 90 + "\n" for i in range(40))
+    changelog = "## 3.0.0 — 2030-03-03\n\n" + intro + "\n" + subsections + "## 2.0.0\n"
+    limit = 2000
+    text = rn.notes(changelog, "3.0.0", limit=limit)
+
+    assert len(text) <= limit
+    assert text.startswith("\nline 0 ")
+    kept = text.split(rn.CUT)[0]
+    assert kept.endswith("\n") and kept.splitlines()[-1].endswith("y" * 90), "cut at a line end"
+    assert "#300--2030-03-03" in text
+    if subsections:
+        assert "- Fixed\n- Added\n" in text
+
+
+@pytest.mark.unit
 def test_the_0_8_0_notes_fit_and_keep_before_you_upgrade():
     """The real case: this repository's 0.8.0 section is over the limit by itself."""
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")

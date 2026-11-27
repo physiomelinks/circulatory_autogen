@@ -7,7 +7,8 @@ Usage::
 The notes are the version's section (from its ``## VERSION`` heading to the next ``## ``
 heading) and an install footer. GitHub refuses a release body over ``LIMIT`` characters, so a
 longer section keeps its intro and as many of its ``### `` subsections, in order, as fit; the
-rest are listed by heading with a link to the full section at the version's tag. A version with
+rest are listed by heading with a link to the full section at the version's tag. An intro that
+does not fit by itself is cut at a line end. A version with
 no section gets a stub pointing at CHANGELOG.md.
 """
 import re
@@ -17,6 +18,9 @@ import sys
 LIMIT = 125000
 
 REPO_URL = 'https://github.com/physiomelinks/circulatory_autogen'
+
+#: Marks where an intro too long to fit was cut.
+CUT = '\n(cut here to fit)\n\n'
 
 
 def section(changelog, version):
@@ -49,6 +53,11 @@ def shorten(body, link, limit):
     parts = re.split(r'(?m)^(?=### )', body)
     kept, subsections = parts[0], parts[1:]
     headings = [s.splitlines()[0][4:] for s in subsections]
+    rest = _rest_list(headings or ['The rest of the intro'], link)
+    if len(kept) + len(rest) > limit:
+        # An intro that does not fit by itself is cut at a line end, and every subsection listed.
+        cut = kept.rfind('\n', 0, limit - len(rest) - len(CUT)) + 1
+        return kept[:cut] + CUT + rest
     for i, sub in enumerate(subsections):
         if len(kept) + len(sub) + len(_rest_list(headings[i + 1:], link)) > limit:
             return kept.rstrip('\n') + '\n\n' + _rest_list(headings[i:], link)
