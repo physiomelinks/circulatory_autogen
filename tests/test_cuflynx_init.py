@@ -109,6 +109,26 @@ def test_the_starter_calibrates_with_cma_es(study):
     assert parsed['param_id_method'] == 'CMA-ES'
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize('debug', [False, True])
+def test_the_starter_names_no_uq_options_and_the_stages_still_read_them(study, debug):
+    """The starter sets do_uq: false and no UQ_options. The calibration script picks its UQ
+    options after the fit, and cuflynx-plot reads them, whether or not do_uq is set: the parser
+    gives them a default, so a starter calibration does not end in KeyError: 'UQ_options'."""
+    import yaml
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.scripts.param_id_run_script import select_uq_options
+
+    with open(study / 'user_run_files' / 'user_inputs.yaml') as handle:
+        raw = yaml.safe_load(handle)
+    assert 'UQ_options' not in raw and 'debug_UQ_options' not in raw
+
+    parsed = YamlFileParser().parse_user_inputs_file(dict(raw, DEBUG=debug), obs_path_needed=True)
+    assert parsed['UQ_options'] == {}
+    assert select_uq_options(parsed, debug) == {}
+    assert parsed['plot_predictions'] is True, 'cuflynx-plot reads it'
+
+
 @pytest.mark.integration
 def test_a_model_generates_from_the_starter(study):
     from libcuflynx.scripts.script_generate_with_new_architecture import \

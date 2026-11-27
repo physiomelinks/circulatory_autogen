@@ -3120,6 +3120,11 @@ class YamlFileParser(object):
         inp_data_dict.setdefault('DEBUG', False)
         if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
             inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
+        # Every stage reads UQ_options, do_uq or not; a config that names none gets the defaults.
+        if inp_data_dict.get('UQ_options') is None:
+            inp_data_dict['UQ_options'] = {}
+        # cuflynx-plot reads it; the shipped user_inputs.yaml sets it true.
+        inp_data_dict.setdefault('plot_predictions', True)
 
         if 'external_modules_dir' not in inp_data_dict.keys() or inp_data_dict['external_modules_dir'] is None:
             inp_data_dict['external_modules_dir'] = None
