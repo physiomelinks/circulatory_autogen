@@ -27,7 +27,10 @@ single-use credential for one workflow run.
    the fact (see the re-upload rule below).
 2. **Move the `CHANGELOG.md` entries** from *Unreleased* into a section for the version.
 3. **Write the release notes.** They are what a user upgrading actually reads, so they must
-   carry the items in the checklist below, not just a commit list.
+   carry the items in the checklist below, not just a commit list. The GitHub release takes
+   them from the version's `CHANGELOG.md` section (`.github/scripts/release_notes.py`). A
+   section over GitHub's 125,000-character limit keeps its intro and leading `###`
+   subsections and links to the rest, so put *Before you upgrade* first.
 4. **Build and check locally**:
 
     ```
