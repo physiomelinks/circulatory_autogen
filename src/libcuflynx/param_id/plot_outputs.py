@@ -204,18 +204,14 @@ class ParamIDPlotOutputs:
         # a data_item names the experiment and sub-experiment it belongs to, and
         # scoring it against another segment is scoring the wrong thing.
         num_sub_per_exp = self.client.protocol_info["num_sub_per_exp"]
-        const_by_segment = {}
+        obs_dicts = param_id.obs_output_dicts_per_segment(operands_list)
         for const_idx, obs_idx in enumerate(obs_info["const_idx_to_obs_idx"]):
             exp = int(obs_info["experiment_idxs"][obs_idx])
             sub = int(obs_info["subexperiment_idxs"][obs_idx])
             flat = sum(num_sub_per_exp[:exp]) + sub
-            if flat >= len(operands_list) or operands_list[flat] is None:
+            if flat >= len(obs_dicts) or obs_dicts[flat] is None:
                 continue
-            if flat not in const_by_segment:
-                const_by_segment[flat] = np.asarray(
-                    param_id.get_obs_output_dict(operands_list[flat])["const"], dtype=float
-                )
-            consts = const_by_segment[flat]
+            consts = np.asarray(obs_dicts[flat]["const"], dtype=float)
             if const_idx >= len(consts):
                 continue
             ground_truth = obs_info["ground_truth_const"][const_idx]
@@ -246,14 +242,10 @@ class ParamIDPlotOutputs:
             return param_id.get_obs_ca(best, get_all_series=True)
 
         _, best_fit_operands_list = param_id.get_cost_and_obs_from_params(best)
-        list_of_obs_dicts = []
-        list_of_all_series = []
-        for obs in best_fit_operands_list:
-            obs_dict, all_series = param_id.get_obs_output_dict(
-                obs, get_all_series=True
-            )
-            list_of_obs_dicts.append(obs_dict)
-            list_of_all_series.append(all_series)
+        per_segment = param_id.obs_output_dicts_per_segment(
+            best_fit_operands_list, get_all_series=True)
+        list_of_obs_dicts = [obs_dict for obs_dict, _ in per_segment]
+        list_of_all_series = [all_series for _, all_series in per_segment]
         return list_of_obs_dicts, list_of_all_series
 
     def _compute_subexperiment_time_axes(self):

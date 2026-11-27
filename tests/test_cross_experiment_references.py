@@ -194,3 +194,31 @@ def test_a_standalone_call_does_not_read_the_previous_call_s_values(temp_output_
 
     fresh.get_cost_from_operands(operands[0], exp_idx=0, sub_idx=0)
     assert 'a name no data_item has' not in fresh.temp_results
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_the_best_fit_plots_and_errors_see_the_cross_segment_value(temp_output_dir):
+    """The best-fit report (reconstruction pages, ``percent_error_vec``) resolves a reference the
+    way the cost does.
+
+    Evaluating each segment with a fresh table recomputes the referenced item from the
+    referencing segment's own trace, so a ratio of two segments' currents reads 1.0 and the
+    difference here reads 0.0, while the fit itself was scored on the right value.
+    """
+    from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
+
+    client = _param_id(temp_output_dir)
+    engine = client.param_id
+    engine.best_param_vals = _midpoint(engine)
+    engine.get_cost_obs_and_pred_from_params(engine.best_param_vals)
+    expected = float(engine.temp_results[RESPONSE])
+    assert expected != pytest.approx(0.0, abs=1e-6)
+
+    obs_dicts, _series = ParamIDPlotOutputs(client)._fetch_best_fit_data()
+    obs = engine.obs_info
+    idx = list(obs['data_item_names']).index(RESPONSE)
+    const_idx = list(obs['const_idx_to_obs_idx']).index(idx)
+    num_sub = engine.protocol_info['num_sub_per_exp']
+    flat = int(sum(num_sub[:int(obs['experiment_idxs'][idx])]) + int(obs['subexperiment_idxs'][idx]))
+    assert float(obs_dicts[flat]['const'][const_idx]) == pytest.approx(expected, rel=1e-9)
