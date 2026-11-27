@@ -1,0 +1,2160 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/sensitivity-analysis/">
+      
+      
+        <link rel="prev" href="../parameter-identification/">
+      
+      
+        <link rel="next" href="../identifiability-analysis/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Sensitivity Analysis - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sensitivity-analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sensitivity Analysis
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coupling to External Models
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coupling to External Models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/python-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Couple your own Python model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fenics-tissue-o2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FEniCS: tissue O2 and capillaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fenics-ne-varicosity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FEniCS: NE around a varicosity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/fv-1d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1D finite-volume coupling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-coupling/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-sobol-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Sobol Method
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sa-in-circulatory_autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SA in Circulatory_Autogen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SA in Circulatory_Autogen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-for-user_inputsyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration for user_inputs.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prediction-items-as-extra-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction items as extra outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-sensitivity-files-method-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local sensitivity files (method: local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-run-sa-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to run SA script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parameter-reduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter reduction
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parameter reduction">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-redundancy-check-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the redundancy check works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deriving-an-observable-from-other-observables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deriving an observable from other observables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#following-a-run-progress-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following a run: progress files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Surrogates
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Surrogates
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../surrogates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reduced-order-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reduced-order models (ROMs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods-latex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing up a model and its calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-derivations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deriving parameters from experimental data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/calibration-workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-sobol-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Sobol Method
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sa-in-circulatory_autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SA in Circulatory_Autogen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SA in Circulatory_Autogen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-for-user_inputsyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration for user_inputs.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prediction-items-as-extra-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction items as extra outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-sensitivity-files-method-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local sensitivity files (method: local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-run-sa-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to run SA script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parameter-reduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter reduction
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parameter reduction">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-redundancy-check-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the redundancy check works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deriving-an-observable-from-other-observables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deriving an observable from other observables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#following-a-run-progress-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following a run: progress files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="sensitivity-analysis">Sensitivity Analysis</h1>
+<p>Sensitivity Analysis (SA) is a recommended first step in the calibration pipeline because it performs crucial <strong>parameter screening</strong>. Calibration is the process of tuning numerous model parameters (inputs) until the model's output matches experimental data. Without SA, a modeler might waste weeks tuning parameters that have virtually no impact on the final result, or unknowingly tune parameters that are highly correlated, leading to non-unique solutions. SA efficiently identifies:</p>
+<ul>
+<li>
+<p><strong>Influential parameters:</strong> Which parameters contribute most significantly to the model's output variance.</p>
+</li>
+<li>
+<p><strong>Non-influential parameters:</strong> Which parameters can be fixed or ignored, drastically simplifying the calibration space.</p>
+</li>
+</ul>
+<p>SA ensures that the calibration effort is focused, efficient, and physically meaningful.</p>
+<h2 id="the-sobol-method">The Sobol Method</h2>
+<p>The Sobol method is a powerful, <strong>global, variance-based</strong> sensitivity analysis technique. Unlike local methods that only test parameter changes one at a time, the Sobol method explores the entire input space simultaneously.</p>
+<ul>
+<li><strong>Key Feature:</strong> It quantifies the contribution of each individual input parameter (First-Order Index, S_i) and the contribution of parameter interactions (Second-Order, Total-Order Index, S_{Ti}) to the overall output variance.</li>
+</ul>
+<p>This comprehensive approach allows modelers to understand not only which parameters are important on their own, but also how complex, synergistic interactions between two or more parameters drive the final simulation results.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A generated model and <code>obs_data.json</code> file (see <a href="../parameter-identification/">Parameter Identification</a>).</li>
+<li>A <code>params_for_id.json</code> file defining parameter ranges.</li>
+<li><code>pip install "libcuflynx[mpi]"</code> (and a system MPI toolchain) if running in parallel.</li>
+</ul>
+<h2 id="sa-in-circulatory_autogen">SA in Circulatory_Autogen</h2>
+<p>Since Sensitivity Analysis (SA) is intertwined with parameter identification, you will need the same input files as required for parameter identification. This includes both the <strong><code>params_for_id.json</code></strong> and the <strong><code>obs_data.json</code></strong> files. However, the exact values of the data terms in the observation file are not critical for SA itself, as you are simply exploring parameter space and variance, not matching the simulation output to observed data.</p>
+<p>Crucially, each data item defined in your <code>obs_data.json</code> file is treated as a feature for SA, meaning you will receive a separate set of plots (one for first and total order indices, and one for second order indices) for <strong>each</strong> data item.</p>
+<h3 id="configuration-for-user_inputsyaml">Configuration for <code>user_inputs.yaml</code></h3>
+<p>To run the Sobol analysis, you need to add a <code>sa_options</code> block to your <code>user_inputs.yaml</code> configuration file:
+<div class="highlight"><pre><span></span><code>sa_options: 
+    method: 'sobol' 
+    num_samples: 1024 
+    sample_type: saltelli
+    output_dir: &lt;SA_outputs_path&gt;
+</code></pre></div>
+The available options for <code>method</code> are <strong><code>'sobol'</code></strong> and <strong><code>'local'</code></strong> (derivatives at one point; see <a href="#local-sensitivity-files-method-local">Local sensitivity files</a>). <code>num_samples</code> and <code>sample_type</code> are for <code>sobol</code> only. Available sample types are [<strong>'saltelli'</strong>]. What we call <code>num_samples</code> here is actually the <code>num_samples</code> in</p>
+<p><code>actual_num_samples = num_samples (2M+2)</code></p>
+<p>where M is the number of parameters. This means the <code>num_samples</code> that you set doesn't need to be dependent on M.</p>
+<p>An indicator that the <strong>sample size may be too low</strong> is the observation of <strong>relatively large negative values for the Sobol indices</strong> in the results; if this occurs, increase the sample size and re-run the analysis.</p>
+<p>If <code>sa_options</code> is omitted, defaults are applied:</p>
+<ul>
+<li><code>method: sobol</code></li>
+<li><code>num_samples: 32</code></li>
+<li><code>sample_type: saltelli</code></li>
+<li><code>output_dir: &lt;param_id_output_dir&gt;/sensitivity</code>, in the study's working dir (see
+  <a href="../parameter-identification/#the-study-working-dir">The study working dir</a>). A relative
+  <code>output_dir</code> is taken under that folder and an absolute one is used as given. With
+  <code>cuflynx_study_copy_inputs: false</code> (or <code>write_cuflynx_study: false</code>) the default is
+  <code>sensitivity_outputs/&lt;file_prefix&gt;_SA_results</code>, and a relative <code>output_dir</code> is taken under
+  <code>sensitivity_outputs/</code>.</li>
+</ul>
+<h3 id="prediction-items-as-extra-outputs">Prediction items as extra outputs</h3>
+<p>Set <code>include_prediction_items: true</code> in <code>sa_options</code> to also report the sensitivity of the
+<code>prediction_items</code> in <code>obs_data.json</code> that have an <code>operation</code> (see
+<a href="../parameter-identification/#prediction-items-as-scalar-features">Prediction items as scalar features</a>).
+They are not in the cost, so they are useful for asking which parameters drive a quantity you
+predict rather than fit.</p>
+<div class="highlight"><pre><span></span><code>sa_options:
+    method: sobol
+    num_samples: 1024
+    include_prediction_items: true
+</code></pre></div>
+<ul>
+<li><strong>Only scalar prediction items with an operation are included</strong>: <code>data_type: constant</code>, or
+  no data and a reducing operation such as <code>max</code>. Items without an operation, and series, are
+  skipped with a warning that names them. An operation that returns more than one number is an
+  error.</li>
+<li>They come <strong>after</strong> the data_item outputs. They are labelled by their <code>data_item_name</code>, as
+  <code>&lt;data_item_name&gt; (Exp&lt;e&gt;, Sub&lt;s&gt;)</code>, in the Sobol CSVs
+  (<code>all_outputs_n&lt;N&gt;_Sobol_indices.csv</code> columns <code>S1_...</code>/<code>ST_...</code>, and
+  <code>all_outputs_n&lt;N&gt;_Sobol_2nd_order_indices.csv</code>), the per-output plots and the heatmaps. The
+  sub-experiment is the item's <code>subexperiment_idx</code> (by default its experiment's last), which is
+  the one the operation is applied to. A feature measured in an experiment that has no
+  data_items (a validation-only experiment) makes the SA simulate that experiment too. Without
+  the option, such an experiment is not simulated.</li>
+<li>The run also writes <code>sobol_output_features.json</code>, which lists every output column with its
+  <code>kind</code> (<code>data_item</code>, <code>prediction_item</code> or <code>cost</code>), <code>data_item_name</code>, <code>experiment_idx</code> and
+  <code>subexperiment_idx</code>.</li>
+<li>With <code>method: local</code> they are extra rows of <code>local_sensitivity_absolute.csv</code> and
+  <code>local_sensitivity_relative.csv</code>, named by <code>data_item_name</code>, and of
+  <code>local_sensitivity_signed.csv</code>, named as their Sobol columns. <code>get_local_sensitivities()</code>
+  lists them under <code>prediction_feature_names</code>. They are computed the same way as the
+  data_item rows: by the analytic arm (CasADi, or Myokit CVODES sensitivities), or by central
+  finite differences with <code>fd_rel_step</code> (2M more simulations) when <code>gradient_method: FD</code> or over
+  an emulator. Myokit's arm needs every prediction feature in one and the same
+  sub-experiment; otherwise (features in two experiments, or in an experiment with several
+  sub-experiments) they fall back to finite differences, with a warning.</li>
+<li><code>choose_most_impactful_params_sobol</code> ranks over every column in the CSV, prediction features
+  included.</li>
+<li>With <code>use_emulator: true</code> the emulator must have been trained with
+  <code>emulator_settings.include_prediction_items: true</code>. If it was not, the run stops and says to
+  retrain.</li>
+</ul>
+<p>Without the option, nothing changes: the outputs and files are exactly the data_item ones.</p>
+<h3 id="local-sensitivity-files-method-local">Local sensitivity files (<code>method: local</code>)</h3>
+<p><code>method: local</code> differentiates each scalar feature Y with respect to each parameter p at one
+point (the model's values, or a workflow step's <code>result_from</code>), and writes three CSVs to
+<code>output_dir</code>. Each has an <code>output</code> column and one column per parameter, named by its entry label
+(a grouped row joins its members with <code>+</code>; a modifier uses its own name):</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Value</th>
+<th>Rows labelled</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>local_sensitivity_absolute.csv</code></td>
+<td>dY/dp</td>
+<td>as the engine labels an observable (<code>&lt;item_name_for_plotting&gt;</code>, with <code>[exp e, sub s]</code> only when that repeats)</td>
+</tr>
+<tr>
+<td><code>local_sensitivity_relative.csv</code></td>
+<td>|p| dY/dp / |Y|; 0.0 where Y = 0</td>
+<td>as the absolute file</td>
+</tr>
+<tr>
+<td><code>local_sensitivity_signed.csv</code></td>
+<td>d ln Y / d ln p = (p / Y) dY/dp; NaN where Y = 0, where it is undefined</td>
+<td>as the Sobol outputs: <code>&lt;item_name_for_plotting&gt; (Exp&lt;e&gt;, Sub&lt;s&gt;)</code>, made unique the same way</td>
+</tr>
+</tbody>
+</table>
+<p>The signed file says which way a feature moves: -1 means a 1% rise in p lowers Y by about 1%.
+The relative file keeps the sign of dY/dp only, so the two disagree where p or Y is negative.
+Its row labels are the column names of <code>all_outputs_n&lt;N&gt;_Sobol_indices.csv</code> (after <code>S1_</code> and
+<code>ST_</code>), so one heatmap can show a Sobol index and a local coefficient of one observable side by
+side. <code>get_local_sensitivities()</code> returns the matrices (<code>absolute</code>, <code>relative</code>, <code>signed</code>) with
+<code>signed_output_names</code>, <code>nominal_param_vals</code> and <code>nominal_feature_vals</code>. A workflow's local
+sensitivity step names the signed file in its <code>step_result.json</code>, as <code>local_sensitivity_signed</code>.</p>
+<h2 id="how-to-run-sa-script">How to run SA script</h2>
+<p>First, ensure you have the required sensitivity analysis packages specified in <a href="../getting-started/">Getting Started</a>.</p>
+<p>To run the script, use the following command (which utilizes <strong>MPI for parallelized computation</strong> on CPU):</p>
+<div class="highlight"><pre><span></span><code>./run_sensitivity_analysis.sh &lt;NUM_CORES&gt;
+</code></pre></div>
+<p>After successful execution, you will find the SA plots—including the first, second, and total order indices—in the directory specified by <code>output_dir</code>.</p>
+<h2 id="parameter-reduction">Parameter reduction</h2>
+<p>A Sobol analysis can choose the parameters to calibrate, for two reasons:</p>
+<ol>
+<li><strong>Redundancy.</strong> Parameters that move the data the same way cannot be told apart. Keep one
+   parameter per direction the data can fix. On the 3compartment study
+   (<code>benchmarks/param_reduction_3compartment</code>) calibrating all seven parameters is not
+   identifiable (the Fisher information is singular or has condition number about 1e16), while
+   the reduced fits have condition numbers of 12-16 and agree between seeds.</li>
+<li><strong>Noise-blindness.</strong> A large Sobol index on an output that moves by less than its noise is
+   not worth fitting. The reduction measures every effect in units of the obs_data noise.</li>
+</ol>
+<p>With <code>do_param_reduction: true</code>,
+<code>run_sensitivity_analysis.sh</code> follows the Sobol run with a reduction and writes the kept entries
+of your params_for_id file as <code>reduced_params_for_id.json</code>, ready to calibrate:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">do_param_reduction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">param_reduction_options</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pca</span><span class="w">            </span><span class="c1"># or sobol</span>
+<span class="w">  </span><span class="c1"># n_params: 3          # pca: at most this many; sobol: needed</span>
+<span class="w">  </span><span class="c1"># index_type: ST       # ST or S1</span>
+<span class="w">  </span><span class="c1"># min_mode_std: 1.0    # pca; measured over the whole prior box (global, not local to the fit)</span>
+<span class="w">  </span><span class="c1"># variance_fraction: 1.0  # pca; 1 = no relative cut</span>
+<span class="w">  </span><span class="c1"># min_index: 0.05      # pca</span>
+<span class="w">  </span><span class="c1"># redundancy_check: true  # pca</span>
+<span class="w">  </span><span class="c1"># criterion: max       # sobol</span>
+<span class="w">  </span><span class="c1"># threshold: 0.01      # sobol</span>
+<span class="w">  </span><span class="c1"># sensitivity_dir: ... # default sa_options.output_dir</span>
+<span class="w">  </span><span class="c1"># output_dir: ...      # default &lt;sensitivity_dir&gt;/param_reduction</span>
+</code></pre></div>
+<p><strong><code>method: pca</code></strong> (the default) asks in how many independent ways the parameters move the data
+by more than its noise, and keeps one parameter for each:</p>
+<ol>
+<li>Each output over the Sobol samples is centred and divided by its obs_data <code>std</code> over the
+   square root of its <code>weight</code>, the scale the <code>gaussian_MLE</code> cost measures it on. A change of 1
+   is then one noise std.</li>
+<li>Principal component analysis of these scaled outputs gives modes: independent directions
+   in which the parameters move the data, largest variance first. A mode whose std is at least
+   <code>min_mode_std</code> (default 1, the noise) is <strong>informative</strong>; the others move the data by less
+   than the noise and cannot be fitted. Only the leading modes that together explain
+   <code>variance_fraction</code> of the variance are considered. The default, 1, is no relative cut. A
+   smaller value ignores the noise: a mode that moves the data by several noise stds but has a
+   small share of the variance can be dropped.</li>
+<li>Sobol indices are computed for each mode's score, from the same samples. A parameter whose
+   largest index over the informative modes is below <code>min_index</code> is not a candidate.</li>
+<li>With <code>redundancy_check: true</code> (the default), the reduction asks which candidates move the
+   data in different ways, using local derivatives (see "How the redundancy check works" below).
+   Of the candidates whose effect is at least <code>min_mode_std</code> noise stds, it keeps the one with
+   the highest Sobol index over the informative modes, removes that direction from the others'
+   effects, and repeats, stopping when no effect left reaches <code>min_mode_std</code>: what such a
+   parameter would add to the fit is inside the noise. Parameters that move the
+   data the same way (only their product or ratio matters, or a scaling symmetry) have the same
+   effect, so only one of them is kept, however many modes they drive: the one the Sobol
+   indices rank highest. The local derivatives decide which parameters are redundant; the
+   Sobol indices, which cover the whole prior box, decide which of them is kept.</li>
+<li>With <code>redundancy_check: false</code> it goes through the informative modes, largest first, and
+   keeps the parameter, not kept already, with the largest index for that mode, skipping a mode
+   that no free parameter reaches <code>min_index</code> for. This keeps at most one parameter per mode, so
+   it reduces only when there are fewer informative modes than parameters. Outputs that are a
+   time course (series binned into features, an oscillation) have many more modes than
+   parameters, and it keeps them all.</li>
+</ol>
+<p>Both stop after <code>n_params</code>. A parameter that drives an output strongly, but by less than that
+output's noise, is not kept.</p>
+<h4 id="how-the-redundancy-check-works">How the redundancy check works</h4>
+<p>Sobol indices say how much of a mode's variance each parameter drives, but not in which
+direction, so they cannot tell that two parameters are interchangeable: when only <code>a * b</code>
+matters, <code>a</code> and <code>b</code> get the same large index on the same modes. The check needs, for each
+parameter, the direction it moves the data in, and compares those.</p>
+<p><strong>The derivatives.</strong> Every Sobol run also takes local derivatives, set by <code>sa_options</code>:</p>
+<table>
+<thead>
+<tr>
+<th>key</th>
+<th>default</th>
+<th>what it sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jacobian_points</code></td>
+<td>8</td>
+<td>how many points; 0 skips the derivatives</td>
+</tr>
+<tr>
+<td><code>jacobian_location</code></td>
+<td><code>base_points</code></td>
+<td><code>base_points</code>: the first <code>jacobian_points</code> Saltelli base points, the rows starting each block of 2M + 2 samples, which come from a Sobol sequence and so spread over the box; <code>centre</code>: one point at the centre of the box</td>
+</tr>
+<tr>
+<td><code>jacobian_scheme</code></td>
+<td><code>central</code></td>
+<td><code>central</code> (2 runs per parameter and point) or <code>forward</code> (1, reusing the base point's own run)</td>
+</tr>
+<tr>
+<td><code>jacobian_step</code></td>
+<td>0.01</td>
+<td>the step in ln(parameter), or as a fraction of the range for bounds that straddle 0</td>
+</tr>
+<tr>
+<td><code>jacobian_check_steps</code></td>
+<td>true</td>
+<td>also take them with half the step (twice the runs), for <code>redundancy_converged_only</code></td>
+</tr>
+</tbody>
+</table>
+<p>With the defaults a run costs <code>4 x jacobian_points x M</code> extra simulations (central differences
+at two steps), about <code>2 x jacobian_points / num_samples</code> of the Sobol run: 384 next to 6656
+(5.8%) for 12 parameters and <code>num_samples: 256</code>. <code>jacobian_check_steps: false</code> halves that, and
+then a reduction needs <code>redundancy_converged_only: false</code>. Central differences are the default because a forward step's error is first
+order: in an oscillator a step shifts the phase, the error grows along the time course, and in
+the Goodwin benchmark it hid an exact symmetry. Each derivative is multiplied by the parameter's
+prior range (<code>ln(max/min)</code>, or <code>max - min</code> for bounds that straddle 0), so it reads as how far the
+data would move if that slope held across the whole range. They are saved in
+<code>all_outputs_n&lt;N&gt;_Sobol_local_jacobian.csv</code>, one row per step, point and parameter.</p>
+<p><strong>The effects.</strong> At each point, each derivative is scaled to noise stds like the outputs in
+step 1 and projected onto the informative modes: a parameter's effect at that point, a vector
+with one entry per informative mode.</p>
+<p><strong>The choice.</strong> Pivoted Gram-Schmidt, done at each point separately and chosen jointly. For
+every parameter, take what is left of its effect at each point once the kept parameters'
+effects at that point are removed, and its root mean square length over the points. Keep the
+parameter with the largest, remove its direction at every point, and repeat until the largest
+is below <code>min_mode_std</code>. Because each point is explained by the kept parameters at that same
+point, the combination that reproduces a redundant parameter may change across the box, as it
+does for a scaling symmetry or for parameters entering as a sum. The report lists each
+parameter's <code>effects</code> (the statistic before anything is removed) and the
+<code>unexplained_effects</code> of those not kept (what was left).</p>
+<p>Two <code>param_reduction_options</code> set how the points are combined:</p>
+<ul>
+<li><code>redundancy_statistic</code>: <code>median</code> (the default) keeps a parameter only if it is unexplained at
+  most points, which ignores a minority of points where the derivatives are poor, and also a
+  parameter that matters in less than half the box; <code>rms</code> keeps a parameter that is unexplained
+  at any point, however few.</li>
+<li><code>redundancy_converged_only</code> (default true): leave out the points where the derivatives at
+  <code>jacobian_step</code> and at half of it differ by more than <code>redundancy_convergence_tol</code> (default
+  0.1) of the effect. It needs the Sobol run's derivatives at both steps
+  (<code>jacobian_check_steps</code>, on by default); a run without them is refused, naming
+  <code>redundancy_converged_only: false</code>, which uses every point. The report lists the
+  <code>unconverged_points</code>, and a warning says how many were left out.</li>
+</ul>
+<p>The defaults (central differences of 0.01 and 0.005 at 8 base points, the <code>median</code> over the
+points whose derivatives agree at the two steps) come from
+<code>benchmarks/param_reduction/compare_redundancy.py</code>, which runs every setting on the
+FitzHugh-Nagumo, Goodwin and Teusink benchmarks and compares the kept count with the Fisher
+information at the truth (<code>redundancy_comparison_results.md</code>; the defaults are its
+<code>K8_central_1e-2_checked</code> rows, <code>median_converged</code> column). FitzHugh-Nagumo and Teusink give
+the same count under every setting: 5 for both, which is Teusink's Fisher count of 6 less one.
+<strong>On Goodwin the defaults keep 4 parameters, its Fisher count</strong>, leaving out 3 of the 8 points
+(the <code>ai</code> of the bullet below). The <code>median</code> over every point at this step keeps 5
+(<code>redundancy_converged_only: false</code>), and so does <code>rms</code> at every step. The <code>median</code> at
+<code>jacobian_step: 0.001</code> also keeps 4, but on a stiff model such as the 3-compartment test model
+solver noise (which grows as 1/step) leaves no point converged at that step; at 0.01 all 8 of
+its points converge. The centre point alone also gives 4 on Goodwin, but it misses a parameter
+that is flat at the centre. The cost of <code>median</code> is a parameter that matters in less than half
+the box: set <code>redundancy_statistic: rms</code> to keep such parameters.</p>
+<p><strong>Why local derivatives, at several points.</strong></p>
+<ul>
+<li><em>Products and ratios stay exact.</em> If only <code>a * b</code> matters, a 1% step in <code>a</code> and a 1% step in
+  <code>b</code> change the data identically at every point, so once <code>a</code> is kept nothing of <code>b</code> is left.
+  Differences between Saltelli samples cannot do this: each pair of samples jumps by a
+  different random amount, and on a curved response even jumps of the same size in ln(a) and
+  ln(b) leave a remainder (about 20% of the effect, many noise stds, in a test of <code>a * b</code>).</li>
+<li>
+<p><em>A flat spot at one point is not mistaken for no effect.</em> <code>p^2</code> on <code>[-1, 1]</code> has slope 0 at
+  the centre of its range, and a derivative there alone would drop it. Across 8 points its
+  effect is many noise stds, and it is kept.</p>
+</li>
+<li>
+<p><em>Points where the outputs are not smooth.</em> In the Goodwin benchmark <code>ai</code>, <code>Ai</code> and <code>ki</code> form
+  an exact scaling symmetry, so <code>ai</code> is explained by the other two at every point in exact
+  arithmetic. At a step of 0.001 the derivatives show it at six of eight points (under 1 noise
+  std left), but at the two where <code>ai</code> is small next to <code>Ai</code> they do not settle as the step
+  shrinks, and leave tens of noise stds. The <code>median</code> outvotes those points and drops <code>ai</code>;
+  <code>rms</code> over every point keeps it. At the default step of 0.01 the <code>median</code> over every point
+  keeps <code>ai</code> too; leaving out the points that have not converged (<code>redundancy_converged_only</code>,
+  the default) drops it.</p>
+</li>
+</ul>
+<p><strong>Limits.</strong> The derivatives are local: a parameter whose effect lies wholly between the points,
+such as a sharp switch, can still be missed, and more <code>jacobian_points</code> make that less likely.
+A point where a run fails is left out, with a warning. <code>jacobian_points: 0</code> skips the
+derivatives, and then a reduction needs <code>redundancy_check: false</code>.</p>
+<p><strong><code>method: sobol</code></strong> keeps the <code>n_params</code> parameters with the highest Sobol index over the
+outputs (the <code>max</code> or <code>mean</code> by <code>criterion</code>), dropping any below <code>threshold</code>. It ignores the
+noise and counts correlated outputs separately.</p>
+<p><strong><code>method: manual</code></strong> keeps the parameters named in <code>parameters</code>, a choice made by hand for
+the <code>reason</code> given (both required). It reads nothing of the Sobol run; it records the choice
+where the other methods record theirs. A parameter is named as its params_for_id entry is
+labelled (<code>heart/E_lv_A</code>; a grouped entry's names joined by <code>+</code>; a modifier's name).</p>
+<p>Each writes <code>param_reduction.json</code>: the options and the kept parameters with their scores. For
+<code>pca</code> each kept parameter also has its mode, and the report lists every mode's std and variance
+share. <code>pca_modes.csv</code> holds each mode's loadings on the outputs, <code>pca_mode_sobol_indices.csv</code>
+the indices per mode (in the layout of the Sobol indices CSV), and <code>pca_mode_sobol_ST.png</code> a
+heatmap of them; with the redundancy check the report also has each parameter's <code>effects</code> and
+the <code>unexplained_effects</code> of those not kept. A <code>pca</code> reduction reads
+<code>all_outputs_n&lt;N&gt;_Sobol_samples.csv</code>, <code>..._outputs.csv</code>, <code>..._local_jacobian.csv</code> and
+<code>sobol_problem.json</code>, which every Sobol run writes.</p>
+<p>A sample whose simulation fails cannot be left out (Saltelli's estimators need every row), so
+each output it lacks is filled with that output's mean over the samples that ran. The count is
+<code>failed_samples</code> in <code>sobol_problem.json</code>, with a warning: it shrinks the indices toward zero by
+about the failed fraction, so narrow the bounds if it is large. In a calibration
+workflow, a <code>reduction</code> step does the same (see
+<a href="../parameter-identification/">calibration workflows</a>).</p>
+<h2 id="deriving-an-observable-from-other-observables">Deriving an observable from other observables</h2>
+<p>Sensitivity analysis uses the same <code>data_items</code> as calibration, so a feature built from other
+features -- the difference between two observables, say -- is available here too, and is defined
+the same way. See
+<a href="../parameter-identification/#building-an-observable-from-other-observables">Building an observable from other observables</a>.</p>
+<h2 id="expected-outcome">Expected outcome</h2>
+<p>You should have Sobol index plots saved to <code>sa_options.output_dir</code>.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li>If you see errors about <code>params_for_id_path</code>, confirm your <code>params_for_id.json</code> filename and <code>resources_dir</code>.</li>
+<li>If MPI errors occur, ensure <code>mpiexec</code> is available and <code>mpi4py</code> is installed in the environment you are running from — it is the <code>[mpi]</code> extra, not part of a plain <code>pip install libcuflynx</code>.</li>
+</ul>
+<h2 id="following-a-run-progress-files">Following a run: progress files</h2>
+<p>A Sobol analysis, an emulator training and a profile likelihood each write <code>progress.json</code> into
+the directory their results go to (the <code>sa_options</code> <code>output_dir</code>, the emulator's directory,
+<code>profile_likelihood/</code>; in a calibration workflow, the step's own folders). MPI rank 0 rewrites
+it while the run goes, at most about once a second, through a rename, so a reader never sees
+half a file. CUFLynx reads the same file; nothing in it depends on how the run was started.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"schema_version"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sobol"</span><span class="p">,</span><span class="w"> </span><span class="nt">"state"</span><span class="p">:</span><span class="w"> </span><span class="s2">"running"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"started"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-11-23T02:10:00+00:00"</span><span class="p">,</span><span class="w"> </span><span class="nt">"updated"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-11-23T02:10:41+00:00"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"phases"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sampling"</span><span class="p">,</span><span class="w"> </span><span class="nt">"state"</span><span class="p">:</span><span class="w"> </span><span class="s2">"running"</span><span class="p">,</span><span class="w"> </span><span class="nt">"done"</span><span class="p">:</span><span class="w"> </span><span class="mi">1200</span><span class="p">,</span><span class="w"> </span><span class="nt">"total"</span><span class="p">:</span><span class="w"> </span><span class="mi">4608</span><span class="p">,</span><span class="w"> </span><span class="nt">"failed"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">}]}</span>
+</code></pre></div>
+<ul>
+<li><code>kind</code> is <code>sobol</code>, <code>emulation</code> or <code>profile_likelihood</code>.</li>
+<li><code>state</code> is <code>running</code>, then <code>done</code> once the result files are written, or <code>failed</code> if the run
+  raised an error. A run that was killed stays <code>running</code>: compare <code>updated</code> with the clock.</li>
+<li>Each phase counts <code>done</code> of <code>total</code> items, with those that <code>failed</code> among the done, and has
+  its own <code>state</code> (<code>queued</code>, <code>running</code>, <code>done</code>, <code>failed</code>). A phase is added when its size is
+  known, so later phases can be missing while an earlier one runs.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Phases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sobol</code></td>
+<td><code>sampling</code> (the model runs of the design), <code>local_jacobian</code> (the runs for a PCA reduction's redundancy check, when there are any), <code>analysis</code></td>
+</tr>
+<tr>
+<td><code>emulation</code></td>
+<td>one <code>sampling</code> phase per design stage, with <code>stage</code> and <code>method</code> (the training simulations), then <code>training</code>, whose <code>models</code> list each emulator compared: <code>name</code>, <code>state</code>, <code>score</code> (its held-out value of the phase's <code>metric</code>) and <code>duration_s</code></td>
+</tr>
+<tr>
+<td><code>profile_likelihood</code></td>
+<td>one phase per calibrated entry, named by its label, with <code>param_index</code>: the points evaluated of <code>num_points</code>; a failed point is one whose re-calibration gave no finite cost</td>
+</tr>
+</tbody>
+</table>
+<p>The file's definition is <code>libcuflynx/schemas/progress.schema.json</code>
+(<code>libcuflynx.schemas.PROGRESS_SCHEMA</code>); the writer is <code>libcuflynx.utilities.progress</code>. A phase
+may gain keys: ignore those you do not know.</p>
+<p>A Sobol run also writes, in the same directory:</p>
+<ul>
+<li><code>sobol_design.npy</code>: the design (samples by parameters) in run order, before the first
+  simulation, and <code>sobol_design_params.json</code> with its columns (<code>names</code>, <code>bounds</code>,
+  <code>num_samples</code>, <code>sample_type</code>, <code>rows</code>).</li>
+<li><code>sobol_sample_status.npy</code>: one int8 per design row, 0 not run, 1 ran, 2 failed (an output
+  that is not finite), rewritten as the ranks report and kept after the run. Failed samples are
+  filled with each output's mean before the indices are computed, so the outputs CSV does not
+  show which they were; this file does.</li>
+<li><code>sobol_convergence.json</code>, at the end: S1 and ST with their confidence half-widths at
+  <code>num_samples</code> / 8, / 4, / 2 and <code>num_samples</code> base samples (from 4 up), each the analysis the
+  run would have given had it stopped there:
+  <code>{"n": [32, 64, 128, 256], "outputs": {output: {"S1": {parameter: [[value, conf], ...]}, "ST": {...}}}}</code>,
+  one <code>[value, conf]</code> per entry of <code>n</code>; a value that is not finite is <code>null</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
