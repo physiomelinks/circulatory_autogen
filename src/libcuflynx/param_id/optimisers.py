@@ -11,6 +11,7 @@ import numpy as np
 # on macOS when a NIC goes away (#396). get_MPI hands back the real
 # mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
 # stub otherwise, so a serial run never opens MPI at all.
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
@@ -306,13 +307,23 @@ class GeneticAlgorithmOptimiser(Optimiser):
 
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
+        if self.optimiser_options.get('num_calls_to_function') is None:
+            raise CAInputError(
+                'the genetic algorithm (param_id_method: genetic_algorithm, the method when '
+                'none is set) needs optimiser_options.num_calls_to_function, the number of '
+                'cost-function evaluations it may use.')
         if self.optimiser_options['num_calls_to_function'] < num_pop:
-            print(f'Number of calls (n_calls={self.optimiser_options["num_calls_to_function"]}) must be greater than the '
-                  f'gen alg population (num_pop={num_pop}), exiting')
-            exit()
+            raise CAInputError(
+                f'optimiser_options num_calls_to_function='
+                f'{self.optimiser_options["num_calls_to_function"]} is less than the genetic '
+                f'algorithm population (num_pop={num_pop}): no generation can run. Set '
+                f'num_calls_to_function to at least {num_pop}, or use another param_id_method '
+                f'(CMA-ES runs on any budget).')
         if num_procs > num_pop:
-            print(f'Number of processors must be less than number of population, exiting')
-            exit()
+            raise CAInputError(
+                f'{num_procs} MPI ranks is more than the genetic algorithm population '
+                f'(num_pop={num_pop}): run on at most {num_pop} ranks, or raise the population '
+                f'sizes in optimiser_options.')
         
         self.max_generations = math.floor(self.optimiser_options['num_calls_to_function']/num_pop)
         
@@ -686,7 +697,6 @@ class CMAESOptimiser(Optimiser):
         Args:
             optimiser_options: Dictionary with keys:
                 - num_calls_to_function: Number of function evaluations (default: 10000)
-                - sigma0: not applied; nevergrad sets the initial step itself (see run())
                 - cost_convergence: Convergence tolerance (shared across optimisers)
                 - max_patience: generations (populations of candidates) without an
                   improvement in cost before stopping (shared across optimisers)
@@ -696,9 +706,11 @@ class CMAESOptimiser(Optimiser):
             - num_workers is determined at runtime from the number of MPI processes
             - Initial parameter values (x0) are automatically loaded from the parameters CSV file
         """
-        super().__init__(param_id_obj, param_id_info, param_norm_obj, 
+        from libcuflynx.parsers.PrimitiveParsers import refuse_removed_optimiser_options
+        refuse_removed_optimiser_options(optimiser_options)
+        super().__init__(param_id_obj, param_id_info, param_norm_obj,
                         num_params, output_dir, optimiser_options, DEBUG)
-        
+
         if not NEVERGRAD_AVAILABLE:
             raise ImportError("Nevergrad is required for CMA-ES optimiser. Install it with: pip install nevergrad")
         
@@ -717,9 +729,20 @@ class CMAESOptimiser(Optimiser):
         
         # nevergrad.optimizers.CMA takes no initial step: with bounds on every parameter it
         # samples in a space scaled per parameter to (max - min) / 6 and picks the step there.
-        # A sigma0 given is reported in run() and not applied.
-        self.sigma0 = self.optimiser_options.get('sigma0')
     
+    def _search_box(self, x0):
+        """``(init, lower, upper)`` of the variables nevergrad searches.
+
+        With one parameter they hold a second variable in [0, 1] that the cost never reads. In
+        one dimension nevergrad's ``CMA`` runs its OnePlusOne search instead, which on a bounded
+        variable can keep proposing points on the bounds and stop far from the minimum; with two
+        variables it runs CMA. Candidates are cut back to the first ``num_params`` values.
+        """
+        lower, upper = np.asarray(self.param_mins, float), np.asarray(self.param_maxs, float)
+        if self.num_params != 1:
+            return x0, lower, upper
+        return np.append(x0, 0.5), np.append(lower, 0.0), np.append(upper, 1.0)
+
     def run(self):
         """Run the CMA-ES optimization."""
         comm = self.comm
@@ -769,14 +792,14 @@ class CMAESOptimiser(Optimiser):
             
             if out_of_bounds:
                 print('\n' + '='*80)
-                print('WARNING: Initial parameter values from CSV are outside bounds!')
+                print('WARNING: Initial parameter values from the parameters file are outside bounds!')
                 print('='*80)
                 for i in out_of_bounds:
                     param_name = param_names[i] if i < len(param_names) else f'Parameter {i}'
                     print(f'  Parameter: {param_name}')
                     # param_init is an ndarray (one flat theta slot per calibrated variable),
                     # so guard with `is not None` -- bare truthiness on an array raises.
-                    print(f'    Value from CSV: '
+                    print(f'    Value from the parameters file: '
                           f'{self.param_id_obj.param_init[i] if self.param_id_obj.param_init is not None else "N/A"}')
                     print(f'    Bounds: [{self.param_mins[i]:.6e}, {self.param_maxs[i]:.6e}]')
                     print(f'    Setting to mean: {x0[i]:.6e}')
@@ -786,9 +809,6 @@ class CMAESOptimiser(Optimiser):
             print(f'Running CMA-ES optimization with Nevergrad')
             print(f'  Budget: {self.budget} function evaluations')
             print(f'  Number of workers: {num_workers}')
-            if self.sigma0 is not None:
-                print(f'  sigma0={self.sigma0} is not applied: nevergrad chooses the initial '
-                      f'step from the parameter bounds')
             print(f'  Initial parameters: {x0}')
         
         # Broadcast initial guess to all ranks
@@ -796,16 +816,11 @@ class CMAESOptimiser(Optimiser):
         
         # Create parametrization with bounds
         # Nevergrad uses Array parametrization with bounds
-        parametrization = ng.p.Array(
-            init=x0,
-            lower=self.param_mins,
-            upper=self.param_maxs
-        )
+        init, lower, upper = self._search_box(x0)
+        parametrization = ng.p.Array(init=init, lower=lower, upper=upper)
         
         # Create CMA-ES optimizer
         if rank == 0:
-            # Nevergrad CMA optimizer doesn't accept sigma0 directly
-            # Instead, we can set it via the parametrization or use the optimizer's default
             optimizer = ng.optimizers.CMA(
                 parametrization=parametrization,
                 budget=self.budget,
@@ -831,7 +846,17 @@ class CMAESOptimiser(Optimiser):
         iteration = 0
         last_improve_iter = 0
         max_patience = self.optimiser_options.get('max_patience', 10)
-        
+        if rank == 0:
+            # The start value is evaluated first, as one of the budget, so a search started at
+            # a known optimum (a profile likelihood point, a warm start) never returns a worse
+            # cost. CMA samples around the start without evaluating it. It is not given to
+            # nevergrad: a point CMA did not ask for disturbs its step adaptation
+            # (benchmarks/cmaes_one_parameter.py).
+            best_cost = float(self.param_id_obj.get_cost_from_params(np.array(x0, dtype=float)))
+            best_params = np.array(x0, dtype=float)
+            self.best_cost, self.best_param_vals = best_cost, np.array(best_params)
+            iteration = 1
+
         # Main optimization loop
         while True:
             if rank == 0:
@@ -849,7 +874,7 @@ class CMAESOptimiser(Optimiser):
                 # Convert to numpy array for broadcasting
                 num_candidates = len(candidates)
                 if num_candidates > 0:
-                    candidate_array = np.array([c.value for c in candidates])
+                    candidate_array = np.array([c.value[:self.num_params] for c in candidates])
                 else:
                     # Ensure all ranks receive zero candidates and exit cleanly
                     candidate_array = None
@@ -904,7 +929,7 @@ class CMAESOptimiser(Optimiser):
                     # Track best result
                     if cost < best_cost:
                         best_cost = cost
-                        best_params = candidate.value
+                        best_params = candidate.value[:self.num_params]
                         last_improve_iter = iteration
                         
                         # Save intermediate results
@@ -949,7 +974,7 @@ class CMAESOptimiser(Optimiser):
         if rank == 0:
             try:
                 recommendation = optimizer.provide_recommendation()
-                final_params = recommendation.value
+                final_params = recommendation.value[:self.num_params]
                 final_cost = self.param_id_obj.get_cost_from_params(final_params)
                 
                 # Use recommendation if it's better

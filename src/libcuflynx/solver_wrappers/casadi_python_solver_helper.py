@@ -2,6 +2,7 @@ import atexit
 import contextlib
 import gc
 import glob
+import math
 import importlib.util
 import inspect
 import os
@@ -511,9 +512,14 @@ class SimulationHelper(ExperimentTimeMixin):
         self.start_time = start_time
         self._track_experiment_start(start_time, pre_time)
         self.stop_time = start_time + pre_time + sim_time
-        self.pre_steps = int(pre_time/dt)
+        # Myokit's grid: int(sim_time/dt) steps spanning exactly sim_time, after pre_time run in
+        # int(pre_time/dt) steps (at least one) spanning exactly pre_time. When dt does not
+        # divide a time, its steps are slightly longer than dt; see _step_segments.
+        self.pre_steps = max(int(pre_time/dt), 1) if pre_time > 0 else 0
         self.n_steps = int(sim_time/dt)
-        self.t_eval = np.arange(start_time, self.stop_time + dt/2, dt)
+        self.t_eval = np.concatenate([
+            np.linspace(start_time, start_time + pre_time, self.pre_steps + 1),
+            np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)[1:]])
         # stored portion excludes pre_time
         self.tSim = self.t_eval[self.pre_steps:]
         # Carry state across a sub-experiment boundary: the previous run() in this experiment
@@ -782,6 +788,33 @@ class SimulationHelper(ExperimentTimeMixin):
         self._var_traj_symb_builder = None
 
     # ---- simulation ----
+    def _step_segments(self):
+        """``[(steps, step size), ...]`` covering ``t_eval``: the pre_time part, then the
+        sim_time part. Parts with the same step are one segment, and a step within 1e-12 of
+        ``dt`` is ``dt`` itself, so a dt that divides both times gives one segment at dt."""
+        segments = []
+        for n, length in ((self.pre_steps, self.pre_time), (self.n_steps, self.sim_time)):
+            if n <= 0:
+                continue
+            h = float(length) / n
+            if math.isclose(h, self.dt, rel_tol=1e-12):
+                h = float(self.dt)
+            if segments and segments[-1][1] == h:
+                segments[-1] = (segments[-1][0] + n, h)
+            else:
+                segments.append((n, h))
+        return segments
+
+    def _chain_segments(self, x0, run_segment):
+        """States at ``t_eval[1:]``: ``run_segment(x, steps, h)`` returns a segment's states
+        after each of its steps, and each segment starts from the previous one's end."""
+        columns, x = [], x0
+        for n, h in self._step_segments():
+            xs = run_segment(x, n, h)
+            columns.append(xs)
+            x = xs[:, -1]
+        return ca.horzcat(*columns) if columns else ca.SX(self.STATE_COUNT, 0)
+
     def _run_semi_implicit_euler(self, total_steps):
         """Fixed-step semi-implicit (linearly-implicit) Euler with diagonal damping.
 
@@ -799,11 +832,19 @@ class SimulationHelper(ExperimentTimeMixin):
         stiff, discontinuous models such as 3compartment.
         """
         jac_diag = ca.diag(ca.jacobian(self.rates_symb, self.states_symb))
-        x_next = self.states_symb + self.dt * self.rates_symb / (1.0 - self.dt * jac_diag)
-        step = ca.Function("step", [self.states_symb, self.variables_symb_integrator], [x_next])
-        self.F_map = step.mapaccum(total_steps)
-        # Constant integrator params are broadcast across all steps (single column).
-        return self.F_map(self.x0_symb, self.variables_symb_integrator)
+        p_sym = self.variables_symb_integrator
+        maps = []
+
+        def segment(x, n, h):
+            x_next = self.states_symb + h * self.rates_symb / (1.0 - h * jac_diag)
+            step = ca.Function("step", [self.states_symb, p_sym], [x_next])
+            maps.append(step.mapaccum(n))
+            # Constant integrator params are broadcast across all steps (single column).
+            return maps[-1](x, p_sym)
+
+        result = self._chain_segments(self.x0_symb, segment)
+        self.F_map = maps[0] if maps else None
+        return result
 
     def _run_symbolic_bdf(self, total_steps):
         """Fixed-step implicit BDF (order 2, with a BDF1 startup step), built as a
@@ -846,43 +887,49 @@ class SimulationHelper(ExperimentTimeMixin):
         # disabling sub-stepping.
         _ms = self.solver_info.get('max_step')
         max_step = float(_ms) if _ms else 1e-3
-        n_sub = max(1, int(np.ceil(self.dt / max_step)))
-        idt = self.dt / n_sub                 # internal (sub-)step
-        internal_total = total_steps * n_sub  # number of internal steps over the horizon
 
-        # ---- BDF1 startup step (explicit-Euler predictor as the Newton guess) ----
-        x_unk = ca.SX.sym('x_unk', n)
-        xn = ca.SX.sym('xn', n)
-        g1 = x_unk - xn - idt * f_func(x_unk, p_sym)
-        G1 = ca.Function('bdf1_res', [x_unk, ca.vertcat(xn, p_sym)], [g1])
-        # fast_newton converges where plain 'newton' diverges, and is differentiable
-        # (implicit-function theorem), so AD through it matches FD exactly.
-        solve1 = ca.rootfinder('bdf1_solve', 'fast_newton', G1)
-        step1 = ca.Function('bdf1_step', [xn, p_sym],
-                            [solve1(xn + idt * f_func(xn, p_sym), ca.vertcat(xn, p_sym))])
+        def segment(x0, steps, h):
+            """BDF over one segment of ``steps`` output steps of length ``h``, from ``x0``;
+            a segment after the first restarts with a BDF1 step."""
+            n_sub = max(1, int(np.ceil(h / max_step)))
+            idt = h / n_sub                       # internal (sub-)step
+            internal_total = steps * n_sub        # number of internal steps over the segment
 
-        x1 = step1(self.x0_symb, p_sym)
-        if internal_total == 1:
-            full = ca.horzcat(self.x0_symb, x1)
-        else:
-            # ---- BDF2 over the [x_n; x_{n-1}] history (linear-extrapolation predictor) ----
-            H = ca.SX.sym('H', 2 * n)
-            x_curr, x_prev = H[:n], H[n:]
-            x_unk2 = ca.SX.sym('x_unk2', n)
-            g2 = (x_unk2 - (4.0 / 3.0) * x_curr + (1.0 / 3.0) * x_prev
-                  - (2.0 / 3.0) * idt * f_func(x_unk2, p_sym))
-            G2 = ca.Function('bdf2_res', [x_unk2, ca.vertcat(H, p_sym)], [g2])
-            solve2 = ca.rootfinder('bdf2_solve', 'fast_newton', G2)
-            H_next = ca.vertcat(solve2(2.0 * x_curr - x_prev, ca.vertcat(H, p_sym)), x_curr)
-            step2 = ca.Function('bdf2_step', [H, p_sym], [H_next])
+            # ---- BDF1 startup step (explicit-Euler predictor as the Newton guess) ----
+            x_unk = ca.SX.sym('x_unk', n)
+            xn = ca.SX.sym('xn', n)
+            g1 = x_unk - xn - idt * f_func(x_unk, p_sym)
+            G1 = ca.Function('bdf1_res', [x_unk, ca.vertcat(xn, p_sym)], [g1])
+            # fast_newton converges where plain 'newton' diverges, and is differentiable
+            # (implicit-function theorem), so AD through it matches FD exactly.
+            solve1 = ca.rootfinder('bdf1_solve', 'fast_newton', G1)
+            step1 = ca.Function('bdf1_step', [xn, p_sym],
+                                [solve1(xn + idt * f_func(xn, p_sym), ca.vertcat(xn, p_sym))])
 
-            H0 = ca.vertcat(x1, self.x0_symb)  # history entering the first BDF2 step (produces x2)
-            H_traj = step2.mapaccum(internal_total - 1)(H0, p_sym)
-            full = ca.horzcat(self.x0_symb, x1, H_traj[:n, :])  # internal grid (internal_total+1 cols)
+            x1 = step1(x0, p_sym)
+            if internal_total == 1:
+                full = ca.horzcat(x0, x1)
+            else:
+                # ---- BDF2 over the [x_n; x_{n-1}] history (linear-extrapolation predictor) ----
+                H = ca.SX.sym('H', 2 * n)
+                x_curr, x_prev = H[:n], H[n:]
+                x_unk2 = ca.SX.sym('x_unk2', n)
+                g2 = (x_unk2 - (4.0 / 3.0) * x_curr + (1.0 / 3.0) * x_prev
+                      - (2.0 / 3.0) * idt * f_func(x_unk2, p_sym))
+                G2 = ca.Function('bdf2_res', [x_unk2, ca.vertcat(H, p_sym)], [g2])
+                solve2 = ca.rootfinder('bdf2_solve', 'fast_newton', G2)
+                H_next = ca.vertcat(solve2(2.0 * x_curr - x_prev, ca.vertcat(H, p_sym)), x_curr)
+                step2 = ca.Function('bdf2_step', [H, p_sym], [H_next])
 
-        # Subsample the internal trajectory back onto the output grid (drop x0).
-        out_idx = [k * n_sub for k in range(1, total_steps + 1)]
-        return full[:, out_idx]  # x at output steps 1..total_steps
+                H0 = ca.vertcat(x1, x0)  # history entering the first BDF2 step (produces x2)
+                H_traj = step2.mapaccum(internal_total - 1)(H0, p_sym)
+                full = ca.horzcat(x0, x1, H_traj[:n, :])  # internal grid (internal_total+1 cols)
+
+            # Subsample the internal trajectory back onto the output grid (drop x0).
+            out_idx = [k * n_sub for k in range(1, steps + 1)]
+            return full[:, out_idx]  # x at output steps 1..steps
+
+        return self._chain_segments(self.x0_symb, segment)
 
     def _run_sundials_grid(self, total_steps):
         """One CVODES/IDAS integration over the whole output grid; sets state_traj_dm.
@@ -913,7 +960,12 @@ class SimulationHelper(ExperimentTimeMixin):
             return
         t0 = float(self.t_eval[0])
         dt = float(self.dt)
-        out_grid = [k * dt for k in range(1, total_steps + 1)]
+        # The output times in tau (time since t0): the pre_time and sim_time segments' steps.
+        out_grid, tau = [], 0.0
+        for n, h in self._step_segments():
+            out_grid += [tau + k * h for k in range(1, n + 1)]
+            tau = out_grid[-1]
+        out_array = np.asarray(out_grid)
         traced = sorted(self._traces)
         # Trace times, in tau (time since t0): from the end of pre_time.
         sim_start = float(self.pre_time) + (t0 - float(self.start_time))
@@ -921,8 +973,8 @@ class SimulationHelper(ExperimentTimeMixin):
 
         def on_grid(tau):
             """tau, or the output time it coincides with."""
-            k = int(round(tau / dt))
-            return k * dt if 1 <= k <= total_steps and abs(k * dt - tau) <= tol else tau
+            k = int(np.argmin(np.abs(out_array - tau)))
+            return out_grid[k] if abs(out_grid[k] - tau) <= tol else tau
 
         knots, steps = set(), set()
         for idx in traced:
@@ -1052,11 +1104,16 @@ class SimulationHelper(ExperimentTimeMixin):
                 "ode": self.rates_symb,
             }
             integrator_opts = self._build_integrator_opts()
-            with _jit_build(integrator_opts.get('jit', False)):
-                self.F = ca.integrator("F", self.solve_ivp_method, ode, 0, self.dt,
-                                       integrator_opts)
-                self.F_map = self.F.mapaccum(total_steps)
-            res_xf = self.F_map(x0=self.x0_symb, p=self.variables_symb_integrator)["xf"]
+            maps = []
+
+            def segment(x, n, h):
+                with _jit_build(integrator_opts.get('jit', False)):
+                    F = ca.integrator("F", self.solve_ivp_method, ode, 0, h, integrator_opts)
+                    maps.append((F, F.mapaccum(n)))
+                return maps[-1][1](x0=x, p=self.variables_symb_integrator)["xf"]
+
+            res_xf = self._chain_segments(self.x0_symb, segment)
+            self.F, self.F_map = maps[0] if maps else (None, None)
 
         if res_xf is not None:
             # Symbolic trajectory — SX function of (states_symb, variables_symb); required for AD
@@ -1247,6 +1304,7 @@ class SimulationHelper(ExperimentTimeMixin):
         offline_pre_time = float(offline_pre_time)
         if offline_pre_time <= 0:
             return
+        self._start_offline_warm_up()
         self._do_ad = False
         self.update_times(self.dt, 0.0, offline_pre_time, 0.0)
         success = self.run()

@@ -7,20 +7,22 @@ A step's values reach the target, and other steps, through a vessel map (``namin
 * a library module in a library supermodule target sits at a submodule (``Nested``; the step's
   ``submodule``, inferred when its module type occurs once);
 * a library module in a module-array target is one of its records (``Placed``; the step's
-  ``vessel``, inferred likewise);
-* a module array keeps its vessel names, unless its ``vessel_map`` renames them (``Renamed``);
+  ``module``, inferred likewise);
+* a module array keeps its module names, unless its ``module_map`` renames them (``Renamed``);
 * a selection of the target's instances is one of these (``select.resolve_selection``).
 '''
 
+import json
 import os
 import warnings
 from dataclasses import dataclass, field
 
-from libcuflynx.calibration_workflow import naming
+from libcuflynx.calibration_workflow import naming, spec
+from libcuflynx.calibration_workflow.protocol_factors import has_factors
 from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
-from libcuflynx.calibration_workflow.spec import WorkflowError
-from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+from libcuflynx.calibration_workflow.spec import SWEEP_KINDS, WorkflowError
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, param_entry_labels
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
 from libcuflynx.utilities.parameterisations import parameterisations_dir
 from libcuflynx.utilities.supermodules import submodule_path_parts
@@ -117,6 +119,118 @@ class ResolvedArray:
         return [p for p in paths if p]
 
 
+@dataclass
+class ResolvedExternal:
+    '''An external Python model: its file and the parameters ``SIM_HELPER`` declares
+    (``{'component/variable': default}``). Its vessels are the components.'''
+    model: object                  # spec.ExternalModel
+    parameters: dict
+
+    kind = 'external'
+
+    #: an external model has no parameters file of its own: its values are the class defaults
+    parameters_path = None
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.parameters}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+@dataclass
+class ResolvedCellML:
+    '''A CellML model: its file and its constants (``{'component/variable': {value, units}}``),
+    with the values of its ``parameters`` file over them. Its vessels are the components.'''
+    model: object                  # spec.CellMLModel
+    constants: dict
+
+    kind = 'cellml'
+
+    @property
+    def parameters(self):
+        return {name: c['value'] for name, c in self.constants.items()}
+
+    @property
+    def parameters_path(self):
+        return self.model.parameters
+
+    def file(self, suffix):
+        return os.path.join(os.path.dirname(self.model.path), f'{self.model.prefix}_{suffix}')
+
+    @property
+    def vessels(self):
+        return {name.partition('/')[0] for name in self.constants}
+
+    def config_paths(self, components, supermodules):
+        return []
+
+
+def read_cellml_parameters(model, where=''):
+    '''The constants of the CellML model ``model`` (a spec.CellMLModel) as ResolvedCellML holds
+    them, its parameters file's values over the CellML's. A name must be ``component/variable``
+    with a plain component, as a workflow names it as vessel and parameter; the parameters file
+    sets only constants of the model.'''
+    from libcuflynx.calibration_workflow.cellml_files import read_cellml_constants
+    from libcuflynx.utilities import parameters_file as pf
+    constants = read_cellml_constants(model.path, where)
+    for name in constants:
+        component = name.partition('/')[0]
+        if naming.LEVEL_SEPARATOR in component or naming.is_global(component):
+            raise WorkflowError(f'{where}: {model.path} has component "{component}"; a workflow '
+                                f'names a CellML model\'s parameters component/variable, with no '
+                                f'"{naming.LEVEL_SEPARATOR}" in the component and none named '
+                                f'"{naming.GLOBAL_VESSEL}".')
+    if model.parameters:
+        if not os.path.isfile(model.parameters):
+            raise WorkflowError(f'{where}: its parameters file {model.parameters} does not '
+                                f'exist.')
+        unknown = []
+        for place, leaf in pf.leaves(pf.read_parameters_file(model.parameters, kind=pf.MODEL)):
+            name = '/'.join(place)
+            if name not in constants:
+                unknown.append(name)
+                continue
+            try:
+                value = float(leaf.get('value'))
+            except (TypeError, ValueError) as exc:
+                raise WorkflowError(f'{where}: {model.parameters} gives "{name}" the value '
+                                    f'{leaf.get("value")!r}, not a number.') from exc
+            constants[name] = dict(constants[name], value=value)
+        if unknown:
+            raise WorkflowError(f'{where}: {model.parameters} sets {sorted(unknown)}, which are '
+                                f'not constants of {model.path} (its constants: '
+                                f'{sorted(constants)}).')
+    return constants
+
+
+def read_external_parameters(path, where=''):
+    '''``{'component/variable': default}`` of the external model at ``path`` (its
+    ``SIM_HELPER.parameters``, checked as the external helper checks them). A name must be
+    ``component/variable`` with a plain component, as a workflow names it as vessel and
+    parameter.'''
+    from libcuflynx.solver_wrappers.external_simulation_helper import (_load_module_from_path,
+                                                                       _resolve_user_class)
+    if not os.path.isfile(path):
+        raise WorkflowError(f'{where}: its external model file {path} does not exist.')
+    try:
+        _, parameters, _ = _resolve_user_class(_load_module_from_path(path), path)
+    except Exception as exc:  # the user's file may raise anything on import
+        raise WorkflowError(f'{where}: cannot read the external model {path}: {exc}') from exc
+    for name in parameters:
+        component, _, variable = name.partition('/')
+        if '/' in variable or naming.LEVEL_SEPARATOR in component:
+            raise WorkflowError(f'{where}: {path} declares parameter "{name}"; a workflow names '
+                                f'an external model\'s parameters component/variable, with no '
+                                f'"/" in the variable and no "{naming.LEVEL_SEPARATOR}" in the '
+                                f'component.')
+    return parameters
+
+
 def _submodule_configs(entry, components, supermodules):
     paths = []
     for sub in entry.get('submodules', []):
@@ -147,6 +261,13 @@ class ResolvedStep:
     target: object = None          # the workflow target, resolved
     selection: object = None       # select.ResolvedSelection of a selection step
 
+    def in_model(self, parameter):
+        '''``parameter`` (a CalibratedParameter, as a params_for_id names it) as the step's
+        model names it: for a CellML model the constant it is (:func:`cellml_parameter`).'''
+        if self.model is not None and self.model.kind == 'cellml':
+            return cellml_parameter(self.model, parameter, f'step "{self.step.id}"')
+        return parameter
+
     @property
     def base_rows(self):
         '''The parameter rows the step's model starts from, under any fixed values: the
@@ -158,6 +279,12 @@ class ResolvedStep:
         '''Whether the step's obs_data and params_for_id name vessels as the target does while
         its model names them otherwise (a selection of one instance, generated as ``mod``).'''
         return bool(self.selection and self.selection.vessel)
+
+    @property
+    def reads_step_inputs(self):
+        '''Whether the step reads the obs_data the runner writes into its directory
+        (select.step_input_paths): renamed, or with its params_to_change_factors resolved.'''
+        return self.renames_inputs or has_factors(self.obs_data_path)
 
     @property
     def obs_data_path(self):
@@ -202,6 +329,9 @@ class ResolvedWorkflow:
     library_inputs: dict           # the generation keys every model is built with
     components: dict = field(default_factory=dict)
     supermodules: dict = field(default_factory=dict)
+    #: what is wrong when steps that do not take from each other give the target one parameter
+    #: (given_once_problem), or None
+    target_overlap: str = None
 
     def map_between(self, source_id, receiver_id):
         '''``vessel -> vessel``: a vessel of step ``source_id``'s model named in step
@@ -225,16 +355,22 @@ def library_inputs(workflow, settings=None):
     return inputs
 
 
-def resolve_workflow(workflow):
-    '''The workflow's models and files, checked, and each step's vessel map into the target.'''
+def resolve_workflow(workflow, target_overlap='warn'):
+    '''The workflow's models and files, checked, and each step's vessel map into the target.
+
+    ``target_overlap`` says what happens when calibration or combine steps that do not take
+    from each other give the target the same parameter (:func:`given_twice`): ``'warn'`` (a
+    UserWarning, and the result's ``target_overlap`` holds the message) for reading, planning
+    and running one step, ``'error'`` (a WorkflowError) where the target is merged for use.'''
     # a selection's modules are the target's, so it needs the library only as the target does
     library = [s.model for s in workflow.steps
                if s.model is not None and s.model.kind != 'selection'] + [workflow.target]
     if any(m.kind == 'library' for m in library) and not workflow.module_library_dirs:
         raise WorkflowError(
             f'workflow "{workflow.name}" uses a library module but names no module library. '
-            f'Pass module_library_dirs (the --module-library-dir option of '
-            f'cuflynx-calibration-workflow) or list them in the file\'s "module_library_dirs".')
+            f'Pass module_library_dirs (WorkflowBuilder(..., module_library_dirs=[...]) in '
+            f'Python, the --module-library-dir option of cuflynx-calibration-workflow) or list '
+            f'them in the file\'s "module_library_dirs".')
     inputs = library_inputs(workflow)
     try:
         sources = ModuleSources(inputs)
@@ -252,12 +388,28 @@ def resolve_workflow(workflow):
     for step in workflow.steps:
         where = f'step "{step.id}"'
         if step.kind == 'reduction':
-            # reads a sensitivity step's results; it has no model and calibrates nothing
+            # reads a sensitivity step's results, or keeps the entries named of its own
+            # params_for_id; it has no model and calibrates nothing
+            if step.chosen_by_hand:
+                if not os.path.isfile(step.params_for_id):
+                    raise WorkflowError(f'{where}: its params_for_id file {step.params_for_id} '
+                                        f'does not exist.')
+                read_calibrated_parameters(step.params_for_id, where,
+                                           keep=step.reduction['parameters'])
             resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
                                              parameters=[], target=target)
             continue
         if step.kind == 'set':
             resolved[step.id] = _resolve_set_step(step, target, claimed)
+            continue
+        if step.kind == 'combine':
+            continue      # after the steps it combines, below
+        if step.kind == 'figure':
+            # reads other steps' results; its script is checked without importing it
+            from libcuflynx.calibration_workflow.figures import check_script
+            check_script(step)
+            resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
+                                             parameters=[], target=target)
             continue
         selection = None
         if step.model.kind == 'selection':
@@ -272,25 +424,41 @@ def resolve_workflow(workflow):
         else:
             model = _resolve_model(step.model, components, supermodules, where)
         # a calibration fitting a reduction's choice is checked against every candidate: the
-        # params_for_id of the sensitivity step the reduction reads
-        params_for_id = None
-        if step.kind != 'sweep':
-            params_for_id = step.params_for_id or workflow.step(
-                workflow.step(step.params_for_id_from).sensitivity_from).params_for_id
+        # params_for_id of the sensitivity step the reduction reads. A choice made by hand is
+        # known: the entries it names of the reduction's params_for_id
+        params_for_id, keep = None, None
+        if step.kind not in SWEEP_KINDS:
+            params_for_id = step.params_for_id
+            if step.params_for_id_from:
+                reduction = workflow.step(step.params_for_id_from)
+                if reduction.chosen_by_hand:
+                    params_for_id = reduction.params_for_id
+                    keep = reduction.reduction['parameters']
+                else:
+                    params_for_id = workflow.step(reduction.sensitivity_from).params_for_id
         for path, what in ((step.obs_data, 'obs_data'), (params_for_id, 'params_for_id')):
             if path and not os.path.isfile(path):
                 raise WorkflowError(f'{where}: its {what} file {path} does not exist.')
         if selection is None:
             vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
-        parameters = read_calibrated_parameters(params_for_id, where) if params_for_id else []
-        if step.kind == 'sweep':
+        parameters = read_calibrated_parameters(params_for_id, where, keep=keep) \
+            if params_for_id else []
+        if step.kind in SWEEP_KINDS:
             parameters = _swept_parameters(step, model)
+        if model.kind == 'cellml':
+            parameters = [cellml_parameter(model, p, f'{where}: {params_for_id or "its sweep"}')
+                          for p in parameters]
         if selection is not None and selection.vessel:
             parameters = _in_step_naming(parameters, vessel_map, target.vessels, step)
         resolved_step = ResolvedStep(step=step, model=model, vessel_map=vessel_map,
                                      parameters=parameters, target=target,
                                      selection=selection)
         for parameter in parameters:
+            declared = f'{parameter.vessel}/{parameter.param}'
+            if model.kind in ('external', 'cellml') and declared not in model.parameters:
+                raise WorkflowError(
+                    f'{where}: {params_for_id or "its sweep"} names "{declared}", which '
+                    f'{_declares(model)}.')
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
                     f'{where}: {params_for_id} names vessel "{parameter.vessel}", which '
@@ -305,22 +473,34 @@ def resolve_workflow(workflow):
             landing = resolved_step.to_target(parameter.vessel)
             if not naming.is_global(landing) and landing not in target.vessels:
                 raise WorkflowError(
-                    f'{where}: "{parameter.vessel}/{parameter.param}" lands on vessel '
+                    f'{where}: "{parameter.vessel}/{parameter.param}" lands on module '
                     f'"{landing}" of the target {workflow.target.label()}, which has no such '
-                    f'vessel (its vessels: {sorted(target.vessels)}). Map it with '
-                    f'"vessel_map" (a module array) or "vessel"/"submodule" (a library module).')
-            claimed.setdefault(name, []).append(step.id)
+                    f'module (its modules: {sorted(target.vessels)}). Map it with '
+                    f'"module_map" (a module array) or "module"/"submodule" (a library module).')
+            if not workflow.chosen_at_run(step):
+                # a reduction's candidates are not what it calibrates: the run checks those
+                claimed.setdefault(name, []).append(step.id)
         resolved[step.id] = resolved_step
-    _warn_recalibrated(workflow, {n: ids for n, ids in claimed.items() if len(ids) > 1})
+    for step in workflow.topological_order():
+        if step.kind == 'combine':
+            resolved[step.id] = _resolve_combine_step(workflow, step, resolved, target, claimed)
+    resolved = {step.id: resolved[step.id] for step in workflow.steps}
+    overlap = check_given_once(workflow, claimed, f'the target {workflow.target.label()}',
+                               on_clash=target_overlap)
 
     result = ResolvedWorkflow(workflow=workflow, target=target, steps=resolved,
                               config_files=sources.config_files, library_inputs=inputs,
-                              components=components, supermodules=supermodules)
+                              components=components, supermodules=supermodules,
+                              target_overlap=overlap)
     for step in workflow.steps:
         flows = step.fixed_from + [p.step for p in step.priors_from] + \
-            ([step.result_from] if step.result_from else [])
+            [s for s in (step.result_from, step.start_from) if s]
         for source in flows:
             mapped = result.map_between(source, step.id)
+            if workflow.step(source).set_thetas and not resolved[source].parameters:
+                # a set step of modifier thetas alone names no vessel: the run checks that the
+                # step has those modifier entries
+                continue
             if not any(mapped(p.vessel) for p in resolved[source].parameters):
                 raise WorkflowError(
                     f'step "{step.id}" takes values from "{source}", but none of the vessels '
@@ -330,7 +510,27 @@ def resolve_workflow(workflow):
                     f'{sorted({resolved[source].to_target(p.vessel) for p in resolved[source].parameters})}). '
                     f'Values can only be passed into a model that contains what they were '
                     f'calibrated on.')
+        for source, names in step.fixed_parameters.items():
+            _check_fixed_subset(step, source, names, resolved[source],
+                                result.map_between(source, step.id))
+    _check_steps_given_once(result)
     return result
+
+
+def _check_fixed_subset(step, source, names, resolved_source, mapped):
+    '''A WorkflowError when ``names``, the values ``step`` fixes from ``source``, are not all
+    values ``source`` calibrates or sets that ``step``'s model has.'''
+    own = {p.model_name: p for p in resolved_source.parameters}
+    unknown = sorted(set(names) - set(own))
+    if unknown:
+        raise WorkflowError(
+            f'step "{step.id}" fixes {unknown} from "{source}", which "{source}" does not '
+            f'calibrate or set. Its values, as its model names them: {sorted(own)}.')
+    outside = sorted(n for n in names if not mapped(own[n].vessel))
+    if outside:
+        raise WorkflowError(
+            f'step "{step.id}" fixes {outside} from "{source}", but {step.model.label()} has '
+            f'no such vessel.')
 
 
 def split_parameter(name):
@@ -346,17 +546,46 @@ def _resolve_set_step(step, target, claimed):
                             vessel_map=naming.Renamed({}, target.vessels))
     for entry in step.set_values:
         parameter = split_parameter(entry['parameter'])
+        if target.kind == 'cellml':
+            parameter = cellml_parameter(target, parameter, f'set step "{step.id}"')
         if parameter.vessel not in target.vessels and not naming.is_global(parameter.vessel):
             raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
                                 f'"{parameter.vessel}", which the target does not have (its '
                                 f'vessels: {sorted(target.vessels)}).')
+        if target.kind == 'external' and entry['parameter'] not in target.parameters:
+            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" is not '
+                                f'{_declared_by(target)}.')
         resolved.parameters.append(parameter)
-        claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
+        if not step.point:
+            # a point step's values never reach the target, so they replace nothing there
+            claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
     return resolved
+
+
+def cellml_parameter(model, parameter, where):
+    '''``parameter`` (a CalibratedParameter, as a params_for_id, set entry or sweep names it)
+    as the constant of the CellML model ``model`` (a ResolvedCellML) it is: its
+    ``component/variable``, or the first name the engine would read it as that the model has
+    (``calibrated_model.constant_named``: ``global/q_init`` is ``parameters_global/q_init``,
+    ``aortic_root/C`` is ``parameters/C_aortic_root``). So a step sets, records and merges the
+    constant a direct run of the same file calibrates.'''
+    from libcuflynx.param_id.calibrated_model import constant_named
+    from libcuflynx.parsers.PrimitiveParsers import model_qname_candidates
+    declared = f'{parameter.vessel}/{parameter.param}'
+    qname = constant_named(declared, model.constants)
+    if qname is None:
+        raise WorkflowError(
+            f'{where} names "{declared}", which is not a constant of the CellML model '
+            f'{model.model.path} under any of the names it is read as '
+            f'({model_qname_candidates(declared)}); its constants: {sorted(model.constants)}.')
+    component, variable = qname.split('/', 1)
+    return CalibratedParameter(vessel=component, param=variable)
 
 
 def _swept_parameters(step, model):
     parameters = [split_parameter(name) for name in step.sweep['parameters']]
+    if model.kind == 'cellml':
+        return parameters          # named as cellml_parameter resolves them
     for parameter in parameters:
         if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
             raise WorkflowError(
@@ -366,9 +595,30 @@ def _swept_parameters(step, model):
     return parameters
 
 
+def _declares(model):
+    '''Why a name is not a parameter of a file model, for an error.'''
+    if model.kind == 'cellml':
+        return (f'is not a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'the external model {model.model.path} does not declare (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
+def _declared_by(model):
+    if model.kind == 'cellml':
+        return (f'a constant of the CellML model {model.model.path} (its constants: '
+                f'{sorted(model.parameters)})')
+    return (f'declared by the external model {model.model.path} (SIM_HELPER.parameters: '
+            f'{sorted(model.parameters)})')
+
+
 def _resolve_model(model, components, supermodules, where):
     if model.kind == 'library':
         return _resolve_parameterisation(model, components, supermodules, where)
+    if model.kind == 'cellml':
+        return ResolvedCellML(model=model, constants=read_cellml_parameters(model, where))
+    if model.kind == 'external':
+        return ResolvedExternal(model=model, parameters=read_external_parameters(model.path, where))
     try:
         refuse_csv(model.parameters, f'{where}: ')
     except ValueError as exc:
@@ -385,81 +635,228 @@ def _resolve_model(model, components, supermodules, where):
 
 def _vessel_map(step, model, workflow_target, target, supermodules):
     '''How the step's model is named in the target (see the module docstring).'''
+    if model.kind in ('external', 'cellml'):
+        return naming.Renamed({}, model.vessels)    # the target is the same file
     if model.kind == 'array':
-        mapping = dict(step.vessel_map)
+        mapping = dict(step.module_map)
         if target.kind == 'library':
             # a library target is generated as ``mod``: name its submodules by their path
             mapping = {k: _library_vessel(v, target, step) for k, v in mapping.items()}
         return naming.Renamed(mapping, model.vessels)
     if target.kind == 'library':
-        if step.vessel:
-            raise WorkflowError(f'step "{step.id}": "vessel" places a library module in a '
+        if step.module:
+            raise WorkflowError(f'step "{step.id}": "module" places a library module in a '
                                 f'module-array target; in a supermodule target it is '
                                 f'"submodule".')
         path = _submodule_path(step, workflow_target, target.entry, supermodules)
         return naming.Nested(path, model.vessels)
     if step.submodule:
         raise WorkflowError(f'step "{step.id}": "submodule" places a library module in a '
-                            f'supermodule target; in a module-array target it is "vessel".')
+                            f'supermodule target; in a module-array target it is "module".')
     key = (step.model.module_type, step.model.version)
     places = target.places(key)
-    if step.vessel:
-        if step.vessel not in places:
+    if step.module:
+        if step.module not in places:
             raise WorkflowError(
-                f'step "{step.id}": "vessel" is "{step.vessel}", but {step.model.module_type} '
+                f'step "{step.id}": "module" is "{step.module}", but {step.model.module_type} '
                 f'{step.model.version} is at {places or "no vessel"} in '
                 f'{workflow_target.label()}.')
-        return naming.Placed(step.vessel, model.vessels)
+        return naming.Placed(step.module, model.vessels)
     if len(places) != 1:
         raise WorkflowError(
             f'step "{step.id}": {step.model.module_type} {step.model.version} is at '
             f'{places or "no vessel"} in {workflow_target.label()}; '
-            + ('say which with "vessel".' if places else 'its values have nowhere to go.'))
+            + ('say which with "module".' if places else 'its values have nowhere to go.'))
     return naming.Placed(places[0], model.vessels)
 
 
 def _library_vessel(path, target, step):
-    '''A vessel_map value for a library supermodule target: a submodule path (``A``,
+    '''A module_map value for a library supermodule target: a submodule path (``A``,
     ``soma/i_M``) as the target names it when generated as ``mod``.'''
     parts = tuple(path.split('/')) if '/' in path else None
     for p in target.paths:
         if p == parts or flat_name(p) == path:
             return flat_name((naming.STEP_VESSEL,) + tuple(p))
-    raise WorkflowError(f'step "{step.id}": vessel_map maps to "{path}", which is not a '
+    raise WorkflowError(f'step "{step.id}": module_map maps to "{path}", which is not a '
                         f'submodule of the target (its submodules: '
                         f'{sorted("/".join(p) for p in target.paths)}).')
 
 
-def _warn_recalibrated(workflow, claimed):
-    '''One UserWarning for the target parameters ``{name: [step ids]}`` that several steps
-    calibrate or set. The merge takes them in run order, so the last step's value is used.'''
-    if not claimed:
-        return
+def _resolve_combine_step(workflow, step, resolved, target, claimed):
+    '''A combine step's parameters: every parameter its inputs give, named as the target names
+    them. Its map is the target's own. It gives the target each of them (the run checks those
+    that only a step fitting a reduction's choice gives).'''
+    out = ResolvedStep(step=step, model=None, parameters=[], target=target,
+                       vessel_map=naming.Renamed({}, target.vessels))
+    given = {}      # {target model name: [input ids]}
+    for source in step.combine_from:
+        rs = resolved[source]
+        for parameter in rs.parameters:
+            in_target = CalibratedParameter(rs.to_target(parameter.vessel), parameter.param)
+            given.setdefault(in_target.model_name, []).append(source)
+            if len(given[in_target.model_name]) == 1:
+                out.parameters.append(in_target)
+    # a calibration fitting a reduction's choice gives what it kept, known when it has run
+    known = not any(workflow.chosen_at_run(workflow.step(s)) for s in step.combine_from)
+    if step.combine['method'] == 'best_fit' and known:
+        partly = {name: ids for name, ids in sorted(given.items())
+                  if len(ids) != len(step.combine_from)}
+        if partly:
+            raise WorkflowError(
+                f'combine step "{step.id}" takes the best fit of {step.combine_from}, which '
+                f'must calibrate the same parameters, but only some of them calibrate '
+                f'{partly}. Use "method": "mean", or give the steps the same params_for_id.')
+    for name, ids in given.items():
+        if not all(workflow.chosen_at_run(workflow.step(s)) for s in ids):
+            claimed.setdefault(name, []).append(step.id)
+    return out
+
+
+def _left(workflow, givers):
+    '''The steps of ``givers`` whose value is not replaced by a step that takes from them,
+    directly or through other steps, in run order.'''
+    ancestors = workflow.ancestors()
     order = [s.id for s in workflow.topological_order()]
+    return sorted((g for g in dict.fromkeys(givers)
+                   if not any(g in ancestors[other] for other in givers)), key=order.index)
+
+
+def given_twice(workflow, givers):
+    '''The steps of ``givers`` (ids of the steps that give one parameter to one receiver) whose
+    values clash, or []. A step's value is replaced by that of a step that takes from it,
+    directly or through other steps, and a set step's value never clashes: among set steps and
+    unrelated steps the later in run order is used. So the clash is more than one calibration
+    or combine step left when the replaced ones are taken out.'''
+    left = [g for g in _left(workflow, givers) if workflow.step(g).kind != 'set']
+    return left if len(left) > 1 else []
+
+
+def given_once_problem(workflow, givers_by_name, receiver):
+    '''What is wrong, or None, when ``receiver`` (words: the target, or a step) is given the
+    parameters of ``givers_by_name`` (``{name: [step ids]}``): the message naming those given by
+    steps that clash (:func:`given_twice`).'''
+    clashes = {name: given_twice(workflow, ids) for name, ids in sorted(givers_by_name.items())}
+    clashes = {name: ids for name, ids in clashes.items() if ids}
+    if not clashes:
+        return None
+    lines = '; '.join(f'"{name}" by {" and ".join(repr(i) for i in ids)}'
+                      for name, ids in clashes.items())
+    example = next(iter(clashes.values()))
+    return (
+        f'calibration workflow "{workflow.name}": {receiver} is given {len(clashes)} '
+        f'parameter(s) by steps that do not take from each other: {lines}. One value must be '
+        f'chosen: let one step take from the other (e.g. "fixed_from" or "start_from"), so the '
+        f'later one replaces it, or add a combine step that gives one value from them '
+        f'("kind": "combine", "combine_from": {json.dumps(example)}, "combine": {{"method": '
+        f'"best_fit"}} or "mean"); its values are used in place of theirs.')
+
+
+def _warn_set_twice(workflow, givers_by_name, receiver):
+    '''One UserWarning for the parameters that set steps which do not take from each other
+    both give ``receiver``, naming the step whose value is used.'''
     lines = []
-    for name, ids in sorted(claimed.items()):
-        ids = sorted(ids, key=order.index)
-        lines.append(f'"{name}" by {", then ".join(repr(i) for i in ids)} '
-                     f'(the value of {ids[-1]!r} is used)')
-    warnings.warn(
-        f'calibration workflow "{workflow.name}": {len(lines)} parameter(s) of '
-        f'{workflow.target.label()} are calibrated by more than one step, and the later '
-        f'calibration replaces the earlier: ' + '; '.join(lines) + '. To update an earlier '
-        f'calibration with new data rather than replace it, calibrate Bayesianly: remove the '
-        f'parameter from the later step\'s params_for_id and list the earlier step in its '
-        f'"priors_from" (with "store_distribution": true on the earlier step), so the earlier '
-        f'posterior becomes the later step\'s prior.', UserWarning, stacklevel=3)
+    for name, ids in sorted(givers_by_name.items()):
+        left = _left(workflow, ids)
+        by_hand = [g for g in left if workflow.step(g).kind == 'set']
+        if len(by_hand) > 1:
+            lines.append(f'"{name}" by {" and ".join(repr(i) for i in by_hand)} (the value of '
+                         f'{left[-1]!r}, the later in run order, is used)')
+    if lines:
+        warnings.warn(
+            f'calibration workflow "{workflow.name}": {receiver} is given {len(lines)} '
+            f'parameter(s) by set steps that do not take from each other: ' + '; '.join(lines)
+            + '. Set each parameter in one step, or scale one step\'s value in the other '
+              '("scale", "of").', UserWarning, stacklevel=4)
 
 
-def read_calibrated_parameters(params_for_id_path, where=''):
+def check_given_once(workflow, givers_by_name, receiver, on_clash='error'):
+    '''A WorkflowError when ``receiver`` is given a parameter by steps that clash
+    (:func:`given_once_problem`), or with ``on_clash='warn'`` a UserWarning that the later in
+    run order is used. Either way, a UserWarning for parameters set by hand by unrelated set
+    steps. Returns the problem, or None.'''
+    _warn_set_twice(workflow, givers_by_name, receiver)
+    problem = given_once_problem(workflow, givers_by_name, receiver)
+    if problem and on_clash == 'error':
+        raise WorkflowError(problem)
+    if problem:
+        warnings.warn(problem + ' Until then the value of the later step in run order is used; '
+                      'a run of every step, and writing the calibrated parameters, are '
+                      'refused.', UserWarning, stacklevel=3)
+    return problem
+
+
+def _check_steps_given_once(result):
+    '''A WorkflowError when a step is given one parameter by steps that clash: through its
+    ``fixed_from`` (a plain id passes on what that step was given too) and ``result_from``. What
+    a step fitting a reduction's choice gives is known when it has run, so the run checks it.'''
+    workflow, resolved = result.workflow, result.steps
+    # a parameter is (vessel, param) in a step's model; a step is not given a parameter it
+    # calibrates or analyses itself (a sweep is given the values it sweeps about)
+    own = {s.id: {(p.vessel, p.param): p.model_name for p in resolved[s.id].parameters}
+           for s in workflow.steps if s.kind not in SWEEP_KINDS}
+    passes = {}     # {step id: {(vessel, param) in the step: [owner ids]}}
+
+    def received(step):
+        out = {}
+        for source in step.fixed_from + ([step.result_from] if step.result_from else []):
+            givers = passes[source]
+            if source in step.fixed_parameters:
+                givers = {key: [source] for key, name in own[source].items()
+                          if name in step.fixed_parameters[source]}
+            vessel_of = result.map_between(source, step.id)
+            for (vessel, param), owners in givers.items():
+                vessel = vessel_of(vessel)
+                if vessel is not None:
+                    out.setdefault((vessel, param), []).extend(owners)
+        return out
+
+    for step in workflow.topological_order():
+        if step.on_target:
+            continue        # given what the target is, which is checked as the target
+        given = {key: owners for key, owners in received(step).items()
+                 if key not in own.get(step.id, ())}
+        if step.kind in spec.VALUE_KINDS:
+            mine = () if workflow.chosen_at_run(step) else own[step.id]
+            passes[step.id] = {**given, **{key: [step.id] for key in mine}}
+        check_given_once(workflow, {naming.model_name(*key): owners
+                                    for key, owners in given.items()}, f'step "{step.id}"')
+
+
+def check_merged_once(workflow, claimed, on_clash='error'):
+    '''The check :func:`resolve_workflow` leaves to the run for a step fitting a reduction's
+    choice: ``claimed`` (``{target name: [step ids]}``, every value the merge took) narrowed to
+    the names such a step calibrated. A combine step that has not run yet counts as giving what
+    its inputs gave. ``on_clash`` as for :func:`check_given_once`.'''
+    claimed = {name: list(ids) for name, ids in claimed.items()}
+    for step in workflow.topological_order():
+        if step.kind == 'combine':
+            for ids in claimed.values():
+                if step.id not in ids and set(ids) & set(step.combine_from):
+                    ids.append(step.id)
+    check_given_once(workflow, {
+        name: ids for name, ids in claimed.items()
+        if any(workflow.chosen_at_run(workflow.step(i)) for i in ids)},
+        f'the target {workflow.target.label()}', on_clash=on_clash)
+
+
+def read_calibrated_parameters(params_for_id_path, where='', keep=None):
     '''Every ``(vessel, param)`` a params_for_id file calibrates (a grouped row gives one per
-    target).'''
+    target). With ``keep`` (entry labels, as a reduction names its choice), only those of the
+    entries named; a WorkflowError for a name the file has no entry for.'''
     try:
         info = ObsAndParamDataParser().get_param_id_info(params_for_id_path)
     except Exception as exc:  # the parser raises a variety of errors for a malformed file
         raise WorkflowError(f'{where}: cannot read {params_for_id_path}: {exc}') from exc
+    entries = list(info['param_names'])
+    if keep is not None:
+        labels = param_entry_labels(info)
+        unknown = [name for name in keep if name not in labels]
+        if unknown:
+            raise WorkflowError(f'{where}: {params_for_id_path} has no entry for {unknown} '
+                                f'(its parameters: {labels}).')
+        entries = [names for names, label in zip(entries, labels) if label in keep]
     parameters = []
-    for names in info['param_names']:
+    for names in entries:
         for qname in (names if isinstance(names, (list, tuple)) else [names]):
             vessel, _, param = str(qname).partition('/')
             if not param:

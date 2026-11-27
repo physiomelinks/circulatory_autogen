@@ -41,16 +41,8 @@ def test_patience_counts_generations_of_the_population():
     opt = _run(lambda x: 1.0, {"num_calls_to_function": 600, "max_patience": 10, "seed": 1})
     popsize = max(4, opt.num_procs + 1)
     if opt.rank == 0:
-        assert opt.num_cost_evals == 10 * popsize
-
-
-@pytest.mark.unit
-def test_an_unapplied_sigma0_is_reported_not_printed_as_the_step(capsys):
-    """nevergrad picks the initial step; the run must not print a sigma it does not use."""
-    opt = _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
-    out = capsys.readouterr().out
-    assert "Initial sigma" not in out
-    assert opt.rank != 0 or "sigma0=0.1 is not applied" in out
+        # the start value, then max_patience generations that never beat it
+        assert opt.num_cost_evals == 1 + 10 * popsize
 
 
 @pytest.mark.unit
@@ -62,3 +54,51 @@ def test_cmaes_reaches_the_optimum_of_a_badly_scaled_two_parameter_problem(seed)
                              "cost_convergence": 1e-6, "seed": seed})
     assert opt.best_cost < 1e-6
     assert np.allclose(opt.best_param_vals, TRUTH, rtol=2e-3)
+
+
+@pytest.mark.unit
+def test_a_cmaes_run_given_sigma0_is_refused(capsys):
+    """sigma0 was never applied (nevergrad picks the initial step) and has been removed: a run
+    given it stops with a message saying to delete the line, and the schema no longer lists it.
+    A run without it prints no initial step either."""
+    from libcuflynx.parsers.PrimitiveParsers import param_id_method_options
+    with pytest.raises(ValueError, match="'sigma0' has been removed.*Delete the sigma0 line "
+                                         "from optimiser_options"):
+        _run(_log_misfit, {"num_calls_to_function": 8, "sigma0": 0.1, "seed": 1})
+    _run(_log_misfit, {"num_calls_to_function": 8, "seed": 1})
+    assert "sigma" not in capsys.readouterr().out.lower()
+    assert "sigma0" not in [o["name"] for o in param_id_method_options("CMA-ES")]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("where", ["optimiser_options", "debug_optimiser_options"])
+def test_user_inputs_naming_sigma0_are_refused(where):
+    from libcuflynx.parsers.PrimitiveParsers import refuse_removed_user_inputs
+    with pytest.raises(ValueError, match=f"Delete the sigma0 line from {where}"):
+        refuse_removed_user_inputs({where: {"num_calls_to_function": 8, "sigma0": 0.1}})
+    refuse_removed_user_inputs({where: {"num_calls_to_function": 8}})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_a_run_started_at_the_optimum_never_ends_worse(seed):
+    """CMA samples around its start without evaluating it, so a two-parameter run started at
+    the optimum (a warm start, a profile likelihood point) could end with a worse cost. The
+    start is evaluated first, as one of the budget, so the run ends exactly there."""
+    points = []
+
+    def cost(x):
+        points.append(np.array(x, dtype=float))
+        return _log_misfit(x)
+
+    param_id_obj = types.SimpleNamespace(param_init=TRUTH.copy(),
+                                         get_cost_from_params=lambda x: float(cost(np.asarray(x))))
+    info = {"param_names": [["R"], ["C"]], "param_mins": MINS, "param_maxs": MAXS}
+    opt = CMAESOptimiser(param_id_obj, info, None, 2, None,
+                         {"num_calls_to_function": 9, "seed": seed})
+    opt.run()
+    if opt.rank == 0:
+        np.testing.assert_array_equal(points[0], TRUTH)
+        assert opt.best_cost == 0.0
+        np.testing.assert_array_equal(opt.best_param_vals, TRUTH)
+        assert opt.num_cost_evals <= 9  # within the budget, the start included

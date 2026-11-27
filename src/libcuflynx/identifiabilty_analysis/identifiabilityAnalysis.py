@@ -18,9 +18,8 @@ from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
-from libcuflynx.utilities import paperPlotSetup
+from libcuflynx.utilities.paperPlotSetup import paper_style
 from libcuflynx.utilities.utility_funcs import calculate_hessian
-paperPlotSetup.Setup_Plot(3)
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
@@ -346,6 +345,7 @@ class IdentifiabilityAnalysis():
         np.save(os.path.join(parent_dir, self.file_name_prefix + '_laplace_mean.npy'), self.mean_Laplace)
         np.save(os.path.join(parent_dir, self.file_name_prefix + '_laplace_covariance.npy'), self.covariance_matrix_Laplace)
 
+    @paper_style()
     def plot_laplace_results(self, parameter_names, output_dir):
         """
         Plot the results of the Laplace approximation as corner plots.

@@ -148,9 +148,9 @@ def test_notebook_execution_tests_are_manual():
     full = sorted(name for name in tests if name.endswith('_full'))
     quick = sorted(name for name in tests if name.endswith('_quick'))
     assert full == ['test_generation_and_calibration_notebook_full',
-                    'test_generation_and_calibration_test_notebook_full',
-                    'test_image_to_hemodynamics_notebook_full'], full
-    assert [n.replace('_quick', '_full') for n in quick] == full, quick
+                    'test_image_to_hemodynamics_notebook_full',
+                    'test_workflow_quickstart_notebook_full'], full
+    assert [n[:-len('_quick')] + '_full' for n in quick] == full, quick
     for name in full:
         assert 'manual' in _markers_on(getattr(notebooks, name)), name
     for name in quick:

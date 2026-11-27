@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import xml.etree.ElementTree as ElementTree
 
@@ -14,7 +15,7 @@ from libcuflynx.external_testing.workflow_library import build_workflow_library
 from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, FIXED_NODE, GRAPH_FILE,
                                              HAND_NODE,
                                              MEASURED_NODE, SCHEMA_VERSION, SOURCE_NODE, SVG_FILE,
-                                             TARGET_NODE, ProvenanceVersionError,
+                                             TARGET_NODE, ProvenanceVersionError, _given_to,
                                              provenance_graph, provenance_svg,
                                              read_provenance_graph, write_provenance)
 from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
@@ -105,7 +106,9 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     assert hand['mark'] == 'set_by_hand'
     assert [v['reason'] for v in hand['parameters']] == ['a gain of one by construction']
     assert 'a gain of one by construction' in hand['lines'][0]
-    assert (HAND_NODE, TARGET_NODE) in _edges(graph)
+    # it is in the model the steps calibrate, so its arrow goes to the model source
+    assert _edges(graph)[(HAND_NODE, SOURCE_NODE)]['style'] == 'given'
+    assert (HAND_NODE, TARGET_NODE) not in _edges(graph)
     assert all(hand['parameters'][0]['name'] != p['name'] for p in nodes['rest']['parameters'])
 
     # a value nothing describes is unclassified, never inherited
@@ -116,7 +119,11 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     # both calibrations reach the target
     assert {('fit_a', TARGET_NODE), ('rest', TARGET_NODE)} <= set(_edges(graph))
     assert _edges(graph)[('fit_a', 'rest')]['style'] == 'fixed'
-    assert (SOURCE_NODE, 'fit_a') in _edges(graph)
+    # rest runs the target's model; fit_a runs lin_a, which has a source box of its own
+    assert _edges(graph)[(SOURCE_NODE, 'rest')]['label'] == 'generates'
+    [lin_a] = [e['from'] for e in graph['edges'] if e['to'] == 'fit_a'
+               and e['label'] == 'generates']
+    assert lin_a != SOURCE_NODE and nodes[lin_a]['lines'] == ['`lin_a`, parameterisation `fit_a`']
     assert not graph['workflow']['stale']
     assert {e['status'] for n in graph['nodes'] for e in n['inputs']} == {'current'}
 
@@ -124,8 +131,21 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     root = ElementTree.fromstring(svg)
     assert root.tag.endswith('svg') and root.get('role') == 'img'
     assert '<script' not in svg and '<style' not in svg
-    for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', out, 'libCellML'):
+    for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', 'libCellML'):
         assert text in svg
+    # the footer breaks a path longer than the drawing is wide, so compare its pieces joined
+    assert out in ''.join(re.findall(r'>([^<]*)</text>', svg))
+
+
+@pytest.mark.unit
+def test_given_values_point_to_the_model_source_when_a_step_comes_from_it():
+    """The values given in the parameters files are in every model generated from the source, so
+    their boxes point to it; when no step comes from the source they point to the target."""
+    from_source = [{'from': SOURCE_NODE, 'to': 'fit', 'label': 'generates', 'style': 'order'},
+                   {'from': 'fit', 'to': TARGET_NODE, 'label': '', 'style': 'merge'}]
+    assert _given_to(from_source) == SOURCE_NODE
+    assert _given_to([{'from': 'hand', 'to': TARGET_NODE, 'label': '', 'style': 'merge'}]) \
+        == TARGET_NODE
 
 
 FIXED = [{'derivation': 'k_gain', 'name': 'R', 'value': 8.314, 'units': 'J_per_K_per_mol',
@@ -199,7 +219,7 @@ def test_derived_values_and_values_calibrated_before_the_run_have_their_own_mark
     assert derived['mark'] == 'derived' and derived['title'] == 'Derived values'
     assert [(v['name'], v['origin']) for v in derived['parameters']] == [('k_mod__C', 'derived')]
     assert 'derived; derivation k_gain' in derived['lines'][0]
-    assert _edges(graph)[(DERIVED_NODE, TARGET_NODE)]['label'] == 'derived'
+    assert _edges(graph)[(DERIVED_NODE, SOURCE_NODE)]['label'] == 'derived'
     assert graph['counts']['derived'] == 1 and graph['counts']['unclassified'] == 0
     assert {HAND_NODE, MEASURED_NODE, EARLIER_NODE}.isdisjoint(nodes)
     svg = provenance_svg(graph)
@@ -216,6 +236,7 @@ def test_derived_values_and_values_calibrated_before_the_run_have_their_own_mark
     assert DERIVED_NODE not in nodes
     earlier = nodes[EARLIER_NODE]
     assert earlier['mark'] == 'calibrated'
+    assert (EARLIER_NODE, SOURCE_NODE) in _edges(graph)
     assert [(v['name'], v['from_step']) for v in earlier['parameters']] == [('k_mod__C', None)]
     assert graph['counts']['calibrated'] == len(result['merged_parameters']) + 1
     assert all(v['from_step'] for v in nodes[TARGET_NODE]['parameters'])
@@ -308,6 +329,30 @@ def test_changed_settings_stop_a_later_step_reusing_a_result(library, tmp_path):
 
 
 @pytest.mark.integration
+def test_a_run_copied_elsewhere_is_current_and_its_funcs_file_is_read(library, tmp_path):
+    """A path setting counts by what it names: copying the workflow and its run leaves every
+    step current, and editing the operation funcs file makes them stale."""
+    raw = _read_json(library['chain_rest'])
+    funcs = os.path.join(os.path.dirname(library['chain_rest']), 'my_operations.py')
+    with open(funcs, 'w') as f:
+        f.write('def doubled(x):\n    return 2 * x\n')
+    raw['settings']['operation_funcs_external_path'] = 'my_operations.py'
+    _write_json(library['chain_rest'], raw)
+    run_calibration_workflow(library['chain_rest'], output_dir=str(tmp_path / 'run'))
+
+    moved = tmp_path / 'moved'
+    shutil.copytree(tmp_path, moved, ignore=shutil.ignore_patterns('moved'))
+    moved_workflow = str(moved / os.path.relpath(library['chain_rest'], tmp_path))
+    for workflow, out in ((library['chain_rest'], tmp_path / 'run'), (moved_workflow, moved / 'run')):
+        steps = workflow_status(workflow, str(out))['steps']
+        assert not any(step['stale'] for step in steps.values()), workflow
+
+    with open(funcs, 'a') as f:
+        f.write('\n\ndef tripled(x):\n    return 3 * x\n')
+    assert workflow_status(library['chain_rest'], str(tmp_path / 'run'))['steps']['fit_a']['stale']
+
+
+@pytest.mark.integration
 def test_an_upstream_change_stops_a_step_two_steps_on(library, tmp_path):
     """fit_a changed, screen and fit took it in: the identifiability step after them refuses."""
     out = str(tmp_path / 'run')
@@ -375,6 +420,35 @@ def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
         read_provenance_graph(path)
     with pytest.raises(ProvenanceVersionError, match=message):
         provenance_svg(graph)
+
+
+@pytest.mark.unit
+def test_a_module_sweep_and_its_figure_are_drawn_right_of_the_target():
+    """A sweep of a library module (result_from its calibration, fixed_from whole_cell) and the
+    figure step reading it feed nothing into the target: they are drawn in the target's row,
+    right of it, and below, never among the steps the target is built from (Q-0059 decision 3)."""
+    from libcuflynx.reporting.provenance import FIGURE, TARGET_NODE, _layout
+    edges = [('glut2', 'whole_cell', 'fixed'), ('whole_cell', 'rest', 'fixed'),
+             ('glut2', TARGET_NODE, 'merge'), ('whole_cell', TARGET_NODE, 'merge'),
+             ('rest', TARGET_NODE, 'merge'), ('glut2', 'glut2_sweep', 'order'),
+             ('whole_cell', 'glut2_sweep', 'fixed'), ('glut2_sweep', 'fig3', 'reads'),
+             ('fig3', 'fig3_files', 'writes'), (TARGET_NODE, 'fig15', 'order')]
+    graph = {'nodes': [_box('glut2'), _box('whole_cell'), _box('rest'),
+                       _box(TARGET_NODE, 'target'), _box('glut2_sweep', 'analysis'),
+                       _box('fig3', 'analysis'), _box('fig3_files', FIGURE),
+                       _box('fig15', 'analysis')],
+             'edges': [{'from': a, 'to': b, 'label': '', 'style': style}
+                       for a, b, style in edges]}
+    places, lanes, _, _ = _layout(graph)
+    x, y = {n: p[0] for n, p in places.items()}, {n: p[3] for n, p in places.items()}
+    assert y['glut2_sweep'] == y[TARGET_NODE] > y['rest']
+    assert x['glut2_sweep'] > x[TARGET_NODE]
+    assert y['fig3'] == y['fig15'] == y[TARGET_NODE] + 1 and x['fig3'] > x['fig15']
+    assert y['fig3_files'] == y['fig3'] + 1
+    # the arrows from the module's calibration and from whole_cell pass rows down lanes
+    assert ('glut2', 'glut2_sweep') in lanes and ('whole_cell', 'glut2_sweep') in lanes
+    # the steps the target is built from keep their rows
+    assert (y['glut2'], y['whole_cell'], y['rest']) == (0, 1, 2)
 
 
 @pytest.mark.unit
@@ -497,3 +571,61 @@ def test_the_fixed_constants_box_lists_six_and_counts_the_rest():
     lines = _box_lines(node)
     assert any('c5' in line for line in lines) and not any('c6' in line for line in lines)
     assert lines[-1] == 'and 2 more in the graph file'
+
+
+def _svg_text(svg):
+    """The text of an SVG, its wrapped lines joined again."""
+    root = ElementTree.fromstring(svg)
+    return ' '.join(t.text or '' for t in root.iter() if t.tag.endswith('text'))
+
+
+@pytest.mark.integration
+def test_a_module_array_workflow_draws_each_model_s_source_and_names_its_values(library,
+                                                                                 tmp_path):
+    """chain_array: a-alone runs a_only, chain runs the target's chain array with A/p fixed from
+    a-alone. Each step has an arrow from the source of its own model, and the boxes name the
+    values and what set them."""
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(library['chain_array'], output_dir=out)
+    graph = _read_json(os.path.join(out, GRAPH_FILE))
+    nodes, edges = _nodes(graph), _edges(graph)
+    assert nodes[SOURCE_NODE]['lines'][0] == 'model `chain`'
+    assert edges[(SOURCE_NODE, 'chain')]['label'] == 'generates'
+    [a_only] = [e['from'] for e in graph['edges'] if e['to'] == 'a-alone'
+                and e['label'] == 'generates']
+    assert a_only != SOURCE_NODE and nodes[a_only]['lines'] == ['model `a_only`']
+    assert '1 parameter, 1 observable' in nodes['chain']['lines']
+
+    text = _svg_text(open(os.path.join(out, SVG_FILE)).read())
+    assert 'A/p = 2 dimensionless, calibrated here' in text
+    assert 'C/q = 3 dimensionless, calibrated here' in text
+    # the model source names the value it alone sets
+    assert 'k_C = 1.0 dimensionless, unclassified' in text
+    # the value chain was given names its step and that step's data
+    assert 'A/p = 2 dimensionless, fixed: calibrated by a-alone on a_obs.json' in text
+    # the target's box names each merged value and the step that set it
+    assert 'C/q = 3 dimensionless, calibrated by chain on chain_obs.json' in text
+
+
+@pytest.mark.unit
+def test_a_step_box_names_four_values_of_each_list_and_counts_the_rest():
+    from libcuflynx.reporting.provenance import _step_value_lines
+    calibrated = [{'module': 'V', 'param': f'p{i}', 'model_name': f'p{i}_V', 'value': i + 0.5,
+                   'units': ''} for i in range(6)]
+    fixed = [{'module': 'V', 'param': 'u', 'model_name': 'u_V', 'value': 0.1, 'units': 'K',
+              'from_step': 'hand', 'origin': 'set_by_hand', 'reason': 'measured'},
+             {'module': 'V', 'param': 'w', 'model_name': 'w_V', 'value': 2.0, 'units': '',
+              'from_step': 'fit'}]
+    result = {'calibrated': calibrated, 'fixed': fixed, 'point_estimate': 'posterior_median',
+              'priors': [{'step': 'fit', 'kind': 'mvnormal', 'inflate': 2.0,
+                          'parameters': ['p0_V']}]}
+    lines = _step_value_lines(result, {'fit': 'fit_obs.json'}.get)
+    assert lines == [
+        'prior of `V/p0`: mvnormal fit to the posterior of fit, widened 2 times',
+        '`V/p0` = 0.5, calibrated here (posterior median)',
+        '`V/p1` = 1.5, calibrated here (posterior median)',
+        '`V/p2` = 2.5, calibrated here (posterior median)',
+        '`V/p3` = 3.5, calibrated here (posterior median)',
+        'and 2 more calibrated values in provenance_graph.json',
+        '`V/u` = 0.1 K, fixed: set by hand in hand: measured',
+        '`V/w` = 2, fixed: calibrated by fit on `fit_obs.json`']

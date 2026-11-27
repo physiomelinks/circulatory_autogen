@@ -7,6 +7,7 @@ import warnings
 import pytest
 
 from libcuflynx.parsers.PrimitiveParsers import (
+    UserInputsError,
     YamlFileParser,
     refuse_removed_user_inputs,
     step_from_dt_solver,
@@ -27,7 +28,7 @@ from libcuflynx.parsers.PrimitiveParsers import (
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
-_DESCRIPTOR_TYPES = {'int', 'float', 'bool', 'str', 'dict', 'enum'}
+_DESCRIPTOR_TYPES = {'int', 'float', 'bool', 'str', 'dict', 'enum', 'list'}
 
 
 def _assert_descriptors_well_formed(context, options, valid_types=_DESCRIPTOR_TYPES):
@@ -88,7 +89,7 @@ def test_param_id_method_options_match_optimiser_reads():
                                           'num_mutations_per_survivor', 'num_cross_breed',
                                           'objective_function', 'use_relative_cost_tolerance',
                                           'relative_cost_tolerance', 'seed'}
-    assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
+    assert names('CMA-ES') == {'num_calls_to_function', 'cost_convergence',
                                'max_patience', 'seed'}
     assert names('bayesian') == {'num_calls_to_function'}
     assert names('sp_minimize') == {'cost_convergence'}
@@ -544,7 +545,8 @@ def test_analysis_options_schema_well_formed():
         'jacobian_step', 'jacobian_check_steps'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
-                           'num_tune', 'pymc_method', 'chain_save_every'}
+                           'num_tune', 'pymc_method', 'chain_save_every', 'num_samples',
+                           'posterior_predictive', 'posterior_predictive_samples'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     # num_points / range_factor / optimiser_options are the profile_likelihood settings.
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method',
@@ -573,7 +575,8 @@ def test_analysis_options_schema_well_formed():
     assert names('param_reduction') == {
         'method', 'n_params', 'index_type', 'criterion', 'threshold', 'min_mode_std',
         'variance_fraction', 'min_index', 'redundancy_check', 'redundancy_statistic',
-        'redundancy_converged_only', 'redundancy_convergence_tol', 'sensitivity_dir',
+        'redundancy_converged_only', 'redundancy_convergence_tol', 'parameters', 'reason',
+        'sensitivity_dir',
         'output_dir'}
     assert ANALYSIS_OPTIONS['param_reduction']['options_key'] == 'param_reduction_options'
     assert analysis_options('not_a_mode') == []
@@ -584,6 +587,13 @@ def test_analysis_options_schema_well_formed():
     # do_emulation fits the surrogate, use_emulator makes the analyses evaluate it (#333).
     assert ANALYSIS_OPTIONS['emulation']['use_flag'] == 'use_emulator'
     assert {m.get('use_flag') for m in ANALYSIS_OPTIONS.values()} == {None, 'use_emulator'}
+    # An emulator is one kind of surrogate: a front end shows it as 'Emulator' under the
+    # heading 'Surrogate'. No other mode has a group, and the keys keep the emulator's name.
+    emulation = ANALYSIS_OPTIONS['emulation']
+    assert (emulation['label'], emulation['group'], emulation['group_label']) == (
+        'Emulator', 'surrogate', 'Surrogate')
+    assert emulation['options_key'] == 'emulator_settings'
+    assert {m.get('group') for m in ANALYSIS_OPTIONS.values()} == {None, 'surrogate'}
 
 
 def _option(mode, name):
@@ -902,7 +912,7 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # Only what is implemented may be offered: a menu entry a front-end can select but CA
         # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
         # surrogate methods and the pyMC backend land.
-        ('uq', 'method'): ['mcmc'],
+        ('uq', 'method'): ['mcmc', 'laplace'],
         # 'zeus' is still accepted by _build_sampler for backwards compatibility but is
         # deliberately not advertised: it is not a CA dependency and there is no extra that
         # installs it, so offering it in a menu would be a control that fails for most users.
@@ -1164,6 +1174,31 @@ def test_default_model_type_solver_and_gradient_are_readable_from_the_schema():
     for mt, sv in [('casadi_python', 'casadi_integrator'), ('cellml', 'CVODE_myokit'),
                    ('cellml', 'CVODE_libopencor'), ('python', 'solve_ivp')]:
         assert sum(src['default'] for src in gradient_sources(mt, sv)) == 1, (mt, sv)
+
+
+@pytest.mark.unit
+def test_the_default_calibration_method_is_cma_es_and_readable_from_the_schema():
+    """A front end reads the default method from the schema; it must be a method that exists."""
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    assert DEFAULT_PARAM_ID_METHOD == SOLVER_SCHEMA['default_param_id_method'] == 'CMA-ES'
+    assert DEFAULT_PARAM_ID_METHOD in PARAM_ID_METHODS
+    # run_pipeline.py is generated standalone code, so it spells the default out
+    import inspect
+    from libcuflynx.scripts import generate_pipeline_script
+    assert (f'cfg.get("param_id_method", "{DEFAULT_PARAM_ID_METHOD}")'
+            in inspect.getsource(generate_pipeline_script))
+
+
+@pytest.mark.unit
+def test_user_inputs_naming_no_param_id_method_calibrate_with_cma_es(base_user_inputs):
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    config = dict(base_user_inputs)
+    config.pop('param_id_method', None)
+    parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
+    assert parsed['param_id_method'] == 'CMA-ES'
+    config['param_id_method'] = 'genetic_algorithm'
+    parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
+    assert parsed['param_id_method'] == 'genetic_algorithm'
 
 
 @pytest.mark.parametrize("given,expected", [
@@ -1686,8 +1721,8 @@ def test_a_key_of_another_solver_is_refused_with_a_hint_and_the_solvers_fields(
 
 
 @pytest.mark.unit
-def test_the_parser_refuses_a_key_of_another_solver(capsys):
-    with pytest.raises(SystemExit):
+def test_the_parser_refuses_a_key_of_another_solver():
+    with pytest.raises(UserInputsError, match='use max_step instead of MaximumStep'):
         YamlFileParser().parse_user_inputs_file({
             'file_prefix': '3compartment',
             'input_param_file': '3compartment_parameters.json',
@@ -1696,7 +1731,6 @@ def test_the_parser_refuses_a_key_of_another_solver(capsys):
             'solver_info': {'MaximumStep': 0.0001, 'method': 'BDF'},
             'dt': 0.01, 'pre_time': 0.0, 'sim_time': 1.0,
         }, obs_path_needed=False)
-    assert 'use max_step instead of MaximumStep' in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -1718,9 +1752,9 @@ def test_a_cpp_config_with_dt_solver_parses(solver, tmp_path):
 
 
 @pytest.mark.unit
-def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path, capsys):
+def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path):
     """The C++ generator has no PETSC solver, so validation refuses it rather than generation."""
-    with pytest.raises(SystemExit):
+    with pytest.raises(UserInputsError, match='Invalid solver: PETSC'):
         YamlFileParser().parse_user_inputs_file({
             'file_prefix': '3compartment',
             'input_param_file': '3compartment_parameters.json',
@@ -1729,7 +1763,6 @@ def test_a_cpp_config_with_petsc_is_refused_at_validation(tmp_path, capsys):
             'solver_info': {'dt_solver': 1e-4},
             'generated_models_dir': str(tmp_path),
         }, obs_path_needed=False, do_generation_with_fit_parameters=False)
-    assert 'Invalid solver: PETSC' in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -1852,14 +1885,14 @@ def test_cvode_for_a_cellml_model_runs_as_cvode_myokit(tmp_path, capsys, top_lev
 
 
 @pytest.mark.unit
-def test_the_solver_info_error_names_the_cvode_shorthand(tmp_path, capsys):
-    with pytest.raises(SystemExit):
+def test_the_solver_info_error_names_the_cvode_shorthand(tmp_path):
+    with pytest.raises(UserInputsError) as exc:
         YamlFileParser().parse_user_inputs_file(
             _cvode_inputs(tmp_path, solver_info={'solver': 'CVODE', 'dt_solver': 1e-4,
                                                  'MaximumNumberOfSteps': 100,
                                                  'not_a_key': 1}),
             obs_path_needed=False, do_generation_with_fit_parameters=False)
-    out = capsys.readouterr().out
+    out = str(exc.value)
     assert "not supported by solver 'CVODE_myokit'" in out
     assert "solver 'CVODE' was read as 'CVODE_myokit' for this cellml model" in out
 

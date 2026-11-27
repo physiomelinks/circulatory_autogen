@@ -1,6 +1,7 @@
 '''
 Running a calibration workflow: every step through the normal path of its kind (param_id,
-sensitivity analysis, emulator training, identifiability analysis, a parameter sweep), in
+sensitivity analysis, emulator training, identifiability analysis, a parameter sweep or one
+simulation), in
 dependency order, then merging the calibrations' results and the values set by hand into the
 workflow's target.
 
@@ -21,8 +22,19 @@ Output layout (``output_dir``)::
         sensitivity/               a sensitivity step's outputs (sa_options.output_dir)
         emulator/                  an emulation step's emulator
         <step_id>_laplace_*.npy    an identifiability step's Laplace mean and covariance
-        sweep/                     a sweep step's runs (sweep.py)
+        param_id/profile_likelihood/  an identifiability step's profiles (method
+                                   profile_likelihood)
+        <step_id>_calibrated.cellml  a calibration's model with its best fit (a CellML model)
+        uq/                        a uq step's run (its chain, or its Laplace mean and
+                                   covariance); its distribution is in distribution/
+        sweep/                     a sweep or simulate step's runs (sweep.py)
+        figure/                    a figure step's files (figures.py)
     _target/model/                 the target generated with every merged value
+    models/<view>/                 models generated for viewing (workflow_model with this
+                                   work_dir)
+    inputs/                        the study's copies of its inputs (cuflynx_study)
+
+No step may be named ``models``, ``target`` (the target's view), ``_target`` or ``inputs``.
 
 A step's model is generated from a library module or from a copy of its module array; the
 files the workflow names are only read.
@@ -45,7 +57,8 @@ import warnings
 
 import numpy as np
 
-from libcuflynx.calibration_workflow import naming, sweep as sweep_runs
+from libcuflynx.errors import CAInputError
+from libcuflynx.calibration_workflow import figures, naming, sweep as sweep_runs
 from libcuflynx.parsers.PrimitiveParsers import DEFAULT_DO_AD, DEFAULT_MODEL_TYPE
 from libcuflynx.utilities import cuflynx_study
 from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
@@ -53,44 +66,87 @@ from libcuflynx.calibration_workflow.distributions import (DISTRIBUTION_DIR,
                                                            parameters_from_info)
 from libcuflynx.calibration_workflow.generate import (UnsetModelParameters, generate_model,
                                                       read_parameter_rows)
+from libcuflynx.calibration_workflow.protocol_factors import has_factors, resolve_factors
 from libcuflynx.calibration_workflow.resolve import (CalibratedParameter,
                                                      read_calibrated_parameters,
-                                                     resolve_workflow)
+                                                     resolve_workflow,
+                                                     check_merged_once)
 from libcuflynx.calibration_workflow.select import (UnsetParametersError, protocol_values,
                                                     step_input_paths, write_step_inputs)
 from libcuflynx.sensitivity_analysis.parameter_reduction import ParamReduction
 from libcuflynx.sensitivity_analysis.parameter_reduction import REPORT_FILE as REDUCTION_REPORT_FILE
-from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
-                                                  WorkflowError, load_workflow,
+from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, PATH_SETTINGS, SWEEP_KINDS,
+                                                  WORKFLOW_FILE_NAME, WorkflowError,
+                                                  load_workflow, refuse_older_step_keys,
+                                                  uq_method, uq_options as _uq_options,
                                                   uses_log_posterior)
-from libcuflynx.utilities.parameters_file import ORIGINS
+from libcuflynx.utilities.parameters_file import ORIGINS, is_leaf
 from libcuflynx.utilities.mpi_utils import run_on_root
 from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
 # the inputs of a step that are not one file: their digests are in its recorded inputs
 SETTINGS_INPUT = 'settings'
+#: the inputs that are a step's user function files, and the settings naming them
+FUNCS_INPUTS = {'operation_funcs': 'operation_funcs_external_path',
+                'cost_funcs': 'cost_funcs_external_path',
+                'modifier_funcs': 'modifier_funcs_external_path'}
 LIBRARY_INPUT = 'module_library'
 #: the files of a module library a model is generated from
 LIBRARY_FILE_SUFFIXES = ('.cellml', '_modules_config.json', '_parameters.json')
+#: the inputs that may be a parameters file (utilities/parameters_file.py): their digest covers
+#: each value and its units only (:func:`parameters_digest`)
+PARAMETERS_INPUTS = ('parameters', 'target_parameters', 'target_parameters_file')
+#: the leaf keys a step's run depends on: editing any other (a note, an origin, a reason)
+#: leaves the steps that read the file current
+RUN_LEAF_KEYS = ('value', 'units')
 # where a step's calibrated values come from
 POINT_BEST_FIT = 'best_fit'
 POINT_POSTERIOR_MEDIAN = 'posterior_median'
 WORKFLOW_RESULT = 'workflow_result.json'
 TARGET_DIR = '_target'
+#: the folder of a run's output directory that workflow_model may generate into; the schema
+#: refuses it as a step id
+MODELS_DIR = 'models'
 # the file prefix the target's model is generated with
 TARGET_PREFIX = 'target'
 SENSITIVITY_DIR = 'sensitivity'
 EMULATOR_DIR = 'emulator'
+UQ_DIR = 'uq'
+#: the input of a step on an emulator trained outside the workflow (emulator_dir)
+EMULATOR_INPUT = 'emulator'
+#: the input that is a CellML model's file with the files it imports
+CELLML_INPUT = 'cellml_model'
+#: the samples a uq step's Laplace approximation stores, unless UQ_options.num_samples says
+LAPLACE_SAMPLES = 2000
+#: where a uq step's posterior predictive check is written, in its step directory
+POSTERIOR_PREDICTIVE_DIR = 'posterior_predictive'
+#: the draws it simulates, unless UQ_options.posterior_predictive_samples says
+POSTERIOR_PREDICTIVE_SAMPLES = 100
+#: the error vectors a calibration step writes (param_id/plot_outputs.py), in its run directory
+ERROR_VECTOR_FILES = ('percent_error_vec.npy', 'error_vec_names.npy')
+#: what a calibration step's result keeps of each held-out item's validation (the series are in
+#: its ``validation_results`` file)
+VALIDATION_SUMMARY_KEYS = ('data_item_name', 'data_reference', 'operand', 'operation', 'unit',
+                           'data_type', 'n_points', 'rmse', 'nrmse', 'mean_abs_z', 'within_2std')
+#: where an identifiability step's profile likelihood is written, in its run directory
+PROFILE_DIR = 'profile_likelihood'
 SOBOL_INDICES_GLOB = 'all_outputs_n*_Sobol_indices.csv'
 #: the result keys the study manifest lists as each kind's outputs
-STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
-                'sensitivity': ('sensitivity_dir', 'sobol_indices'),
+STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir', 'calibrated_model',
+                                'percent_error_vec', 'error_vec_names', 'validation_results'),
+                'sensitivity': ('sensitivity_dir', 'sobol_indices', 'local_sensitivity_signed'),
                 'reduction': ('params_for_id',),
                 'emulation': ('emulator_dir',),
-                'identifiability': ('laplace',),
+                'identifiability': ('laplace', 'profile_likelihood_dir'),
                 'set': (),
-                'sweep': ('sweep_dir', 'sweep_results')}
+                'combine': (),
+                'sweep': ('sweep_dir', 'sweep_results'),
+                'uq': ('uq_output_dir', 'distribution_dir', 'posterior_predictive_dir',
+                       'posterior_predictive_draws', 'posterior_predictive_coverage',
+                       'posterior_predictive_series'),
+                'simulate': ('sweep_dir', 'sweep_results'),
+                'figure': ('figure_dir', 'figures')}
 #: what a value set by a set step is marked with
 SET_BY_HAND = 'set_by_hand'
 assert SET_BY_HAND in ORIGINS
@@ -106,6 +162,11 @@ class WorkflowStepError(RuntimeError):
     def __init__(self, step_id, message):
         super().__init__(f'step "{step_id}": {message}')
         self.step_id = step_id
+        self.message = message
+
+    def __reduce__(self):
+        # pickled to reach the other ranks (run_on_root)
+        return (type(self), (self.step_id, self.message))
 
 
 def sha256(path):
@@ -117,11 +178,13 @@ def sha256(path):
 
 
 def workflow_digest(path):
-    '''The sha256 of a workflow file's content without its ``external_figures``, whatever the
-    key order: declaring figure scripts after a run leaves the run current.'''
+    '''The sha256 of a workflow file's content without its figure steps, whatever the key
+    order: adding or changing a figure step after a run leaves the run's values current.'''
     with open(path, encoding='utf-8-sig') as f:
         raw = json.load(f)
-    raw.pop('external_figures', None)
+    if isinstance(raw.get('steps'), list):
+        raw['steps'] = [step for step in raw['steps']
+                        if not (isinstance(step, dict) and step.get('kind') == 'figure')]
     return settings_digest(raw)
 
 
@@ -132,19 +195,111 @@ def settings_digest(settings):
 
 
 def step_settings_digest(workflow, step):
-    '''The digest a step's ``settings`` input records: a set step's entries, a reduction's
-    options, or the workflow's settings with the step's on top. Formatting and key order of the
-    file do not change it.'''
+    '''The digest a step's ``settings`` input records: a set step's entries, a combine step's
+    inputs and options, a reduction's options, a figure step's declaration, or the workflow's
+    settings with the step's on top, and a sweep's or simulate step's ``sweep`` block with them.
+    Formatting and key order of the file do not change it, nor does where the files its path
+    settings name are (:func:`digest_settings`).'''
+    if step.kind == 'figure':
+        return settings_digest(figures.declaration(step))
     if step.kind == 'set':
-        return settings_digest(step.set_values)
+        return settings_digest(step.set_values + step.set_thetas)
+    if step.kind == 'combine':
+        return settings_digest({'combine_from': step.combine_from, 'combine': step.combine})
     if step.kind == 'reduction':
         return settings_digest(step.reduction)
-    return settings_digest(workflow.step_settings(step))
+    settings = digest_settings(workflow.step_settings(step))
+    if step.kind in SWEEP_KINDS:
+        return settings_digest({'settings': settings, 'sweep': step.sweep})
+    return settings_digest(settings)
+
+
+def digest_settings(settings):
+    '''``settings`` with each path setting replaced by what it names (``path_digest``). The user
+    function files (``FUNCS_INPUTS``) are left out: each is an input of its own, by its content.'''
+    for setting in FUNCS_INPUTS.values():
+        settings.pop(setting, None)
+    for key in PATH_SETTINGS:
+        if settings.get(key):
+            settings[key] = path_digest(settings[key])
+    return settings
+
+
+def path_digest(path):
+    '''What a path-valued setting contributes to a step's settings digest: the file's contents
+    or a directory's module files, so that a run copied elsewhere is not stale, and the path
+    itself when there is nothing there.'''
+    if os.path.isfile(path):
+        return sha256(path)
+    if os.path.isdir(path):
+        return module_library_digest([path])
+    return path
+
+
+def parameters_digest(path):
+    '''The sha256 of a parameters file's values: each parameter's path, ``value`` and
+    ``units`` (``RUN_LEAF_KEYS``), whatever their order. A note, origin or reason can change
+    without a rerun; the outputs that show them read the file when they are written. A file
+    that is not a parameters file's JSON gets its plain sha256.'''
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return sha256(path)
+    if not isinstance(doc, dict):
+        return sha256(path)
+    values = []
+
+    def walk(node, place):
+        for key, child in node.items():
+            if is_leaf(child):
+                values.append([place + [key]] + [child.get(k) for k in RUN_LEAF_KEYS])
+            elif isinstance(child, dict):
+                walk(child, place + [key])
+    walk(doc, [])
+    return settings_digest(sorted(values, key=lambda v: v[0]))
+
+
+def directory_digest(directory):
+    '''The sha256 of the files under ``directory``: their relative paths and contents.'''
+    digest = hashlib.sha256()
+    for root, dirs, files in os.walk(directory):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(root, name)
+            digest.update(os.path.relpath(path, directory).encode('utf-8'))
+            digest.update(sha256(path).encode('ascii'))
+    return digest.hexdigest()
+
+
+def cellml_digest(path):
+    '''The sha256 of a CellML file and of every file it imports.'''
+    from libcuflynx.calibration_workflow.cellml_files import cellml_imports
+    digest = hashlib.sha256(sha256(path).encode('ascii'))
+    for imported in cellml_imports(path):
+        digest.update(sha256(imported).encode('ascii'))
+    return digest.hexdigest()
+
+
+def input_digest(key, path):
+    '''The digest a step's input ``key`` records for ``path``: the CellML model's covers its
+    imports, an emulator's its directory, the module library's every library directory, a
+    parameters file's its values (:func:`parameters_digest`), and any other input's is the
+    file's sha256. Both the runner and the provenance graph use it.'''
+    if key == CELLML_INPUT:
+        return cellml_digest(path)
+    if key == EMULATOR_INPUT:
+        return directory_digest(path)
+    if key == LIBRARY_INPUT:
+        return module_library_digest(path.split(os.pathsep))
+    if key in PARAMETERS_INPUTS:
+        return parameters_digest(path)
+    return sha256(path)
 
 
 def module_library_digest(library_dirs):
     '''The sha256 of the module files under ``library_dirs``: their paths within each directory
-    and their contents.'''
+    and their contents, a parameterisation's values only (:func:`parameters_digest`).'''
     digest = hashlib.sha256()
     for directory in library_dirs:
         for root, dirs, files in os.walk(directory):
@@ -152,8 +307,10 @@ def module_library_digest(library_dirs):
             for name in sorted(files):
                 if name.endswith(LIBRARY_FILE_SUFFIXES):
                     path = os.path.join(root, name)
+                    content = (parameters_digest(path) if name.endswith('_parameters.json')
+                               else sha256(path))
                     digest.update(os.path.relpath(path, directory).encode('utf-8'))
-                    digest.update(sha256(path).encode('ascii'))
+                    digest.update(content.encode('ascii'))
     return digest.hexdigest()
 
 
@@ -185,7 +342,65 @@ def _libcellml_version():
 
 
 def default_output_dir(workflow):
-    return os.path.join(os.getcwd(), 'workflow_output', workflow.name)
+    '''Where a run goes when it is given no output directory:
+    ``workflow_output/<workflow_name>`` beside the workflow file (the working directory for a
+    workflow given as a dict), which is ``WorkflowBuilder.output_dir``.'''
+    base = os.path.dirname(workflow.path) if workflow.path else os.getcwd()
+    return os.path.join(base, 'workflow_output', workflow.name)
+
+
+def _profile_record(summary_path):
+    '''What an identifiability step's result keeps of a profile likelihood
+    (``ProfileLikelihood._save_results``): its directory, summary and options, and per parameter
+    the profile's file, the value profiled about, its cost and the 95% interval. The sweeps
+    (``param_values``, ``costs``, ``optima``) are in each file.'''
+    with open(summary_path, encoding='utf-8') as f:
+        summary = json.load(f)
+    directory = os.path.dirname(summary_path)
+    profiles = []
+    for path in sorted(glob.glob(os.path.join(directory, 'param_*.json')),
+                       key=lambda p: int(os.path.basename(p).split('_')[1])):
+        with open(path, encoding='utf-8') as f:
+            profile = json.load(f)
+        name = profile['param_name']
+        profiles.append({'parameter': '+'.join(name) if isinstance(name, list) else name,
+                         'file': path, 'best_val': profile['best_val'],
+                         'best_cost': profile['best_cost'], 'ci_95': profile['ci_95']})
+    return {'dir': directory, 'summary': summary_path, 'num_points': summary['num_points'],
+            'range_factor': summary['range_factor'],
+            'nll_threshold_95': summary['nll_threshold_95'], 'profiles': profiles}
+
+
+def _member_values(step, param_id, info, values):
+    '''``(member_values, modifiers)`` of a calibration's ``values`` (one per params_for_id
+    entry): per entry, the value of each parameter it names, and a record of each modifier
+    entry. A ``targets`` entry gives its value to every parameter. A ``modifies`` entry's value
+    is theta, so its parameters get ``modifier(theta, baseline_i)`` by the engine's own
+    expansion, at the baselines ``param_id`` (the run's CVS0DParamID) resolved; the record is
+    ``{name, modifier, targets, theta, baselines, values}``.'''
+    from libcuflynx.parsers.PrimitiveParsers import expand_modifier_param_vals
+    names = [list(q) if isinstance(q, (list, tuple)) else [q] for q in info['param_names']]
+    if not info.get('modifiers'):
+        return [[float(value)] * len(q) for q, value in zip(names, values)], []
+    resolved = getattr(getattr(param_id, 'param_id', None), 'param_id_info', None)
+    if not resolved or len(resolved.get('param_names', ())) != len(names):
+        raise WorkflowStepError(step.id, 'its params_for_id has modifier entries, and the '
+                                         'calibration kept no baselines to give their '
+                                         'parameters values from.')
+    expanded = expand_modifier_param_vals(resolved, [float(v) for v in values])
+    by_index = {mod['index']: mod for mod in resolved['modifiers']}
+    member_values, modifiers = [], []
+    for index, (q, value) in enumerate(zip(names, expanded)):
+        if index not in by_index:
+            member_values.append([float(value)] * len(q))
+            continue
+        mod = by_index[index]
+        member_values.append([float(v) for v in value])
+        modifiers.append({'name': mod['name'], 'modifier': mod.get('modifier'),
+                          'targets': list(mod['targets']), 'theta': float(values[index]),
+                          'baselines': [float(b) for b in mod['baselines']],
+                          'values': member_values[-1]})
+    return member_values, modifiers
 
 
 def _write_json(path, obj):
@@ -201,9 +416,33 @@ def _read_json(path):
         return json.load(f)
 
 
+def read_step_result(path):
+    '''The step_result.json at ``path``. One whose records name their module ``vessel`` is
+    refused, naming the upgrade that renames it.'''
+    from libcuflynx.upgrade import hint, is_older_step_result
+    result = _read_json(path)
+    if is_older_step_result(result):
+        run_dir = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+        raise WorkflowError(f'{path} names the module of each value "vessel" (now "module"). '
+                            + hint('workflow', run_dir))
+    return result
+
+
 def given_values(result):
-    '''The records of what a step's result passes on: what it calibrated or set by hand.'''
+    '''The records of what a step's result passes on: what it calibrated, combined or set by
+    hand.'''
     return result['calibrated'] + result.get('set', [])
+
+
+def _from_step_hint(step_id):
+    '''How to run from a step, for a Python caller and for the command line.'''
+    return f'wf.run(from_step={step_id!r}) in Python, --from-step {step_id} on the command line'
+
+
+def target_values(step, result):
+    '''The records of what a step's result gives the target: none for a point step, whose values
+    are only for ``start_from``, ``result_from`` or ``fixed_from``.'''
+    return [] if step.point else given_values(result)
 
 
 def _how_set(record):
@@ -222,6 +461,18 @@ class _Run:
         self.rank = comm.Get_rank()
         self.progress = progress
         self._library_digest = None
+        #: rank 0: ``{step id: {model name: row}}`` of the values a step's own parameters start
+        #: at (start_from), set by _prepare
+        self.start_points = {}
+        #: per step, the thetas its modifier entries start at or are analysed at
+        self.point_thetas = {}
+        #: per step on an emulator_dir, {model name: value} of the point it analyses
+        self.emulator_points = {}
+        #: 'error' or 'warn': what the merge does when unrelated steps give the target one
+        #: parameter (resolve.check_merged_once)
+        self.target_overlap = 'warn'
+        #: rank 0: {step id: what its protocol factors multiplied}, for its step_result
+        self._factors = {}
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -236,11 +487,18 @@ class _Run:
     def step_dir(self, step_id):
         return os.path.join(self.output_dir, step_id)
 
+    def obs_data_read(self, step):
+        '''The obs_data a step reads: its own, or the copy written into its directory.'''
+        resolved = self.resolved.steps[step.id]
+        if resolved.reads_step_inputs:
+            return step_input_paths(self.step_dir(step.id), step)[0]
+        return resolved.obs_data_path
+
     def step_result(self, step_id):
         path = os.path.join(self.step_dir(step_id), STEP_RESULT)
         if not os.path.isfile(path):
             return None
-        return _read_json(path)
+        return read_step_result(path)
 
     def library_input(self):
         '''The ``module_library`` entry of a step's inputs, read once a run.'''
@@ -263,26 +521,59 @@ class _Run:
             del files['obs_data']         # a sweep without one
         if not files['params_for_id'] or not os.path.isfile(files['params_for_id']):
             del files['params_for_id']    # a sweep's, or a reduction's not yet written
-        if os.path.isfile(rs.model.parameters_path):
+        if rs.model.parameters_path and os.path.isfile(rs.model.parameters_path):
             files['parameters'] = rs.model.parameters_path
+        if rs.model.kind == 'external':
+            files['external_model'] = rs.model.model.path
         if rs.model.kind == 'array':
             files['module_array'] = rs.model.model.module_array
         if rs.selection is not None:
             # a selection starts from the target's values
             files['target_parameters'] = self.workflow.target.parameters
             files['target_module_array'] = self.workflow.target.module_array
-        return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
-                SETTINGS_INPUT: settings, **self.library_input()}
+        # the user function files the step runs with (a result recorded without them is not
+        # stale for that: changed_inputs compares only the keys a result has)
+        merged = self.workflow.step_settings(rs.step)
+        for key, setting in FUNCS_INPUTS.items():
+            if merged.get(setting) and os.path.isfile(merged[setting]):
+                files[key] = merged[setting]
+        inputs = {key: {'path': path, 'sha256': input_digest(key, path)}
+                  for key, path in files.items()}
+        if rs.model.kind == 'cellml':
+            inputs[CELLML_INPUT] = {'path': rs.model.model.path,
+                                    'sha256': input_digest(CELLML_INPUT, rs.model.model.path)}
+        if rs.step.emulator_dir and os.path.isdir(rs.step.emulator_dir):
+            inputs[EMULATOR_INPUT] = {'path': rs.step.emulator_dir,
+                                      'sha256': input_digest(EMULATOR_INPUT,
+                                                             rs.step.emulator_dir)}
+        return {**inputs, SETTINGS_INPUT: settings, **self.library_input()}
 
     def _model_free_inputs(self, step):
-        '''The inputs of a reduction (its options; the rest are its sensitivity step's) or a set
-        step (its entries, and the target's values when it scales them).'''
+        '''The inputs of a reduction (its options; the rest are its sensitivity step's, or
+        the params_for_id a choice made by hand keeps entries of), a combine step (its inputs
+        and options), a set step (its entries, and the target's values when it scales them) or
+        a figure step (its declaration, its script and the files it lists).'''
         inputs = {SETTINGS_INPUT: {'path': self.workflow.path,
                                    'sha256': step_settings_digest(self.workflow, step)}}
+        if step.chosen_by_hand and os.path.isfile(step.params_for_id):
+            inputs['params_for_id'] = {'path': step.params_for_id,
+                                       'sha256': sha256(step.params_for_id)}
+        if step.kind == 'figure':
+            inputs.update({key: {'path': path, 'sha256': sha256(path)}
+                           for key, path in figures.input_files(step).items()})
         if any(entry.get('of') == INHERITED_BASE for entry in step.set_values):
-            path = self.resolved.target.parameters_path
+            # an external target's values are its model file's defaults, a CellML target's its
+            # file's with its parameters file's over them
+            target = self.resolved.target
+            path = target.model.path if target.kind in ('external', 'cellml') else \
+                target.parameters_path
+            if target.kind == 'cellml' and target.parameters_path:
+                inputs['target_parameters_file'] = {'path': target.parameters_path,
+                                                    'sha256': parameters_digest(
+                                                        target.parameters_path)}
             if os.path.isfile(path):
-                inputs['target_parameters'] = {'path': path, 'sha256': sha256(path)}
+                inputs['target_parameters'] = {'path': path,
+                                               'sha256': input_digest('target_parameters', path)}
             inputs.update(self.library_input())
         return inputs
 
@@ -301,8 +592,8 @@ class _Run:
         if result is None or result.get('status') != 'done':
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", which has not been run '
-                f'into {self.output_dir}. Run the workflow from "{step_id}" (or without '
-                f'--from-step/--only).')
+                f'into {self.output_dir}. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}, or run every step.')
         for key in self.changed_inputs(step_id, result):
             if key == LIBRARY_INPUT:
                 warnings.warn(f'the module library has changed since "{step_id}" ran; its result '
@@ -311,52 +602,79 @@ class _Run:
             changed = 'its settings' if key == SETTINGS_INPUT else result['inputs'][key]['path']
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", but {changed} has changed '
-                f'since "{step_id}" ran. Run the workflow from "{step_id}".')
+                f'since "{step_id}" ran. Run the workflow from "{step_id}": '
+                f'{_from_step_hint(step_id)}.')
         for source in self.workflow.step(step_id).depends_on:
             upstream = self.require_current(source, needed_by)
             if (upstream.get('finished') or '') > (result.get('started') or ''):
                 raise WorkflowError(
                     f'step "{needed_by}" needs the result of "{step_id}", but "{source}", which '
                     f'it took something from, ran again after it. Run the workflow from '
-                    f'"{step_id}".')
+                    f'"{step_id}": {_from_step_hint(step_id)}.')
         return result
 
     # -- what a step gets from earlier steps ---------------------------------------------
 
-    def fixed_values(self, step, sources, own_only=False):
+    def fixed_values(self, step, sources, own_only=False, subsets=None):
         '''``{model name in this step: row}`` from every step in ``sources``: its calibrated
         values, those it set by hand and, unless ``own_only``, the values it was itself given
-        as fixed.'''
+        as fixed. A source in ``subsets`` (``{step id: its model names}``) gives only those of
+        its calibrated and set values. A value given by two steps is the later one's
+        (:meth:`later_value`).'''
+        subsets = subsets or {}
         values = {}
         for source in sources:
             result = self.require_current(source, step.id)
             vessel_of = self.resolved.map_between(source, step.id)
             left_out = []
             records = given_values(result) + ([] if own_only else result['fixed'])
+            if source in subsets:
+                records = [r for r in given_values(result)
+                           if r['model_name'] in subsets[source]]
             for record in records:
-                vessel = vessel_of(record['vessel'])
+                vessel = vessel_of(record['module'])
                 if vessel is None:
                     left_out.append(record['model_name'])
                     continue
                 name = naming.model_name(vessel, record['param'])
                 origin = record.get('from_step', source)
-                if name in values and not np.isclose(values[name]['value'], record['value'],
-                                                      rtol=1e-12, atol=0.0):
-                    raise WorkflowError(
-                        f'step "{step.id}" is given two different fixed values for "{name}": '
-                        f'{values[name]["value"]} (from "{values[name]["from_step"]}") and '
-                        f'{record["value"]} (from "{origin}").')
-                values[name] = {'vessel': vessel,
-                                'param': record['param'], 'model_name': name,
-                                'host_name': naming.host_row_name(vessel, record['param']),
-                                'value': record['value'], 'units': record.get('units', ''),
-                                'from_step': origin, **_how_set(record)}
+                row = {'module': vessel,
+                       'param': record['param'], 'model_name': name,
+                       'host_name': naming.host_row_name(vessel, record['param']),
+                       'value': record['value'], 'units': record.get('units', ''),
+                       'from_step': origin, **_how_set(record)}
+                values[name] = self.later_value(step, values.get(name), row)
             if left_out:
                 model = step.model.label() if step.model else self.workflow.target.label()
                 warnings.warn(f'step "{step.id}": {len(left_out)} value(s) of "{source}" are '
                               f'not fixed, because {model} has no such vessel: '
                               f'{sorted(left_out)}.', UserWarning, stacklevel=2)
         return values
+
+    def later_value(self, step, old, new):
+        '''Which of two rows giving ``step`` one parameter is used (``old`` may be None): that
+        of the step that takes from the other's step, directly or through other steps; else,
+        when one is a set step's, that of the later step in run order. Two different values
+        from other unrelated steps are a WorkflowError (resolve.given_twice).'''
+        if old is None or old['from_step'] == new['from_step']:
+            return new
+        first, second = old['from_step'], new['from_step']
+        if not hasattr(self, '_ancestors'):
+            self._ancestors = self.workflow.ancestors()
+            self._run_order = [s.id for s in self.workflow.topological_order()]
+        if first in self._ancestors[second]:
+            return new
+        if second in self._ancestors[first]:
+            return old
+        if 'set' not in (self.workflow.step(first).kind, self.workflow.step(second).kind) and \
+                not np.isclose(old['value'], new['value'], rtol=1e-12, atol=0.0):
+            raise WorkflowError(
+                f'step "{step.id}" is given two different values for "{new["model_name"]}": '
+                f'{old["value"]} (from "{first}") and {new["value"]} (from "{second}"), and '
+                f'neither step takes from the other. Add a combine step that gives one value '
+                f'from them ("kind": "combine", "combine_from": {json.dumps([first, second])}) '
+                f'and take from that.')
+        return new if self._run_order.index(second) > self._run_order.index(first) else old
 
     def priors(self, step):
         '''``[(PriorSource, StoredDistribution named in this step)]``.'''
@@ -385,7 +703,9 @@ class _Run:
         run = {'calibration': self._run_calibration, 'sensitivity': self._run_sensitivity,
                'reduction': self._run_reduction, 'emulation': self._run_emulation,
                'identifiability': self._run_identifiability, 'set': self._run_set,
-               'sweep': self._run_sweep}[step.kind]
+               'combine': self._run_combine,
+               'sweep': self._run_sweep, 'uq': self._run_uq, 'simulate': self._run_sweep,
+               'figure': self._run_figure}[step.kind]
         record = run(step, self.workflow.step_settings(step))
 
         def finish():
@@ -396,6 +716,9 @@ class _Run:
                            'duration_s': round(time.time() - t0, 3),
                            'calibrated': [], 'fixed': [], 'inputs': self.inputs(step.id)},
                           **record)
+            factors = self._factors.pop(step.id, None)
+            if factors:
+                result['protocol_factors'] = factors
             _write_json(os.path.join(self.step_dir(step.id), STEP_RESULT), result)
             return result
 
@@ -411,21 +734,65 @@ class _Run:
             return reduced_params_for_id_path(self.output_dir, step.params_for_id_from)
         return step.params_for_id
 
+    def own_parameters(self, step, params_for_id):
+        '''The model names, in the step's model, of what ``params_for_id`` (the step's)
+        calibrates or analyses.'''
+        resolved = self.resolved.steps[step.id]
+        own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
+        own = [resolved.in_model(p) for p in own]
+        if resolved.renames_inputs:
+            own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
+                                       p.param) for p in own]
+        return {p.model_name for p in own}
+
+    def own_modifiers(self, step, params_for_id):
+        '''``{entry name: the model names, in the step's model, of what it modifies}`` of the
+        modifier entries of ``params_for_id`` (the step's).'''
+        if not params_for_id:
+            return {}
+        from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+        resolved = self.resolved.steps[step.id]
+        info = ObsAndParamDataParser(
+            modifier_funcs_external_path=self.workflow.step_settings(step).get(
+                'modifier_funcs_external_path')).get_param_id_info(params_for_id)
+        modifiers = {}
+        for mod in info.get('modifiers') or []:
+            names = set()
+            for qname in mod['targets']:
+                vessel, _, param = str(qname).partition('/')
+                if resolved.renames_inputs:
+                    vessel = resolved.vessel_map.from_target(vessel) or vessel
+                names.add(resolved.in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name)
+            modifiers[mod['name']] = names
+        return modifiers
+
+    def thetas_of(self, step, source, modifiers):
+        '''``{entry name: theta}`` that ``source``'s result gives the modifier entries
+        ``modifiers`` of ``step``: a set step's theta entries, or the thetas a calibration
+        found. A set step's theta for an entry the step does not have is an error.'''
+        result = self.require_current(source, step.id)
+        declared = {entry['entry']: entry['theta'] for entry in result.get('thetas') or []}
+        unknown = sorted(set(declared) - set(modifiers))
+        if unknown:
+            raise WorkflowError(f'step "{step.id}" is given the theta of {unknown} by '
+                                f'"{source}", and its params_for_id has no modifier entry of '
+                                f'that name (it has {sorted(modifiers)}).')
+        found = {mod['name']: mod['theta'] for mod in result.get('modifiers') or []}
+        found.update(declared)
+        return {name: float(theta) for name, theta in found.items() if name in modifiers}
+
     def _prepare(self, step, settings):
         '''Rank 0: a clean step directory and the step's model, generated with the values it is
         given (``fixed_from``, and ``result_from`` including the parameters it analyses), or
         copied from its ``emulator_from`` step. Returns ``(generated, params_for_id, units,
-        fixed, priors)``.'''
+        fixed, priors)``; ``fixed`` leaves out the parameters the step analyses.'''
         resolved = self.resolved.steps[step.id]
         step_dir = self.step_dir(step.id)
         params_for_id = self.params_for_id_of(step)
         if step.params_for_id_from:
             self.require_current(step.params_for_id_from, step.id)
-        own = read_calibrated_parameters(params_for_id, step.id) if params_for_id else []
-        if resolved.renames_inputs:
-            own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
-                                       p.param) for p in own]
-        own = {p.model_name for p in own}
+        own = self.own_parameters(step, params_for_id)
         if step.on_target:
             # the values merge() gives the target: each source's own values, in run order, a
             # later step winning
@@ -435,10 +802,40 @@ class _Run:
                     fixed.update(self.fixed_values(step, [source.id], own_only=True))
         else:
             # a parameter the step calibrates itself is not fixed: the later calibration wins
-            fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
-                     if n not in own}
+            fixed = {n: row for n, row in
+                     self.fixed_values(step, step.fixed_from,
+                                       subsets=step.fixed_parameters).items() if n not in own}
+        point = {}
         if step.result_from:
-            fixed.update(self.fixed_values(step, [step.result_from]))
+            # result_from's values of the step's own parameters are the point it analyses (its
+            # result records them as ``at`` or ``nominal``); the rest are fixed
+            for name, row in self.fixed_values(step, [step.result_from]).items():
+                if name in own:
+                    point[name] = row
+                else:
+                    fixed[name] = self.later_value(step, fixed.get(name), row)
+        start = {}
+        if step.start_from:
+            # its own parameters start at the values of start_from; they are not fixed
+            start = {n: row for n, row in self.fixed_values(step, [step.start_from],
+                                                             own_only=True).items() if n in own}
+        # A modifier entry's point is its theta, about the values its parameters have in the
+        # step's model: where the source gives that theta, the parameters keep those values.
+        thetas = {}
+        modifiers = self.own_modifiers(step, params_for_id)
+        for source, values in ((step.result_from, point), (step.start_from, start)):
+            if not source:
+                continue
+            for name, theta in self.thetas_of(step, source, modifiers).items():
+                thetas[name] = theta
+                for model_name in modifiers[name]:
+                    values.pop(model_name, None)
+        self.point_thetas[step.id] = thetas
+        if step.start_from:
+            if not start and not thetas:
+                raise WorkflowError(f'step "{step.id}" starts from "{step.start_from}", which '
+                                    f'has no value of any parameter it calibrates.')
+        self.start_points[step.id] = start
         priors = self.priors(step)
         prior_names = [n for _, dist in priors for n in dist.names]
         clash = sorted((own | set(fixed)) & set(prior_names))
@@ -465,22 +862,51 @@ class _Run:
                                             f'{self.workflow.name}, step {row["from_step"]}',
                           **_how_set(row)}
                          for name, row in sorted(fixed.items())]
+            overrides += [{'variable_name': row['host_name'], 'units': row['units'],
+                           'value': repr(float(row['value'])),
+                           'data_reference': f'the point analysed: calibration workflow '
+                                             f'{self.workflow.name}, step {row["from_step"]}',
+                           **_how_set(row)}
+                          # An emulator answers for the model it was trained on: the point of a
+                          # step on one is only where it is evaluated, and stays out of the model.
+                          for name, row in sorted(point.items()) if not step.emulator_dir]
+            overrides += [{'variable_name': row['host_name'], 'units': row['units'],
+                           'value': repr(float(row['value'])),
+                           'data_reference': f'start of the fit: calibration workflow '
+                                             f'{self.workflow.name}, step {row["from_step"]}'}
+                          for name, row in sorted(start.items())]
             generated = generate_step_model(
                 resolved, os.path.join(step_dir, 'model'), step.id,
                 under(resolved.base_rows, overrides), obs_data, self.resolved.library_inputs,
                 settings)
+        self.emulator_points[step.id] = ({name: float(row['value'])
+                                          for name, row in point.items()}
+                                         if step.emulator_dir else {})
         model_rows = {r['variable_name']: r
                       for r in read_parameter_rows(generated['parameters_path'])}
-        for name, row in fixed.items():
+        for name, row in {**fixed, **point}.items():
             if name not in model_rows:
                 raise WorkflowError(
                     f'step "{step.id}": the value fixed from "{row["from_step"]}" for '
                     f'"{name}" has no parameter of that name in the step model '
                     f'({generated["parameters_path"]}).')
+        if has_factors(obs_data):
+            # against the values the step's model was generated with
+            refused = {n: 'calibrates' for n in own}
+            if step.kind == 'sweep':
+                refused.update({p.model_name: 'sweeps' for p in resolved.parameters})
+            resolved_obs = self.obs_data_read(step)
+            os.makedirs(os.path.dirname(resolved_obs), exist_ok=True)
+            self._factors[step.id] = resolve_factors(
+                obs_data, resolved_obs, model_rows, fixed, refused, f'step "{step.id}"')
         if priors:
             source_path = params_for_id
             params_for_id = os.path.join(step_dir, f'{step.id}_params_for_id.json')
             _write_params_for_id_with_priors(source_path, params_for_id, priors, step.id)
+        if thetas:
+            source_path = params_for_id
+            params_for_id = os.path.join(step_dir, f'{step.id}_params_for_id.json')
+            _write_params_for_id_with_thetas(source_path, params_for_id, thetas, step.id)
         units = {k: v.get('units', '') for k, v in model_rows.items()}
         return generated, params_for_id, units, fixed, priors
 
@@ -490,8 +916,7 @@ class _Run:
         step_dir = self.step_dir(step.id)
         prefix = step.emulator_from or step.id
         resolved = self.resolved.steps[step.id]
-        obs_data = (step_input_paths(step_dir, step)[0] if resolved.renames_inputs
-                    else resolved.obs_data_path)
+        obs_data = self.obs_data_read(step)
         inp = copy.deepcopy(STEP_DEFAULTS)
         inp.update(copy.deepcopy(settings))
         inp.update({
@@ -508,19 +933,28 @@ class _Run:
             'do_uq': step.store_distribution,
         })
         inp.update({k: v for k, v in self.resolved.library_inputs.items()})
+        if resolved.model.kind == 'external':
+            inp.update(external_inputs(settings, generated))
         if step.emulator_from:
             emulation = self.workflow.step(step.emulator_from)
             inp['use_emulator'] = True
             inp['emulator_settings'] = dict(
                 self.workflow.step_settings(emulation).get('emulator_settings') or {},
                 emulator_dir=emulator_dir(self.output_dir, emulation.id))
+        if step.emulator_dir:
+            inp['use_emulator'] = True
+            inp['emulator_settings'] = dict(settings.get('emulator_settings') or {},
+                                            emulator_dir=step.emulator_dir)
         return inp
 
     def _run_stage(self, step, what, fn, *args):
         try:
             return fn(*args)
+        except CAInputError as exc:
+            raise WorkflowStepError(step.id, f'the {what} configuration was refused: '
+                                             f'{exc}') from exc
         except SystemExit as exc:
-            # the user_inputs parser exit()s on a bad configuration, after printing why
+            # library code that still exit()s on bad input, after printing why (#706)
             raise WorkflowStepError(step.id, f'the {what} configuration was refused (exit '
                                              f'{exc.code}); the messages above say why.')
 
@@ -530,35 +964,56 @@ class _Run:
         resolved = self.resolved.steps[step.id]
         generated, params_for_id, units, fixed, priors = self.on_root(
             lambda: self._prepare(step, settings))
-        inp = self._inp(step, settings, generated, params_for_id)
+        # A reduction's parameters on the emulator of all of them: the run is on the
+        # emulator's params_for_id, calibrating the step's entries and holding the others.
+        run_params_for_id, kept = params_for_id, None
+        if self.workflow.holds_entries(step):
+            run_params_for_id, kept = self.on_root(
+                lambda: self._emulator_entries(step, params_for_id))
+        inp = self._inp(step, settings, generated, run_params_for_id)
+        if kept is not None:
+            inp['calibrated_entries'] = kept
         if priors:
             inp['joint_priors'] = [([n for n in dist.names],
                                     dist.as_prior(prior.kind, prior.inflate))
                                    for prior, dist in priors]
         outcome = self._run_stage(step, 'param_id', run_param_id, inp)
+        outputs = self.on_root(lambda: self._calibration_outputs(step, outcome, generated))
 
         def finish():
             case_dir = outcome['output_dir']
-            from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
-            info = ObsAndParamDataParser().get_param_id_info(params_for_id)
+            from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
+                                                             param_entry_labels)
+            info = ObsAndParamDataParser().get_param_id_info(run_params_for_id)
+            labels = param_entry_labels(info)
             best = np.atleast_1d(np.load(os.path.join(case_dir, 'best_param_vals.npy')))
             best_cost = float(np.load(os.path.join(case_dir, 'best_cost.npy')))
             distribution_dir = None
             if step.store_distribution:
-                distribution_dir = self._store_distribution(step, case_dir, info, settings)
+                distribution_dir = self._store_distribution(
+                    step, outcome['uq_output_dir'], info, settings)
             values, point_estimate = best, POINT_BEST_FIT
             if priors and not uses_log_posterior(settings):
                 # The optimiser minimised the cost, which knows nothing of the priors; only the
                 # MCMC sampled the posterior they shape. Report that posterior's medians.
                 samples = StoredDistribution.load(distribution_dir).samples
                 values, point_estimate = np.median(samples, axis=0), POINT_POSTERIOR_MEDIAN
-            calibrated = []
-            for qnames, value in zip(info['param_names'], values):
-                for qname in (qnames if isinstance(qnames, (list, tuple)) else [qnames]):
+            calibrated, held = [], []
+            # an entry's value is each of its parameters' value, except a modifier's, whose
+            # value is theta: its parameters have its function of theta at their baselines
+            member_values, modifiers = _member_values(step, outcome.get('param_id'), info,
+                                                      values)
+            for label, qnames, entry_values in zip(labels, info['param_names'], member_values):
+                # an entry the step does not calibrate was held at this value
+                rows = calibrated if kept is None or label in kept else held
+                names = qnames if isinstance(qnames, (list, tuple)) else [qnames]
+                for qname, value in zip(names, entry_values):
                     vessel, _, param = str(qname).partition('/')
-                    parameter = CalibratedParameter(vessel=vessel, param=param)
-                    calibrated.append({
-                        'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
+                    # as the step's model names it (a CellML's constant)
+                    parameter = resolved.in_model(CalibratedParameter(vessel=vessel, param=param))
+                    vessel, param = parameter.vessel, parameter.param
+                    rows.append({
+                        'module': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
                         'target_host_name': naming.host_row_name(resolved.to_target(vessel),
                                                                  param),
@@ -568,20 +1023,112 @@ class _Run:
             return {
                 'method': settings.get('param_id_method'), 'best_cost': best_cost,
                 'point_estimate': point_estimate,
-                'best_fit': [float(v) for v in best],
+                # the calibrated entries' values, in the order of params_for_id_used
+                'best_fit': [float(v) for label, v in zip(labels, best)
+                             if kept is None or label in kept],
                 'calibrated': calibrated,
+                'modifiers': modifiers,
+                # (a step on an emulator of more parameters than it calibrates) the emulator's
+                # other parameters, held at their values in the emulation step's model
+                **({'held': held, 'held_at': f'the model of "{step.emulator_from}"',
+                    'emulator_params_for_id': run_params_for_id} if kept is not None else {}),
                 'fixed': [dict(row) for _, row in sorted(fixed.items())],
                 'priors': [dict(prior.as_dict(), parameters=dist.names)
                            for prior, dist in priors],
                 'params_for_id_used': params_for_id,
                 'settings': settings,
+                # what the run used: the settings' solver_info with the parser's defaults
+                'solver_info': outcome['solver_info'],
                 'generated': generated,
                 'model_path': generated['model_path'],
                 'param_id_output_dir': case_dir,
                 'distribution_dir': distribution_dir,
+                **outputs,
+                **self._start_record(step),
             }
 
         return self.on_root(finish)
+
+    def _emulator_entries(self, step, params_for_id):
+        '''Rank 0, for a step that calibrates some of its emulator's parameters: the
+        params_for_id the emulator was trained on, and the labels of the entries of
+        ``params_for_id`` (the step's), which must all be entries of it.'''
+        from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
+                                                         param_entry_labels)
+        trained_on = self.require_current(step.emulator_from, step.id)['params_for_id_used']
+        parser = ObsAndParamDataParser(
+            modifier_funcs_external_path=self.workflow.step_settings(step).get(
+                'modifier_funcs_external_path'))
+        kept = param_entry_labels(parser.get_param_id_info(params_for_id))
+        known = param_entry_labels(parser.get_param_id_info(trained_on))
+        unknown = [label for label in kept if label not in known]
+        if unknown:
+            raise WorkflowStepError(
+                step.id, f'it calibrates {unknown}, which the emulator of '
+                         f'"{step.emulator_from}" was not trained on (its parameters are '
+                         f'{known}).')
+        return trained_on, kept
+
+    def _calibration_outputs(self, step, outcome, generated):
+        '''Rank 0: what a calibration step writes after its fit, with CA's own writers -- the
+        observables at the best fit and their error vectors (``plot_outputs``, in the run
+        directory), the best fit against the obs_data's held-out prediction items
+        (``save_prediction_data``: ``validation_results.json`` in the run directory, and each
+        item's statistics under ``validation``), and, when its model has a CellML, that model
+        with the best fit (``<step>_calibrated.cellml`` in the step directory). A failure is a
+        warning: the fit stands without them.'''
+        param_id = outcome.get('param_id')
+        out = {'percent_error_vec': None, 'error_vec_names': None, 'calibrated_model': None,
+               'validation_results': None, 'validation': []}
+        if param_id is None:
+            return out
+        case_dir = outcome['output_dir']
+        try:
+            param_id.simulate_with_best_param_vals()
+            param_id.plot_outputs()
+            for name in ERROR_VECTOR_FILES:
+                path = os.path.join(case_dir, name)
+                out[name[:-len('.npy')]] = path if os.path.isfile(path) else None
+        except (Exception, SystemExit) as exc:
+            # plot_outputs exits on a label it cannot draw
+            warnings.warn(f'step "{step.id}": the observables at its best fit were not written: '
+                          f'{exc}', UserWarning, stacklevel=2)
+        try:
+            from libcuflynx.param_id.validation import VALIDATION_RESULTS_FILE
+            param_id.save_prediction_data()
+            path = os.path.join(case_dir, VALIDATION_RESULTS_FILE)
+            if os.path.isfile(path):
+                with open(path, encoding='utf-8') as f:
+                    items = json.load(f)['items']
+                out['validation_results'] = path
+                out['validation'] = [{key: item.get(key) for key in VALIDATION_SUMMARY_KEYS}
+                                     for item in items]
+        except (Exception, SystemExit) as exc:
+            warnings.warn(f'step "{step.id}": its best fit was not validated against the '
+                          f'held-out data: {exc}', UserWarning, stacklevel=2)
+        cellml = generated.get('flat_model_path') or (
+            generated['model_path'] if str(generated['model_path']).endswith('.cellml')
+            else None)
+        if cellml:
+            try:
+                out['calibrated_model'] = param_id.write_calibrated_model(
+                    cellml_path=cellml, output_dir=self.step_dir(step.id))
+            except Exception as exc:
+                warnings.warn(f'step "{step.id}": its calibrated model was not written: {exc}',
+                              UserWarning, stacklevel=2)
+        return out
+
+    def _start_record(self, step):
+        '''The ``start_from`` record of a step's result: the step and the values its own
+        parameters started at.'''
+        if not step.start_from:
+            return {}
+        thetas = self.point_thetas.get(step.id)
+        return {'start_from': {'step': step.start_from,
+                               'values': [dict(row) for _, row in
+                                          sorted(self.start_points.get(step.id, {}).items())],
+                               # the modifier entries that start at a theta of start_from
+                               **({'thetas': dict(thetas)} if thetas else {})}}
 
     def _run_sensitivity(self, step, settings):
         from libcuflynx.scripts.sensitivity_analysis_run_script import run_SA
@@ -592,7 +1139,7 @@ class _Run:
         sa_options = dict(settings['sa_options'], output_dir=out_dir)
         inp = self._inp(step, settings, generated, params_for_id)
         inp['sa_options'] = sa_options
-        self._run_stage(step, 'sensitivity analysis', run_SA, inp)
+        outcome = self._run_stage(step, 'sensitivity analysis', run_SA, inp)
 
         def finish():
             method = sa_options.get('method', 'sobol')
@@ -600,18 +1147,35 @@ class _Run:
             if method == 'sobol' and not found:
                 raise WorkflowStepError(step.id, f'the Sobol analysis wrote no indices into '
                                                  f'{out_dir}.')
-            return {'method': method, 'sensitivity_dir': out_dir,
+            nominal, signed = {}, None
+            if method == 'local':
+                from libcuflynx.sensitivity_analysis.sensitivityAnalysis import LOCAL_SIGNED_FILE
+                # the analysis is about the model's values: result_from's, or its own
+                names, values = self._model_point(step, generated, params_for_id)
+                nominal = {'nominal': {'source': step.result_from or step.emulator_from or
+                                       'model', 'parameters': names, 'values': values}}
+                signed = os.path.join(out_dir, LOCAL_SIGNED_FILE)
+                if not os.path.isfile(signed):
+                    raise WorkflowStepError(step.id, f'the local analysis wrote no {signed}.')
+            return {'method': method, 'sensitivity_dir': out_dir, **nominal,
                     'sobol_indices': found[0] if found else None,
+                    'local_sensitivity_signed': signed,
                     'fixed': [dict(row) for _, row in sorted(fixed.items())],
                     'params_for_id_used': params_for_id, 'settings': settings,
+                    'solver_info': outcome['solver_info'],
                     'generated': generated, 'model_path': generated['model_path']}
 
         return self.on_root(finish)
 
     def _run_reduction(self, step, settings):
         def reduce():
-            source = self.require_current(step.sensitivity_from, step.id)
             reduction = ParamReduction.from_options(step.reduction)
+            if step.chosen_by_hand:
+                source = {'sensitivity_dir': None, 'params_for_id_used': step.params_for_id}
+                what = f'keeping entries of {step.params_for_id}'
+            else:
+                source = self.require_current(step.sensitivity_from, step.id)
+                what = f'reducing "{step.sensitivity_from}"'
             step_dir = self.step_dir(step.id)
             if os.path.isdir(step_dir):
                 shutil.rmtree(step_dir)
@@ -621,8 +1185,7 @@ class _Run:
                 selected = reduction.reduce(source['sensitivity_dir'],
                                             source['params_for_id_used'], out)
             except ValueError as exc:
-                raise WorkflowStepError(step.id, f'reducing "{step.sensitivity_from}": '
-                                                 f'{exc}') from exc
+                raise WorkflowStepError(step.id, f'{what}: {exc}') from exc
             return {'sensitivity_step': step.sensitivity_from,
                     'reduction': reduction.as_dict(), 'selected': selected,
                     'kept_rows': len(selected), 'params_for_id': out,
@@ -645,6 +1208,8 @@ class _Run:
             return {'emulator_dir': directory,
                     'fixed': [dict(row) for _, row in sorted(fixed.items())],
                     'params_for_id_used': params_for_id, 'settings': settings,
+                    # the user_inputs parser fills in the dict it is given
+                    'solver_info': inp['solver_info'],
                     'generated': generated, 'model_path': generated['model_path']}
 
         return self.on_root(finish)
@@ -656,15 +1221,9 @@ class _Run:
         generated, params_for_id, units, fixed, _ = self.on_root(
             lambda: self._prepare(step, settings))
         info = ObsAndParamDataParser().get_param_id_info(params_for_id)
-        model_rows = self.on_root(lambda: {r['variable_name']: float(r['value'])
-                                           for r in read_parameter_rows(
-                                               generated['parameters_path'])})
-        # the analysis is at the result_from step's values, which the model was generated with
-        best = []
-        for qnames in info['param_names']:
-            first = qnames[0] if isinstance(qnames, (list, tuple)) else qnames
-            vessel, _, param = str(first).partition('/')
-            best.append(model_rows[CalibratedParameter(vessel=vessel, param=param).model_name])
+        # the analysis is at the result_from step's values, which the model was generated with,
+        # or at the model's own
+        _, best = self.on_root(lambda: self._model_point(step, generated, params_for_id))
         inp = self._inp(step, settings, generated, params_for_id)
         inp['ia_options'] = settings['ia_options']
         self._run_stage(step, 'identifiability analysis', run_identifiability_analysis, inp,
@@ -673,9 +1232,11 @@ class _Run:
         def finish():
             record = {'method': settings['ia_options'].get('method'),
                       'parameters': list(info.get('param_labels') or []),
-                      'at': [float(v) for v in best],
+                      'at': [float(v) for v in best], 'at_source': step.result_from or 'model',
                       'fixed': [dict(row) for _, row in sorted(fixed.items())],
                       'params_for_id_used': params_for_id, 'settings': settings,
+                      # the user_inputs parser fills in the dict it is given
+                      'solver_info': inp['solver_info'],
                       'generated': generated, 'model_path': generated['model_path']}
             prefix = os.path.join(self.step_dir(step.id), step.emulator_from or step.id)
             mean, covariance = prefix + '_laplace_mean.npy', prefix + '_laplace_covariance.npy'
@@ -685,12 +1246,152 @@ class _Run:
                                      'covariance': cov.tolist(),
                                      'std': np.sqrt(np.diag(cov)).tolist(),
                                      'mean_path': mean, 'covariance_path': covariance}
+            summaries = glob.glob(os.path.join(inp['param_id_output_dir'], PROFILE_DIR,
+                                               'summary.json'))
+            if summaries:
+                record['profile_likelihood'] = _profile_record(summaries[0])
+                record['profile_likelihood_dir'] = record['profile_likelihood']['dir']
             return record
 
         return self.on_root(finish)
 
+    def _model_point(self, step, generated, params_for_id):
+        '''Rank 0: ``(names, values)``: each params_for_id entry (its first member's
+        ``vessel/param``) and its value in the step's generated model, or, for a step on an
+        ``emulator_dir``, at its ``result_from`` point (which its model is not given). A
+        modifier entry's value is its theta: the entry's ``theta`` (written from the step's
+        ``result_from``), else the one that leaves its parameters at the model's values.'''
+        from libcuflynx.parsers.PrimitiveParsers import PARAM_MODIFIERS, ObsAndParamDataParser
+        info = ObsAndParamDataParser().get_param_id_info(params_for_id)
+        rows = {r['variable_name']: float(r['value'])
+                for r in read_parameter_rows(generated['parameters_path'])}
+        rows.update(self.emulator_points.get(step.id, {}))
+        modifiers = {mod['index']: mod for mod in info.get('modifiers') or []}
+        names, values = [], []
+        for index, qnames in enumerate(info['param_names']):
+            first = str(qnames[0] if isinstance(qnames, (list, tuple)) else qnames)
+            vessel, _, param = first.partition('/')
+            names.append(first)
+            if index not in modifiers:
+                values.append(rows[self.resolved.steps[step.id].in_model(
+                    CalibratedParameter(vessel=vessel, param=param)).model_name])
+                continue
+            mod = modifiers[index]
+            theta = mod.get('theta')
+            if theta is None:
+                theta = (PARAM_MODIFIERS.get(mod.get('modifier')) or {}).get('identity')
+            if theta is None:
+                raise WorkflowError(
+                    f'{params_for_id}: the modifier entry "{mod["name"]}" '
+                    f'({mod.get("modifier")}) has no theta to be analysed at. Give one: '
+                    f'"result_from" a calibration that fitted it, or a point set step with '
+                    f'{{"entry": "{mod["name"]}", "theta": ...}}.')
+            values.append(float(theta))
+        return names, values
+
+    def _run_uq(self, step, settings):
+        from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+        from libcuflynx.scripts.param_id_run_script import run_uq
+
+        generated, params_for_id, _, fixed, _ = self.on_root(
+            lambda: self._prepare(step, settings))
+        info = ObsAndParamDataParser().get_param_id_info(params_for_id)
+        # the point is the result_from step's values, which the model was generated with, or
+        # the model's own
+        names, at = self.on_root(lambda: self._model_point(step, generated, params_for_id))
+        method = uq_method(settings)
+        out_dir = os.path.join(self.step_dir(step.id), UQ_DIR)
+        inp = self._inp(step, settings, generated, params_for_id)
+        inp['param_id_output_dir'] = out_dir
+        outcome = self._run_stage(step, f'{method} uncertainty quantification', run_uq, inp,
+                                  at, method)
+        drawn = {}  # rank 0: the Laplace approximation's stored samples
+
+        def finish():
+            parameters = parameters_from_info(info['param_names'], info['param_mins'],
+                                              info['param_maxs'])
+            source = {'workflow': self.workflow.name, 'step': step.id, 'method': method,
+                      'model': step.model.as_dict(), 'at': [float(v) for v in at],
+                      'obs_data_sha256': sha256(step.obs_data), 'created': _now()}
+            record = {'method': method, 'parameters': names, 'at': [float(v) for v in at],
+                      'at_source': step.result_from or 'model', 'uq_output_dir': out_dir,
+                      'fixed': [dict(row) for _, row in sorted(fixed.items())],
+                      'params_for_id_used': params_for_id, 'settings': settings,
+                      'generated': generated, 'model_path': generated['model_path']}
+            if method == 'mcmc':
+                record['distribution_dir'] = self._store_distribution(
+                    step, outcome['uq_output_dir'], info, settings)
+                return record
+            samples, dropped = laplace_samples(outcome['mean'], outcome['covariance'],
+                                               parameters, _num_samples(settings))
+            if samples.shape[0] < 2:
+                raise WorkflowStepError(step.id, f'the Laplace approximation at {list(at)} has '
+                                                 f'almost no mass inside the params_for_id '
+                                                 f'bounds; it cannot be stored.')
+            cov = np.atleast_2d(outcome['covariance'])
+            record['laplace'] = {'mean': np.atleast_1d(outcome['mean']).tolist(),
+                                 'covariance': cov.tolist(),
+                                 'std': np.sqrt(np.diag(cov)).tolist(),
+                                 'samples_outside_bounds': dropped}
+            distribution = StoredDistribution(parameters, samples, source=dict(
+                source, laplace_samples_outside_bounds=dropped))
+            record['distribution_dir'] = distribution.save(
+                os.path.join(self.step_dir(step.id), DISTRIBUTION_DIR))
+            drawn['samples'] = samples
+            return record
+
+        record = self.on_root(finish)
+        options = _uq_options(settings)
+        if not options.get('posterior_predictive', True):
+            return record
+        checked = self._posterior_predictive(step, options, outcome, drawn.get('samples'))
+        return self.on_root(lambda: dict(record, **checked))
+
+    def _posterior_predictive(self, step, options, outcome, samples):
+        '''The posterior predictive check of a uq step (``param_id.posterior_predictive``), on
+        every rank: draws from the MCMC chain (after ``burn_in``) or from the Laplace
+        approximation's ``samples`` (rank 0), simulated by the step's engine. Rank 0 saves it in
+        ``<step dir>/posterior_predictive`` and returns the result keys. A check that fails is
+        a warning and a ``posterior_predictive_summary.error``: the posterior is the step's
+        result.'''
+        from libcuflynx.param_id import posterior_predictive as pp
+        directory = os.path.join(self.step_dir(step.id), POSTERIOR_PREDICTIVE_DIR)
+        try:
+            result = pp.posterior_predictive(
+                client=outcome['engine'],
+                num_samples=int(options.get('posterior_predictive_samples',
+                                            POSTERIOR_PREDICTIVE_SAMPLES)),
+                burn_in=float(options.get('burn_in', 0.5)),
+                output_dir=outcome['uq_output_dir'] if samples is None else None,
+                samples=samples, save=False)
+        except Exception as exc:
+            def failed():
+                warnings.warn(f'step "{step.id}": the posterior predictive check failed: {exc}',
+                              UserWarning, stacklevel=2)
+                return {'posterior_predictive_summary': {'error': str(exc)}}
+            return self.on_root(failed)
+
+        def save():
+            samples_path, coverage_path = result.save(directory)
+            series = os.path.join(directory, pp.SERIES_FILE)
+            levels = {level: {key: row[key] for key in ('predictive_coverage',
+                                                         'sample_interval_coverage')}
+                      for level, row in result.coverage['levels'].items()}
+            return {'posterior_predictive_dir': directory,
+                    'posterior_predictive_draws': samples_path,
+                    'posterior_predictive_coverage': coverage_path,
+                    'posterior_predictive_series': series if os.path.isfile(series) else None,
+                    'posterior_predictive_summary': {
+                        'num_samples': int(result.predictions.shape[0]),
+                        'samples_that_failed_to_simulate': int(result.failures),
+                        'drawn_from': result.chain_info.get('source', 'chain'),
+                        'levels': levels}}
+
+        return self.on_root(save)
+
     def _run_set(self, step, settings):
-        return self.on_root(lambda: {'set': self._declared_values(step)})
+        return self.on_root(lambda: {'set': self._declared_values(step),
+                                     'thetas': [dict(entry) for entry in step.set_thetas]})
 
     def _target_values(self, step):
         '''``{model name: row}`` of the target as it stands, generated under the step's
@@ -738,7 +1439,7 @@ class _Run:
                     base = float(target[name]['value'])
             value = entry['value'] if source is None else entry['scale'] * base
             records.append({
-                'vessel': parameter.vessel, 'param': parameter.param, 'model_name': name,
+                'module': parameter.vessel, 'param': parameter.param, 'model_name': name,
                 'target_model_name': name,
                 'target_host_name': naming.host_row_name(parameter.vessel, parameter.param),
                 'target_parameterisation_name': resolved.target_parameterisation_name(parameter),
@@ -748,11 +1449,75 @@ class _Run:
                    if source is not None else {})})
         return records
 
+    def _run_combine(self, step, settings):
+        return self.on_root(lambda: self._combined_values(step))
+
+    def _combined_values(self, step):
+        '''The result of a combine step: one record per parameter its inputs give, in the shape
+        of a calibrated value named as the target names it, with ``combined_from`` (the inputs
+        that gave the parameter) and, for ``best_fit``, ``chosen_from``.'''
+        step_dir = self.step_dir(step.id)
+        if os.path.isdir(step_dir):
+            shutil.rmtree(step_dir)
+        os.makedirs(step_dir)
+        method = step.combine['method']
+        given = {}      # {target model name: [(input id, record)]}
+        results = {}
+        for source in step.combine_from:
+            results[source] = self.require_current(source, step.id)
+            for record in given_values(results[source]):
+                given.setdefault(record['target_model_name'], []).append((source, record))
+        out = {'method': method, 'combine_from': list(step.combine_from)}
+        if method == 'best_fit':
+            partly = {name: [s for s, _ in rows] for name, rows in sorted(given.items())
+                      if len(rows) != len(step.combine_from)}
+            if partly:
+                raise WorkflowStepError(
+                    step.id, f'it takes the best fit of {step.combine_from}, which must '
+                             f'calibrate the same parameters, but only some of them calibrated '
+                             f'{partly}.')
+            costs = {source: results[source].get('best_cost') for source in step.combine_from}
+            missing = sorted(source for source, cost in costs.items() if cost is None)
+            if missing:
+                raise WorkflowStepError(step.id, f'{missing} recorded no cost to compare.')
+            chosen = min(step.combine_from, key=lambda source: costs[source])
+            out.update(chosen_from=chosen, best_cost=costs[chosen], costs=costs)
+        records = []
+        for name, rows in sorted(given.items()):
+            source, record = next((row for row in rows if row[0] == out.get('chosen_from')),
+                                  rows[0])
+            units = sorted({r.get('units', '') for _, r in rows})
+            if len(units) > 1:
+                raise WorkflowStepError(step.id, f'its inputs give "{name}" in different '
+                                                 f'units: {units}.')
+            value = record['value'] if method == 'best_fit' else \
+                float(np.mean([r['value'] for _, r in rows]))
+            vessel = self.resolved.steps[source].to_target(record['module'])
+            combined = {
+                'module': vessel, 'param': record['param'], 'model_name': name,
+                'target_model_name': name, 'target_host_name': record['target_host_name'],
+                'target_parameterisation_name': record['target_parameterisation_name'],
+                'value': float(value), 'units': units[0],
+                'combined_from': [s for s, _ in rows]}
+            if method == 'best_fit':
+                combined['chosen_from'] = source
+            elif all(r.get('origin') == SET_BY_HAND for _, r in rows):
+                combined.update(origin=SET_BY_HAND, reason='the mean of the values set by hand '
+                                f'in steps {", ".join(s for s, _ in rows)}')
+            records.append(combined)
+        return dict(out, calibrated=records)
+
     def _run_sweep(self, step, settings):
         resolved = self.resolved.steps[step.id]
-        where = f'sweep step "{step.id}"'
+        where = f'{step.kind} step "{step.id}"'
         settings = dict({'model_type': STEP_DEFAULTS['model_type']}, **settings)
         generated, _, units, fixed, _ = self.on_root(lambda: self._prepare(step, settings))
+        if resolved.model.kind == 'external':
+            # the sweep builds its helper from solver_info, without the user_inputs parser
+            external = external_inputs(settings, generated)
+            settings = dict(settings, model_type=external['model_type'], solver=external['solver'],
+                            solver_info=dict(external['solver_info'], external_parameters_file=
+                                             external['external_parameters_file']))
 
         def at_the_model():
             rows = {r['variable_name']: r for r in read_parameter_rows(
@@ -767,30 +1532,64 @@ class _Run:
             return nominal, swept_units
 
         nominal, swept_units = self.on_root(at_the_model)
-        names, points, by_point = self._run_stage(
+        names, points, by_point, solver_info = self._run_stage(
             step, 'sweep', sweep_runs.run_points, step.sweep, generated, settings,
-            resolved.obs_data_path, nominal, self.comm, where)
+            self.obs_data_read(step), nominal, self.comm, where)
 
         def finish():
             record = sweep_runs.write_results(
                 step.sweep, names, points, by_point, nominal, swept_units,
                 os.path.join(self.step_dir(step.id), sweep_runs.SWEEP_DIR), where)
             return dict(record, fixed=[dict(row) for _, row in sorted(fixed.items())],
-                        settings=settings, generated=generated,
+                        settings=settings, solver_info=solver_info, generated=generated,
                         model_path=generated['model_path'])
 
         return self.on_root(finish)
 
-    def _store_distribution(self, step, case_dir, info, settings):
-        chain_path = os.path.join(case_dir, 'mcmc_chain.npy')
+    def figure_due(self, step):
+        '''Rank 0: whether a figure step is to be drawn: every step it reads has a current
+        result, and it has none itself, or its script, files or declaration changed, or a step
+        it reads ran again after it.'''
+        try:
+            sources = [self.require_current(source, step.id) for source in step.depends_on]
+        except WorkflowError:
+            return False
+        result = self.step_result(step.id)
+        if result is None or result.get('status') != 'done' or \
+                self.changed_inputs(step.id, result):
+            return True
+        return any((source.get('finished') or '') > (result.get('started') or '')
+                   for source in sources)
+
+    def _run_figure(self, step, settings):
+        def draw():
+            for source in step.depends_on:
+                self.require_current(source, step.id)
+            step_dir = self.step_dir(step.id)
+            if os.path.isdir(step_dir):
+                shutil.rmtree(step_dir)
+            os.makedirs(step_dir)
+            out_dir = os.path.join(step_dir, figures.FIGURE_DIR)
+            try:
+                paths = figures.run_figure(self.output_dir, step, out_dir)
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise WorkflowStepError(
+                    step.id, f'its function raised {type(exc).__name__}: {exc}') from exc
+            declared = figures.declaration(step)
+            return {'function': declared['function'], 'figure_inputs': declared['inputs'],
+                    'figure_dir': out_dir, 'figures': paths}
+
+        return self.on_root(draw)
+
+    def _store_distribution(self, step, uq_dir, info, settings):
+        chain_path = os.path.join(uq_dir, 'mcmc_chain.npy')
         if not os.path.isfile(chain_path):
             raise WorkflowStepError(step.id, f'store_distribution is set but MCMC wrote no '
                                              f'chain ({chain_path}).')
         chain = np.load(chain_path)
-        uq = settings.get('debug_UQ_options') if settings.get('DEBUG') else None
-        uq = uq or settings.get('UQ_options') or {}
-        burn_in = float(uq.get('burn_in', 0.5))
-        start = int(chain.shape[0] * burn_in) if burn_in < 1 else int(burn_in)
+        start = burn_in_index(settings, chain.shape[0])
         parameters = parameters_from_info(info['param_names'], info['param_mins'],
                                           info['param_maxs'])
         distribution = StoredDistribution.from_chain(
@@ -852,7 +1651,9 @@ class _Run:
     def _as_packed(self, value):
         '''A path, or each path in a model's dict, as its packed copy when it has one.'''
         if isinstance(value, dict):
-            return {k: self._as_packed(v) if k in ('module_array', 'parameters') else v
+            return {k: self._as_packed(v)
+                    if k in ('module_array', 'parameters', 'external_model_path',
+                             'cellml_model_path') else v
                     for k, v in value.items()}
         if isinstance(value, str) and value:
             return self.packed_inputs().get(os.path.realpath(value), value)
@@ -888,7 +1689,9 @@ class _Run:
                 'run': (result or {}).get('param_id_output_dir') if done else None,
                 'outputs': {k: (result or {}).get(k) for k in STEP_OUTPUTS[step.kind]}
                 if done else None,
-                'manifest': self.step_manifest(step.id) if done else None}
+                # only a calibration writes one; a set step, say, has none to name
+                'manifest': self.step_manifest(step.id)
+                if done and os.path.isfile(self.step_manifest(step.id)) else None}
             entry.update({key: ids for key, ids in step.sources().items() if ids or
                           key in ('fixed_from', 'priors_from')})
             if step.kind == 'reduction':
@@ -901,10 +1704,15 @@ class _Run:
                  'result': result_path if os.path.isfile(result_path) else None,
                  'complete': all(s['status'] == 'done' for s in steps),
                  'target': {'model': self._as_packed(_model_files(self.workflow.target)),
-                            'generated_model': target.get('model_path'),
                             'calibrated_parameters':
                                 (workflow_result or {}).get('calibrated_parameters_file')},
                  'steps': steps}
+        if self.resolved.target.kind == 'external':
+            # an external model is not generated: the target is its .py run with the merged
+            # values in this parameters file
+            block['target']['generated_parameters'] = target.get('parameters_path')
+        else:
+            block['target']['generated_model'] = target.get('model_path')
         inp = self._study_inp(self.output_dir, self.workflow.name)
         if target.get('model_path'):
             inp['model_path'] = target['model_path']
@@ -928,18 +1736,24 @@ class _Run:
     def merge(self, order, generate_target=True, write_calibrated=False):
         results = {s.id: self.step_result(s.id) for s in self.workflow.steps}
         merged = {}
+        claimed = {}
         for step in order:
             result = results.get(step.id)
             if not result or result.get('status') != 'done':
                 continue
-            for record in given_values(result):
+            for record in target_values(step, result):
+                claimed.setdefault(record['target_model_name'], []).append(step.id)
                 merged[record['target_model_name']] = {
                     'model_name': record['target_model_name'],
                     'host_name': record['target_host_name'],
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id, **_how_set(record)}
+        check_merged_once(self.workflow, claimed, on_clash=self.target_overlap)
         complete = all(r and r.get('status') == 'done' for r in results.values())
+        # a figure passes no value on, so the calibrated parameters do not wait for one
+        values_complete = all(r and r.get('status') == 'done' for sid, r in results.items()
+                              if self.workflow.step(sid).kind != 'figure')
         target = self.resolved.target
         workflow_result = {
             'workflow_name': self.workflow.name,
@@ -985,21 +1799,73 @@ class _Run:
                 raise WorkflowError(
                     f'the target {self.workflow.target.label()} has no parameter {missing}, '
                     f'which the steps calibrated. Name where each step\'s model sits in the '
-                    f'target: "submodule" or "vessel" for a library module, "vessel_map" for a '
+                    f'target: "submodule" or "module" for a library module, "module_map" for a '
                     f'module array.')
             workflow_result['target_model'] = {
                 'model_path': generated['model_path'],
                 'parameters_path': generated['parameters_path']}
         if write_calibrated and merged:
-            if not complete:
+            if not values_complete:
                 raise WorkflowError('the calibrated parameters file is written only for a '
                                     'complete workflow run; some steps have no result.')
             generated_path = (workflow_result['target_model'] or {}).get('parameters_path')
             workflow_result['calibrated_parameters_file'] = write_calibrated_parameters(
                 target, workflow_result['merged_parameters'], self.workflow.name,
                 library_inputs=self.resolved.library_inputs, generated_path=generated_path)
+            if target.kind == 'cellml':
+                workflow_result['calibrated_model_file'] = write_calibrated_cellml(
+                    target, workflow_result['calibrated_parameters_file'])
         _write_json(os.path.join(self.output_dir, WORKFLOW_RESULT), workflow_result)
         return workflow_result
+
+
+#: the model type and solver an external model runs with, whatever the settings say
+EXTERNAL_MODEL_TYPE, EXTERNAL_SOLVER = 'external_python', 'external'
+
+
+def external_inputs(settings, generated):
+    '''The user_inputs that run an external model: its model type, solver, file and the values
+    file generate_external wrote. ``solver_info`` keeps the settings' ``user_config``.'''
+    solver_info = dict(settings.get('solver_info') or {},
+                       solver=EXTERNAL_SOLVER, method=EXTERNAL_SOLVER)
+    return {'model_type': EXTERNAL_MODEL_TYPE, 'solver': EXTERNAL_SOLVER,
+            'solver_info': solver_info, 'external_model_path': generated['model_path'],
+            'external_parameters_file': generated['parameters_path']}
+
+
+def write_calibrated_cellml(target, calibrated_parameters, path=None):
+    '''``path`` (default ``<stem>_calibrated.cellml`` beside the CellML target): the target's
+    CellML (flattened when it has imports) with every value of ``calibrated_parameters`` (a
+    calibrated parameters file of it) that differs from its own written in. Returns ``path``.'''
+    from libcuflynx.calibration_workflow.cellml_files import (read_cellml_constants,
+                                                              write_cellml_with_values)
+    from libcuflynx.param_id.calibrated_model import calibrated_model_name
+    from libcuflynx.utilities import parameters_file as pf
+    own = read_cellml_constants(target.model.path, target.model.label())
+    values = {}
+    for place, leaf in pf.leaves(pf.read_parameters_file(calibrated_parameters, kind=pf.MODEL)):
+        name = '/'.join(place)
+        if name in own and float(leaf['value']) != own[name]['value']:
+            values[name] = float(leaf['value'])
+    path = path or os.path.join(os.path.dirname(target.model.path),
+                                calibrated_model_name(target.model.prefix))
+    return write_cellml_with_values(target.model.path, values, path, target.model.label())
+
+
+def laplace_samples(mean, covariance, parameters, n, seed=0):
+    '''``(samples, dropped)``: ``n`` draws of the Laplace approximation N(``mean``,
+    ``covariance``), those outside the parameters' bounds dropped (``dropped`` of them), as a
+    stored distribution's samples.'''
+    rng = np.random.default_rng(seed)
+    draws = rng.multivariate_normal(np.atleast_1d(mean), np.atleast_2d(covariance), size=n)
+    lo = np.array([p.min for p in parameters])
+    hi = np.array([p.max for p in parameters])
+    inside = np.all((draws > lo) & (draws < hi), axis=1)
+    return draws[inside], int(n - inside.sum())
+
+
+def _num_samples(settings):
+    return int(_uq_options(settings).get('num_samples', LAPLACE_SAMPLES))
 
 
 def under(base_rows, overrides):
@@ -1043,6 +1909,13 @@ def _model_files(model):
     return model.as_dict() if model is not None else None
 
 
+def burn_in_index(settings, num_steps):
+    '''The first step of a chain of ``num_steps`` after the burn-in the step's UQ options give
+    (``burn_in``: a fraction below 1, else a step count; 0.5 by default).'''
+    burn_in = float(_uq_options(settings).get('burn_in', 0.5))
+    return int(num_steps * burn_in) if burn_in < 1 else int(burn_in)
+
+
 def reduced_params_for_id_path(output_dir, step_id):
     '''The params_for_id a reduction step writes.'''
     return os.path.join(output_dir, step_id, f'{step_id}_params_for_id.json')
@@ -1072,13 +1945,14 @@ def write_calibrated_parameters_to(source, output_dir, path, module_library_dirs
         raise WorkflowError(f'{output_dir} holds no run of workflow "{workflow.name}" '
                             f'({WORKFLOW_RESULT} is missing).')
     status = workflow_status(workflow, output_dir)
-    waiting = [s for s, v in status['steps'].items() if v['status'] != 'done' or v['stale']]
+    waiting = [s for s, v in status['steps'].items()
+               if (v['status'] != 'done' or v['stale']) and workflow.step(s).kind != 'figure']
     if waiting:
         raise WorkflowError(f'workflow "{workflow.name}": steps {waiting} have no current result '
                             f'in {output_dir} (not run, or their inputs changed since); run '
                             f'them before writing the calibrated parameters.')
     result = _read_json(result_path)
-    resolved = resolve_workflow(workflow)
+    resolved = resolve_workflow(workflow, target_overlap='error')
     return write_calibrated_parameters(resolved.target, result['merged_parameters'],
                                        workflow.name, path=path,
                                        library_inputs=resolved.library_inputs,
@@ -1125,7 +1999,7 @@ def target_generated_parameters(target, library_inputs=None, generated_path=None
             doc = pf.read_parameters_file(generated['parameters_path'])
     else:
         doc = pf.read_parameters_file(generated_path)
-    if target.kind == 'array':
+    if target.kind in ('array', 'external', 'cellml'):
         return doc
     module = pf.new_document()
     if pf.GLOBAL in doc:
@@ -1153,18 +2027,21 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     (``cuflynx-derive``), and the step's generated parameters file (``generated.parameters_path``
     in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
-    kind = pf.MODEL if target.kind == 'array' else pf.MODULE
+    as_model = target.kind in ('array', 'external', 'cellml')
+    kind = pf.MODEL if as_model else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)
-    # the target's own leaves as it writes them (a library's "sourced" kept)
-    for place, leaf in pf.leaves(pf.read_parameters_file(target.parameters_path, kind=kind)):
-        pf.set_leaf(doc, place, leaf)
+    # the target's own leaves as it writes them (a library's "sourced" kept); an external
+    # model's are its class defaults, already in doc
+    if target.parameters_path:
+        for place, leaf in pf.leaves(pf.read_parameters_file(target.parameters_path, kind=kind)):
+            pf.set_leaf(doc, place, leaf)
     today = datetime.date.today().isoformat()
     for record in merged_parameters:
-        name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
+        name = record['host_name'] if as_model else record['parameterisation_name']
         place = pf.name_path(name, kind)
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
         leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
-                                  '%.10g' % record['value'],
+                                  repr(float(record['value'])),
                                   f'{how} workflow {workflow_name}, step '
                                   f'{record["from_step"]} ({today})')
         # a set step's value: origin set_by_hand, with its reason
@@ -1173,6 +2050,17 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)
     return pf.write_parameters_file(path or target.file('calibrated_parameters.json'), doc)
+
+
+def _write_params_for_id_with_thetas(source_path, out_path, thetas, step_id):
+    '''The step's own params_for_id with ``theta`` on each modifier entry named in ``thetas``
+    (``{entry name: theta}``): where the entry starts and what it is analysed about.'''
+    from libcuflynx.utilities import params_for_id_file as pfi
+    doc = pfi.read_params_for_id(source_path, f'step "{step_id}": ', keep_text=True)
+    entries = [dict(entry, theta=thetas[entry['name']])
+               if entry.get('modifies') and entry.get('name') in thetas else entry
+               for entry in doc.get('params') or []]
+    pfi.write_params_for_id(out_path, dict(doc, params=entries))
 
 
 def _write_params_for_id_with_priors(source_path, out_path, priors, step_id):
@@ -1198,7 +2086,10 @@ def _write_params_for_id_with_priors(source_path, out_path, priors, step_id):
 
 def plan_workflow(source, module_library_dirs=None):
     '''What running the workflow would do, without running anything: the order, each step's
-    files, where its values land in the target, and what it is given by earlier steps.'''
+    files, where its values land in the target, and what it is given by earlier steps.
+    ``target_overlap`` is the message a run of every step would refuse the workflow with when
+    steps that do not take from each other give the target one parameter (also a UserWarning
+    here), else None.'''
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
     steps = []
@@ -1207,7 +2098,10 @@ def plan_workflow(source, module_library_dirs=None):
         fixed = []
         for source_id in step.fixed_from:
             vessel_of = resolved.map_between(source_id, step.id)
+            subset = step.fixed_parameters.get(source_id)
             for p in resolved.steps[source_id].parameters:
+                if subset is not None and p.model_name not in subset:
+                    continue
                 vessel = vessel_of(p.vessel)
                 fixed.append({'from_step': source_id, 'model_name': p.model_name,
                               'in_step': naming.model_name(vessel, p.param) if vessel else None})
@@ -1227,14 +2121,21 @@ def plan_workflow(source, module_library_dirs=None):
             'store_distribution': step.store_distribution,
             'settings': workflow.step_settings(step) if step.model is not None else {},
         }
-        for key in ('emulator_from', 'result_from', 'sensitivity_from', 'params_for_id_from'):
+        if step.kind == 'combine':
+            entry['combine_from'] = list(step.combine_from)
+            entry['combine'] = dict(step.combine, gives=[
+                {'target_model_name': rs.target_model_name(p),
+                 'target_parameterisation_name': rs.target_parameterisation_name(p)}
+                for p in rs.parameters])
+        for key in ('emulator_from', 'emulator_dir', 'result_from', 'start_from',
+                    'sensitivity_from', 'params_for_id_from'):
             if getattr(step, key):
                 entry[key] = getattr(step, key)
         if rs.selection is not None:
             # what the selection runs as: its library module at one instance, or the cut array
             entry['selection'] = (
                 {'runs_as': 'library_module', 'module': rs.selection.model.as_dict(),
-                 'vessel': rs.selection.vessel} if rs.selection.vessel else
+                 'place': rs.selection.vessel} if rs.selection.vessel else
                 {'runs_as': 'module_array',
                  'records': [r['name'] for r in rs.selection.model.records]})
         if step.kind == 'reduction':
@@ -1242,32 +2143,124 @@ def plan_workflow(source, module_library_dirs=None):
         if step.kind == 'set':
             entry['set'] = [dict(e, target_model_name=rs.target_model_name(p))
                             for e, p in zip(step.set_values, rs.parameters)]
-        if step.kind == 'sweep':
+            entry['set'] += [dict(e) for e in step.set_thetas]
+        if step.kind in SWEEP_KINDS:
             entry['sweep'] = copy.deepcopy(step.sweep)
+        if step.kind == 'figure':
+            entry['figure'] = copy.deepcopy(step.figure)
         steps.append(entry)
     return {'workflow_name': workflow.name, 'target': workflow.target.as_dict(),
             'target_parameters': resolved.target.parameters_path,
-            'module_library_dirs': workflow.module_library_dirs, 'steps': steps}
+            'target_values': _target_values(resolved.target, steps,
+                                            resolved.library_inputs),
+            'module_library_dirs': workflow.module_library_dirs, 'steps': steps,
+            'target_overlap': resolved.target_overlap}
+
+
+def _target_values(target, steps, library_inputs=None):
+    '''Every parameter of the target (a resolve.Resolved* target) before any step runs, as
+    ``plan_workflow`` gives it: ``{name, value, units, origin, data_reference, reason, source,
+    calibrated_by}`` in its parameters file's order, then the values a module array takes from
+    its module library (:func:`_library_rows`), or a CellML or external model's constants, that
+    file does not set. ``name`` is as the parameters file writes it (``aortic_root/C``,
+    ``heart/lv/E``; a library module's ``C``, ``lv/E``, ``global/R``; a CellML model's
+    ``component/variable``). ``origin`` is the one the file that sets the value records
+    (``parameters_file.ORIGINS``), None where it records none; ``source`` names the library
+    parameterisation a value comes from, '' for the target's own. ``calibrated_by`` lists the
+    calibration steps (``steps``, the plan's entries) whose values land on it.'''
+    from libcuflynx.utilities import parameters_file as pf
+    from libcuflynx.utilities.parameter_names import model_name
+    from libcuflynx.utilities.parameterisations import SOURCE_ROW_KEY
+
+    calibrated_by = {}
+    for step in steps:
+        for p in step['calibrates']:
+            calibrated_by.setdefault(model_name(p['target_parameterisation_name']), []) \
+                .append(step['id'])
+    path = target.parameters_path
+    rows = (pf.read_parameter_rows(path, kind=pf.MODULE if target.kind == 'library' else pf.MODEL)
+            if path and os.path.isfile(path) else [])
+    constants = getattr(target, 'constants', None) or {
+        name: {'value': value} for name, value in (getattr(target, 'parameters', None) or {}).items()}
+    named = {row['variable_name'] for row in rows}
+    rows += [{'variable_name': name, 'value': c.get('value'), 'units': c.get('units', '')}
+             for name, c in constants.items() if name not in named]
+    if target.kind == 'array':
+        named = {model_name(row['variable_name']) for row in rows}
+        rows += [row for row in _library_rows(target, library_inputs)
+                 if model_name(row['variable_name']) not in named]
+    values = []
+    for row in rows:
+        try:
+            value = float(row.get('value'))
+        except (TypeError, ValueError):
+            value = row.get('value')
+        origin = row.get('origin')
+        values.append({'name': row['variable_name'], 'value': value,
+                       'units': row.get('units') or '',
+                       'origin': origin if origin in pf.ORIGINS else None,
+                       'data_reference': row.get('data_reference') or '',
+                       'reason': row.get('reason') or '',
+                       'source': row.get(SOURCE_ROW_KEY) or '',
+                       'calibrated_by': calibrated_by.get(model_name(row['variable_name']), [])})
+    return values
+
+
+def _library_rows(target, library_inputs):
+    '''The rows a module-array target takes from its module library (its supermodules' and
+    records' parameterisations, as generation merges them in), each as its leaf, with
+    ``variable_name`` as the target's parameters file would write it: ``<vessel>/<variable>``,
+    a supermodule instance's ``<instance>/<sub>/<variable>``, a global by its name. A module
+    name ends with its vessel (``{var}_{vessel}``); the longest vessel of the array that the
+    name ends with is taken. A library that cannot be read gives none, with a warning.'''
+    from libcuflynx.utilities.config_schemas import load_expanded_vessel_records
+    from libcuflynx.utilities.module_library import ModuleSources
+    from libcuflynx.utilities.parameter_names import LEVEL_SEPARATOR, SEPARATOR
+    sources = ModuleSources(dict(library_inputs or {}))
+    try:
+        records, rows = load_expanded_vessel_records(
+            target.model.module_array, sources.supermodule_registry(),
+            sources.component_registry(), target.parameters_path)
+    except (OSError, ValueError) as exc:
+        warnings.warn(f'the values {target.model.module_array} takes from its module library '
+                      f'are not listed: {exc}', UserWarning, stacklevel=2)
+        return []
+    vessels = sorted((r['name'] for r in records), key=len, reverse=True)
+    out = []
+    for row in rows:
+        name = row['variable_name']
+        vessel = next((v for v in vessels
+                       if name.endswith('_' + v) and len(name) > len(v) + 1), None)
+        if vessel is not None:
+            name = (vessel.replace(LEVEL_SEPARATOR, SEPARATOR) + SEPARATOR
+                    + name[:-len(vessel) - 1])
+        out.append(dict(row, variable_name=name))
+    return out
 
 
 def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=None,
-                             from_step=None, only=None, dry_run=False, write_calibrated=False,
-                             progress=None, comm=None):
+                             from_step=None, only=None, stale_only=False, dry_run=False,
+                             write_calibrated=False, progress=None, comm=None):
     '''Run the calibration workflow ``source`` (a calibration_workflow.json path or its dict).
 
     Args:
-        output_dir: where the run goes (default ``./workflow_output/<workflow_name>``).
+        output_dir: where the run goes (default ``workflow_output/<workflow_name>`` beside
+            the workflow file; under the working directory for a workflow given as a dict).
         module_library_dirs: module libraries, added to the file's own.
         from_step: run this step and every step after it in the order; earlier steps' results
             are reused from ``output_dir`` (an error if missing, or if their obs_data,
             params_for_id or parameters changed since).
         only: run just this step, reusing the results it depends on.
+        stale_only: without ``from_step`` and ``only``, run just the steps that have not run
+            or are stale (:func:`workflow_status`), keeping the results that are current.
         dry_run: resolve and check everything, run nothing; returns :func:`plan_workflow`.
         write_calibrated: write the merged set as the target parameterisation's
             ``<parameterisation>_calibrated_parameters.json`` (complete runs only).
         progress: ``callable(event_dict)``, called on rank 0 with ``event`` in
             ``workflow_started``, ``step_started``, ``step_finished``, ``step_failed``,
-            ``step_skipped``, ``workflow_finished``.
+            ``step_skipped`` (with ``has_result``, and ``current`` True for a step
+            ``stale_only`` left alone or a figure step that is up to date),
+            ``workflow_finished``.
         comm: an MPI communicator (default COMM_WORLD, or a one-rank stand-in).
 
     Returns the workflow_result dict (also written as ``workflow_result.json``).
@@ -1282,17 +2275,31 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
         return plan_workflow(workflow)
 
     comm = _get_comm(comm)
-    resolved = resolve_workflow(workflow)
+    # Steps that do not take from each other giving the target one parameter are refused where
+    # the target is merged for use: a run of more than one step, an on_target sweep, the
+    # calibrated parameters. A run of one other step goes through with a warning, so a second
+    # calibration can be run before the combine step that settles it is added.
+    target_overlap = 'warn' if only and not workflow.step(only).on_target \
+        and not write_calibrated else 'error'
+    resolved = resolve_workflow(workflow, target_overlap=target_overlap)
     output_dir = os.path.abspath(output_dir or default_output_dir(workflow))
     run = _Run(resolved, output_dir, comm, progress)
+    run.target_overlap = target_overlap
     order = workflow.topological_order()
     if only:
         to_run = [workflow.step(only)]
     elif from_step:
         ids = [s.id for s in order]
         to_run = order[ids.index(from_step):]
+    elif stale_only:
+        status = run.on_root(lambda: _steps_status(run))
+        to_run = [s for s in order
+                  if status[s.id]['status'] != 'done' or status[s.id]['stale']]
     else:
         to_run = order
+    figure_steps = [s for s in order if s.kind == 'figure']
+    forced = [s for s in figure_steps if s.id == only]
+    to_run = [s for s in to_run if s.kind != 'figure']
 
     def start():
         os.makedirs(output_dir, exist_ok=True)
@@ -1303,11 +2310,14 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             _write_json(snapshot, workflow.raw)
     run.on_root(start)
     run.record_study(order)
-    run.emit('workflow_started', order=[s.id for s in order], running=[s.id for s in to_run],
-             output_dir=output_dir)
+    run.emit('workflow_started', order=[s.id for s in order],
+             running=[s.id for s in to_run + forced], output_dir=output_dir)
     for step in order:
-        if step not in to_run:
-            run.emit('step_skipped', step=step.id)
+        if step not in to_run and step not in figure_steps:
+            has_result = run.on_root(
+                lambda: (run.step_result(step.id) or {}).get('status') == 'done')
+            run.emit('step_skipped', step=step.id, has_result=has_result,
+                     current=bool(stale_only and not from_step and not only))
     for index, step in enumerate(to_run):
         try:
             run.run_step(step, index, len(to_run))
@@ -1317,10 +2327,26 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
             run.record_study(order, failed=step.id)
             raise
         run.record_study(order)
+    figure_error = None
+    for index, step in enumerate(figure_steps):
+        if step not in forced and not run.on_root(lambda step=step: run.figure_due(step)):
+            run.emit('step_skipped', step=step.id)
+            continue
+        try:
+            run.run_step(step, index, len(figure_steps))
+        except Exception as exc:
+            run.emit('step_failed', step=step.id, index=index, total=len(figure_steps),
+                     error=str(exc))
+            run.record_study(order, failed=step.id)
+            figure_error = figure_error or exc
+            continue
+        run.record_study(order)
     result = run.on_root(lambda: run.merge(order, write_calibrated=write_calibrated))
     run.record_study(order, workflow_result=result)
     run.on_root(run.write_provenance)
     run.emit('workflow_finished', complete=result['complete'], output_dir=output_dir)
+    if figure_error is not None:
+        raise figure_error
     return result
 
 
@@ -1336,7 +2362,15 @@ def workflow_status(source, output_dir, module_library_dirs=None):
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
-    run = _Run(resolved, output_dir, _get_comm(None), None)
+    steps = _steps_status(_Run(resolved, output_dir, _get_comm(None), None))
+    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
+            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
+            'steps': steps}
+
+
+def _steps_status(run):
+    '''The ``steps`` of :func:`workflow_status` for the run ``run``.'''
+    workflow = run.workflow
     steps = {}
     for step in workflow.topological_order():
         result = run.step_result(step.id)
@@ -1356,9 +2390,7 @@ def workflow_status(source, output_dir, module_library_dirs=None):
                           'best_cost': (result or {}).get('best_cost') if done else None,
                           'finished': (result or {}).get('finished') if done else None,
                           'point_estimate': (result or {}).get('point_estimate') if done else None}
-    return {'workflow_name': workflow.name, 'order': [s.id for s in workflow.topological_order()],
-            'complete': all(v['status'] == 'done' and not v['stale'] for v in steps.values()),
-            'steps': steps}
+    return steps
 
 
 TARGET_VIEW = 'target'
@@ -1369,10 +2401,12 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     """Generate the model one tab of a workflow shows, from whatever results exist so far.
 
     ``view`` is a step id, or ``'target'`` for the workflow's target. A step's model gets
-    the values its ``fixed_from`` steps calibrated (those that have run into ``output_dir``)
-    and, with ``with_own_results``, its own calibrated values once it has run. The target
-    gets every calibrated value there is, mapped into its naming. Nothing is calibrated and
-    nothing in ``output_dir`` is written: the model goes under ``work_dir``.
+    the values its ``fixed_from`` and ``result_from`` steps calibrated (those that have run
+    into ``output_dir``) and, with ``with_own_results``, its own calibrated values once it has
+    run. The target
+    gets every calibrated value there is, mapped into its naming. Nothing is calibrated, and
+    nothing in ``output_dir`` is written but the model, under ``work_dir`` (which may be
+    ``<output_dir>/models``, :data:`MODELS_DIR`, a folder no step's output can have).
 
     ``validate=False`` skips the trial run generation ends with (a Myokit compile, about half
     the time of a view), for a caller that compiles or runs the model itself straight after.
@@ -1381,10 +2415,14 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
     Returns ``{view, kind ('step' or 'target'), target, submodule_path, model_path,
     flat_model_path (one self-contained CellML file), parameters_path, obs_data_path, params_for_id_path, fixed, calibrated, waiting_for,
     stale, result, param_id_output_dir}``. ``fixed`` lists the values given by earlier
-    steps; ``calibrated`` the view's own (for the target, the merged set); ``waiting_for``
+    steps, but not ``result_from``'s values of the parameters the step analyses; ``calibrated``
+    the view's own (for the target, the merged set: each value from the last step that set it,
+    with ``origin`` and ``reason`` when it was set by hand); ``waiting_for``
     the steps whose results it should have but that have not run; ``stale`` those whose
     inputs changed since they ran. obs_data / params_for_id are None when the parameterisation has
-    none (a target with no step of its own).
+    none (a target with no step of its own). For the target, ``step_id``, its obs_data,
+    params_for_id, ``result`` and ``param_id_output_dir`` are those of the last calibration on the
+    target that has run, or of the last one when none has.
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
@@ -1410,13 +2448,19 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         latest = {}
         for step in workflow.topological_order():
             result = available(step.id)
-            for record in given_values(result) if result else []:
+            for record in target_values(step, result) if result else []:
                 latest[record['target_model_name']] = (record, step.id)
         overrides = {rec['target_host_name']: (rec, sid) for rec, sid in latest.values()}
         calibrated = [{'model_name': name, 'value': rec['value'], 'units': rec.get('units', ''),
-                       'from_step': sid} for name, (rec, sid) in sorted(latest.items())]
-        own_step = next((s for s in workflow.steps if s.model == workflow.target
-                         and s.kind == 'calibration'), None)
+                       'from_step': sid, **_how_set(rec)}
+                      for name, (rec, sid) in sorted(latest.items())]
+        # the inputs and results shown beside the merged values are those of the last
+        # calibration on the target that has run (else the last one), as a later step wins
+        # every value the steps share
+        on_target = [s for s in workflow.topological_order()
+                     if s.model == workflow.target and s.kind == 'calibration']
+        ran = [s for s in on_target if (run.step_result(s.id) or {}).get('status') == 'done']
+        own_step = (ran or on_target or [None])[-1]
         place = ''
         own_result = run.step_result(own_step.id) if own_step else None
     else:
@@ -1427,19 +2471,31 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         rs = resolved.steps[step.id]
         place = rs.place
         base_rows = rs.base_rows
-        for source_id in step.fixed_from:
+        # as the run gives them (_Run._prepare): result_from's values of the step's own
+        # parameters are the point it analyses, in its model but not listed as fixed
+        own = set()
+        if step.result_from and step.params_for_id:
+            own = run.own_parameters(step, step.params_for_id)
+        for source_id in step.fixed_from + ([step.result_from] if step.result_from else []):
             result = available(source_id)
             if result is None:
                 continue
             vessel_of = resolved.map_between(source_id, step.id)
-            for record in given_values(result) + result['fixed']:
-                vessel = vessel_of(record['vessel'])
+            records = given_values(result) + result['fixed']
+            if source_id in step.fixed_parameters:
+                records = [r for r in given_values(result)
+                           if r['model_name'] in step.fixed_parameters[source_id]]
+            for record in records:
+                vessel = vessel_of(record['module'])
                 if vessel is None:
                     continue
                 name = naming.model_name(vessel, record['param'])
                 origin = record.get('from_step', source_id)
                 overrides[naming.host_row_name(vessel, record['param'])] = (
                     {'value': record['value'], 'units': record.get('units', '')}, origin)
+                if source_id == step.result_from and name in own:
+                    continue
+                fixed = [f for f in fixed if f['model_name'] != name]
                 fixed.append({'model_name': name, 'value': record['value'],
                               'units': record.get('units', ''), 'from_step': origin})
         own_step = step
@@ -1450,7 +2506,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                           for r in own_result['calibrated']]
             if with_own_results:
                 for r, record in zip(own_result['calibrated'], calibrated):
-                    overrides.setdefault(naming.host_row_name(r['vessel'], r['param']),
+                    overrides.setdefault(naming.host_row_name(r['module'], r['param']),
                                          (record, step.id))
     rows = [{'variable_name': name, 'units': rec.get('units', ''),
              'value': repr(float(rec['value'])),
@@ -1475,6 +2531,15 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             model, view_dir, view, rows, library_inputs=library_inputs,
             model_type=settings.get('model_type', STEP_DEFAULTS['model_type']),
             solver=settings.get('solver'))
+    if has_factors(obs_data):
+        # resolved against the view's model, as a run resolves them against the step's
+        resolved_obs = step_input_paths(view_dir, own_step)[0]
+        os.makedirs(os.path.dirname(resolved_obs), exist_ok=True)
+        model_rows = {r['variable_name']: r
+                      for r in read_parameter_rows(generated['parameters_path'])}
+        resolve_factors(obs_data, resolved_obs, model_rows,
+                        {v['model_name']: v for v in fixed + calibrated}, {}, f'view "{view}"')
+        obs_data = resolved_obs
 
     def existing(path):
         return path if path and os.path.isfile(path) else None
@@ -1504,11 +2569,12 @@ def load_workflow_run(output_dir):
         raise WorkflowError(f'{output_dir} is not a calibration workflow run (no '
                             f'{WORKFLOW_FILE_NAME}).')
     raw = _read_json(snapshot)
+    refuse_older_step_keys(raw, snapshot)
     result_path = os.path.join(output_dir, WORKFLOW_RESULT)
     steps = {}
     for step in raw.get('steps', []):
         path = os.path.join(output_dir, step.get('id', ''), STEP_RESULT)
-        steps[step.get('id')] = _read_json(path) if os.path.isfile(path) else None
+        steps[step.get('id')] = read_step_result(path) if os.path.isfile(path) else None
     return {'output_dir': output_dir, 'workflow': raw,
             'result': _read_json(result_path) if os.path.isfile(result_path) else None,
             'steps': steps}

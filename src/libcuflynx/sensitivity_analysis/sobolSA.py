@@ -7,7 +7,6 @@ import json
 import os
 import re
 import sys
-from sys import exit
 
 
 def sanitize_for_filename(name):
@@ -49,6 +48,9 @@ import csv
 from tqdm import tqdm  # make sure tqdm is installed
 from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 from libcuflynx.param_id import prediction_features
+from libcuflynx.utilities.progress import (ProgressFile, RankReports, write_atomic,
+                                           write_json_atomic)
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 #: The file naming every Sobol output column, written only with include_prediction_items so
 #: a reader (CUFLynx) can tell a prediction feature from a data_item feature.
@@ -57,6 +59,38 @@ SOBOL_OUTPUT_FEATURES_FILE = 'sobol_output_features.json'
 #: weight), written beside the samples and outputs so a later analysis (a PCA parameter
 #: reduction) can recompute Sobol indices of any function of the outputs.
 SOBOL_PROBLEM_FILE = 'sobol_problem.json'
+#: The files a Sobol run writes while it runs, beside its progress.json
+#: (libcuflynx.utilities.progress):
+#:
+#: * ``sobol_design.npy`` -- the design (samples x parameters) in run order, written before the
+#:   first simulation; ``sobol_design_params.json`` names its columns (``names``, ``bounds``,
+#:   ``num_samples``, ``sample_type``, ``rows``);
+#: * ``sobol_sample_status.npy`` -- one int8 per design row (SAMPLE_NOT_RUN, SAMPLE_OK,
+#:   SAMPLE_FAILED), rewritten as the ranks report and kept after the run. A failed sample is
+#:   one with an output that is not finite: fill_failed_outputs fills it before the indices
+#:   are computed, so the outputs CSV no longer shows which they were.
+SOBOL_DESIGN_FILE = 'sobol_design.npy'
+SOBOL_DESIGN_PARAMS_FILE = 'sobol_design_params.json'
+SOBOL_SAMPLE_STATUS_FILE = 'sobol_sample_status.npy'
+SAMPLE_NOT_RUN, SAMPLE_OK, SAMPLE_FAILED = 0, 1, 2
+#: S1 and ST with their confidence intervals at increasing numbers of base samples, written at
+#: the end of a run (sobol_convergence).
+SOBOL_CONVERGENCE_FILE = 'sobol_convergence.json'
+#: The base-sample counts of the convergence file, as fractions of num_samples, and the fewest
+#: base samples a prefix is analysed at.
+CONVERGENCE_FRACTIONS = (8, 4, 2, 1)
+CONVERGENCE_MIN_SAMPLES = 4
+#: Seed of the bootstrap of a prefix's confidence intervals, so the file is reproducible. The
+#: full run's intervals are those of the indices' own analysis.
+CONVERGENCE_SEED = 1
+
+
+def _row_ok(row):
+    """Whether every output of one sample is finite."""
+    try:
+        return bool(np.all(np.isfinite(np.asarray(row, dtype=float))))
+    except (TypeError, ValueError):
+        return True
 #: The local derivatives a Sobol run takes for a PCA reduction's redundancy check
 #: (run_local_jacobian), as sa_options keys with their defaults:
 #:
@@ -278,6 +312,9 @@ class sobol_SA():
             protocol_info=self.protocol_info,
             dt=self.dt
         )
+        if self._sim_helper is not None:
+            self._sim_helper.set_protocol_info(self.protocol_info)
+            self._apply_offline_pre_time(self._sim_helper)
         if self.rank == 0:
             print(f'Ground truth data set: {self.obs_info}')
     
@@ -290,6 +327,8 @@ class sobol_SA():
         self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
         self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
         self._create_SA_info(self.sample_type, self.SA_info["num_samples"])
+        if self._sim_helper is not None:
+            self._apply_offline_pre_time(self._sim_helper, warm_up=False)
         if self.rank == 0:
             print(f'Params for id set: {self.param_id_info["param_names"]}')
 
@@ -399,11 +438,18 @@ class sobol_SA():
             # ProtocolRunner have always set it; sensitivity analysis was the one path that
             # did not.
             self._sim_helper.set_protocol_info(self.protocol_info)
+            self._apply_offline_pre_time(self._sim_helper)
             if self.sim_time is not None and self.pre_time is not None:
                 self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             if getattr(self._sim_helper, 'emulates_features', False):
                 self._configure_emulator(self._sim_helper)
         return self._sim_helper
+
+    def _apply_offline_pre_time(self, helper, warm_up=True):
+        """The protocol's offline_pre_time and its guard, applied as param_id applies them."""
+        from libcuflynx.param_id.paramID import apply_offline_pre_time
+        apply_offline_pre_time(helper, self.protocol_info, getattr(self, 'param_id_info', None),
+                               warm_up=warm_up)
 
     def _configure_emulator(self, helper):
         """Validate the emulator against this analysis, and map its outputs to the data_items.
@@ -527,8 +573,60 @@ class sobol_SA():
         # return y, t
         return operands
     
+    def _start_sample_status(self, samples):
+        """On rank 0, write the design and its column names, and a status file with no sample
+        run."""
+        if self.rank != 0 or not self.progress.active:
+            return
+        samples = np.asarray(samples, dtype=float)
+        write_atomic(os.path.join(self.output_dir, SOBOL_DESIGN_FILE),
+                     lambda tmp: np.save(tmp, samples))
+        write_json_atomic(os.path.join(self.output_dir, SOBOL_DESIGN_PARAMS_FILE), {
+            'names': [str(name) for name in self._param_labels()],
+            'bounds': [[float(lo), float(hi)] for lo, hi in
+                       zip(self.SA_info['param_mins'], self.SA_info['param_maxs'])],
+            'num_samples': int(self.SA_info['num_samples']),
+            'sample_type': self.SA_info['sample_type'], 'rows': int(len(samples))})
+        self.sample_status = np.full(len(samples), SAMPLE_NOT_RUN, dtype=np.int8)
+        self._save_sample_status()
+
+    def _save_sample_status(self):
+        status = self.sample_status
+        write_atomic(os.path.join(self.output_dir, SOBOL_SAMPLE_STATUS_FILE),
+                     lambda tmp: np.save(tmp, status))
+
+    def _item_reports(self, phase):
+        """The RankReports that counts the items of progress phase ``phase`` and, for the
+        Sobol samples themselves, records each one's status. None with no progress file."""
+        progress = getattr(self, 'progress', None)
+        if phase is None or progress is None:
+            return None
+        track_status = phase == 'sampling' and getattr(self, 'sample_status', None) is not None
+
+        def on_report(indices, ok):
+            if track_status:
+                self.sample_status[indices] = np.where(ok, SAMPLE_OK, SAMPLE_FAILED)
+            wrote = progress.advance(phase, done=len(indices),
+                                     failed=int(np.count_nonzero(~ok)))
+            if wrote and track_status:
+                self._save_sample_status()
+
+        return RankReports(getattr(self, 'comm', None), on_report)
+
+    def _outputs_counted_in(self, phase, samples):
+        """generate_outputs_mpi(samples), its rows counted in progress phase ``phase``."""
+        self._progress_phase = phase
+        try:
+            return self.generate_outputs_mpi(samples)
+        finally:
+            self._progress_phase = None
+
     def generate_outputs_mpi(self, samples):
-        #need to added an array to save tmp data, each calibration need to updated/re-initial
+        """The outputs of every row of ``samples``, run in one block per MPI rank and gathered
+        on rank 0 (None on the others). Within run, the rows count towards a phase of the
+        progress file (_outputs_counted_in)."""
+        reports = self._item_reports(getattr(self, '_progress_phase', None))
+
         
         # Split samples across ranks
         n_samples = len(samples)
@@ -603,6 +701,8 @@ class sobol_SA():
                     if pred_indices:
                         row += list(self.sim_helper.get_predicted_prediction_features(pred_names))
                     local_outputs.append(row)
+                    if reports is not None:
+                        reports.add(start + len(local_outputs) - 1, _row_ok(row))
                     pbar.update(1)
                     continue
 
@@ -648,9 +748,14 @@ class sobol_SA():
                                     for value in predicted)
 
                 local_outputs.append(features)
+                if reports is not None:
+                    reports.add(start + len(local_outputs) - 1, _row_ok(features))
                 pbar.update(1)
 
         self._rank0_print(f"[MPI Rank {self.rank}] Finished processing samples {start}:{end}")
+        if reports is not None:
+            # rank 0 waits here for the other ranks' last reports, as it would in the gather
+            reports.close()
 
         # Gather results at rank 0
         all_outputs = self.comm.gather(local_outputs, root=0)
@@ -726,14 +831,64 @@ class sobol_SA():
         # change names to series here as SALib has an issue with lists https://github.com/SALib/SALib/issues/671
         self.problem['names'] = pd.Series(self.problem['names'])
 
+        # the confidence half-widths of S1 and ST, for sobol_convergence
+        self.sobol_confidence = {'S1': np.zeros_like(S1_all), 'ST': np.zeros_like(ST_all)}
         for i in range(n_outputs):
             Si = sobol.analyze(self.problem, outputs[:,i], print_to_console=self.verbose)
             S1_all[i, :] = Si['S1']
             ST_all[i, :] = Si['ST']
             S2_all[i, :] = np.array(Si['S2'])
+            self.sobol_confidence['S1'][i, :] = Si['S1_conf']
+            self.sobol_confidence['ST'][i, :] = Si['ST_conf']
 
         return S1_all, ST_all, S2_all
 
+    def sobol_convergence(self, S1_all, ST_all):
+        """S1 and ST with their confidence half-widths at increasing numbers of base samples:
+        ``{"n": [...], "outputs": {output: {"S1": {parameter: [[value, conf], ...]},
+        "ST": {...}}}}``, one ``[value, conf]`` per entry of ``n``. ``n`` is num_samples over
+        CONVERGENCE_FRACTIONS, from CONVERGENCE_MIN_SAMPLES up: the first ``n`` blocks of
+        2M + 2 rows of a Saltelli design are the design of ``n`` base samples, so each is the
+        analysis the run would have given had it stopped there (on the filled outputs of the
+        whole run). The last entry is the run's own analysis. A value that is not finite is
+        null."""
+        outputs = np.asarray(self.outputs, dtype=float)
+        n_total = int(self.num_samples)
+        block = len(outputs) // n_total
+        counts = sorted({n_total // k for k in CONVERGENCE_FRACTIONS
+                         if n_total // k >= CONVERGENCE_MIN_SAMPLES} | {n_total})
+        names, _ = self._output_columns(outputs.shape[1])
+        params = [str(label) for label in self._param_labels()]
+
+        def number(value):
+            value = float(value)
+            return value if np.isfinite(value) else None
+
+        table = {name: {'S1': {p: [] for p in params}, 'ST': {p: [] for p in params}}
+                 for name in names}
+        for n in counts:
+            for i, name in enumerate(names):
+                if n == n_total:
+                    values = {'S1': S1_all[i], 'ST': ST_all[i],
+                              'S1_conf': self.sobol_confidence['S1'][i],
+                              'ST_conf': self.sobol_confidence['ST'][i]}
+                else:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        values = sobol.analyze(self.problem, outputs[:n * block, i],
+                                               seed=CONVERGENCE_SEED)
+                for index in ('S1', 'ST'):
+                    for j, p in enumerate(params):
+                        table[name][index][p].append(
+                            [number(values[index][j]), number(values[f'{index}_conf'][j])])
+        return {'n': counts, 'outputs': table}
+
+    def save_sobol_convergence(self, S1_all, ST_all):
+        """Write sobol_convergence as SOBOL_CONVERGENCE_FILE; returns its path."""
+        path = os.path.join(self.output_dir, SOBOL_CONVERGENCE_FILE)
+        write_json_atomic(path, self.sobol_convergence(S1_all, ST_all))
+        return path
+
+    @paper_style()
     def plot_sobol_first_order_idx(self, S1_all, ST_all):
 
         if self.rank !=0:
@@ -772,6 +927,7 @@ class sobol_SA():
             plt.clf()
             plt.close()
 
+    @paper_style()
     def plot_sobol_S2_idx(self, S2_all):
         """
         Plot second-order Sobol interaction indices for multiple outputs.
@@ -852,6 +1008,7 @@ class sobol_SA():
 
         return output_labels
     
+    @paper_style()
     def plot_sobol_heatmap(self, S1_all, ST_all):
         
         if self.rank != 0:
@@ -935,77 +1092,18 @@ class sobol_SA():
         return [float(predicted[j]) for j in self._observable_indices()]
 
     def _observable_indices(self):
-        """The data_items this analysis reports on, by index into ``obs_info``.
-
-        An item with no operation, or with zero weight, is not an observable here.
-        A recorded trace carried for plotting is both: there is no scalar to reduce
-        it to, and nothing is fitted to it, so its "sensitivity" would not be a
-        number anyone should read. Skipped before the model is asked for it rather
-        than computed and dropped afterwards -- reducing a trace costs the same as
-        reducing a real observable, and every sample pays it.
-        """
-        operations = self.obs_info.get('operations') or []
-        # Each weight vector is indexed by position among items of its own data_type, not
-        # by data_item: map every weight back through its *_idx_to_obs_idx. Indexing
-        # weight_const_vec by data_item index reads another item's weight whenever a
-        # non-constant precedes a constant -- in a joint obs_data that reported other
-        # datasets' zero-weighted items and dropped weighted ones.
-        weighted = {}
-        for kind in ('const', 'series', 'amp', 'phase'):
-            weights = self.obs_info.get('weight_%s_vec' % kind)
-            idx_map = self.obs_info.get('%s_idx_to_obs_idx' % kind)
-            if weights is None or idx_map is None:
-                continue
-            for weight, obs_idx in zip(weights, idx_map):
-                weighted[int(obs_idx)] = bool(np.any(np.asarray(weight, dtype=float)))
-        keep = []
-        for index, operation in enumerate(operations):
-            if operation is None:
-                continue
-            if not weighted.get(index, True):
-                continue
-            keep.append(index)
-        return keep
+        """The data_items this analysis reports on (``observable_indices``)."""
+        return observable_indices(self.obs_info)
 
     @staticmethod
     def _uniquify_output_names(labels, ops):
-        """Return labels guaranteed unique so each Sobol output keeps its own
-        column. pandas assigns DataFrame columns by label, so a repeated label
-        would let a later data_item silently overwrite an earlier one and the
-        outputs would collapse to one-per-name (issue #240). Repeated labels are
-        first distinguished by their operation, then by a ' #k' suffix."""
-        counts = {}
-        for lab in labels:
-            counts[lab] = counts.get(lab, 0) + 1
-        stage1 = [
-            f"{lab} [{ops[i]}]" if counts[lab] > 1 and ops[i] else lab
-            for i, lab in enumerate(labels)
-        ]
-        seen, out = {}, []
-        for lab in stage1:
-            if lab in seen:
-                seen[lab] += 1
-                out.append(f"{lab} #{seen[lab]}")
-            else:
-                seen[lab] = 1
-                out.append(lab)
-        return out
+        """Labels made unique (``uniquify_output_names``)."""
+        return uniquify_output_names(labels, ops)
 
     def _output_columns(self, n_outputs):
         """``(output_names, sources)`` of the ``n_outputs`` Sobol outputs: the column names the
         indices and outputs CSVs use, and ``(kind, index)`` per column, kind one of
-        ``'data_item'``, ``'cost'`` and ``'prediction_item'``."""
-        # Prepare output/feature names. Two data_items that resolve to the same
-        # (item_name_for_plotting, experiment, subexperiment) produce identical column
-        # labels; since pandas assigns DataFrame columns by label, the later one
-        # would silently overwrite the earlier and the Sobol output would collapse
-        # to one-per-name (issue #240). Build the labels, then disambiguate any
-        # collisions so every data_item keeps its own column.
-        names = obs_item_labels(self.obs_info)
-        exps = self.obs_info['experiment_idxs']
-        subs = self.obs_info['subexperiment_idxs']
-        ops = self.obs_info.get('operations', [])
-
+        ``'data_item'``, ``'cost'`` and ``'prediction_item'`` (``output_labels``)."""
         # The same indices the feature loop used, so a label always names the output
         # beside it. Building these from range(len(names)) instead would shift every
         # column by one for each item the loop skipped.
@@ -1014,23 +1112,10 @@ class sobol_SA():
         # their data_item_name in the same "(Exp, Sub)" form.
         pred_labels = self._prediction_labels()
         n_data_outputs = n_outputs - len(pred_labels)
-        base_labels, base_ops, sources = [], [], []
-        for i in reported[:n_data_outputs]:
-            base_labels.append(f"{names[i]} (Exp{exps[i]}, Sub{subs[i]})")
-            base_ops.append(ops[i] if i < len(ops) else None)
-            sources.append(('data_item', i))
-        if n_data_outputs > len(base_labels):
-            base_labels.append("Cost")
-            base_ops.append(None)
-            sources.append(('cost', None))
-        pred_indices = self._prediction_indices()
         pred_ops = (self.prediction_info or {}).get('operations') or []
-        for k, label in enumerate(pred_labels):
-            base_labels.append(label)
-            base_ops.append(pred_ops[pred_indices[k]])
-            sources.append(('prediction_item', k))
-
-        return self._uniquify_output_names(base_labels, base_ops), sources
+        return output_labels(self.obs_info, reported[:n_data_outputs], pred_labels,
+                             [pred_ops[i] for i in self._prediction_indices()],
+                             cost=n_data_outputs > len(reported[:n_data_outputs]))
 
     def save_sobol_indices(self, S1_all, ST_all, S2_all):
         if self.rank != 0:
@@ -1263,7 +1348,10 @@ class sobol_SA():
         need_base = not central and rows[0] < 0
         if need_base:
             points = list(bases) + points
-        results = self.generate_outputs_mpi(np.array(points))
+        progress = getattr(self, 'progress', None)
+        if progress is not None:
+            progress.phase('local_jacobian', len(points))
+        results = self._outputs_counted_in('local_jacobian', np.array(points))
         if self.rank != 0:
             return None
         results = np.asarray(results, dtype=float)
@@ -1283,15 +1371,124 @@ class sobol_SA():
         self.local_jacobian_steps = steps
         return self.local_jacobian
 
-    def run(self):
+    def run(self, finish_progress=True):
         """The Sobol indices ``(S1, ST, S2)`` on rank 0 (None on the others), after the Saltelli
         samples and the local Jacobian (run_local_jacobian) have run, spread over the MPI ranks;
-        one process runs them all."""
+        one process runs them all.
+
+        Rank 0 writes the run's progress.json (kind ``sobol``; phases ``sampling``,
+        ``local_jacobian`` when there are derivatives to take, and ``analysis``), the design
+        and each sample's status as the ranks report it (SOBOL_DESIGN_FILE,
+        SOBOL_SAMPLE_STATUS_FILE), and at the end SOBOL_CONVERGENCE_FILE. The progress file's
+        state is ``done`` when this returns; a caller that writes the results afterwards
+        passes ``finish_progress=False`` and calls ``self.progress.finish()`` once they are
+        written (``finish('failed')`` if that fails), so ``done`` means the files are there."""
         samples = self.generate_samples()
         self.samples = samples
-        outputs = self.generate_outputs_mpi(samples)
-        self.run_local_jacobian(samples, outputs)
-        if self.rank != 0:
-            return None, None, None
-        return self.sobol_index(outputs)
+        self.progress = progress = ProgressFile(getattr(self, 'output_dir', None), 'sobol',
+                                                getattr(self, 'comm', None))
+        try:
+            self._start_sample_status(samples)
+            progress.phase('sampling', len(samples))
+            outputs = self._outputs_counted_in('sampling', samples)
+            self.run_local_jacobian(samples, outputs)
+            if self.rank != 0:
+                return None, None, None
+            progress.phase('analysis', 1, state='running')
+            indices = self.sobol_index(outputs)
+            if progress.active:
+                self.save_sobol_convergence(indices[0], indices[1])
+            progress.update('analysis', done=1)
+        except BaseException:
+            progress.finish('failed')
+            raise
+        if finish_progress:
+            progress.finish()
+        return indices
 
+
+def observable_indices(obs_info):
+    """The data_items a sensitivity analysis reports on, by index into ``obs_info``.
+
+    An item with no operation, or with zero weight, is not an observable here.
+    A recorded trace carried for plotting is both: there is no scalar to reduce
+    it to, and nothing is fitted to it, so its "sensitivity" would not be a
+    number anyone should read. Skipped before the model is asked for it rather
+    than computed and dropped afterwards -- reducing a trace costs the same as
+    reducing a real observable, and every sample pays it.
+    """
+    operations = obs_info.get('operations') or []
+    # Each weight vector is indexed by position among items of its own data_type, not
+    # by data_item: map every weight back through its *_idx_to_obs_idx. Indexing
+    # weight_const_vec by data_item index reads another item's weight whenever a
+    # non-constant precedes a constant -- in a joint obs_data that reported other
+    # datasets' zero-weighted items and dropped weighted ones.
+    weighted = {}
+    for kind in ('const', 'series', 'amp', 'phase'):
+        weights = obs_info.get('weight_%s_vec' % kind)
+        idx_map = obs_info.get('%s_idx_to_obs_idx' % kind)
+        if weights is None or idx_map is None:
+            continue
+        for weight, obs_idx in zip(weights, idx_map):
+            weighted[int(obs_idx)] = bool(np.any(np.asarray(weight, dtype=float)))
+    keep = []
+    for index, operation in enumerate(operations):
+        if operation is None:
+            continue
+        if not weighted.get(index, True):
+            continue
+        keep.append(index)
+    return keep
+
+
+def uniquify_output_names(labels, ops):
+    """Return labels guaranteed unique so each Sobol output keeps its own
+    column. pandas assigns DataFrame columns by label, so a repeated label
+    would let a later data_item silently overwrite an earlier one and the
+    outputs would collapse to one-per-name (issue #240). Repeated labels are
+    first distinguished by their operation, then by a ' #k' suffix."""
+    counts = {}
+    for lab in labels:
+        counts[lab] = counts.get(lab, 0) + 1
+    stage1 = [
+        f"{lab} [{ops[i]}]" if counts[lab] > 1 and ops[i] else lab
+        for i, lab in enumerate(labels)
+    ]
+    seen, out = {}, []
+    for lab in stage1:
+        if lab in seen:
+            seen[lab] += 1
+            out.append(f"{lab} #{seen[lab]}")
+        else:
+            seen[lab] = 1
+            out.append(lab)
+    return out
+
+
+def output_labels(obs_info, indices, prediction_labels=(), prediction_ops=(), cost=False):
+    """``(labels, sources)``: the Sobol output label of each data_item in ``indices``
+    (``"<item_name_for_plotting> (Exp<e>, Sub<s>)"``), then ``"Cost"`` with ``cost``, then
+    ``prediction_labels``; made unique by ``uniquify_output_names``. ``sources`` is
+    ``(kind, index)`` per label, kind ``'data_item'``, ``'cost'`` or ``'prediction_item'``.
+
+    The local sensitivity analysis labels its signed rows with this too, so a Sobol index and a
+    local coefficient of one observable have one label.
+    """
+    names = obs_item_labels(obs_info)
+    exps = obs_info['experiment_idxs']
+    subs = obs_info['subexperiment_idxs']
+    ops = obs_info.get('operations') or []
+    labels, label_ops, sources = [], [], []
+    for i in indices:
+        labels.append(f"{names[i]} (Exp{exps[i]}, Sub{subs[i]})")
+        label_ops.append(ops[i] if i < len(ops) else None)
+        sources.append(('data_item', i))
+    if cost:
+        labels.append("Cost")
+        label_ops.append(None)
+        sources.append(('cost', None))
+    for k, label in enumerate(prediction_labels):
+        labels.append(label)
+        label_ops.append(prediction_ops[k] if k < len(prediction_ops) else None)
+        sources.append(('prediction_item', k))
+    return uniquify_output_names(labels, label_ops), sources

@@ -20,13 +20,15 @@ for the parameters it keeps, so a later calibration fits only them::
                             'reduction/reduced_params_for_id.json')
     # [{'parameter': 'heart/E_lv_A', 'score': 0.6, 'mode': 1, ...}, ...], in the order kept
 
-Two methods (``param_reduction_options.method``; options in
+Three methods (``param_reduction_options.method``; options in
 ``ANALYSIS_OPTIONS['param_reduction']``, parsers.PrimitiveParsers):
 
 * :class:`PCASobolReduction` (``'pca'``) -- PCA of the Sobol outputs scaled by their obs_data
   std and weight, Sobol indices of each mode's score, then one parameter per informative mode.
 * :class:`SobolReduction` (``'sobol'``) -- the ``n_params`` parameters with the highest Sobol
   index over the outputs.
+* :class:`ManualReduction` (``'manual'``) -- the ``parameters`` named, a choice made by hand
+  with its ``reason``. It reads no Sobol run.
 
 The report (``param_reduction.json``, and for ``pca`` the modes and their indices) is written
 beside the reduced params_for_id. A calibration workflow's ``reduction`` step is one of these.
@@ -42,6 +44,7 @@ import pandas as pd
 
 from libcuflynx.sensitivity_analysis.sobol_ranking import (CRITERIA, rank_sobol_parameters,
                                                            read_sobol_indices)
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 INDEX_TYPES = ('ST', 'S1')
 REPORT_FILE = 'param_reduction.json'
@@ -93,6 +96,8 @@ class ParamReduction:
     method = None
     #: the param_reduction_options this method reads, besides method and the paths
     OPTIONS = ()
+    #: whether it chooses from a Sobol run (a calibration workflow's ``sensitivity_from``)
+    reads_sensitivity = True
 
     @classmethod
     def from_options(cls, options):
@@ -154,14 +159,18 @@ class ParamReduction:
         the Sobol run ``files`` (:func:`sobol_run_files`). May write files to ``report_dir``."""
         raise NotImplementedError
 
+    def run_files(self, sensitivity_dir):
+        """The files :meth:`select` reads: those of the Sobol run in ``sensitivity_dir``."""
+        return sobol_run_files(sensitivity_dir)
+
     def reduce(self, sensitivity_dir, params_for_id_path, out_path):
         """Choose from the Sobol run in ``sensitivity_dir`` and write the kept entries of
-        ``params_for_id_path`` (the params_for_id that run analysed) to ``out_path``, and the
-        report (``param_reduction.json``) beside it. Returns the selection (see
-        :meth:`select`); a ValueError when nothing is kept."""
+        ``params_for_id_path`` (the params_for_id that run analysed; for a choice made by hand,
+        the one chosen from) to ``out_path``, and the report (``param_reduction.json``) beside
+        it. Returns the selection (see :meth:`select`); a ValueError when nothing is kept."""
         report_dir = os.path.dirname(os.path.abspath(out_path))
         os.makedirs(report_dir, exist_ok=True)
-        selected = self.select(sobol_run_files(sensitivity_dir), report_dir)
+        selected = self.select(self.run_files(sensitivity_dir), report_dir)
         if not selected:
             raise ValueError(f'the {self.method} reduction kept no parameter '
                              f'({self.as_dict()}).')
@@ -558,6 +567,7 @@ class PCASobolReduction(ParamReduction):
             'unexplained_effects': unexplained,
             'jacobian_points_used': int(len(jacobian)), 'unconverged_points': unconverged}
 
+    @paper_style()
     def _write_report_files(self, report_dir, variances, informative, loadings, names, S1, ST,
                             params):
         modes = pd.DataFrame({'mode': np.arange(1, len(variances) + 1), 'variance': variances,
@@ -591,13 +601,47 @@ class PCASobolReduction(ParamReduction):
             warnings.warn(f'could not draw the PCA mode heatmap: {exc}', stacklevel=2)
 
 
-REDUCTIONS = {'pca': PCASobolReduction, 'sobol': SobolReduction}
+class ManualReduction(ParamReduction):
+    """The parameters named, chosen by hand.
+
+    Args:
+        parameters: The parameters to keep, each named as its params_for_id entry is labelled
+            (``heart/E_lv_A``; a grouped entry's names joined by ``+``; a modifier's name).
+        reason: Why these were chosen.
+    """
+
+    method = 'manual'
+    OPTIONS = ('parameters', 'reason')
+    reads_sensitivity = False
+
+    def __init__(self, parameters=None, reason=None):
+        if not isinstance(parameters, (list, tuple)) or not parameters or \
+                not all(isinstance(name, str) and name.strip() for name in parameters):
+            raise ValueError('a "manual" reduction needs parameters, the names of the '
+                             f'parameters to keep, not {parameters!r}.')
+        self.parameters = [name.strip() for name in parameters]
+        twice = sorted({name for name in self.parameters if self.parameters.count(name) > 1})
+        if twice:
+            raise ValueError(f'a "manual" reduction names {twice} more than once.')
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError('a "manual" reduction needs a reason: why these parameters were '
+                             'chosen by hand.')
+        self.reason = reason.strip()
+
+    def run_files(self, sensitivity_dir):
+        return {}
+
+    def select(self, files, report_dir):
+        return [{'parameter': name} for name in self.parameters]
+
+
+REDUCTIONS = {'pca': PCASobolReduction, 'sobol': SobolReduction, 'manual': ManualReduction}
 
 
 def run_param_reduction(inp_data_dict):
     """Run the reduction ``inp_data_dict['param_reduction_options']`` describes on the Sobol
     run in its ``sensitivity_dir``, for the params_for_id that run analysed
-    (``params_for_id_path``). Writes ``reduced_params_for_id.json`` and the report into its
+    (``params_for_id_path``; a "manual" reduction keeps the entries named and reads no run). Writes ``reduced_params_for_id.json`` and the report into its
     ``output_dir``. Returns the selection."""
     options = dict(inp_data_dict.get('param_reduction_options') or {})
     reduction = ParamReduction.from_options(options)

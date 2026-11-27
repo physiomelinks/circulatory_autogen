@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
   "title": "libcuflynx calibration workflow (calibration_workflow.json)",
-  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set or sweep; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set, sweep or uq; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, a module of a module library, an external Python model or a CellML model), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -45,54 +45,6 @@
       "items": {
         "$ref": "#/$defs/step"
       }
-    },
-    "external_figures": {
-      "type": "array",
-      "description": "Scripts outside the workflow that read its results and write figures. libcuflynx never runs them: the provenance diagram draws each, with whether its files are current. A path is absolute (~ allowed) or relative to the run's output directory.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "command",
-          "from",
-          "writes"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "\\S"
-          },
-          "command": {
-            "type": "string",
-            "pattern": "\\S",
-            "description": "how the script is run, for the reader"
-          },
-          "description": {
-            "type": "string"
-          },
-          "from": {
-            "type": "string",
-            "pattern": "\\S",
-            "description": "the step whose results it reads, or \"target\" for the merged model"
-          },
-          "reads": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "writes": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        }
-      }
     }
   },
   "$defs": {
@@ -108,6 +60,12 @@
         },
         {
           "$ref": "#/$defs/library_module"
+        },
+        {
+          "$ref": "#/$defs/external_model"
+        },
+        {
+          "$ref": "#/$defs/cellml_model"
         }
       ]
     },
@@ -164,6 +122,41 @@
           "description": "its parameters file; default <prefix>_parameters.json beside it"
         }
       }
+    },
+    "external_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_model_path"
+      ],
+      "properties": {
+        "external_model_path": {
+          "type": "string",
+          "pattern": "\\.py\\s*$",
+          "description": "a .py file defining SIM_HELPER, run as model_type external_python; its parameters are the class's component/variable names"
+        }
+      },
+      "description": "an external Python model. A step with one needs a target that is the same file; it is run with the step's values in an external_parameters_file and is never generated"
+    },
+    "cellml_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cellml_model_path"
+      ],
+      "properties": {
+        "cellml_model_path": {
+          "type": "string",
+          "pattern": "\\.cellml\\s*$",
+          "description": "a CellML file (its imports beside it, as it names them); its parameters are its constants, named component/variable"
+        },
+        "parameters": {
+          "type": "string",
+          "pattern": "\\.json\\s*$",
+          "description": "a parameters file ({component: {variable: {value, units}}}) whose values replace the CellML's"
+        }
+      },
+      "description": "a CellML model, run as model_type cellml. A step with one needs a target that is the same file; it runs a flattened copy with the step's values written in"
     },
     "library_module": {
       "type": "object",
@@ -235,15 +228,16 @@
     "param_reduction_options": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses. {} is PCA with every default. Only a reduction step has them; the workflow's own settings do not.",
+      "description": "How a reduction step chooses the parameters to calibrate: the user_inputs param_reduction_options (ANALYSIS_OPTIONS['param_reduction'] in libcuflynx.parsers.PrimitiveParsers) without the paths, which the workflow chooses. {} is PCA with every default. With method manual the choice is made by hand: the parameters named, for the reason given. Only a reduction step has them; the workflow's own settings do not.",
       "properties": {
         "method": {
           "enum": [
             "pca",
-            "sobol"
+            "sobol",
+            "manual"
           ],
           "default": "pca",
-          "description": "pca: one parameter per informative PCA mode of the Sobol outputs (scaled by obs_data std and weight). sobol: the n_params parameters with the highest Sobol index."
+          "description": "pca: one parameter per informative PCA mode of the Sobol outputs (scaled by obs_data std and weight). sobol: the n_params parameters with the highest Sobol index. manual: the parameters named in parameters, chosen by hand for the reason given; the step reads no sensitivity step and names the params_for_id whose entries it keeps."
         },
         "n_params": {
           "type": "integer",
@@ -297,7 +291,10 @@
           "description": "pca: keep a parameter only if its effect on the informative modes, beyond what the kept parameters explain, is at least min_mode_std noise stds (from the Sobol run's local Jacobian). Off: one parameter per informative mode."
         },
         "redundancy_statistic": {
-          "enum": ["rms", "median"],
+          "enum": [
+            "rms",
+            "median"
+          ],
           "default": "median",
           "description": "pca with redundancy_check: summarise a parameter's unexplained effect over the Jacobian points by its rms (any point counts) or median (most points must agree)"
         },
@@ -311,8 +308,61 @@
           "minimum": 0,
           "default": 0.1,
           "description": "redundancy_converged_only: largest change between the two steps, relative to the effect (or min_mode_std, if larger)"
+        },
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "manual (required): the parameters to keep, each named as its params_for_id entry is labelled (heart/E_lv_A; a grouped entry's names joined by +; a modifier's name)"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "manual (required): why these parameters were chosen"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "manual"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "required": [
+              "parameters",
+              "reason"
+            ],
+            "description": "A manual reduction needs parameters (the names kept) and reason."
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "parameters"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "description": "parameters and reason are for a manual reduction."
+          }
+        }
+      ]
     },
     "prior": {
       "oneOf": [
@@ -329,7 +379,7 @@
           "properties": {
             "step": {
               "type": "string",
-              "description": "the step whose stored distribution is used (it must set store_distribution)"
+              "description": "the step whose stored distribution is used (a calibration with store_distribution, or a uq step)"
             },
             "kind": {
               "enum": [
@@ -361,14 +411,22 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "parameter",
         "reason"
       ],
       "properties": {
+        "entry": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "a modifier's theta: the name of the params_for_id modifier entry it is the theta of, in the steps that take this step as start_from or result_from"
+        },
+        "theta": {
+          "type": "number",
+          "description": "the theta of the modifier entry named by \"entry\": where a calibration starts it, or what an analysis is at. The parameters it modifies keep their values in the step's model. Only in a set step with \"point\": true"
+        },
         "parameter": {
           "type": "string",
           "pattern": "^\\s*\\S.*/\\S+\\s*$",
-          "description": "the parameter, <vessel>/<parameter> as the target names it (global/<parameter> for a global)"
+          "description": "the parameter, <module>/<parameter> as the target names it (global/<parameter> for a global)"
         },
         "value": {
           "type": "number",
@@ -396,6 +454,7 @@
       "oneOf": [
         {
           "required": [
+            "parameter",
             "value"
           ],
           "not": {
@@ -409,23 +468,83 @@
                 "required": [
                   "of"
                 ]
+              },
+              {
+                "required": [
+                  "entry"
+                ]
+              },
+              {
+                "required": [
+                  "theta"
+                ]
               }
             ]
           }
         },
         {
           "required": [
+            "parameter",
             "scale",
             "of"
           ],
           "not": {
-            "required": [
-              "value"
+            "anyOf": [
+              {
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "required": [
+                  "entry"
+                ]
+              },
+              {
+                "required": [
+                  "theta"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "entry",
+            "theta"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "parameter"
+                ]
+              },
+              {
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "required": [
+                  "scale"
+                ]
+              },
+              {
+                "required": [
+                  "of"
+                ]
+              },
+              {
+                "required": [
+                  "units"
+                ]
+              }
             ]
           }
         }
       ],
-      "description": "one value set by hand: a value, or a scale of an existing value"
+      "description": "one value set by hand: a parameter's value, a scale of an existing value, or the theta of a params_for_id modifier entry"
     },
     "sweep_range": {
       "oneOf": [
@@ -500,6 +619,33 @@
               "description": "these multiples of the value the step's model gives it"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values",
+            "factors"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these values"
+            },
+            "factors": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these multiples of the value the step's model gives it"
+            }
+          },
+          "description": "these values, then these multiples of the value the step's model gives it"
         }
       ]
     },
@@ -513,11 +659,15 @@
         "id": {
           "type": "string",
           "pattern": "^[^/\\\\]+$",
-          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\"",
+          "description": "a label for the step, unique in the file: other steps refer to it, and it names the step's output directory; not \".\" or \"..\", nor a name the run's output directory uses itself: \"models\" (models generated for viewing), \"target\" (the target's view), \"_target\" (the generated target) or \"inputs\" (the study's copies of its inputs)",
           "not": {
             "enum": [
               ".",
-              ".."
+              "..",
+              "models",
+              "target",
+              "_target",
+              "inputs"
             ]
           }
         },
@@ -529,10 +679,14 @@
             "emulation",
             "identifiability",
             "set",
-            "sweep"
+            "sweep",
+            "uq",
+            "combine",
+            "simulate",
+            "figure"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: chooses the parameters to calibrate from a Sobol sensitivity step (sensitivity_from, settings.param_reduction_options), for a calibration's or emulation's params_for_id_from. With method manual the choice is made by hand: the parameters named, of the step's own params_for_id, and no sensitivity_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the values of result_from, or at the model's own. uq: uncertainty quantification (settings.UQ_options, method mcmc or laplace) at the values of result_from, or at the model's own, with no fit of its own; it stores the distribution it finds, for priors_from. set: declares values or scales by hand (set), for fixed_from and the target. combine: gives one value per parameter from several calibration, set or combine steps (combine_from, combine), for fixed_from and the target in place of theirs. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set, combine or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -552,39 +706,68 @@
         "params_for_id": {
           "type": "string",
           "minLength": 1,
-          "description": "the params_for_id file: what it calibrates or analyses"
+          "description": "the params_for_id file: what it calibrates or analyses; for a reduction chosen by hand (method manual), the file whose entries it keeps"
         },
         "submodule": {
           "type": "string",
           "description": "a library module in a library supermodule target: where it sits, a submodule name or a nested one as soma/i_M (soma_i_M is also read). Inferred when the module type and version occur once."
         },
-        "vessel": {
+        "module": {
           "type": "string",
           "minLength": 1,
-          "description": "a library module in a module-array target: the vessel it is. Inferred when the module type and version occur once."
+          "description": "a library module in a module-array target: the module (instance) it is. Inferred when the module type and version occur once."
         },
-        "vessel_map": {
+        "module_map": {
           "type": "object",
           "additionalProperties": {
             "type": "string",
             "minLength": 1
           },
-          "description": "a module-array model: its vessel names -> the target's (a submodule path for a library target). Unmapped vessels keep their names."
+          "description": "a module-array model: its module names -> the target's (a submodule path for a library target). Unmapped modules keep their names."
         },
         "fixed_from": {
           "type": "array",
           "items": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "a step id: every value it calibrated or set, and the values it was given as fixed"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "step",
+                  "parameters"
+                ],
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "description": "the calibration, set or combine step whose values are fixed"
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "only these of the values the step calibrated or set (model names in that step); its other values, and the values it was given as fixed, are not given"
+                  }
+                }
+              }
+            ]
           },
           "uniqueItems": true,
-          "description": "calibration or set steps whose values, and the values they were given as fixed, are fixed in this step's model; this step runs after them"
+          "description": "calibration, set or combine steps whose values are fixed in this step's model: a step id (every value it calibrated or set, and the values it was given as fixed), or {step, parameters} for only some of its own values; this step runs after them"
         },
         "priors_from": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/prior"
           },
-          "description": "earlier steps whose stored distributions become priors here: their parameters are calibrated again in this step, with that prior"
+          "description": "earlier steps whose stored distributions become priors here: a calibration with store_distribution, or a uq step; their parameters are calibrated again in this step, with that prior"
         },
         "store_distribution": {
           "type": "boolean",
@@ -594,7 +777,7 @@
         "on_target": {
           "type": "boolean",
           "default": false,
-          "description": "(sweep) run on the target with every calibration's and set step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every calibration and set step"
+          "description": "(sweep) run on the target with every calibration's, set step's and combine step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every such step"
         },
         "settings": {
           "type": "object"
@@ -602,17 +785,27 @@
         "emulator_from": {
           "type": "string",
           "minLength": 1,
-          "description": "an emulation step whose emulator this step runs on (calibration or sensitivity), with that step's model; give the same model, obs_data and params_for_id as it"
+          "description": "an emulation step whose emulator this step runs on (calibration, sensitivity, identifiability or uq), with that step's model; give the same model, obs_data and params_for_id as it"
+        },
+        "emulator_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "an emulator trained outside the workflow (a directory holding emulator_metadata.json), relative to this file, that this step runs on (calibration, sensitivity, identifiability or uq); not with emulator_from. It must have been trained on this step's model, obs_data and params_for_id"
         },
         "result_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a calibration step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability or sweep: the analysis is at that result)"
+          "description": "a calibration, set or combine step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability, uq or sweep: the analysis is at those values; without it, at the model's own)"
+        },
+        "start_from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "(calibration) a calibration, set or combine step whose values of this step's own parameters are where its fit starts: the step's model is generated with them, so they are the optimiser's initial point. They are not fixed, and do not reach the target"
         },
         "sensitivity_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a reduction step: the Sobol sensitivity step whose results it reduces"
+          "description": "a reduction step: the Sobol sensitivity step whose results it reduces (none for a reduction chosen by hand, method manual)"
         },
         "params_for_id_from": {
           "type": "string",
@@ -626,6 +819,36 @@
             "$ref": "#/$defs/set_entry"
           },
           "description": "a set step: the values it declares"
+        },
+        "point": {
+          "type": "boolean",
+          "default": false,
+          "description": "(set) the step's values are a point only, for start_from, result_from or fixed_from: they are not merged into the target and are not counted as calibrating it. An explicit key, so a workflow's meaning never depends on how its steps are used"
+        },
+        "combine_from": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "a combine step: the calibration, set or combine steps whose values it combines; it runs after them, and its values replace theirs in later steps and in the target"
+        },
+        "combine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "best_fit",
+                "mean"
+              ],
+              "default": "best_fit",
+              "description": "best_fit: every value of the calibration with the lowest cost; the steps are calibrations of the same obs_data, with the same cost_type and the same parameters. mean: each parameter's mean over the steps that give it"
+            }
+          },
+          "description": "a combine step: how it gives one value per parameter"
         },
         "sweep": {
           "type": "object",
@@ -655,7 +878,7 @@
               "additionalProperties": {
                 "$ref": "#/$defs/sweep_range"
               },
-              "description": "<vessel>/<parameter>, as a params_for_id names it, and the values it takes. Empty: one run of the protocol as the model has it"
+              "description": "<module>/<parameter>, as a params_for_id names it, and the values it takes. Empty: one run of the protocol as the model has it"
             },
             "zip": {
               "type": "array",
@@ -671,6 +894,45 @@
             }
           },
           "description": "a sweep step: its points, and what each records. An obs_data gives the protocol, and its prediction items a feature per point; without one, settings give dt and sim_time"
+        },
+        "simulate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "variables recorded over time"
+            }
+          },
+          "description": "a simulate step: one run of its model through the protocol of its obs_data (whose prediction items give features), or of settings' pre_time and sim_time. It writes what a sweep of no parameters writes"
+        },
+        "function": {
+          "type": "string",
+          "pattern": "^.*[^/\\\\]\\.py:[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "a figure step: \"<script>.py:<function>\", the script's path relative to this file. The function's parameters are the names of \"inputs\" and out_dir; it writes its files into out_dir and returns their paths. The script also has a main (libcuflynx.calibration_workflow.figures.figure_main), so it runs on its own on a finished run"
+        },
+        "inputs": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/figure_input"
+          },
+          "description": "a figure step: each parameter of its function by its name (a Python name), and what it is given"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "a figure step: other files its script reads or imports (helpers, a style module), relative to this file. A change to one makes the figure out of date, and they are packed with the script"
         }
       },
       "allOf": [
@@ -687,7 +949,6 @@
           },
           "then": {
             "required": [
-              "sensitivity_from",
               "settings"
             ],
             "properties": {
@@ -695,6 +956,110 @@
                 "$ref": "#/$defs/reduction_step_settings"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "reduction"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "properties": {
+                  "settings": {
+                    "properties": {
+                      "param_reduction_options": {
+                        "properties": {
+                          "method": {
+                            "const": "manual"
+                          }
+                        },
+                        "required": [
+                          "method"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "param_reduction_options"
+                    ]
+                  }
+                },
+                "required": [
+                  "settings"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "params_for_id"
+            ],
+            "not": {
+              "required": [
+                "sensitivity_from"
+              ]
+            },
+            "description": "A reduction chosen by hand (method manual) needs params_for_id, the file whose entries it keeps, and has no sensitivity_from."
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "reduction"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "not": {
+                  "properties": {
+                    "settings": {
+                      "properties": {
+                        "param_reduction_options": {
+                          "properties": {
+                            "method": {
+                              "const": "manual"
+                            }
+                          },
+                          "required": [
+                            "method"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "param_reduction_options"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "settings"
+                  ]
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "sensitivity_from"
+            ],
+            "not": {
+              "required": [
+                "params_for_id"
+              ]
+            },
+            "description": "A reduction that reads a sensitivity step needs sensitivity_from and has no params_for_id."
           }
         },
         {
@@ -731,6 +1096,66 @@
             "required": [
               "set"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "combine"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "combine_from",
+              "combine"
+            ],
+            "description": "A combine step needs combine_from (the steps it combines) and combine (its method)."
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "combine_from"
+                ]
+              },
+              {
+                "required": [
+                  "combine"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "combine"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "description": "combine_from and combine are for a combine step."
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "point"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "set"
+              }
+            }
           }
         },
         {
@@ -785,10 +1210,78 @@
           "if": {
             "properties": {
               "kind": {
+                "const": "simulate"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "model"
+                ]
+              },
+              {
+                "required": [
+                  "on_target"
+                ],
+                "properties": {
+                  "on_target": {
+                    "const": true
+                  }
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "params_for_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "params_for_id_from"
+                  ]
+                }
+              ]
+            },
+            "description": "A simulate step names its model (or \"on_target\": true) and no params_for_id."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "figure"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "function",
+              "inputs"
+            ],
+            "description": "A figure step names its function and inputs."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
                 "enum": [
                   "reduction",
                   "set",
-                  "sweep"
+                  "combine",
+                  "sweep",
+                  "simulate",
+                  "figure"
                 ]
               }
             },
@@ -819,7 +1312,7 @@
                 "params_for_id_from"
               ]
             },
-            "description": "A step that is not a reduction, set or sweep names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+            "description": "A step that is not a reduction, set, combine, sweep, simulate or figure step names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
           }
         }
       ]
@@ -836,6 +1329,36 @@
           "$ref": "#/$defs/param_reduction_options"
         }
       }
+    },
+    "figure_input": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "sweep",
+          "validation",
+          "values",
+          "progress",
+          "fit_errors",
+          "best_fit",
+          "mcmc_chain",
+          "emulator_validation",
+          "obs_data",
+          "params_for_id",
+          "sensitivity",
+          "reduction",
+          "distribution",
+          "posterior_predictive",
+          "laplace",
+          "profile_likelihood"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "\\S"
+      },
+      "description": "{\"<kind>\": \"<step id>\"}: one kind of result of one step. sweep: a sweep or simulate step's arrays; values: what a calibration or set step gave; obs_data and params_for_id: a step's files; sensitivity: Sobol indices; distribution: a stored posterior; laplace: an identifiability step's approximation"
     }
   }
 }

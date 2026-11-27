@@ -20,6 +20,7 @@ from libcuflynx.schemas import (CALIBRATION_WORKFLOW_SCHEMA, MODULE_CONFIG_SCHEM
 
 
 def _registries():
+    from libcuflynx.calibration_workflow.figures import INPUT_KINDS
     from libcuflynx.calibration_workflow.spec import ALLOWED_SETTINGS, PRIOR_KINDS, STEP_KINDS
     from libcuflynx.param_id.prediction_plots import (FEATURE_KINDS, KINDS, REDUCE_MODES,
                                                       TIME_COURSE_KINDS)
@@ -48,6 +49,9 @@ def _registries():
         (PARAMS_FOR_ID_SCHEMA, '/$defs/entryKeys/properties/prior/anyOf/0/enum'):
             list(PARAM_PRIOR_TYPES),
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/step/properties/kind/enum'): list(STEP_KINDS),
+        # the kinds of input a figure step may name
+        (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/figure_input/propertyNames/enum'):
+            list(INPUT_KINDS),
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/prior/oneOf/1/properties/kind/enum'):
             list(PRIOR_KINDS),
         (CALIBRATION_WORKFLOW_SCHEMA,

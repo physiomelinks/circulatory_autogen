@@ -22,6 +22,8 @@ import traceback
 
 import yaml
 
+from libcuflynx.utilities.paths import default_user_inputs_dir, missing_user_inputs_message
+
 #: Every stage takes its configuration from the same file, and none of them take
 #: options. Saying so in ``--help`` is the whole of the help text people need.
 CONFIG_EPILOG = (
@@ -74,6 +76,9 @@ def load_user_inputs(args):
     """
     path = getattr(args, 'user_inputs', None)
     if not path:
+        default = os.path.join(default_user_inputs_dir(), 'user_inputs.yaml')
+        if not os.path.isfile(default):
+            raise SystemExit(missing_user_inputs_message(default))
         return None
     if not os.path.isfile(path):
         raise SystemExit("user inputs file not found: %s" % path)
@@ -82,6 +87,8 @@ def load_user_inputs(args):
     if not isinstance(inp_data_dict, dict):
         raise SystemExit(
             "user inputs file %s did not parse to a mapping of settings" % path)
+    from libcuflynx.parsers.PrimitiveParsers import refuse_unknown_user_inputs_keys
+    refuse_unknown_user_inputs_keys(inp_data_dict, path)
     return inp_data_dict
 
 

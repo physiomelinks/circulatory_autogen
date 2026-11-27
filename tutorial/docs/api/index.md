@@ -1,9 +1,14 @@
 # API Reference
 
 This section documents the Python API for driving Circulatory Autogen
-programmatically — the same calls used by the
-[interactive tutorial](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/generation_and_calibration.ipynb)
-and by external tools such as the CUFLynx GUI.
+programmatically, and by external tools such as the CUFLynx GUI. The
+[interactive tutorials](https://github.com/physiomelinks/circulatory_autogen/blob/master/tutorial/interactive/)
+use it: `generation_and_calibration.ipynb` generates and simulates a model with these calls,
+then calibrates it as a calibration workflow built with `WorkflowBuilder`
+(`libcuflynx.calibration_workflow`), and `workflow_quickstart.ipynb` shows every
+`WorkflowBuilder` call on a small model. A workflow is a file, so the notebooks, the
+`cuflynx-calibration-workflow` command and CUFLynx's Workflow tab run the same study; see
+[Building a workflow in Python](../parameter-identification.md#building-a-workflow-in-python).
 
 The reference pages are generated automatically from the docstrings in
 `src/libcuflynx/`, so they stay in sync with the code.
@@ -39,6 +44,7 @@ analyse pipeline. Each links to its detailed reference page.
 | Run a simulation | [`get_simulation_helper`][libcuflynx.solver_wrappers.get_simulation_helper] / [`get_simulation_helper_from_inp_data_dict`][libcuflynx.solver_wrappers.get_simulation_helper_from_inp_data_dict] | [Simulation](solver-wrappers.md) |
 | Build observation data | [`ObsDataCreator`][libcuflynx.utilities.obs_data_helpers.ObsDataCreator] | [Observation data &amp; utilities](utilities.md) |
 | Calibrate parameters | [`CVS0DParamID`][libcuflynx.param_id.paramID.CVS0DParamID] | [Parameter identification](param-id.md) |
+| Build and run a calibration workflow | [`WorkflowBuilder`][libcuflynx.calibration_workflow.builder.WorkflowBuilder] / [`run_calibration_workflow`][libcuflynx.calibration_workflow.runner.run_calibration_workflow] | [Calibration workflows](calibration-workflow.md) |
 | Sensitivity analysis | [`SensitivityAnalysis`][libcuflynx.sensitivity_analysis.sensitivityAnalysis.SensitivityAnalysis] | [Sensitivity analysis](sensitivity.md) |
 | Identifiability analysis | [`IdentifiabilityAnalysis`][libcuflynx.identifiabilty_analysis.identifiabilityAnalysis.IdentifiabilityAnalysis] | [Identifiability analysis](identifiability.md) |
 | Run protocols standalone | [`ProtocolRunner`][libcuflynx.protocol_runners.protocol_runner.ProtocolRunner] | [Protocols](protocols.md) |
@@ -52,7 +58,7 @@ from libcuflynx.solver_wrappers import get_simulation_helper_from_inp_data_dict
 from libcuflynx.utilities.obs_data_helpers import ObsDataCreator
 from libcuflynx.param_id.paramID import CVS0DParamID
 
-# 1. Configuration (== user_inputs.yaml defaults, then mutate in code)
+# 1. Configuration (the library's defaults, then mutate in code)
 inp = get_default_inp_data_dict(file_prefix, input_param_file, resources_dir)
 inp["sim_time"], inp["pre_time"] = 2, 20.0
 
@@ -79,7 +85,21 @@ pid.simulate_with_best_param_vals()
 pid.plot_outputs()
 ```
 
-`params_for_id_dict` is a list of
-`{vessel_name, param_name, min, max, name_for_plotting}` entries (the in-memory
-equivalent of the entries of `{prefix}_params_for_id.json`); `vessel_name` may be a single name
-or a list to share one calibrated parameter across many vessels.
+`resources_dir` is a directory of your own holding the model's inputs:
+`{file_prefix}_module_array.csv` (or `.json`) and the parameters file `input_param_file`
+(`{file_prefix}_parameters.json`). The package installs no example models: copy one from the
+repository's [`resources/`](https://github.com/physiomelinks/circulatory_autogen/tree/master/resources)
+directory (for example `3compartment_module_array.csv`, `3compartment_parameters.json`,
+`3compartment_obs_data.json` and `3compartment_params_for_id.json`), or write your own (see
+[Designing a model](../design-model.md)). Generated models and results go under the current
+directory unless `generated_models_dir` and `param_id_output_dir` say otherwise.
+`get_default_inp_data_dict` fills in the library's defaults, which are not the values of the
+repository's `user_run_files/user_inputs.yaml` (for example `solver_info.MaximumStep` and
+`optimiser_options`).
+
+`params_for_id_dict` is the content of a `{prefix}_params_for_id.json` file: the whole
+`{"version": 1, "params": [...]}` document, or its list of entries
+(`{"targets": ["aortic_root/C"], "min": ..., "max": ..., "name_for_plotting": ...}`). A list of
+`{vessel_name, param_name, min, max, name_for_plotting}` entries is read too; there
+`vessel_name` may be a single name or a list to share one calibrated parameter across many
+vessels.

@@ -12,10 +12,10 @@ import pytest
 matplotlib.use("Agg")
 
 from _params_for_id import write_params_for_id
+from libcuflynx.param_id.held_entries import HeldEntries
 from libcuflynx.identifiabilty_analysis.ProfileLikelihood import (
     NLL_THRESHOLD_95,
     ProfileLikelihood,
-    _HeldEntry,
     _file_stem,
     _optimum_row,
     profile_likelihood_options,
@@ -270,13 +270,24 @@ def test_a_profile_points_optimiser_writes_no_files(tmp_path, monkeypatch, metho
 @pytest.mark.unit
 def test_the_gradient_drops_the_held_component(tmp_path):
     pid = _stub_param_id(tmp_path, "sp_minimize")
-    held = _HeldEntry(pid, 1, 2.0, [5.0, 5.0])
+    held = HeldEntries(pid, [1], [2.0], [5.0, 5.0])
     np.testing.assert_allclose(held.get_gradient([3.0, 4.0]), [6.0, 8.0])
     cost, gradient = held.get_cost_and_gradient([3.0, 4.0])
     assert cost == pytest.approx(9.0 + 4.0 + 16.0)
     np.testing.assert_allclose(gradient, [6.0, 8.0])
     for vals in pid.calls:
         np.testing.assert_allclose(vals, [3.0, 2.0, 4.0])
+
+    # several entries held: the free one is calibrated, in the param_id's order
+    pid.calls.clear()
+    two = HeldEntries(pid, [2, 0], [4.0, 3.0], [5.0])
+    assert two.free == [1] and two.reduced_info()["param_names"] == [pid.param_id_info["param_names"][1]]
+    cost, gradient = two.get_cost_and_gradient([2.0])
+    assert cost == pytest.approx(9.0 + 4.0 + 16.0)
+    np.testing.assert_allclose(gradient, [4.0])
+    np.testing.assert_allclose(pid.calls[-1], [3.0, 2.0, 4.0])
+    with pytest.raises(ValueError, match="distinct entries"):
+        HeldEntries(pid, [1, 1], [0.0, 0.0], [5.0])
 
     # L-BFGS-B descends that gradient to the other entries' lower bounds.
     _, optimum = _profile_for(pid)._optimize_with_fixed_parameter(0, 7.0)
@@ -298,7 +309,7 @@ def test_each_profile_point_warm_starts_from_its_neighbours_optimum(tmp_path, mo
     """The sweep runs outwards from the best fit, each fit starting at the last one's optimum."""
     pid = _stub_param_id(tmp_path)
     # A recognisable optimum per point: [held, held + 100].
-    fake = _FakeOptimiser(optimum=lambda held: [held.value, held.value + 100.0])
+    fake = _FakeOptimiser(optimum=lambda held: [held.values[0], held.values[0] + 100.0])
     monkeypatch.setattr(pid, "make_optimiser", fake, raising=False)
     profile = _profile_for(pid)
     profile.num_points = 5
@@ -312,7 +323,7 @@ def test_each_profile_point_warm_starts_from_its_neighbours_optimum(tmp_path, mo
     expected[1] = [values[2], values[2] + 100]
     expected[0] = [values[1], values[1] + 100]
     starts = [made["param_init"] for made in fake.made]
-    assert [made["cost_obj"].value for made in fake.made] == pytest.approx(values[order])
+    assert [made["cost_obj"].values[0] for made in fake.made] == pytest.approx(values[order])
     assert len(starts) == 5
     for point, start in zip(order, starts):
         np.testing.assert_allclose(start, expected[point])
@@ -344,9 +355,9 @@ def test_each_profile_json_has_one_optimum_row_per_point(tmp_path, monkeypatch):
     pid = _stub_param_id(tmp_path)
 
     def optimum(held):
-        if held.idx == 2 and held.value < 5.0:
+        if held.indices == [2] and held.values[0] < 5.0:
             return [np.nan, np.nan]  # a failed point: its cost is not finite
-        return [held.value, held.value + 100.0]
+        return [held.values[0], held.values[0] + 100.0]
 
     monkeypatch.setattr(pid, "make_optimiser", _FakeOptimiser(optimum=optimum), raising=False)
     profile = _profile_for(pid)

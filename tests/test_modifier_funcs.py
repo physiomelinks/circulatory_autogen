@@ -225,6 +225,28 @@ def test_theta_x0_is_the_inversion_at_the_baseline():
 
 
 @pytest.mark.unit
+def test_an_entrys_theta_is_its_nominal_in_place_of_the_identity():
+    doc = {'version': 1, 'params': [
+        {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'], 'modifier': 'scale',
+         'theta': 0.8, 'min': 0.5, 'max': 2.0},
+        {'name': 'R_scale', 'modifies': ['par/R'], 'modifier': 'scale', 'min': 0.5, 'max': 2.0}]}
+    info = _info(doc)
+    resolve_modifier_baselines(info, _FakeHelper({'aortic_root/C': 1.2e-8, 'par/C': 3e-10,
+                                                  'par/R': 4e7}))
+    nominal = np.array([99.0, 99.0])
+    apply_modifier_identity_nominals(info, nominal)
+    assert list(nominal) == [0.8, pytest.approx(1.0)]
+
+
+@pytest.mark.unit
+def test_theta_is_for_modifier_entries_only():
+    doc = {'version': 1, 'params': [
+        {'name': 'p', 'targets': ['a/x'], 'theta': 0.8, 'min': 0.0, 'max': 1.0}]}
+    with pytest.raises(ValueError, match=r'(?s)not allowed.*modifier entries only'):
+        _info(doc)
+
+
+@pytest.mark.unit
 def test_scale_x0_is_still_one_via_the_same_inversion():
     doc = {'version': 1, 'params': [
         {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'], 'modifier': 'scale',

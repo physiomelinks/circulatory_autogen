@@ -12,15 +12,12 @@ _cuflynx_dir="${BASH_SOURCE[0]%/*}"
 source "${_cuflynx_dir}/cuflynx_entry_point.sh"
 require_cuflynx cuflynx-param-id libcuflynx.scripts.param_id_run_script || exit 1
 
-"${_cuflynx_dir}/run_autogeneration.sh"
-
-# Check the exit status of the previous command
-if [ $? -eq 0 ]; then
-  echo "Autogeneration completed successfully."
-
-  mpiexec -n $1 "${cuflynx_cmd[@]}"
-
-else
-  echo "Error: Autogeneration failed. Aborting."
+# cuflynx-generate exits non-zero when generation or the generated model's validation fails:
+# there is then no model to calibrate.
+if ! "${_cuflynx_dir}/run_autogeneration.sh"; then
+  echo "Error: model generation failed (see the messages above). Not calibrating."
   exit 1
 fi
+echo "Autogeneration completed successfully."
+
+mpiexec -n "$1" "${cuflynx_cmd[@]}"

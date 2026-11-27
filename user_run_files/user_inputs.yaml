@@ -17,7 +17,7 @@ input_param_file: 3compartment_parameters.json
 # cpp generation inputs
 # model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
 # external_python.
-# The first five are generated from the vessel/module CSV arrays; external_python is the one way
+# The first five are generated from the module array and parameters file; external_python is the one way
 # to bring a model of your own -- a Python class that owns its time stepping, registered as
 # SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
 # and funcs_user/example_model_scipy/ for a small worked example.
@@ -28,8 +28,8 @@ model_type: cellml
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize, multi_start_sp_minimize]
-param_id_method: genetic_algorithm
-# param_id_method: CMA-ES
+param_id_method: CMA-ES
+# param_id_method: genetic_algorithm
 # param_id_method: sp_minimize
 # multi_start_sp_minimize runs L-BFGS-B from many scattered starts, so it uses the gradient
 # but still escapes local minima. It works for any model_type: AD gradients for casadi_python
@@ -51,10 +51,10 @@ sim_time: 2
 # and set the pre_time and sim_time accordingly.
 
 # it is recommended that users create their own CA_user directory to store input resources and output generated model files. e.g.
-# resources_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/resources
-# generated_models_dir: /home/farg967/Documents/temp/CA_temp/generated_models
-# param_id_output_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/param_id_output
-# external_modules_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/module_config
+# resources_dir: /path/to/my_study/resources
+# generated_models_dir: /path/to/my_study/generated_models
+# param_id_output_dir: /path/to/my_study/param_id_output
+# external_modules_dir: /path/to/my_study/module_config
 # module_library_dirs: [/path/to/circulatory-autogen-modules/modules]  # searched recursively
 # use_builtin_modules: false  # only use external modules / module libraries
 
@@ -79,13 +79,10 @@ sim_time: 2
 
 
 # This is for cpp generation
-# cpp_generated_models_dir: /home/farg967/software/venous_system/lucas_model/fvm
-cpp_generated_models_dir: 
-  /home/farg967/Documents/git_projects/circulatory_autogen/generated_models/3compartment/
+# cpp_generated_models_dir: /abs/path/to/where/the/cpp/files/go  # default: the model's folder in generated_models_dir
 # This is for cpp_coupling
 couple_to_1d: false
-cpp_1d_model_config_path: 
-  /home/farg967/software/venous_system/lucas_model/aortic_bif_coupling/run_dir/input1d.dat
+# cpp_1d_model_config_path: /abs/path/to/input1d.dat  # needed when couple_to_1d is true
 
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
@@ -99,13 +96,12 @@ solver_info:
   # method: RK45 # any method for solve_ivp
   # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
-# param_id_obs_path needs to be an absolute path.
-# This for 3compartment
-param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/resources/3compartment_obs_data.json
-# param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/resources/3compartment_obs_data.json
-# param_id_obs_path: 
-#   /home/farg967/Documents/git_projects/circulatory_autogen/resources/SN_simple_obs_data.json
-# param_id_obs_path: /hpc/bghi639/Software/circulatory_autogen/resources/simple_physiological_nonlinear_visco_obs_data.json
+# param_id_obs_path is the obs_data file to calibrate against: an absolute path, or a path
+# relative to the directory the run is started from (to this file's directory when it is named
+# by user_inputs_path_override). A relative path that is not there is then taken from the user
+# directory ($CUFLYNX_USER_DIR, else this checkout, else the current directory).
+param_id_obs_path: resources/3compartment_obs_data.json
+# param_id_obs_path: resources/SN_simple_obs_data.json
 
 #_______ sensitivity analysis inputs __________
 do_sensitivity: false
@@ -141,7 +137,7 @@ debug_optimiser_options:
 # `method` selects the UQ method.
 do_uq: false
 UQ_options:
-  method: mcmc         # only 'mcmc' so far
+  method: mcmc         # 'mcmc' or 'laplace' (a Gaussian about the best fit)
   library: emcee       # sampler backend for method: mcmc
   num_steps: 1000
   num_walkers: 64

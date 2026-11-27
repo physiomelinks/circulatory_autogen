@@ -10,6 +10,7 @@ import re
 import traceback
 import yaml
 import numpy as np
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.paths import default_user_inputs_dir
 
 user_inputs_dir = default_user_inputs_dir()
@@ -51,15 +52,15 @@ def _is_cellml2_model_with_libcellml(model_path):
 
 def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                    inp_data_dict=None):
-    """Generate a model from the vessel and parameter CSV arrays.
+    """Generate a model from its module array and parameters file.
 
-    Reads the vessel/module and parameter CSV arrays referenced by the config
+    Reads the module array (CSV or JSON) and the parameters file (JSON) the config names
     and emits a flat model in the configured ``model_type`` (CellML, Python, C++
     or CasADi) into the generated-models directory.
 
     Args:
         do_generation_with_fit_parameters: If True, regenerate using previously
-            fitted parameters instead of the defaults in the parameters CSV.
+            fitted parameters instead of the values in the parameters file.
         inp_data_dict: Configuration dict (see
             [`get_default_inp_data_dict`][utilities.utility_funcs.get_default_inp_data_dict]).
             If None, the values are loaded from ``user_inputs.yaml``.
@@ -118,7 +119,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                     calibrated_cellml_path
                 )
                 inp_data_dict['model_path'] = calibrated_cellml_path
-                return
+                return True
         
         parser = CSV0DModelParser(inp_data_dict, parameter_id_dir=param_id_output_dir_abs_path)
     else:
@@ -156,6 +157,11 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         solver_cpp = solver_info.get('solver', 'CVODE')
         print(f"Using Cpp solver: {solver_cpp}")
         dtSample = inp_data_dict['dt']
+        if 'dt_solver' not in solver_info:
+            raise ValueError(
+                f'model_type cpp with solver {solver_cpp} needs solver_info.dt_solver, the step '
+                f'of the generated C++ solver (for CVODE, the interval at which it returns). Add '
+                f'it under solver_info in user_inputs.yaml, e.g. dt_solver: {dtSample}.')
         dtSolver = solver_info['dt_solver']
         nMaxSteps = solver_info['MaximumNumberOfSteps']
         # The generated C++ used to hardcode its tolerances, so these were the one part of
@@ -176,8 +182,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 if 'cpp_1d_model_config_path' in inp_data_dict:
                     model_1d_config_path = inp_data_dict['cpp_1d_model_config_path']
                 else:
-                    print("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
-                    exit()
+                    raise CAInputError("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
             if 'cpp_generated_models_dir' in inp_data_dict:
                 cpp_generated_models_dir = inp_data_dict['cpp_generated_models_dir']
             else:
@@ -222,9 +227,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                                         conn_1d_0d_info=parser.conn_1d_0d_info)
                     elif inp_data_dict['solver_1d_type'].startswith('cpp'):
                         #XXX This would use the class CVS1DCppGenerator() that Finbar was working on.
-                        sys.exit('ERROR :: Class for generating Cpp files for 1D model not yet implemented. Please change your 1D solver type.')
+                        raise CAInputError('Class for generating Cpp files for 1D model not yet implemented. Please change your 1D solver type.')
                 else:
-                    sys.exit('ERROR :: solver_1d_type not found in user input yaml file. Please specify your 1D solver type.')
+                    raise CAInputError('solver_1d_type not found in user input yaml file. Please specify your 1D solver type.')
 
             if DEBUG:
                 print("Check point 3A")
@@ -273,21 +278,22 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
 def main(argv=None):
     """Entry point for the ``cuflynx-generate`` command."""
     parser = _cli.build_parser(
-        'Generate a model from the vessel/module and parameter CSV arrays, in the configured '
+        'Generate a model from its module array and parameters file, in the configured '
         'model_type (CellML, Python, C++ or CasADi).')
     parser.add_argument(
         'with_fit_parameters', nargs='?', default=False, type=_cli.boolean,
         metavar='True|False',
         help='regenerate using the parameter values a previous calibration fitted, instead of '
-             'the defaults in the parameters CSV (default: False)')
+             'the values in the parameters file (default: False)')
     args = parser.parse_args(argv)
 
-    # Deliberately not `return 0 if success else 1`: generation has always exited 0 whether
-    # or not it succeeded (one branch returns None outright), and run_param_id.sh tests that
-    # status. Turning a False return into a non-zero exit here would silently change which
-    # runs continue past generation, which belongs in its own change.
-    generate_with_new_architecture(
+    # A failed generation (validation included) exits 1, so a launcher such as
+    # run_param_id.sh stops before calibrating a model that was not written.
+    success = generate_with_new_architecture(
         args.with_fit_parameters, _cli.load_user_inputs(args))
+    if not success:
+        print('Model generation failed: see the messages above.', file=sys.stderr)
+        return 1
     return 0
 
 

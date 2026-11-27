@@ -140,9 +140,9 @@ def _edit(library, edit):
     (lambda w: w['steps'][0].update(target=w['steps'][0]['model']), r"steps\[0\] \('fit_a'\): .*'target' was unexpected"),
     (lambda w: w['steps'][0].pop('obs_data'), r"'obs_data' is a required property"),
     (lambda w: w.pop('target'), r"'target' is a required property"),
-    (lambda w: w['steps'][0].update(vessel_map={'A': 'B'}), '"vessel_map" is for a module-array'),
-    (lambda w: w['steps'][0].update(model='a_module_array.csv', vessel='A'),
-     '"vessel" place a library module'),
+    (lambda w: w['steps'][0].update(module_map={'A': 'B'}), '"module_map" is for a module-array'),
+    (lambda w: w['steps'][0].update(model='a_module_array.csv', module='A'),
+     '"module" place a library module'),
     (lambda w: w['settings'].update(param_id_obs_path='x.json'), 'cannot be set'),
     (lambda w: w['steps'][1].update(priors_from=['fit_a'], fixed_from=[]),
      'does not store its distribution'),
@@ -214,6 +214,43 @@ def test_plan_names_every_parameter_in_the_target(library):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize('which, fit_p, fit_q', [('chain_rest', 'fit_a', 'rest'),
+                                                 ('chain_array', 'a-alone', 'chain')])
+def test_the_plan_lists_every_value_of_the_target_and_what_calibrates_it(library, which, fit_p,
+                                                                         fit_q):
+    values = {v['name']: v for v in plan_workflow(library[which])['target_values']}
+    assert list(values) == ['A/p', 'C/q', 'C/k']
+    assert [values[n]['calibrated_by'] for n in values] == [[fit_p], [fit_q], []]
+    assert values['C/k'] == {'name': 'C/k', 'value': 1.0, 'units': 'dimensionless',
+                             'origin': None, 'reason': '', 'calibrated_by': [], 'source': '',
+                             'data_reference': 'doe2020gain; Table 1: the gain of C'}
+
+
+@pytest.mark.unit
+def test_the_plan_lists_a_module_arrays_library_values_by_their_libraries_origin(library):
+    # the target's parameters file leaves C/k to lin_c's default parameterisation, which records
+    # where its value comes from
+    target_path = os.path.join(library['arrays'], 'chain_parameters.json')
+    target = _read_json(target_path)
+    del target['C']['k']
+    _write_json(target_path, target)
+    library_path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1',
+                                'parameterisations', 'default', 'default_parameters.json')
+    module = _read_json(library_path)
+    module['k'].update(origin='measured', data_reference='smith2024; Fig. 2')
+    _write_json(library_path, module)
+
+    values = {v['name']: v for v in plan_workflow(library['chain_array'])['target_values']}
+    assert list(values) == ['A/p', 'C/q', 'C/k']
+    assert values['C/k'] == {'name': 'C/k', 'value': 1.0, 'units': 'dimensionless',
+                             'origin': 'measured', 'reason': '', 'calibrated_by': [],
+                             'source': 'lin_c/v1 parameterisation default',
+                             'data_reference': 'smith2024; Fig. 2'}
+    # what the target's own file sets is its own, though the library sets it too
+    assert values['C/q']['source'] == '' and values['C/q']['calibrated_by'] == ['chain']
+
+
+@pytest.mark.unit
 def test_every_step_needs_its_own_params_for_id(library):
     os.remove(os.path.join(library['lin_b/fit_b'], 'fit_b_params_for_id.json'))
     with pytest.raises(WorkflowError, match='params_for_id file .* does not exist'):
@@ -228,9 +265,9 @@ def _library_step(library, step_id, module_type, name):
             'params_for_id': os.path.join(directory, f'{name}_params_for_id.json')}
 
 
-def _with_joint_step(library):
+def _with_joint_step(library, **keys):
     raw = _raw(library, 'twin_split')
-    raw['steps'].append(_library_step(library, 'joint', 'twin', 'joint'))
+    raw['steps'].append(dict(_library_step(library, 'joint', 'twin', 'joint'), **keys))
     path = os.path.join(library['twin/split'], 'recalibrated_workflow.json')
     with open(path, 'w') as f:
         json.dump(raw, f)
@@ -238,20 +275,27 @@ def _with_joint_step(library):
 
 
 @pytest.mark.unit
-def test_a_parameter_calibrated_twice_warns_and_points_to_priors(library):
-    with pytest.warns(UserWarning) as caught:
-        resolve_workflow(load_workflow(_with_joint_step(library)))
-    message = str(caught[0].message)
-    assert '2 parameter(s)' in message
-    assert '"p_mod__A" by \'fit_a\', then \'joint\' (the value of \'joint\' is used)' in message
-    assert '"priors_from"' in message
+def test_a_parameter_calibrated_by_unrelated_steps_is_refused(library):
+    """joint calibrates p of A and of B, as fit_a and fit_b do, and takes from neither: the
+    target would be given two values of each. A step that takes from the others replaces
+    theirs, with no warning."""
+    import warnings
+    with pytest.raises(WorkflowError) as refused:
+        resolve_workflow(load_workflow(_with_joint_step(library)), target_overlap='error')
+    message = str(refused.value)
+    assert 'the target twin/v1/split is given 2 parameter(s)' in message
+    assert '"p_mod__A" by \'fit_a\' and \'joint\'' in message
+    assert '"p_mod__B" by \'fit_b\' and \'joint\'' in message
+    assert '"kind": "combine", "combine_from": ["fit_a", "joint"]' in message
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(load_workflow(_with_joint_step(library, fixed_from=['fit_a', 'fit_b'])))
 
 
 @pytest.mark.integration
 def test_the_later_calibration_of_a_parameter_is_merged(library, tmp_path):
-    with pytest.warns(UserWarning, match='more than one step'):
-        result = run_calibration_workflow(_with_joint_step(library),
-                                          output_dir=str(tmp_path / 'run'))
+    result = run_calibration_workflow(_with_joint_step(library, fixed_from=['fit_a', 'fit_b']),
+                                      output_dir=str(tmp_path / 'run'))
     assert result['complete']
     sources = {r['parameterisation_name']: r['from_step'] for r in result['merged_parameters']}
     assert sources == {'A/p': 'joint', 'B/p': 'joint'}
@@ -263,9 +307,7 @@ def test_a_step_calibrates_a_parameter_it_would_be_given_fixed(library, tmp_path
     params = os.path.join(library['chain/rest'], 'rest_params_for_id.json')
     write_params_for_id(params, params_for_id_entries(params) + [
         {'targets': ['mod/A/p'], 'min': 0.1, 'max': 5.0, 'name_for_plotting': 'p_mod__A'}])
-    with pytest.warns(UserWarning, match='more than one step'):
-        result = run_calibration_workflow(library['chain_rest'],
-                                          output_dir=str(tmp_path / 'run'))
+    result = run_calibration_workflow(library['chain_rest'], output_dir=str(tmp_path / 'run'))
     sources = {r['parameterisation_name']: r['from_step'] for r in result['merged_parameters']}
     assert sources == {'A/p': 'rest', 'C/q': 'rest'}
     step = _read_json(str(tmp_path / 'run' / 'rest' / 'step_result.json'))
@@ -479,11 +521,12 @@ def test_calibrating_independent_parts_apart_matches_calibrating_them_together(l
     for step_id, param_vessel in (('fit_a', 'mod'), ('fit_b', 'mod')):
         step = _read_json(str(tmp_path / 'split' / step_id / 'step_result.json'))
         assert step['inputs']['params_for_id']['path'].endswith(f'{step_id}_params_for_id.json')
-        snapshots = [f for f in os.listdir(step['param_id_output_dir'])
-                     if f.startswith(f'{step_id}_params_for_id_') and f.endswith('.json')]
-        assert len(snapshots) == 1
-        entries = params_for_id_entries(
-            os.path.join(step['param_id_output_dir'], snapshots[0]))
+        # the copy the run used: the one its manifest names, in the working dir's inputs/
+        from libcuflynx.utilities.cuflynx_study import read_study
+        study = read_study(os.path.join(os.path.dirname(step['param_id_output_dir']),
+                                        f'{step_id}_cuflynx_study.json'))
+        assert os.path.basename(study['params_for_id']) == f'{step_id}_params_for_id.json'
+        entries = params_for_id_entries(study['params_for_id'])
         assert [e['targets'] for e in entries] == [[f'{param_vessel}/p']]
         assert [c['model_name'] for c in step['calibrated']] == ['p_mod']
 
@@ -810,9 +853,9 @@ def test_a_vessel_map_renames_a_module_array_into_the_target(library):
                           'name_for_plotting': 'p'}])
     raw = _raw(library, 'chain_array')
     raw['steps'][0].update(model='aorta_module_array.json', params_for_id='data/aorta_params.json')
-    with pytest.raises(WorkflowError, match='lands on vessel "aorta"'):
+    with pytest.raises(WorkflowError, match='lands on module "aorta"'):
         resolve_workflow(parse_workflow(raw, path=library['chain_array']))
-    raw['steps'][0]['vessel_map'] = {'aorta': 'A'}
+    raw['steps'][0]['module_map'] = {'aorta': 'A'}
     steps = {s['id']: s for s in plan_workflow(parse_workflow(raw, path=library['chain_array']))
              ['steps']}
     assert steps['a-alone']['calibrates'][0]['target_model_name'] == 'p_A'
@@ -830,7 +873,7 @@ def test_a_library_module_is_placed_in_a_module_array_target(library):
     assert steps['a-alone']['place'] == 'A'
     assert steps['a-alone']['calibrates'][0]['target_model_name'] == 'p_A'
     assert steps['chain']['fixed_from'][0]['in_step'] == 'p_A'
-    raw['steps'][0]['vessel'] = 'C'
+    raw['steps'][0]['module'] = 'C'
     with pytest.raises(WorkflowError, match=r"lin_a v1 is at \['A'\]"):
         resolve_workflow(parse_workflow(raw, path=library['chain_array']))
 
@@ -976,7 +1019,7 @@ def _reduce_options(raw):
     (lambda w: _steps(w)['screen'].update(kind='screening'), r"kind: 'screening' is not one of"),
     (lambda w: _steps(w)['reduce'].update(model=_steps(w)['screen']['model']),
      "a reduction step reads a sensitivity step's results and has no \['model'\]"),
-    (lambda w: _steps(w)['reduce'].pop('sensitivity_from'), r"'sensitivity_from' is a required property"),
+    (lambda w: _steps(w)['reduce'].pop('sensitivity_from'), "needs sensitivity_from and has no params_for_id"),
     (lambda w: _reduce_options(w).update(n_params=0), r"n_params: 0 is less than the minimum of 1"),
     (lambda w: _reduce_options(w).update(criterion='median'), r"criterion: 'median' is not one of"),
     (lambda w: _reduce_options(w).update(method='pca', criterion='mean'),
@@ -998,7 +1041,6 @@ def _reduce_options(raw):
     (lambda w: _steps(w)['screen']['settings']['sa_options'].update(method='local'),
      'reads Sobol indices'),
     (lambda w: _steps(w)['screen'].update(settings={}), 'needs "sa_options"'),
-    (lambda w: _steps(w)['ia'].pop('result_from'), 'needs "result_from"'),
     (lambda w: _steps(w)['ia'].update(result_from='screen'),
      '"result_from" names "screen", a sensitivity step'),
     (lambda w: _steps(w)['fit'].update(fixed_from=['screen']),
@@ -1154,7 +1196,12 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # only calibrations land in the target
     assert plan['screen']['calibrates'] == [] and plan['ia']['calibrates'] == []
 
-    result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = run_calibration_workflow(library['chain_analysed'], output_dir=out)
+    # screen's p_A is only a candidate of fit: reduce keeps q alone, so p_A is fit_a's alone
+    assert not [w for w in caught if 'more than one step' in str(w.message)]
     assert result['complete'] and result['order'] == ['fit_a', 'screen', 'reduce', 'fit', 'ia']
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
 
@@ -1176,8 +1223,22 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # the Laplace analysis is at fit's q: dz/dq = 2 q, so std(q) = STD_C / (2 q) (to the
     # finite-difference error; at the model's own q = 1 it would be three times as wide)
     ia = step('ia')
+    # every step that runs a solver records the solver settings it ran with
+    for sid in ('fit_a', 'screen', 'fit', 'ia'):
+        assert step(sid)['solver_info']['solver'] == 'CVODE_myokit', sid
     q = np.sqrt(Z_C - Y_A)
     assert ia['at'] == pytest.approx([q], rel=1e-5)
+    # q is the point analysed, in `at`; only what ia does not analyse is fixed, in the result
+    # and in the tab's view, whose model has both
+    from libcuflynx.calibration_workflow import workflow_model
+    assert [(f['model_name'], f['from_step']) for f in ia['fixed']] == [('p_mod__A', 'fit_a')]
+    view = workflow_model(library['chain_analysed'], 'ia', output_dir=out,
+                          work_dir=str(tmp_path / 'views'))
+    assert [(f['model_name'], f['from_step']) for f in view['fixed']] == [('p_mod__A', 'fit_a')]
+    in_view = {r['variable_name']: float(r['value'])
+               for r in model_parameter_rows(view['parameters_path'])}
+    assert in_view['q_mod__C'] == pytest.approx(q, rel=1e-5)
+    assert in_view['p_mod__A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
     assert ia['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
 
     # the manifest lists every step's kind, what it took from where, and its outputs
@@ -1207,6 +1268,76 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
 
 
 @pytest.mark.unit
+def test_an_identifiability_step_gets_the_user_operation_its_obs_data_names(library, tmp_path):
+    """The identifiability stage was built without the user-funcs paths, so an obs_data naming
+    a user operation failed there only."""
+    raw = _raw(library, 'chain_analysed')
+    ops = tmp_path / 'my_ops.py'
+    ops.write_text('import numpy as np\n'
+                   'from libcuflynx.param_id.operation_funcs import series_to_constant\n\n\n'
+                   '@series_to_constant\n'
+                   'def my_mean(x, series_output=False):\n'
+                   '    if series_output:\n'
+                   '        return x\n'
+                   '    return float(np.mean(x))\n')
+    obs = _read_json(os.path.join(os.path.dirname(library['chain_analysed']),
+                                  'screened_obs_data.json'))
+    obs['data_items'][0]['operation'] = 'my_mean'
+    obs_path = os.path.join(os.path.dirname(library['chain_analysed']), 'ia_user_op_obs.json')
+    _write_json(obs_path, obs)
+    ia = next(s for s in raw['steps'] if s['id'] == 'ia')
+    ia['obs_data'] = 'ia_user_op_obs.json'
+    ia['settings']['operation_funcs_external_path'] = str(ops)
+    path = os.path.join(os.path.dirname(library['chain_analysed']), 'ia_user_op_workflow.json')
+    _write_json(path, raw)
+    result = run_calibration_workflow(path, output_dir=str(tmp_path / 'run'))
+    assert result['complete']
+    ia_result = _read_json(os.path.join(str(tmp_path / 'run'), 'ia', 'step_result.json'))
+    q = np.sqrt(Z_C - Y_A)
+    assert ia_result['laplace']['std'] == pytest.approx([STD_C / (2 * q)], rel=1e-2)
+
+
+@pytest.mark.unit
+def test_a_value_a_reduction_kept_is_checked_after_the_run(library, tmp_path):
+    """Whether a step fitting a reduction's choice calibrates a parameter is known only once the
+    reduction ran, so the merge checks it. A set step replaces the value with no warning; an
+    unrelated calibration of it is refused, and a combine step of the two settles it."""
+    import warnings
+    from libcuflynx.calibration_workflow.resolve import resolve_workflow
+    raw = _raw(library, 'chain_analysed')
+    raw['steps'].append({'id': 'by_hand', 'kind': 'set', 'set': [
+        {'parameter': 'mod__C/q', 'value': 2.5, 'reason': 'the slider position'}]})
+    path = os.path.join(library['chain/screened'], 'by_hand.json')
+    _write_json(path, raw)
+    out = str(tmp_path / 'run')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', category=UserWarning)
+        resolve_workflow(parse_workflow(raw, path=path))   # q is only a candidate of fit here
+    result = run_calibration_workflow(path, output_dir=out)
+    assert _merged(result)['C/q'] == 2.5
+
+    # q alone clashes: p_A was a candidate of fit, which the reduction left out
+    raw['steps'][-1] = dict(_library_step(library, 'other', 'chain', 'rest'),
+                            fixed_from=['fit_a'])
+    _write_json(path, raw)
+    resolve_workflow(parse_workflow(raw, path=path))
+    with pytest.raises(WorkflowError, match=r'is given 1 parameter\(s\) by steps that do not '
+                                            r'take from each other: "q_mod__C" by \'fit\' and '
+                                            r'\'other\''):
+        run_calibration_workflow(path, output_dir=out, stale_only=True)
+    assert not os.path.isfile(os.path.join(out, 'workflow_result.json')) or \
+        'other' not in _read_json(os.path.join(out, 'workflow_result.json'))['order']
+
+    raw['steps'].append({'id': 'both', 'kind': 'combine', 'combine_from': ['fit', 'other'],
+                         'combine': {'method': 'mean'}})
+    _write_json(path, raw)
+    result = run_calibration_workflow(path, output_dir=out, stale_only=True)
+    steps = {s: _read_json(os.path.join(out, s, 'step_result.json')) for s in ('fit', 'other')}
+    assert _merged(result)['C/q'] == pytest.approx(
+        np.mean([steps[s]['calibrated'][0]['value'] for s in steps]))
+
+
+@pytest.mark.unit
 def test_steps_on_an_emulator_run_the_emulation_steps_model(library, tmp_path):
     pytest.importorskip('autoemulate')
     raw = _emulated(library)
@@ -1217,6 +1348,7 @@ def test_steps_on_an_emulator_run_the_emulation_steps_model(library, tmp_path):
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
     emulate = step('emulate')
     assert os.path.isdir(emulate['emulator_dir'])
+    assert emulate['solver_info']['solver'] == 'CVODE_myokit'
     # rest runs a copy of emulate's model, so the emulator's fingerprint of it matches
     rest = step('rest')
     assert os.path.basename(rest['model_path']) == 'emulate.cellml'
@@ -1275,6 +1407,34 @@ def test_a_packed_workflow_runs_without_the_files_it_was_packed_from(tmp_path, w
 
 
 @pytest.mark.unit
+def test_a_module_version_s_test_output_is_not_packed(tmp_path):
+    """A module library's tests write results/, plots/ and an HTML report into each version
+    directory: local output, not part of the module, and most of an archive's size."""
+    from libcuflynx.calibration_workflow import pack_workflow
+    root = tmp_path / 'library'
+    library = build_workflow_library(str(root))
+    (version,) = [os.path.join(found, 'v1') for found, dirs, _ in os.walk(str(root))
+                  if os.path.basename(found) == 'versions'
+                  and os.path.basename(os.path.dirname(found)) == 'lin_a' and 'v1' in dirs]
+    output = [os.path.join('results', 'run_test.json'),
+              os.path.join('results', 'instances', 'default.json'),
+              os.path.join('plots', 'bc_sweep.png'), 'lin_a_v1.html']
+    kept = os.path.join('parameterisations', 'results', 'notes.txt')
+    for relative in output + [kept]:
+        path = os.path.join(version, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f:
+            f.write('x')
+
+    packed = pack_workflow(library['chain_analysed'], str(tmp_path / 'pack'))
+    in_pack = os.path.join('modules', 'lin_a', 'versions', 'v1')
+    assert os.path.join(in_pack, kept) in packed['files'], 'only the version\'s own output goes'
+    for relative in output:
+        assert os.path.join(in_pack, relative) not in packed['files'], relative
+    assert packed['files'] == _files_under(str(tmp_path / 'pack'))
+
+
+@pytest.mark.unit
 def test_settings_paths_are_relative_to_the_workflow_and_are_packed(library, tmp_path):
     from libcuflynx.calibration_workflow import pack_workflow
     from libcuflynx.scripts.calibration_workflow_run_script import build_parser, run
@@ -1302,6 +1462,95 @@ def test_settings_paths_are_relative_to_the_workflow_and_are_packed(library, tmp
         assert f.read() == '# user operation funcs\n'
     with pytest.raises(ValueError, match='not empty'):
         pack_workflow(path, pack)
+
+
+def _stale_steps(workflow_path, out):
+    from libcuflynx.calibration_workflow import workflow_status
+    return {s: v['stale'] for s, v in workflow_status(workflow_path, out)['steps'].items()}
+
+
+@pytest.mark.unit
+def test_a_packed_run_with_its_funcs_stays_current_wherever_it_is_unzipped(library, tmp_path):
+    from libcuflynx.calibration_workflow import pack_workflow
+    raw = _raw(library, 'chain_array')
+    funcs = os.path.join(library['arrays'], 'funcs', 'operation_funcs_chain.py')
+    os.makedirs(os.path.dirname(funcs))
+    with open(funcs, 'w') as f:
+        f.write('# the study\'s operation funcs\n')
+    raw['settings']['operation_funcs_external_path'] = 'funcs/operation_funcs_chain.py'
+    path = os.path.join(library['arrays'], 'with_funcs.json')
+    _write_json(path, raw)
+    packed = pack_workflow(path, str(tmp_path / 'pack'))
+    assert 'settings/operation_funcs_external_path/operation_funcs_chain.py' in packed['files']
+    run_calibration_workflow(packed['workflow'], output_dir=str(tmp_path / 'pack' / 'run'))
+    assert _stale_steps(packed['workflow'], str(tmp_path / 'pack' / 'run')) == {
+        'a-alone': False, 'chain': False}
+
+    # unzipped somewhere else: the funcs file's path changed, its content did not
+    os.rename(str(tmp_path / 'pack'), str(tmp_path / 'unzipped'))
+    moved = str(tmp_path / 'unzipped' / 'calibration_workflow.json')
+    out = str(tmp_path / 'unzipped' / 'run')
+    assert _stale_steps(moved, out) == {'a-alone': False, 'chain': False}
+    # its content still counts
+    with open(str(tmp_path / 'unzipped' / 'settings' / 'operation_funcs_external_path' /
+                  'operation_funcs_chain.py'), 'a') as f:
+        f.write('# edited\n')
+    assert _stale_steps(moved, out) == {'a-alone': True, 'chain': True}
+
+
+@pytest.mark.unit
+def test_a_note_or_origin_edit_leaves_steps_current_and_reaches_the_outputs(library, tmp_path):
+    out = str(tmp_path / 'run')
+    first = run_calibration_workflow(library['chain_array'], output_dir=out,
+                                     write_calibrated=True)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': False}
+
+    # the target's parameters file (the chain step's own) and a library parameterisation
+    target_path = os.path.join(library['arrays'], 'chain_parameters.json')
+    target = _read_json(target_path)
+    target['C']['k'].update(data_reference='smith2024; Fig. 2', origin='measured')
+    _write_json(target_path, target)
+    library_path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1',
+                                'parameterisations', 'default', 'default_parameters.json')
+    module = _read_json(library_path)
+    for leaf in module.values():
+        if isinstance(leaf, dict) and 'value' in leaf:
+            leaf['data_reference'] = 'a note on the library value'
+    _write_json(library_path, module)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': False}
+
+    # nothing reruns, and the calibrated parameters show the edited note and origin
+    events = []
+    result = run_calibration_workflow(library['chain_array'], output_dir=out, stale_only=True,
+                                      write_calibrated=True, progress=events.append)
+    assert [e['step'] for e in events if e['event'] == 'step_started'] == []
+    assert _merged(result) == _merged(first)
+    k = _read_json(result['calibrated_parameters_file'])['C']['k']
+    assert (k['data_reference'], k['origin']) == ('smith2024; Fig. 2', 'measured')
+
+    # a value is what a step runs with: editing one makes the step that reads it stale
+    target['C']['k']['value'] = 2.0
+    _write_json(target_path, target)
+    assert _stale_steps(library['chain_array'], out) == {'a-alone': False, 'chain': True}
+
+
+@pytest.mark.unit
+def test_a_module_directorys_digest_counts_its_parameterisations_values_only(library):
+    # the module library's digest, and an external_modules_dir's (which is digested the same way)
+    from libcuflynx.calibration_workflow.runner import module_library_digest, parameters_digest
+    path = os.path.join(library['modules'], 'lin_c', 'versions', 'v1', 'parameterisations',
+                        'default', 'default_parameters.json')
+    before = (module_library_digest([library['modules']]), parameters_digest(path))
+    module = _read_json(path)
+    module['k'].update(origin='measured', data_reference='smith2024', reason='a note')
+    _write_json(path, module)
+    assert (module_library_digest([library['modules']]), parameters_digest(path)) == before
+    for key, value in (('value', 2.0), ('units', 'second')):
+        edited = copy.deepcopy(module)
+        edited['k'][key] = value
+        _write_json(path, edited)
+        assert module_library_digest([library['modules']]) != before[0]
+        assert parameters_digest(path) != before[1]
 
 
 @pytest.mark.unit
@@ -1349,7 +1598,8 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     study = read_study(os.path.join(out, 'posterior', 'param_id',
                                     'posterior_cuflynx_study.json'))
     assert study['emulator'] == emulate['emulator_dir']
-    assert study['runs'][0]['analyses'] == ['CMA-ES', 'mcmc']
+    # newest first: the MCMC run, then the calibration it followed, a directory each
+    assert [run['analyses'] for run in study['runs'][:2]] == [['mcmc'], ['CMA-ES']]
 
     # dz/dq = 2 q at q = 3, so sd(q) = STD_C / 6; the emulator is good to about 1 %
     distribution = StoredDistribution.load(posterior['distribution_dir'])
@@ -1386,3 +1636,108 @@ def test_new_style_reduction_set_and_sweep_steps_validate_together(library):
     workflow = parse_workflow(raw, path=library['chain_analysed'])
     assert [workflow.step(i).kind for i in ('reduce', 'hand', 'dose')] == [
         'reduction', 'set', 'sweep']
+
+
+def _hand_then_rest(library, fixed_from):
+    """chain/rest with a point set step giving A's p and C's gain k, and ``rest`` fixing
+    ``fixed_from`` of it: with k = 1.44 fixed q fits (Z_C - Y_A) / 1.44, without it Z_C - Y_A."""
+    raw = _raw(library)
+    rest = raw['steps'][1]
+    rest['fixed_from'] = fixed_from
+    raw['steps'] = [{'id': 'hand', 'kind': 'set', 'point': True, 'set': [
+        {'parameter': 'mod__A/p', 'value': float(np.sqrt(Y_A / 2)), 'reason': 'the fit of A'},
+        {'parameter': 'mod__C/k', 'value': 1.44, 'reason': 'a gain to leave out'}]}, rest]
+    path = os.path.join(library['chain/rest'], 'hand.json')
+    _write_json(path, raw)
+    return path
+
+
+@pytest.mark.unit
+def test_fixed_from_with_parameters_fixes_only_those_values(library, tmp_path):
+    subset = [{'step': 'hand', 'parameters': ['p_mod__A']}]
+    path = _hand_then_rest(library, subset)
+    workflow = load_workflow(path)
+    assert workflow.step('rest').fixed_from == ['hand']
+    assert workflow.step('rest').sources()['fixed_from'] == ['hand']
+    assert workflow.step('rest').depends_on == ['hand']
+    plan = {s['id']: s for s in plan_workflow(path)['steps']}
+    assert plan['rest']['fixed_from'] == [{'from_step': 'hand', 'model_name': 'p_mod__A',
+                                           'in_step': 'p_mod__A'}]
+
+    from libcuflynx.calibration_workflow import workflow_model
+    out = str(tmp_path / 'subset')
+    run_calibration_workflow(path, output_dir=out)
+    rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
+    assert [f['model_name'] for f in rest['fixed']] == ['p_mod__A']
+    assert rest['calibrated'][0]['value'] == pytest.approx(np.sqrt(Z_C - Y_A), rel=1e-3)
+    view = workflow_model(path, 'rest', output_dir=out, work_dir=str(tmp_path / 'views'))
+    assert [f['model_name'] for f in view['fixed']] == ['p_mod__A']
+
+    # the string form still fixes every value: k too, so q fits another value
+    out = str(tmp_path / 'all')
+    run_calibration_workflow(_hand_then_rest(library, ['hand']), output_dir=out)
+    rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
+    assert sorted(f['model_name'] for f in rest['fixed']) == ['k_mod__C', 'p_mod__A']
+    assert rest['calibrated'][0]['value'] == pytest.approx(np.sqrt((Z_C - Y_A) / 1.44), rel=1e-3)
+
+
+@pytest.mark.unit
+def test_fixed_from_with_parameters_gives_no_value_the_source_was_itself_given(library,
+                                                                                tmp_path):
+    """A subset names the source's own values: what the source was given as fixed is not
+    passed on, and cannot be named."""
+    raw = _raw(library)
+    fit_a, rest = raw['steps']
+    again = dict(rest, id='again', fixed_from=[{'step': 'rest', 'parameters': ['q_mod__C']}])
+    raw['steps'] = [fit_a, rest, again]
+    path = os.path.join(library['chain/rest'], 'again.json')
+    _write_json(path, raw)
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(path, output_dir=out)
+    # again calibrates q itself, so the one value it asked for is not fixed, and p of fit_a
+    # (which rest was given) does not come through rest
+    assert _read_json(os.path.join(out, 'again', 'step_result.json'))['fixed'] == []
+    assert [f['model_name'] for f in
+            _read_json(os.path.join(out, 'rest', 'step_result.json'))['fixed']] == ['p_mod__A']
+
+    again['fixed_from'] = [{'step': 'rest', 'parameters': ['p_mod__A']}]
+    with pytest.raises(WorkflowError, match=r"fixes \['p_mod__A'\] from \"rest\", which \"rest\" "
+                                            r"does not calibrate or set.*\['q_mod__C'\]"):
+        resolve_workflow(parse_workflow(raw, path=path))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('fixed_from, message', [
+    ([{'step': 'hand', 'parameters': ['nope']}],
+     r"fixes \['nope'\] from \"hand\", which \"hand\" does not calibrate or set. Its values, as "
+     r"its model names them: \['k_mod__C', 'p_mod__A'\]"),
+    (['hand', {'step': 'hand', 'parameters': ['p_mod__A']}], '"fixed_from" lists step "hand" twice'),
+    ([{'step': 'hand'}], "'parameters' is a required property"),
+    ([{'step': 'hand', 'parameters': []}], 'should be non-empty|is too short'),
+    ([{'step': 'nope', 'parameters': ['p_mod__A']}], 'unknown step "nope"'),
+])
+def test_a_fixed_from_subset_is_checked(library, fixed_from, message):
+    path = _hand_then_rest(library, fixed_from)
+    with pytest.raises(WorkflowError, match=message):
+        resolve_workflow(load_workflow(path))
+
+
+@pytest.mark.unit
+def test_the_schema_says_a_fixed_from_entry_may_be_an_object():
+    """What a front end reads to know a parameter subset can be written."""
+    items = load_schema(CALIBRATION_WORKFLOW_SCHEMA)['$defs']['step']['properties'][
+        'fixed_from']['items']
+    forms = {form['type']: form for form in items['oneOf']}
+    assert set(forms) == {'string', 'object'}
+    assert forms['object']['required'] == ['step', 'parameters']
+
+
+@pytest.mark.unit
+def test_debug_without_debug_uq_options_falls_back_to_uq_options():
+    """DEBUG on with no ``debug_UQ_options`` uses ``UQ_options``, not a KeyError."""
+    from libcuflynx.scripts.param_id_run_script import select_uq_options
+    settings = {'DEBUG': True, 'UQ_options': {'num_steps': 7}}
+    assert select_uq_options(settings, True) == {'num_steps': 7}
+    settings['debug_UQ_options'] = {'num_steps': 2}
+    assert select_uq_options(settings, True) == {'num_steps': 2}
+    assert select_uq_options(settings, False) == {'num_steps': 7}

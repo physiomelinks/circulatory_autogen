@@ -20,8 +20,8 @@ EPILOG = (
     "its model, obs_data and params_for_id in the workflow file, and its settings come from\n"
     "the file's \"settings\" (and the step's own).\n"
     "\n"
-    "Outputs go to --output-dir (default ./workflow_output/<workflow_name>): one directory\n"
-    "per step and workflow_result.json with the merged parameter set.\n"
+    "Outputs go to --output-dir (default workflow_output/<workflow_name> beside the workflow\n"
+    "file): one directory per step and workflow_result.json with the merged parameter set.\n"
     "\n"
     "Run under a launcher to use more than one rank, e.g.\n"
     "`mpiexec -n 4 cuflynx-calibration-workflow <workflow.json>`; every step's calibration\n"
@@ -33,10 +33,12 @@ def build_parser():
     # not _cli.build_parser: its --user-inputs option means nothing here
     parser = argparse.ArgumentParser(
         description='Run the steps of a calibration_workflow.json in order -- each '
-                    'a calibration, sensitivity analysis, reduction, emulator training or '
-                    'identifiability analysis of a model, an obs_data and a params_for_id, '
-                    'later steps taking earlier steps\' values, emulators or chosen '
-                    'parameters -- and merge the calibrations into the target model.',
+                    'a calibration, sensitivity analysis, reduction, emulator training, '
+                    'identifiability analysis or uncertainty quantification (uq) of a model, '
+                    'an obs_data and a params_for_id, a set step giving values by hand, or a '
+                    'sweep of parameter values; later steps taking earlier steps\' values, '
+                    'emulators or chosen parameters -- and merge the calibrated and set values '
+                    'into the target model.',
         epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('workflow', help='the calibration_workflow.json to run')
     parser.add_argument('--module-library-dir', dest='module_library_dirs', action='append',
@@ -44,22 +46,32 @@ def build_parser():
                         help='a module library to find the library modules in '
                              '(repeatable; added to the file\'s own module_library_dirs)')
     parser.add_argument('--output-dir', default=None, metavar='DIR',
-                        help='where to write the run (default ./workflow_output/<name>)')
+                        help='where to write the run (default workflow_output/<name> beside '
+                             'the workflow file)')
     which = parser.add_mutually_exclusive_group()
     which.add_argument('--from-step', default=None, metavar='ID',
                        help='run this step and the ones after it, reusing earlier results')
     which.add_argument('--only', default=None, metavar='ID',
                        help='run only this step, reusing the results it depends on')
+    parser.add_argument('--stale-only', action='store_true',
+                        help='without --from-step/--only: run only the steps that have not '
+                             'run or whose inputs changed, keeping the results that are '
+                             'current (the default of WorkflowBuilder.run)')
     parser.add_argument('--dry-run', action='store_true',
                         help='check the workflow against the library and print the plan; '
                              'run nothing')
     parser.add_argument('--write-calibrated', action='store_true',
                         help='also write the merged set beside the target\'s parameters '
-                             'file, as <name>_calibrated_parameters.json')
+                             'file, as <name>_calibrated_parameters.json, and for a CellML '
+                             'target the CellML with those values beside the source, as '
+                             '<model>_calibrated.cellml')
     parser.add_argument('--pack', default=None, metavar='DIR',
                         help='copy every file the workflow needs to run (its inputs, module '
                              'versions and settings files, none of its results) into the new '
                              'directory DIR, with the workflow rewritten to them; run nothing')
+    parser.add_argument('--overwrite', action='store_true',
+                        help='with --pack: replace an earlier pack in DIR (a directory holding '
+                             'anything else is refused)')
     return parser
 
 
@@ -68,12 +80,29 @@ def _model_label(model):
         return 'no model'
     if 'module_array' in model:
         return model['module_array']
+    if 'external_model_path' in model:
+        return model['external_model_path']
+    if 'cellml_model_path' in model:
+        return model['cellml_model_path']
     return f"{model['module_type']}/{model['version']}/{model['parameterisation']}"
 
 
 def _print_progress(event):
     kind = event['event']
-    if kind == 'step_started':
+    if kind == 'workflow_started':
+        order, running = list(event.get('order') or []), list(event.get('running') or [])
+        kept = [step for step in order if step not in running]
+        if not running:
+            print(f"[workflow] nothing to run: all {len(order)} steps are done and current. "
+                  f"To run them all again: wf.run(force=True), or the command without "
+                  f"--stale-only.", flush=True)
+        else:
+            line = (f"[workflow] running {len(running)} of {len(order)} steps: "
+                    f"{', '.join(running)}")
+            if kept:
+                line += f"; keeping {', '.join(kept)}"
+            print(line, flush=True)
+    elif kind == 'step_started':
         print(f"[workflow] step {event['index'] + 1}/{event['total']}: {event['step']} "
               f"({event.get('kind', 'calibration')}, {_model_label(event['model'])})",
               flush=True)
@@ -85,7 +114,13 @@ def _print_progress(event):
     elif kind == 'step_failed':
         print(f"[workflow] step {event['step']} FAILED: {event['error']}", flush=True)
     elif kind == 'step_skipped':
-        print(f"[workflow] step {event['step']}: reusing its earlier result", flush=True)
+        if not event.get('has_result', True):
+            print(f"[workflow] step {event['step']}: not run", flush=True)
+        elif event.get('current'):
+            print(f"[workflow] step {event['step']}: done and current, not run again",
+                  flush=True)
+        else:
+            print(f"[workflow] step {event['step']}: reusing its earlier result", flush=True)
 
 
 def run(args):
@@ -94,13 +129,15 @@ def run(args):
         if MPI.COMM_WORLD.Get_rank() != 0:
             return None
         packed = pack_workflow(args.workflow, args.pack,
-                               module_library_dirs=args.module_library_dirs)
+                               module_library_dirs=args.module_library_dirs,
+                               overwrite=args.overwrite)
         print(f"[workflow] packed {len(packed['files'])} files ({len(packed['modules'])} "
               f"module versions) into {args.pack}; run {packed['workflow']}")
         return packed
     result = run_calibration_workflow(
         args.workflow, output_dir=args.output_dir, module_library_dirs=args.module_library_dirs,
-        from_step=args.from_step, only=args.only, dry_run=args.dry_run,
+        from_step=args.from_step, only=args.only, stale_only=args.stale_only,
+        dry_run=args.dry_run,
         write_calibrated=args.write_calibrated, progress=_print_progress)
     if MPI.COMM_WORLD.Get_rank() != 0:
         return result
@@ -112,8 +149,9 @@ def run(args):
     for row in result['merged_parameters']:
         print(f"    {row['parameterisation_name']:<32} {row['value']:<.10g}   "
               f"(step {row['from_step']})")
-    if result.get('calibrated_parameters_file'):
-        print(f"[workflow] wrote {result['calibrated_parameters_file']}")
+    for key in ('calibrated_parameters_file', 'calibrated_model_file'):
+        if result.get(key):
+            print(f"[workflow] wrote {result[key]}")
     return result
 
 

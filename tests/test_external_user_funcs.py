@@ -252,38 +252,76 @@ _MINIMAL_CONFIG = {'file_prefix': '3compartment',
                    'input_param_file': '3compartment_parameters.json'}
 
 
-@pytest.mark.unit
-@pytest.mark.parametrize('key', ['cost_funcs_external_path',
-                                 'operation_funcs_external_path',
-                                 'modifier_funcs_external_path'])
-def test_a_relative_funcs_path_resolves_from_the_user_directory_not_the_cwd(
-        key, tmp_path, monkeypatch):
-    """funcs_user/README.md, CHANGELOG.md and user_inputs.yaml all show these relative.
+def _parse_launcher_yaml(config):
+    """Parse ``config`` as if it were ``user_run_files/user_inputs.yaml``, the file the
+    launchers read (stubbed rather than editing the repo's)."""
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    import libcuflynx.parsers.PrimitiveParsers as pp
+    import yaml
 
-    Nothing resolved them, so they reached ``os.path.abspath()`` inside
-    ``external_funcs.register_funcs_from_file`` and came out relative to the *cwd*. The
-    documented way to start a run is ``cd user_run_files && ./run_param_id.sh 4``, which
-    makes the cwd ``user_run_files/`` -- so ``cost_funcs_external_path: funcs_user/my.py``,
-    copied verbatim out of the README, looked for ``user_run_files/funcs_user/my.py``.
+    real_open = open
+
+    def _fake_open(path, *args, **kwargs):
+        if str(path).endswith('user_run_files/user_inputs.yaml'):
+            return io.StringIO(yaml.dump(dict(config)))
+        return real_open(path, *args, **kwargs)
+
+    pp.open = _fake_open
+    try:
+        return YamlFileParser().parse_user_inputs_file(None, obs_path_needed=False)
+    finally:
+        del pp.open
+
+
+_FUNCS_KEYS = ['cost_funcs_external_path', 'operation_funcs_external_path',
+               'modifier_funcs_external_path']
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('key', _FUNCS_KEYS)
+def test_a_relative_funcs_path_in_user_inputs_yaml_resolves_from_the_user_directory(
+        key, tmp_path, monkeypatch):
+    """funcs_user/README.md shows these relative to the repository root, and the launchers
+    run from ``user_run_files/`` (``cd user_run_files && ./run_param_id.sh 4``), so a
+    relative path in user_inputs.yaml resolves against user_data_root(), not the cwd.
     """
     user_dir = tmp_path / 'my_study'
     (user_dir / 'funcs_user').mkdir(parents=True)
-    (user_dir / 'resources').mkdir()
     written = user_dir / 'funcs_user' / 'my_funcs.py'
     written.write_text('', encoding='utf-8')
 
     monkeypatch.setenv('CUFLYNX_USER_DIR', str(user_dir))
-    # ...and run from somewhere else entirely, as every documented launcher does.
     elsewhere = tmp_path / 'elsewhere'
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
 
-    config = dict(_MINIMAL_CONFIG)
-    config[key] = 'funcs_user/my_funcs.py'
-    parsed = _parse(config)
+    parsed = _parse_launcher_yaml(dict(_MINIMAL_CONFIG, **{key: 'funcs_user/my_funcs.py'}))
 
     assert parsed[key] == str(written)
-    assert os.path.isfile(parsed[key])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('key', _FUNCS_KEYS)
+def test_a_relative_funcs_path_in_a_dict_resolves_from_the_cwd_like_resources_dir(
+        key, tmp_path, monkeypatch):
+    """A caller passing a dict (a study script that chdirs into its study and builds the
+    config) gets its relative funcs paths resolved against the cwd, as resources_dir and
+    param_id_obs_path are, so one config's paths all point into the same study."""
+    study = tmp_path / 'study'
+    (study / 'funcs_user').mkdir(parents=True)
+    (study / 'resources').mkdir()
+    written = study / 'funcs_user' / 'my_funcs.py'
+    written.write_text('', encoding='utf-8')
+
+    # user_data_root() somewhere else: the dict must not resolve against it.
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(tmp_path / 'not_the_study'))
+    monkeypatch.chdir(study)
+
+    parsed = _parse(dict(_MINIMAL_CONFIG, resources_dir='resources',
+                         **{key: 'funcs_user/my_funcs.py'}))
+
+    assert parsed[key] == str(written)
+    assert os.path.samefile(parsed['resources_dir'], study / 'resources')
 
 
 @pytest.mark.unit
@@ -317,7 +355,6 @@ def test_a_config_named_by_user_inputs_path_override_resolves_beside_itself(tmp_
     That is what ``resources_dir``/``generated_models_dir`` already do, and it is the only
     reading that lets a study directory outside the repository be self-contained.
     """
-    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
     import yaml
 
     study = tmp_path / 'study'
@@ -333,21 +370,7 @@ def test_a_config_named_by_user_inputs_path_override_resolves_beside_itself(tmp_
                                        generated_models_dir='generated_models')),
                         encoding='utf-8')
 
-    parser = YamlFileParser()
-    # parse_user_inputs_file(None) reads user_run_files/user_inputs.yaml first and follows
-    # its user_inputs_path_override; stub that first read rather than editing the repo's.
-    import libcuflynx.parsers.PrimitiveParsers as pp
-    real_open = open
-
-    def _fake_open(path, *args, **kwargs):
-        if str(path).endswith('user_run_files/user_inputs.yaml'):
-            return io.StringIO(yaml.dump({'user_inputs_path_override': str(override)}))
-        return real_open(path, *args, **kwargs)
-
-    pp.open = _fake_open
-    try:
-        parsed = parser.parse_user_inputs_file(None, obs_path_needed=False)
-    finally:
-        del pp.open
+    # The launchers' user_inputs.yaml names the study's config.
+    parsed = _parse_launcher_yaml({'user_inputs_path_override': str(override)})
 
     assert parsed['cost_funcs_external_path'] == str(written)

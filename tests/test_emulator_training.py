@@ -184,6 +184,23 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
     from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
     with pytest.raises(EmulatorQualityError):
         saved.check_matches({'inputs_sha256': 'a-different-model'})
+    # The run's progress file: every training simulation counted, whatever the rank count,
+    # and the fit as the one model the stub returned.
+    import json
+    from libcuflynx.schemas import PROGRESS_SCHEMA
+    from libcuflynx.schemas.validation import validate
+    with open(os.path.join(resolve_emulator_dir(config), 'progress.json')) as f:
+        progress = json.load(f)
+    validate(PROGRESS_SCHEMA, progress, source='progress.json', what='progress file')
+    assert progress['kind'] == 'emulation' and progress['state'] == 'done'
+    sampling, training = progress['phases']
+    assert sampling == {'name': 'sampling', 'state': 'done', 'done': 24, 'total': 24,
+                        'failed': 24 - saved.meta['design']['num_used'], 'stage': 1,
+                        'method': 'sobol'}
+    assert (training['name'], training['state'], training['done'], training['total'],
+            training['metric']) == ('training', 'done', 1, 1, 'r2')
+    assert training['models'][0]['name'] == 'LinearStub'
+    assert training['models'][0]['score'] == pytest.approx(0.965)
 
 
 @pytest.mark.unit

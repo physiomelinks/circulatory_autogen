@@ -60,11 +60,11 @@ import os
 
 
 # Where flattened CellML goes. A flattened model is a pure function of its input file, so
-# it is written under one stable name per input and overwritten on each run. It used to be
-# a fresh ``NamedTemporaryFile(delete=False)`` per simulation -- nothing ever deleted them,
-# and a calibration run flattens once per helper, so /tmp accumulated one ~100 kB file per
-# simulation forever (7,655 of them, 719 MB, on one dev machine).
+# it is written under one stable name per input and overwritten on each run. Every model
+# path adds a file (~100 kB), so after each write only the newest
+# FLATTENED_CELLML_CACHE_MAX_FILES are kept.
 FLATTENED_CELLML_DIRNAME = 'circulatory_autogen_flattened'
+FLATTENED_CELLML_CACHE_MAX_FILES = 200
 
 
 def flattened_cellml_path(path):
@@ -109,6 +109,46 @@ def write_flattened_cellml(prepared_path, model_string):
         except OSError:
             pass
         raise
+    prune_flattened_cellml_cache(os.path.dirname(prepared_path), keep=prepared_path)
+
+
+def prune_flattened_cellml_cache(cache_dir, max_files=None, keep=None):
+    """Remove the oldest ``*_flat.cellml`` files in *cache_dir* beyond *max_files*.
+
+    Oldest by modification time, as each run rewrites its model's file. *keep* (the file just
+    written) is never removed. Files another process removes or rewrites meanwhile are
+    skipped: a pruned model is flattened again the next time it is run.
+    """
+    if max_files is None:
+        max_files = FLATTENED_CELLML_CACHE_MAX_FILES
+    entries = []
+    try:
+        names = os.listdir(cache_dir)
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith('_flat.cellml'):
+            continue
+        path = os.path.join(cache_dir, name)
+        try:
+            entries.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
+    if len(entries) <= max_files:
+        return
+    entries.sort()
+    keep = os.path.abspath(keep) if keep else None
+    excess = len(entries) - max_files
+    for _, path in entries:
+        if excess <= 0:
+            break
+        if os.path.abspath(path) == keep:
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        excess -= 1
 
 
 _MATHML_NS = '{http://www.w3.org/1998/Math/MathML}'
@@ -862,6 +902,9 @@ class SimulationHelper(ExperimentTimeMixin):
         for qname, value in self._first_input_values().items():
             self._set_trace_protocol(qname, myokit.TimeSeriesProtocol(
                 [0.0, offline_pre_time], [value, value]))
+        # From the model's initial values, not an earlier warm-up's end state, so a second
+        # call (a protocol set again) gives the state the first one did.
+        self.clear_offline_default_state()
         self.simulation.reset()
         self.simulation.pre(offline_pre_time)
         new_state = list(self.simulation.state())
@@ -871,6 +914,13 @@ class SimulationHelper(ExperimentTimeMixin):
         self.simulation.set_state(new_state)
         self.simulation.set_time(0.0)
         self.last_log = None
+
+    def clear_offline_default_state(self):
+        """Forget an offline warm-up: reset_states() returns to the model's initial values."""
+        if self._offline_default_state is None:
+            return
+        self._offline_default_state = None
+        self.reset_states()
 
     def reset_and_clear(self, only_one_exp=-1):
         # Fully reset to baseline default state (before any pre-simulation).
@@ -1028,7 +1078,7 @@ class SimulationHelper(ExperimentTimeMixin):
                         # fallback to first log value if available later
                         vals.append(self._extract(qname)[0] if self.last_log else 0.0)
                 else:
-                    raise ValueError(f"parameter {name} not found")
+                    raise ValueError(self._not_found('parameter', name))
             param_init.append(vals if len(vals) > 1 else vals[0])
         return param_init
 
@@ -1241,7 +1291,7 @@ class SimulationHelper(ExperimentTimeMixin):
                             except Exception:
                                 pass
                 else:
-                    raise ValueError(f"parameter {name} not found")
+                    raise ValueError(self._not_found('parameter', name))
         # Keep state defaults consistent with model-defined initial values. With change_states
         # the re-derived values are pushed into the Simulation too, not just recorded here --
         # otherwise self.default_states and simulation.default_state() silently disagree.
@@ -1408,7 +1458,13 @@ class SimulationHelper(ExperimentTimeMixin):
                     return np.asarray([current_value])  
                 except Exception:  
                     pass  
-        raise ValueError(f"variable {name} not found")
+        raise ValueError(self._not_found('variable', name))
+
+    def _not_found(self, what, name):
+        """The error for a name the model does not have: the model, the closest names it does
+        have, and the user file such a name comes from."""
+        qnames = list(self.state_index) + list(self.qname_to_var)
+        return VariableNameResolver.not_found_message(what, name, qnames, self.cellml_path)
 
     def _resolve_name(self, name):
         """Resolve a name to (kind, qname) using the unified VariableNameResolver."""

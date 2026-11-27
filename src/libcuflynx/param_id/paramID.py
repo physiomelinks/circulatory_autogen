@@ -6,15 +6,15 @@ import contextlib
 import numpy as np
 import os
 import sys
-from sys import exit
 import math as math
 import time
 import matplotlib
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.mpl_backend import use_agg_unless_interactive
 use_agg_unless_interactive()
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
-from libcuflynx.utilities import paperPlotSetup
+from libcuflynx.utilities.paperPlotSetup import paper_style
 from libcuflynx.utilities import stat_distributions
 from libcuflynx.utilities import diagnostics
 from libcuflynx.utilities import utility_funcs
@@ -22,10 +22,10 @@ from libcuflynx.utilities import cuflynx_study
 import traceback
 from libcuflynx.utilities.utility_funcs import Normalise_class
 from libcuflynx.utilities.paths import default_param_id_output_dir, default_resources_dir
-paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser, cost_experiment_idxs
+from libcuflynx.param_id.held_entries import HeldEntries
 from libcuflynx.param_id import validation
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
@@ -68,7 +68,8 @@ import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
 from libcuflynx.parsers.PrimitiveParsers import (CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS,
-                                      PARAM_PRIOR_TYPES, prior_param_default)
+                                      PARAM_PRIOR_TYPES, prior_param_default,
+                                      check_dt_solver_and_max_step)
 from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from libcuflynx.param_id.differentiable import (
@@ -83,7 +84,7 @@ from libcuflynx.parsers.PrimitiveParsers import (apply_modifier_identity_nominal
                                       param_entry_labels,
                                       resolve_modifier_baselines,
                                       save_param_modifiers)
-from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
+from libcuflynx.param_id.plot_outputs import ERROR_VEC_FILES, ParamIDPlotOutputs
 from libcuflynx.param_id import casadi_backend
 from libcuflynx.param_id import fsa_backend
 from libcuflynx.param_id import aadc_backend
@@ -198,6 +199,29 @@ _as_casadi_column = casadi_backend.as_casadi_column
 #: set here keeps the check and the error message reading from one list.
 PARAM_ID_MODEL_TYPES = ('cellml', 'python', 'casadi_python', 'aadc_python', 'external_python')
 
+#: What an MCMC run's directory is named for, in place of a calibration's param_id_method.
+UQ_CASE_METHOD = 'mcmc'
+
+#: The file an MCMC run writes its chain to, in its own run directory.
+MCMC_CHAIN_FILE = 'mcmc_chain.npy'
+#: written by a calibration of some entries: which were calibrated and what the others were held at
+HELD_ENTRIES_FILE = 'held_entries.json'
+
+#: The optimiser options of a calibration engine given none.
+DEFAULT_OPTIMISER_OPTIONS = {'cost_convergence': 0.0001, 'max_patience': 10,
+                             'num_calls_to_function': 10000}
+
+
+def case_dir_name(method, file_prefix, obs_file_prefix):
+    """A run directory's name under ``param_id_output_dir``: ``<method>_<prefix>_<obs>``.
+
+    ``method`` is the calibration's ``param_id_method`` for a calibration and
+    ``UQ_CASE_METHOD`` (``mcmc``) for an MCMC run, so a calibration and the MCMC that follows
+    it have a directory each. ``obs_file_prefix`` is the obs_data file's name without
+    ``.json``.
+    """
+    return f'{method}_{file_prefix}_{obs_file_prefix}'
+
 
 class CVS0DParamID():
     """Parameter identification (calibration) for a 0D CVS model.
@@ -299,6 +323,7 @@ class CVS0DParamID():
             self.solver_info = {"solver": "CVODE_myokit"}
         else:
             self.solver_info = solver_info
+        check_dt_solver_and_max_step(self.solver_info, model_type)
         self.dt = dt
         self.sim_time = sim_time
         self.pre_time = pre_time
@@ -308,24 +333,28 @@ class CVS0DParamID():
             self.param_id_obs_file_prefix = f"obs_{date_str}"
         else:
             self.param_id_obs_file_prefix = re.sub('.json', '', os.path.split(param_id_obs_path)[1])
-        case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
         if self.rank == 0:
             if param_id_output_dir is None:
                 self.param_id_output_dir = default_param_id_output_dir()
             else:
                 self.param_id_output_dir = param_id_output_dir
-            
+
             if not os.path.exists(self.param_id_output_dir):
                 os.mkdir(self.param_id_output_dir)
-            self.output_dir = os.path.join(self.param_id_output_dir, f'{case_type}')
+            # A calibration and an MCMC run each have their own directory (case_dir_name);
+            # this object writes to the one it was built for.
+            self.calibration_output_dir = os.path.join(
+                self.param_id_output_dir,
+                case_dir_name(param_id_method, file_name_prefix, self.param_id_obs_file_prefix))
+            self.uq_output_dir = os.path.join(
+                self.param_id_output_dir,
+                case_dir_name(UQ_CASE_METHOD, file_name_prefix, self.param_id_obs_file_prefix))
+            self.output_dir = self.uq_output_dir if mcmc_instead else self.calibration_output_dir
             if not os.path.exists(self.output_dir):
                 os.mkdir(self.output_dir)
             self.plot_dir = os.path.join(self.output_dir, 'plots_param_id')
             if not os.path.exists(self.plot_dir):
                 os.mkdir(self.plot_dir)
-            # Archive the input files (timestamped) used for this run so the user can
-            # later check exactly what params_for_id / obs_data produced these outputs.
-            self._archive_input_files(params_for_id_path, param_id_obs_path)
             # Describe the study for CUFLynx: model, inputs, funcs and solver settings now; the
             # run directory itself once it holds results (run / run_UQ), so a study is never
             # opened on an empty run -- emulator training builds one of these and runs nothing.
@@ -341,9 +370,16 @@ class CVS0DParamID():
                 use_emulator=self.use_emulator, emulator_dir=emulator_dir,
                 **{key: value for key, value in (study_settings or {}).items()
                    if key in cuflynx_study.STUDY_INP_KEYS})
+            # The obs_data and params_for_id of the run: a working dir keeps them in its
+            # inputs/ (cuflynx_study), so they are copied into the run directory only when
+            # there is none.
+            if not cuflynx_study.copies_inputs(self._study_inp):
+                self._archive_input_files(params_for_id_path, param_id_obs_path)
             cuflynx_study.update_study(self._study_inp)
         else:
             self.output_dir = None
+            self.calibration_output_dir = None
+            self.uq_output_dir = None
             self._study_inp = None
         
         if resources_dir is None:
@@ -395,13 +431,10 @@ class CVS0DParamID():
             self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
 
         if self.optimiser_options is None:
-            print("No optimiser options provided, using default options")
-            self.optimiser_options = {
-                'cost_convergence': 0.0001,
-                'max_patience': 10,
-                'num_calls_to_function': 10000
-            }
-            print(f'Default optimiser options: {self.optimiser_options}')
+            self.optimiser_options = dict(DEFAULT_OPTIMISER_OPTIONS)
+            if not self.mcmc_instead:   # an MCMC does not optimise: no defaults to announce
+                print("No optimiser options provided, using default options")
+                print(f'Default optimiser options: {self.optimiser_options}')
 
         if self.mcmc_instead:
             # This mcmc_object will be an instance of the ParamID class
@@ -416,6 +449,8 @@ class CVS0DParamID():
                                            use_emulator=self.use_emulator,
                                            emulator_dir=self.emulator_dir,
                                            emulator_settings=self.emulator_settings)
+            # Where the calibration this chain follows wrote its best fit and cost.
+            mcmc_object.calibration_output_dir = self.calibration_output_dir
             self.n_steps = mcmc_object.n_steps
         else:
             if model_type in PARAM_ID_MODEL_TYPES:
@@ -452,7 +487,8 @@ class CVS0DParamID():
         self.sensitivity_calculated = False
 
     def _archive_input_files(self, params_for_id_path, param_id_obs_path):
-        """Copy the params_for_id and obs_data input files into the run output_dir.
+        """Copy the params_for_id and obs_data input files into the run output_dir, for a
+        run with no working dir to keep them (``cuflynx_study.copies_inputs``).
 
         A ``_<yymmdd>_<HHMMSS>`` timestamp is inserted before the extension (a single
         timestamp shared by both files), so a user inspecting ``param_id_output/<case>/``
@@ -558,8 +594,16 @@ class CVS0DParamID():
         """
         self._require_data_items('calibration')
         self._check_info_available()
-        with self._run_recorded(self.param_id_method):
-            self.param_id.run()
+        self._remove_best_fit_errors()
+        with self._run_recorded(self.param_id_method, self.output_dir):
+            try:
+                self.param_id.run()
+            except KeyboardInterrupt:
+                # stopped: the optimisers keep best_param_vals.npy current, so the errors of
+                # the best fit so far can still be written
+                self._write_best_fit_errors()
+                raise
+            self._write_best_fit_errors()
 
             # Some execution paths (or older optimiser flows) can finish without writing
             # the per-experiment full output dumps. Ensure they exist for downstream
@@ -592,30 +636,67 @@ class CVS0DParamID():
                 except Exception:
                     pass
 
+    def save_best_fit_errors(self, param_vals=None):
+        """Simulate once at the best fit and save its error per observable (``ERROR_VEC_FILES``
+        in ``plot_outputs``: percent and noise-std errors, names, data_references) in
+        ``output_dir``, with no figure. The best fit is ``param_vals``, else
+        ``best_param_vals.npy`` in ``output_dir``, else the one in memory. ``run`` calls it
+        when the calibration ends or is interrupted; call it on a rebuilt object to write the
+        errors of a run that was killed (its ``best_param_vals.npy`` is its best so far).
+        Rank 0 only; returns ``{key: path}``, or None without a best fit."""
+        if getattr(self, "rank", 0) != 0:
+            return None
+        if param_vals is None and self.output_dir is not None:
+            saved = os.path.join(self.output_dir, "best_param_vals.npy")
+            if os.path.isfile(saved):
+                param_vals = np.load(saved)
+        if param_vals is None:
+            param_vals = self.param_id.best_param_vals
+        if param_vals is None:
+            return None
+        self.set_best_param_vals(np.atleast_1d(np.asarray(param_vals, dtype=float)))
+        ParamIDPlotOutputs(self).save_best_fit_errors()
+        return {key: os.path.join(self.output_dir, name)
+                for key, name in ERROR_VEC_FILES.items()}
+
+    def _write_best_fit_errors(self):
+        try:
+            self.save_best_fit_errors()
+        except (Exception, SystemExit) as exc:
+            # optional output: never fail (or mask the interrupt of) the calibration
+            print(f"[param_id] WARNING: could not write the best fit's error vectors: {exc}")
+
+    def _remove_best_fit_errors(self):
+        """A new run removes the last run's error vectors, so a run that is killed before it
+        writes its own never leaves errors of another best fit beside its best_param_vals."""
+        if getattr(self, "rank", 0) == 0 and self.output_dir:
+            for name in ERROR_VEC_FILES.values():
+                path = os.path.join(self.output_dir, name)
+                if os.path.isfile(path):
+                    os.remove(path)
+
     @contextlib.contextmanager
-    def _run_recorded(self, method):
-        """Declare this run directory in the study manifest when the run starts
+    def _run_recorded(self, method, run_dir):
+        """Declare the run directory ``run_dir`` in the study manifest when the run starts
         (``status: running``), so a run that is cut short is there with what it wrote each
         iteration, and mark it ``finished``, ``stopped`` (interrupted) or ``failed`` at the
         end. A killed process leaves it ``running``."""
-        self._record_run_in_study(method, 'running')
+        self._record_run_in_study(method, 'running', run_dir)
         try:
             yield
         except KeyboardInterrupt:
-            self._record_run_in_study(method, 'stopped')
+            self._record_run_in_study(method, 'stopped', run_dir)
             raise
         except BaseException:
-            self._record_run_in_study(method, 'failed')
+            self._record_run_in_study(method, 'failed', run_dir)
             raise
-        self._record_run_in_study(method, 'finished')
+        self._record_run_in_study(method, 'finished', run_dir)
 
-    def _record_run_in_study(self, method, status):
-        """This run directory's entry in the study manifest, with ``status``."""
-        if getattr(self, 'rank', 0) == 0 and getattr(self, '_study_inp', None) \
-                and self.output_dir:
+    def _record_run_in_study(self, method, status, run_dir):
+        """The entry of the run directory ``run_dir`` in the study manifest, with ``status``."""
+        if getattr(self, 'rank', 0) == 0 and getattr(self, '_study_inp', None) and run_dir:
             cuflynx_study.update_study(self._study_inp, 'runs',
-                                       {'dir': self.output_dir, 'method': method,
-                                        'status': status})
+                                       {'dir': run_dir, 'method': method, 'status': status})
 
     def run_UQ(self, UQ_options=None):
         """Run uncertainty quantification (MCMC) on **this** object.
@@ -639,10 +720,32 @@ class CVS0DParamID():
             mcmc_object = MCMC.from_param_id(
                 self.param_id,
                 UQ_options if UQ_options is not None else getattr(self, 'UQ_options', None))
+            # The chain goes in the MCMC run's own directory, not the calibration's.
+            if self.rank == 0:
+                os.makedirs(os.path.join(self.uq_output_dir, 'plots_param_id'), exist_ok=True)
+                mcmc_object.calibration_output_dir = self.output_dir
+                mcmc_object.set_output_dir(self.uq_output_dir)
+                self.obs_and_param_parser.save_param_names(mcmc_object.param_id_info,
+                                                           self.uq_output_dir)
         elif UQ_options is not None:
             mcmc_object._init_mcmc(UQ_options, DEBUG=self.DEBUG)
-        with self._run_recorded('mcmc'):
+        with self._run_recorded(UQ_CASE_METHOD, self.uq_output_dir):
             mcmc_object.run()
+
+    def mcmc_chain_path(self):
+        """The MCMC chain of this study (rank 0; None elsewhere).
+
+        The MCMC run's directory holds it (``case_dir_name`` with ``UQ_CASE_METHOD``). A
+        calibration's directory that holds a chain of its own, with none in the MCMC
+        run's directory, gives that one.
+        """
+        if self.output_dir is None:
+            return None
+        own = os.path.join(self.output_dir, MCMC_CHAIN_FILE)
+        if self.mcmc_instead or not getattr(self, 'uq_output_dir', None):
+            return own
+        path = os.path.join(self.uq_output_dir, MCMC_CHAIN_FILE)
+        return own if not os.path.isfile(path) and os.path.isfile(own) else path
 
     def _require_data_items(self, what):
         """Refuse to calibrate (or sample a posterior) against an obs_data with no data_items.
@@ -831,9 +934,10 @@ class CVS0DParamID():
         """Set which parameters to identify and their bounds.
 
         Args:
-            params_for_id_dict: List of entries of the form
-                ``{vessel_name, param_name, min, max, name_for_plotting}`` (the
-                in-memory equivalent of a ``{prefix}_params_for_id.json`` file's entries).
+            params_for_id_dict: Either the content of a ``{prefix}_params_for_id.json`` file
+                (the whole ``{"version", "params"}`` document, or its list of entries with
+                ``targets`` or ``modifies``), or a list of entries of the form
+                ``{vessel_name, param_name, min, max, name_for_plotting}``, where
                 ``vessel_name`` may be a single name or a list of names to share
                 one calibrated parameter across many vessels.
         """
@@ -851,6 +955,13 @@ class CVS0DParamID():
             mcmc_object.set_joint_priors(joint_priors)
         else:
             self.param_id.set_joint_priors(joint_priors)
+
+    def set_calibrated_entries(self, labels):
+        """Calibrate only the entries ``labels``; see `ParamID.set_calibrated_entries`."""
+        if self.mcmc_instead:
+            raise ValueError('set_calibrated_entries is for a calibration; an MCMC samples '
+                             'every entry of its params_for_id.')
+        self.param_id.set_calibrated_entries(labels)
 
     def set_best_param_vals(self, best_param_vals):
         """Manually supply the best-fit parameter vector (e.g. from a previous run).
@@ -902,13 +1013,13 @@ class CVS0DParamID():
             tuple: ``(flat_samples, samples, num_params)``, or None if no chain
             has been written.
         """
-        mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
+        mcmc_chain_path = self.mcmc_chain_path()
 
-        if not os.path.exists(mcmc_chain_path):
+        if not mcmc_chain_path or not os.path.exists(mcmc_chain_path):
             print('No mcmc results to get chain')
             return
 
-        samples = np.load(os.path.join(self.output_dir, 'mcmc_chain.npy'))
+        samples = np.load(mcmc_chain_path)
         samples = drop_unsampled_draws(samples)
         num_steps = samples.shape[0]
         num_walkers = samples.shape[1]
@@ -948,6 +1059,7 @@ class CVS0DParamID():
 
         return flat_samples, samples, num_params
 
+    @paper_style()
     def plot_mcmc(self):
         """Generate MCMC trace and corner plots from the saved chain (rank 0)."""
         flat_samples, samples, num_params = self.get_mcmc_samples()
@@ -988,8 +1100,12 @@ class CVS0DParamID():
         label_list = [f'${self.param_id_info["param_names_for_plotting"][II]}$' for II in range(len(self.param_id_info["param_names_for_plotting"]))]
         if self.mcmc_instead:
             if mcmc_object.best_param_vals is None:
-                best_param_vals = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
-                mcmc_object.set_best_param_vals(best_param_vals)
+                # the calibration's best fit, else the posterior median a chain with no
+                # calibration behind it wrote into its own directory
+                best_path = os.path.join(self.calibration_output_dir, 'best_param_vals.npy')
+                if not os.path.isfile(best_path):
+                    best_path = os.path.join(self.output_dir, 'best_param_vals.npy')
+                mcmc_object.set_best_param_vals(np.load(best_path))
         else:
             if self.param_id.best_param_vals is None:
                 best_param_vals = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
@@ -1206,6 +1322,7 @@ class CVS0DParamID():
             print('All parameters have r_hat <= 1.01 (walkers mixed).')
         return stats
 
+    @paper_style()
     def plot_autocorrelation(self, samples, num_params=None):
         """One autocorrelation-vs-lag panel per parameter, every walker overlaid.
 
@@ -1249,6 +1366,7 @@ class CVS0DParamID():
         plt.close(fig)
         return all_bounded
 
+    @paper_style()
     def plot_chain_avg(self, samples=None, window_size=10):
         """Running mean of each walker, one panel per parameter.
 
@@ -1431,6 +1549,7 @@ class CVS0DParamID():
         print(f'Saved posterior predictions to {path}')
         return path
 
+    @paper_style()
     def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
         """Violin + box + jittered points per feature: the model's predictive spread against
         the measurements, one figure per feature, plus a summary grid.
@@ -1505,6 +1624,7 @@ class CVS0DParamID():
         self.plot_distribution_grid(values)
         return written
 
+    @paper_style()
     def plot_distribution_grid(self, values):
         """One figure of KDE panels, model posterior against measurement, for every feature."""
         if self.rank != 0:
@@ -1740,6 +1860,46 @@ class CVS0DParamID():
         else:
             return self.param_id.best_param_vals
 
+    def write_calibrated_model(self, cellml_path=None, output_dir=None, flatten=None):
+        """Write the model with this calibration's best fit, on rank 0.
+
+        Writes ``<output_dir>/<file_prefix>_calibrated.cellml``, ``output_dir`` defaulting to
+        ``param_id_output_dir`` (the study's working dir, where the study manifest finds it as
+        its ``model``), and records it in the manifest. ``cellml_path`` is the model's CellML,
+        defaulting to ``model_path`` when that is one (a ``python`` or ``casadi_python`` run
+        names the CellML it was generated from). The best fit is the one in memory, else the
+        calibration's ``best_param_vals.npy``. ``flatten`` is as for
+        ``calibrated_model.write_cellml_values`` (default: flatten a model with imports). What
+        was written where is kept in ``calibrated_model_report``
+        (``calibrated_model.substitute_parameter_values``).
+
+        Returns the path written, or None on another rank or with no CellML or best fit.
+        """
+        from libcuflynx.param_id.calibrated_model import (calibrated_model_name,
+                                                          write_calibrated_model)
+        if self.rank != 0:
+            return None
+        cellml_path = cellml_path or self.model_path
+        if not cellml_path or not str(cellml_path).endswith('.cellml'):
+            print('[param_id] no CellML model given, so no calibrated model is written')
+            return None
+        best = self.get_best_param_vals()
+        saved = os.path.join(self.calibration_output_dir, 'best_param_vals.npy')
+        if best is None and os.path.isfile(saved):
+            best = np.load(saved)
+        if best is None:
+            print('[param_id] no best fit yet, so no calibrated model is written')
+            return None
+        engine = mcmc_object if self.mcmc_instead else self.param_id
+        path = os.path.join(output_dir or self.param_id_output_dir,
+                            calibrated_model_name(self.file_name_prefix))
+        self.calibrated_model_report = write_calibrated_model(
+            cellml_path, engine.param_id_info, best, path, flatten=flatten, return_report=True)
+        if self._study_inp:
+            cuflynx_study.update_study(self._study_inp)
+        print(f'calibrated model saved in {path}')
+        return path
+
     def get_param_names(self):
         """Return the list of identified parameter names (order matches the param vector)."""
         if self.mcmc_instead:
@@ -1788,6 +1948,7 @@ class CVS0DParamID():
 
         self.remove_params_by_idx(param_idxs_to_remove)
 
+    @paper_style()
     def postprocess_predictions(self):
         # TODO redo this for new prediction_info in obs_data.json 
         # TODO This should be straight forward
@@ -1954,6 +2115,71 @@ OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
 )
 
 
+def params_that_set_initial_states(param_id_info, sim_helper):
+    """Calibration parameters that set a state's initial value.
+
+    These are incompatible with an offline warm-up: the offline pass freezes one state and
+    every evaluation restarts from it, so a parameter whose only role is to initialise a state
+    never enters the simulation at all. Its gradient is then exactly zero and it is silently
+    unrecoverable -- measured on 3compartment, q_lv_init's response to a 25% perturbation
+    drops from 8.49% to 0.0000% once an offline warm-up is used.
+
+    Detected two ways: a name that resolves to a state directly, and the ``<state>_init``
+    naming convention that ties a constant to a state's initial value (the convention the
+    python/CasADi/AADC backends already key on).
+    """
+    offenders = []
+    param_names = (param_id_info or {}).get('param_names') or []
+    resolve = getattr(sim_helper, '_resolve_name', None)
+    for name_or_list in param_names:
+        names = name_or_list if isinstance(name_or_list, (list, tuple)) else [name_or_list]
+        for name in names:
+            var_part = str(name).split('/')[-1]
+            if var_part.endswith('_init'):
+                offenders.append(str(name))
+                continue
+            if resolve is not None:
+                try:
+                    if resolve(name)[0] == 'state':
+                        offenders.append(str(name))
+                except Exception:
+                    pass
+    return offenders
+
+
+def apply_offline_pre_time(sim_helper, protocol_info, param_id_info, warm_up=True):
+    """Apply the protocol's ``offline_pre_time``: refuse calibration parameters that set a
+    state's initial value (OFFLINE_PRE_TIME_INIT_STATE_ERROR), then run the warm-up once.
+
+    The one place this happens, so every route applies it the same way: the constructors, the
+    setters that change the protocol or the parameters afterwards (``warm_up=False`` when only
+    the parameters changed: the guard is rechecked, the warm-up is not rerun), and Sobol SA.
+    Call it after ``sim_helper.set_protocol_info``: that binds the traced inputs the warm-up
+    holds at their first value, and the rebuild it does would discard the warm-up's state.
+
+    The warm-up runs ONCE and its end state is the initial condition of every evaluation's
+    pre_time + sim_time -- the speed-up offline_pre_time exists for. It is only sound because
+    of the guard: for every remaining parameter the frozen state is a constant with respect to
+    the parameters being fitted, so its sensitivity is zero and FSA/AD accumulate d/dp correctly
+    across the per-evaluation pre_time (issue #269). pre_time still runs per evaluation and must
+    be long enough for the trial parameters to re-settle from the warm start (issue #328).
+    """
+    offline_pre_time = (protocol_info or {}).get('offline_pre_time')
+    if offline_pre_time is None or float(offline_pre_time) <= 0:
+        # a protocol without one, set after a protocol with one: back to the initial values
+        clear = getattr(sim_helper, 'clear_offline_default_state', None)
+        if warm_up and clear is not None:
+            clear()
+        return
+    offenders = params_that_set_initial_states(param_id_info, sim_helper)
+    if offenders:
+        raise ValueError(
+            OFFLINE_PRE_TIME_INIT_STATE_ERROR
+            + f" Offending calibration parameter(s): {', '.join(offenders)}.")
+    if warm_up:
+        sim_helper.run_offline_pre_and_set_default_state(float(offline_pre_time))
+
+
 class ParamID():
     """
     Class for doing parameter identification on simulated models
@@ -2084,35 +2310,14 @@ class ParamID():
         if self.protocol_info is not None:
             self.sim_helper.set_protocol_info(self.protocol_info)
 
-        offline_pre_time = None
-        if self.protocol_info is not None:
-            offline_pre_time = self.protocol_info.get('offline_pre_time')
-        if offline_pre_time is not None and float(offline_pre_time) > 0:
-            offenders = self._params_that_set_initial_states()
-            if offenders:
-                raise ValueError(
-                    OFFLINE_PRE_TIME_INIT_STATE_ERROR
-                    + f" Offending calibration parameter(s): {', '.join(offenders)}.")
-            # Run the offline warm-up ONCE and reuse its end state as the initial condition for
-            # every evaluation's pre_time + sim_time. This is the speed-up offline_pre_time exists
-            # for: the settled state is reached once instead of on all ~N cost evaluations.
-            #
-            # It is only sound because the guard above rejects calibration parameters that set a
-            # state's initial value. For every remaining parameter the frozen state is genuinely a
-            # constant with respect to the parameters being fitted, so its sensitivity is zero and
-            # FSA/AD accumulate d/dp correctly across the per-evaluation pre_time. That was the
-            # flaw in the original version (issue #269): with a state-init parameter in the set,
-            # the frozen state silently absorbed d(steady state)/d(p) and both AD and FD agreed on
-            # the wrong gradient, because both perturbed the same frozen state.
-            #
-            # pre_time still runs per evaluation and must be long enough for the trial parameters
-            # to re-settle from the warm start -- how long varies with the parameters, which is
-            # what issue #328 is about.
-            offline_pre_time = float(offline_pre_time)
-            self.sim_helper.run_offline_pre_and_set_default_state(offline_pre_time)
+        apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info)
 
         # initialise
         self.param_init = None
+        #: labels of the entries a run calibrates; None calibrates every entry
+        self.calibrated_entries = None
+        #: per held entry of the last run, its label and the value it was held at
+        self.held_entries = []
         self.best_param_vals = None
         self.best_cost = np.inf
 
@@ -2194,35 +2399,9 @@ class ParamID():
         self._lnlikelihood_denorm_factor = float(total) if total > 0 else 1.0
 
     def _params_that_set_initial_states(self):
-        """Calibration parameters that set a state's initial value.
-
-        These are incompatible with an offline warm-up: the offline pass freezes one state and
-        every evaluation restarts from it, so a parameter whose only role is to initialise a state
-        never enters the simulation at all. Its gradient is then exactly zero and it is silently
-        unrecoverable -- measured on 3compartment, q_lv_init's response to a 25% perturbation
-        drops from 8.49% to 0.0000% once an offline warm-up is used.
-
-        Detected two ways: a name that resolves to a state directly, and the ``<state>_init``
-        naming convention that ties a constant to a state's initial value (the convention the
-        python/CasADi/AADC backends already key on).
-        """
-        offenders = []
-        param_names = (self.param_id_info or {}).get('param_names') or []
-        resolve = getattr(self.sim_helper, '_resolve_name', None)
-        for name_or_list in param_names:
-            names = name_or_list if isinstance(name_or_list, (list, tuple)) else [name_or_list]
-            for name in names:
-                var_part = str(name).split('/')[-1]
-                if var_part.endswith('_init'):
-                    offenders.append(str(name))
-                    continue
-                if resolve is not None:
-                    try:
-                        if resolve(name)[0] == 'state':
-                            offenders.append(str(name))
-                    except Exception:
-                        pass
-        return offenders
+        """Calibration parameters that set a state's initial value; see
+        `params_that_set_initial_states`."""
+        return params_that_set_initial_states(self.param_id_info, self.sim_helper)
 
     def initialise_sim_helper(self):
         # Get method from solver_info (check both 'solver' and 'method' for backward compatibility)
@@ -2317,6 +2496,49 @@ class ParamID():
         if self.cost_funcs_dict_symbolic is not self.cost_funcs_dict:
             self.sfp.add_user_cost_func(self.cost_funcs_dict_symbolic, func)
     
+    def set_calibrated_entries(self, labels):
+        """Calibrate only the params_for_id entries ``labels`` (as ``param_entry_labels`` names
+        them); ``run`` holds every other entry at its value in the model. None calibrates
+        every entry.
+
+        The cost is still this param_id's, at the full vector (``HeldEntries``), so the
+        backend sees the parameter set it was built for: an emulator trained on every entry
+        is calibrated over some of them. ``best_param_vals`` and ``best_param_vals.npy`` are
+        the full vector, with the held entries at their held values; ``held_entries`` records
+        them. A held value must be inside the entry's bounds.
+        """
+        if labels is None:
+            self.calibrated_entries = None
+            return
+        labels = [str(label) for label in labels]
+        known = param_entry_labels(self.param_id_info)
+        unknown = [label for label in labels if label not in known]
+        if unknown or len(set(labels)) != len(labels) or not labels:
+            raise ValueError(f'calibrated entries {labels} are not distinct entries of this '
+                             f'params_for_id, whose entries are {known}.')
+        self.calibrated_entries = labels
+
+    def _held_entries(self):
+        """The ``HeldEntries`` cost of a run with ``calibrated_entries``: every other entry
+        held at its value in ``param_init``."""
+        labels = param_entry_labels(self.param_id_info)
+        indices = [i for i, label in enumerate(labels) if label not in self.calibrated_entries]
+        values = np.asarray(self.param_init, dtype=float)[indices]
+        mins = np.asarray(self.param_id_info['param_mins'], dtype=float)[indices]
+        maxs = np.asarray(self.param_id_info['param_maxs'], dtype=float)[indices]
+        outside = [f'{labels[i]} = {value:g} (bounds [{low:g}, {high:g}])'
+                   for i, value, low, high in zip(indices, values, mins, maxs)
+                   if not low <= value <= high]
+        if outside:
+            raise ValueError(
+                f'The entries not calibrated are held at their values in the model, and these '
+                f'are outside their params_for_id bounds: {"; ".join(outside)}. An emulator '
+                f'answers only inside the box it was trained in.')
+        self.held_entries = [{'label': labels[i], 'value': float(value)}
+                             for i, value in zip(indices, values)]
+        free = [i for i in range(len(labels)) if i not in indices]
+        return HeldEntries(self, indices, values, np.asarray(self.param_init, dtype=float)[free])
+
     def set_best_param_vals(self, best_param_vals):
         self.best_param_vals = best_param_vals
     
@@ -2333,6 +2555,8 @@ class ParamID():
         # parameter has been written, which is the property that stops theta compounding.
         if getattr(self, 'sim_helper', None) is not None:
             resolve_modifier_baselines(self.param_id_info, self.sim_helper)
+            apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info,
+                                   warm_up=False)
         # Re-check the emulator against the parameters it is now being asked about: the
         # programmatic API sets these after construction, and an emulator trained for a
         # different set (or a different box) would answer anyway.
@@ -2344,6 +2568,7 @@ class ParamID():
         self.protocol_info = protocol_info
         # set the protocol_info in the sim_helper so that the protocol traces can be accessed.
         self.sim_helper.set_protocol_info(self.protocol_info)
+        apply_offline_pre_time(self.sim_helper, self.protocol_info, self.param_id_info)
         self._refresh_num_weighted_obs_tables()
 
     def set_prediction_info(self, prediction_info):
@@ -2501,9 +2726,8 @@ class ParamID():
             # multi-modal cost surface doesn't trap us in the basin of the initial params.
             return MultiStartSciPyMinimizeOptimiser(*args, **kwargs, do_ad=self.do_ad,
                                                     model_type=self.model_type)
-        print(f"param_id_method '{method}' is not implemented. Valid options: "
-              f"{list(PARAM_ID_METHODS.keys())}")
-        exit()
+        raise CAInputError(f"param_id_method '{method}' is not implemented. Valid options: "
+                           f"{list(PARAM_ID_METHODS.keys())}")
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -2513,7 +2737,7 @@ class ParamID():
         if rank == 0:
             print(f'Running parameter identification across {num_procs} MPI rank(s)')
             if num_procs == 1:
-                print('WARNING Running in serial, are you sure you want to be a snail?')
+                print('running on 1 rank; use mpiexec -n N to parallelise')
             # save date as identifier for the param_id
             np.save(os.path.join(self.output_dir, 'date'), date.today().strftime("%d_%m_%Y"))
 
@@ -2527,8 +2751,11 @@ class ParamID():
             # write column header for best params
             with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'w') as f:
                 wr = csv.writer(f)
+                written = [names for names, label in zip(self.param_id_info["param_names"],
+                                                         param_entry_labels(self.param_id_info))
+                           if self.calibrated_entries is None or label in self.calibrated_entries]
                 new_array_names = np.char.replace(np.array([list_of_names[0] 
-                                    for list_of_names in self.param_id_info["param_names"]]), '/', ' ')
+                                    for list_of_names in written]), '/', ' ')
                 wr.writerows(new_array_names.reshape(1, -1))
 
         if rank == 0:
@@ -2557,10 +2784,28 @@ class ParamID():
 
         # C_T min and max was 1e-9 and 1e-5 before
 
-        optimiser = self.make_optimiser(self, self.param_id_info, self.param_norm_obj,
-                                        self.output_dir)
-        optimiser.run()
-        self.best_param_vals = optimiser.best_param_vals
+        self.held_entries = []
+        if self.calibrated_entries is None:
+            optimiser = self.make_optimiser(self, self.param_id_info, self.param_norm_obj,
+                                            self.output_dir)
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+        else:
+            held = self._held_entries()
+            reduced_info = held.reduced_info()
+            optimiser = self.make_optimiser(
+                held, reduced_info,
+                Normalise_class(reduced_info['param_mins'], reduced_info['param_maxs']),
+                self.output_dir)
+            optimiser.run()
+            # the full vector, as every reader of this run's best fit expects
+            self.best_param_vals = held.full(optimiser.best_param_vals)
+            if rank == 0:
+                np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+                with open(os.path.join(self.output_dir, HELD_ENTRIES_FILE), 'w',
+                          encoding='utf-8') as f:
+                    json.dump({'calibrated': list(self.calibrated_entries),
+                               'held': self.held_entries}, f, indent=2)
         self.best_cost = optimiser.best_cost
         if self.param_id_method in ('sp_minimize', 'multi_start_sp_minimize'):
             self.init_gradient = optimiser.init_gradient
@@ -3169,8 +3414,7 @@ class ParamID():
         #     cost = np.sum(np.abs(updated_weight_const_vec*(const -
         #                                                   self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"]))
         # else:
-        #     print(f'cost type of {self.cost_type} not implemented')
-        #     exit()
+        #     raise CAInputError(f'cost type of {self.cost_type} not implemented')
         cost = 0.0
         if const is not None:
             for const_idx in range(len(const)):
@@ -3993,8 +4237,7 @@ A caller that steps through the segments in order does so inside
                 'produce -- it predicts the scalar data_item features only. Re-run with '
                 'use_emulator: false to simulate, plot or save outputs.')
         if MPI.COMM_WORLD.Get_rank() != 0:
-            print('simulate once should only be done on one rank')
-            exit()
+            raise RuntimeError('simulate_once should only be done on rank 0')
         else:
             # The sim object has already been opened so the best cost doesn't need to be opened
             pass
@@ -4086,8 +4329,8 @@ A caller that steps through the segments in order does so inside
 
     def set_bayesian_parameters(self, n_calls, n_initial_points, acq_func, random_state, acq_func_kwargs={}):
         if not self.param_id_method == 'bayesian':
-            print('param_id is not set up as a bayesian optimization process')
-            exit()
+            raise RuntimeError('set_bayesian_parameters needs param_id_method: bayesian, not '
+                               f'{self.param_id_method}')
         self.optimiser_options['num_calls_to_function'] = n_calls
         self.n_initial_points = n_initial_points
         self.acq_func = acq_func  # the acquisition function
@@ -4662,12 +4905,15 @@ class MCMC(ParamID):
         every posterior median look like it had beaten the calibration.
         """
         candidates = [self.best_cost]
-        path = os.path.join(self.output_dir, 'best_cost.npy')
-        if os.path.isfile(path):
-            try:
-                candidates.append(np.load(path))
-            except Exception:
-                pass
+        # the calibration's directory first: this run's own holds a best_cost.npy only when
+        # it had no calibration behind it
+        for directory in (getattr(self, 'calibration_output_dir', None), self.output_dir):
+            path = os.path.join(directory or '', 'best_cost.npy')
+            if directory and os.path.isfile(path):
+                try:
+                    candidates.append(np.load(path))
+                except Exception:
+                    pass
         for candidate in candidates:
             if candidate is None:
                 continue
@@ -4843,13 +5089,17 @@ class MCMC_plotter:
                  solver_info=None, 
                  dt=0.01, UQ_options=None,
                  param_id_output_dir=None, resources_dir=None,
-                 DEBUG=False):
+                 DEBUG=False, operation_funcs_external_path=None,
+                 cost_funcs_external_path=None, modifier_funcs_external_path=None):
 
         self.model_path = model_path
         self.model_type = model_type
         self.param_id_method = param_id_method
         self.file_name_prefix = file_name_prefix
         self.params_for_id_path = params_for_id_path
+        self.operation_funcs_external_path = operation_funcs_external_path
+        self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         self.num_calls_to_function = num_calls_to_function
         self.param_id_obs_path = param_id_obs_path
         self.sim_time = sim_time
@@ -4913,7 +5163,10 @@ class MCMC_plotter:
                                     sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
                                     param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
                                     solver_info=self.solver_info, UQ_options=self.UQ_options,
-                                    DEBUG=self.DEBUG, one_rank=True)
+                                    DEBUG=self.DEBUG, one_rank=True,
+                                    operation_funcs_external_path=self.operation_funcs_external_path,
+                                    cost_funcs_external_path=self.cost_funcs_external_path,
+                                    modifier_funcs_external_path=self.modifier_funcs_external_path)
                 if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
                     with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:
                         param_names_to_remove = []
@@ -4924,7 +5177,8 @@ class MCMC_plotter:
                     mcmc.remove_params_by_name(param_names_to_remove)
 
         if self.best_param_vals is not None:
-            self.best_param_vals = np.load(os.path.join(mcmc.output_dir, 'best_param_vals.npy'))
+            self.best_param_vals = np.load(
+                os.path.join(mcmc.calibration_output_dir, 'best_param_vals.npy'))
 
         mcmc.set_best_param_vals(self.best_param_vals)
 

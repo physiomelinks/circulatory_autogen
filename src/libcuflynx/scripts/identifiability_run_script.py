@@ -54,15 +54,30 @@ def run_identifiability_analysis(inp_data_dict=None, best_param_vals=None):
     num_procs = comm.Get_size()
     if rank == 0:
         if DEBUG:
-            print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
+            print('WARNING: DEBUG is on: the debug_* options replace the full ones, so runs are short '
+                  'and not converged. Set DEBUG: false for real results.')
         print(f'Starting identifiability analysis with {num_procs} MPI rank(s)')
 
+    # The analysis runs on the emulator use_emulator asks for, as a calibration does.
+    emulator_kwargs = {}
+    if inp_data_dict.get('use_emulator', False):
+        # imported here: the emulators package needs the optional [emulation] extra
+        from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
+        emulator_kwargs = {'use_emulator': True,
+                           'emulator_dir': resolve_emulator_dir(inp_data_dict),
+                           'emulator_settings': inp_data_dict.get('emulator_settings')}
+
+    # Optional external user-func files; None when absent, as in param_id_run_script.
     param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,
+                            **emulator_kwargs,
                             params_for_id_path=params_for_id_path,
                             param_id_obs_path=param_id_obs_path,
                             sim_time=sim_time, pre_time=pre_time,
                             solver_info=solver_info, dt=dt, optimiser_options=optimiser_options, DEBUG=DEBUG,
-                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                            operation_funcs_external_path=inp_data_dict.get('operation_funcs_external_path'),
+                            cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path'),
+                            modifier_funcs_external_path=inp_data_dict.get('modifier_funcs_external_path'))
 
 
     # id_analysis = IdentifiabilityAnalysis(model_path, model_type, param_id_method, False, file_prefix,

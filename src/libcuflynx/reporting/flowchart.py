@@ -9,6 +9,8 @@ and needs only ``\\usetikzlibrary{arrows.meta}`` in the preamble;
 :mod:`libcuflynx.reporting.provenance` draws the same graph as SVG.
 '''
 
+import os
+
 from libcuflynx.reporting.latex_names import escape
 
 NODE_STYLES = {
@@ -113,12 +115,9 @@ def figure(picture, caption, label, natural_width_cm=None, max_width_cm=15.0):
 
 
 def _method_label(settings):
-    method = settings.get('param_id_method') or 'genetic_algorithm'
-    try:
-        from libcuflynx.parsers.PrimitiveParsers import PARAM_ID_METHODS
-        return PARAM_ID_METHODS.get(method, {}).get('label') or method
-    except ImportError:
-        return method
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    method = settings.get('param_id_method') or DEFAULT_PARAM_ID_METHOD
+    return PARAM_ID_METHODS.get(method, {}).get('label') or method
 
 
 def _count(n, word):
@@ -129,12 +128,20 @@ def _model_name(model):
     if 'module_array' in model:
         from libcuflynx.calibration_workflow.spec import array_prefix
         return array_prefix(model['module_array'])
+    if 'external_model_path' in model:
+        return os.path.basename(model['external_model_path'])
+    if 'cellml_model_path' in model:
+        return os.path.basename(model['cellml_model_path'])
     return model['module_type']
 
 
 def _model_detail(model):
     if 'module_array' in model:
         return 'module array'
+    if 'external_model_path' in model:
+        return 'external Python model'
+    if 'cellml_model_path' in model:
+        return 'CellML model'
     return f'parameterisation `{model["parameterisation"]}`'
 
 
@@ -144,33 +151,82 @@ def model_line(model):
         return f'selection `{", ".join(model["select"])}` of the target'
     if 'module_array' in model:
         return f'model `{_model_name(model)}`'
+    if 'external_model_path' in model:
+        return f'external Python model `{_model_name(model)}`'
+    if 'cellml_model_path' in model:
+        return f'CellML model `{_model_name(model)}`'
     return f'`{model["module_type"]}`, parameterisation `{model["parameterisation"]}`'
 
 
 #: what an edge from each source key is labelled
 _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from': 'emulator',
                   'result_from': 'at its fit', 'sensitivity_from': 'indices',
-                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from'}
+                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from',
+                  'start_from': 'starts at its values', 'combine_from': 'combined'}
 #: the kinds whose values are merged into the target
-MERGED_KINDS = ('calibration', 'set')
+MERGED_KINDS = ('calibration', 'set', 'combine')
+#: what a combine step's method does, for its box
+COMBINE_LINES = {'best_fit': 'best fit of', 'mean': 'mean of'}
+
+
+def manual_reduction_lines(options):
+    '''What a reduction chosen by hand keeps, and why, for its box.'''
+    names = ', '.join(f'`{name}`' for name in options.get('parameters') or [])
+    return [f'chosen by hand: {names}', options.get('reason', '')]
+
+
+def combine_line(combine, combine_from):
+    '''What a combine step does, in one line: ``best fit of a, b``.'''
+    method = (combine or {}).get('method', 'best_fit')
+    return f'{COMBINE_LINES.get(method, method)} {", ".join(combine_from or [])}'
+#: the line of a set step with ``"point": true``, whose values the target does not merge
+POINT_ONLY = 'point only, not in the target'
+#: the kinds that run a model at chosen points and keep every run
+SWEEP_KINDS = ('sweep', 'simulate')
 
 
 def _kind_line(s):
     '''What a step that is not a calibration does, in one line.'''
     settings, kind = s.get('settings') or {}, s.get('kind')
-    if kind == 'sensitivity':
-        method = (settings.get('sa_options') or {}).get('method', 'sobol')
-        return f'{method.capitalize()} sensitivity analysis'
     if kind == 'emulation':
         return 'emulator trained'
+    on = ' on the emulator' if s.get('emulator_from') or s.get('emulator_dir') else ''
     if kind == 'identifiability':
         method = (settings.get('ia_options') or {}).get('method', 'Laplace')
         return f'{method} identifiability analysis'
-    return _method_label(settings) + (' on the emulator' if s.get('emulator_from') else '')
+    if kind == 'uq':
+        from libcuflynx.calibration_workflow.spec import uq_method
+        method = {'mcmc': 'MCMC', 'laplace': 'Laplace approximation'}.get(
+            uq_method(settings), uq_method(settings))
+        return f'{method} at {"its values" if s.get("result_from") else "the model values"}{on}'
+    if kind == 'sensitivity':
+        return _kind_line_sensitivity(settings) + on
+    return _method_label(settings) + on
+
+
+def _kind_line_sensitivity(settings):
+    method = (settings.get('sa_options') or {}).get('method', 'sobol')
+    return f'{method.capitalize()} sensitivity analysis'
+
+
+def theta_name(entry):
+    '''What a set step's theta entry is the value of: the theta of a modifier entry.'''
+    return f'theta of {entry["entry"]}'
+
+
+def factor_line(record):
+    '''One parameter a step's protocol gives as factors: the value they multiply, and where
+    that value came from.'''
+    units = f' {record["units"]}' if record.get('units') else ''
+    source = f' from `{record["from_step"]}`' if record.get('from_step') else ''
+    return f'`{record["parameter"]}` in the protocol: factors × {record["base"]:g}{units}{source}'
 
 
 def set_line(entry):
-    '''One entry of a set step, with its reason.'''
+    '''One entry of a set step, with its reason: a parameter's value or scale, or the theta of
+    a params_for_id modifier entry.'''
+    if 'entry' in entry:
+        return f'theta of `{entry["entry"]}` = {entry["theta"]}: {entry["reason"]}'
     how = (f'= {entry["value"]}' if 'value' in entry
            else f'scaled {entry["scale"]} times `{entry["of"]}`')
     return f'`{entry["parameter"]}` {how}: {entry["reason"]}'
@@ -197,6 +253,8 @@ def _sweep_lines(s):
     sweep = s.get('sweep') or {}
     parameters = sweep.get('parameters') or {}
     first = 'the merged target' if s.get('on_target') else model_line(s['model'])
+    if s.get('kind') == 'simulate':
+        return [first, 'one run of the protocol']
     if not parameters:
         return [first, 'the protocol, nothing swept']
     zipped = {name: group for group in sweep.get('zip') or [] for name in group}
@@ -219,12 +277,15 @@ def workflow_graph(steps):
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
-    step) ``reduction``, ``set`` or ``sweep`` where a step has them, plus ``model`` (the
+    step) ``reduction``, ``set`` or ``sweep``, and (a combine step) ``combine`` and
+    ``combine_from``, where a step has them (a simulate step has none; a figure step has
+    ``figure``: ``{function, inputs: {name: {kind, step}}}``), ``protocol_factors`` (the
+    step_result records of the values its protocol factors multiplied), plus ``model`` (the
     workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
     rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
-    target, by default every calibration and set step) in a final dict with ``'id': None``. A
+    target, by default every calibration, set and combine step) in a final dict with ``'id': None``. A
     model is a library module ``{module_type, version, parameterisation}``, ``{module_array}`` or
-    ``{select}``; a reduction or set step has none, and any other step given ``'model': None``
+    ``{select}``; a reduction, set or combine step has none, and any other step given ``'model': None``
     has not run.'''
     *step_list, target = steps
     nodes, edges = [], []
@@ -233,29 +294,50 @@ def workflow_graph(steps):
         if kind == 'reduction':
             options = s.get('reduction') or {}
             index_type = options.get('index_type', 'ST')
-            if options.get('method', 'pca') == 'pca':
+            if options.get('method') == 'manual':
+                lines = manual_reduction_lines(options)
+            elif options.get('method', 'pca') == 'pca':
                 lines = [f'one parameter per informative PCA mode, by Sobol {index_type}']
             else:
                 lines = [f'keeps the top {options.get("n_params")} by Sobol {index_type}']
         elif kind == 'set':
             lines = [set_line(entry) for entry in s.get('set') or []]
+            if s.get('point'):
+                lines.append(POINT_ONLY)
+        elif kind == 'combine':
+            lines = [combine_line(s.get('combine'), s.get('combine_from'))]
+        elif kind == 'figure':
+            figure = s.get('figure') or {}
+            lines = [f'`{figure.get("function", "")}`'] + [
+                f'`{name}`: {source["kind"]} of `{source["step"]}`'
+                for name, source in (figure.get('inputs') or {}).items()]
         elif s.get('model') is None:
             lines = ['not run']
-        elif kind == 'sweep':
+        elif kind in SWEEP_KINDS:
             lines = _sweep_lines(s)
         else:
             lines = [model_line(s['model']),
                      f'{_count(s["n_parameters"], "parameter")}, '
                      f'{_count(s["n_data_items"], "observable")}',
                      _kind_line(s)]
+        lines += [factor_line(r) for r in s.get('protocol_factors') or []]
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
-                      'kind': {'calibration': 'step', 'set': 'values'}.get(kind, 'analysis')})
+                      'kind': {'calibration': 'step', 'combine': 'step',
+                               'set': 'values'}.get(kind, 'analysis')})
         if s.get('on_target'):
             # it runs on the merged target, which the merge edges already draw
             edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
                           'style': 'order'})
+            continue
+        if kind == 'figure':
+            inputs = (s.get('figure') or {}).get('inputs') or {}
+            for dep in s['depends_on']:
+                read = list(dict.fromkeys(source['kind'] for source in inputs.values()
+                                          if source['step'] == dep))
+                edges.append({'from': dep, 'to': s['id'], 'label': ' + '.join(read),
+                              'style': 'reads'})
             continue
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()
@@ -270,11 +352,11 @@ def workflow_graph(steps):
                             f'{_count(target["n_merged"] - n_set, "calibrated value")}']
                            + ([f'{_count(n_set, "value")} set by hand'] if n_set else []),
                   'kind': 'target'})
-    # every calibration and set step is merged into the target; a later one wins a parameter
-    # they share
+    # every calibration, set and combine step is merged into the target; a later one wins a
+    # parameter they share
     merged_from = target.get('merged_from')
     for s in step_list:
-        if s.get('kind', 'calibration') in MERGED_KINDS and \
+        if s.get('kind', 'calibration') in MERGED_KINDS and not s.get('point') and \
                 (merged_from is None or s['id'] in merged_from):
             edges.append({'from': s['id'], 'to': '__target__', 'label': '',
                           'style': 'merge'})

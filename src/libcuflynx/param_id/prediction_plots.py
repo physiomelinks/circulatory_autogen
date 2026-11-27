@@ -59,6 +59,7 @@ import warnings
 import numpy as np
 
 from libcuflynx.utilities.obs_data_helpers import data_reference_line
+from libcuflynx.utilities.paperPlotSetup import paper_style
 
 #: kinds with one point per experiment, from scalar features
 FEATURE_KINDS = ('feature_vs_feature', 'feature_vs_input')
@@ -618,7 +619,8 @@ def plot_prediction_plots(plots, gt_df, prediction_info, protocol_info, model_va
     paths = []
     # Names and labels are shown as written: paperPlotSetup's cmr10 has no "_" glyph (its slot
     # holds a dot accent), so "I_peak" would print as "I˙peak".
-    with matplotlib.rc_context({'font.family': 'serif', 'font.serif': ['DejaVu Serif']}):
+    with paper_style(), matplotlib.rc_context({'font.family': 'serif',
+                                               'font.serif': ['DejaVu Serif']}):
         for index, plot in enumerate(plots):
             if plot['kind'] not in TIME_COURSE_KINDS:
                 paths.append(_draw(plot, index, groups, protocol_info, model_values, out_dir,

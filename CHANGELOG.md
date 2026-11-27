@@ -5,197 +5,59 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
+## 0.8.0 — 2026-11-27
 
-- **Reduction results change for every user.** `sa_options.jacobian_check_steps` and
-  `param_reduction_options.redundancy_converged_only` now default to true: a Sobol run takes its
-  local derivatives at `jacobian_step` and at half of it, and a `pca` reduction's redundancy check
-  takes the `median` over the points where the two agree (within `redundancy_convergence_tol`).
-  On the Goodwin benchmark this keeps 4 parameters, its Fisher count, where the old defaults kept
-  5; FitzHugh-Nagumo (5) and Teusink (5) do not change, and on the 3-compartment test model all 8
-  points converge. `benchmarks/param_reduction/redundancy_comparison_results.md` is unchanged: its
-  rows name both settings, and the new defaults are its `K8_central_1e-2_checked`,
-  `median_converged` entries.
-- A Sobol run's derivatives cost twice the runs: `4 x jacobian_points x M` simulations, 5.8% of
-  a 12-parameter run at `num_samples: 256` (was 2.9%).
-- Reducing a Sobol run that has derivatives at one step (one made before this release, or with
-  `jacobian_check_steps: false`) is refused, naming the two fixes: rerun it with both steps, or
-  set `redundancy_converged_only: false` to use every point as before.
+The first release since 0.7.3. It changes input file formats (convert yours once with
+`cuflynx-upgrade`), adds calibration workflows, makes CMA-ES the default calibration method and
+changes some results: read **Before you upgrade** and **Results that change** first. The
+entries below are grouped by feature.
 
-### Changed — CMA-ES counts `max_patience` in generations: calibration results change
+### Before you upgrade
 
-- **CMA-ES results change.** `max_patience` now counts generations (one population of
-  candidates: 4 for two bounded parameters, at least the MPI rank count + 1) without an
-  improvement, as the schema already documented. It counted single cost evaluations, so on one
-  rank the default of 10 stopped a run after ten candidates without an improvement, under three
-  generations: a 2-parameter windkessel fit with a 600-call budget stopped after 21-42
-  evaluations at costs of 1e2, and now converges (cost < 1e-4, R and C within 0.02% of the
-  truth) in 290-520. Runs use more of `num_calls_to_function` and reach lower costs.
-- CMA-ES asks one whole generation per loop and spreads it over the ranks, instead of one
-  candidate per rank. On one rank the candidates are the same as before; on more ranks the
-  trajectory changes, because asking one per rank split generations so that nevergrad asked pycma
-  for the next generation before the last was told.
-- The CMA-ES `sigma0` option is not applied (nevergrad picks the initial step from the bounds), so
-  the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
-  given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
-  raised inside nevergrad's ask/tell, is silenced.
+- **Convert your input files once with `cuflynx-upgrade`.** Readers refuse the older forms
+  and name the subcommand that converts them: module configs and arrays, then parameter names,
+  then parameters (one nested `<prefix>_parameters.json`), an obs_data without
+  `protocol_info`, and a params_for_id CSV (now JSON only). See *Upgrading* below.
+- **libCellML 0.7.2 or later** is required.
+- **Calibration workflow files** name modules with `module` / `module_map`, not `vessel` /
+  `vessel_map`: convert them, and earlier runs' `step_result.json`, with
+  `cuflynx-upgrade workflow <file or directory>`.
+- **CMA-ES's `sigma0` option is removed**, and CMA-ES is the default `param_id_method`.
+- obs_data items name their origin in `data_reference`; `source` is refused.
+- Old configuration keys, Python names and the commands `cuflynx-sequential-param-id` and
+  `cuflynx-migrate-obs-data` are removed.
+- Bad input to the parsers and generators raises `CAInputError` instead of exiting; an
+  application embedding libcuflynx catches it.
+- A `tissue_GE_simple` connected straight to a `gas_transport_simple` is refused: mix the
+  regions' venous gas with a `venous_gas_mixing` module.
+- `model_type: cpp` is generated from libCellML's C output: regenerate C++ models.
 
-### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+### Results that change
 
-- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
-  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
-  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
-  `plot_prediction_plots` and the PCA-Sobol report now call
-  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
-  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
-  render figures with Agg, with or without a display.
-- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
-  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
-  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
-  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
-  tutorial notebook reads the hybrid run's 0D results from there.
+- **Calibrations that name no `param_id_method`** now run CMA-ES (#699).
+- **CMA-ES**: every run evaluates its start value first (#710); `max_patience` counts
+  generations, not single evaluations; a one-parameter run uses CMA instead of nevergrad's
+  OnePlusOne, so it no longer stalls at a bound (#701).
+- **PCA parameter reduction**: unconverged derivative points are left out by default (#708),
+  and the redundant parameter kept is the one the Sobol indices rank highest.
+- **A series data item's "error in stds"** is mean(|obs - fit| / std) (#717): the reported
+  values change, the fit does not.
+- **casadi_python** uses CVODE_myokit's output times when `dt` does not divide the run (#709).
+- **The 3compartment model** starts with `global/q_lv_init = 1e-3`, inside its calibration
+  bounds (#695).
+- **`time` with `pre_time > 0`** on the python, casadi_python, aadc_python, external_python and
+  OpenCOR backends is the time after the warm-up, as on Myokit (#557).
+- **`CVODE_myokit` on modules in other time units** (#604): such modules ran 1000x too slowly;
+  the shipped tutorial piezo modules are affected.
+- **`offline_pre_time`** is applied on the dict route and in Sobol SA as on the file route
+  (#655).
+- **Mixed venous O2 and CO2 contents** weight each region by its own flow.
+- The built-in hearts compute their chamber phases in closed form; trajectories agree with
+  the integrated phases to 7e-8.
 
-### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+### Upgrading: input files, names and removed forms
 
-- With `redundancy_check`, the reduction kept at each step the parameter with the largest
-  local effect not yet explained. Of two parameters that are redundant in the informative
-  modes it could so keep the one with the lower Sobol index, on a small difference in local
-  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
-  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
-  still at least `min_mode_std`, the one with the highest Sobol index over the informative
-  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
-  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
-  decided as before.
-
-### Changed — a workflow tab's model is generated faster
-
-- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
-  compile, about half the time of a view), for a caller that compiles or runs the model itself
-  straight after. A model with parameters left unset is still refused. The default is
-  unchanged. In code, the generation dict key is `validate_generated_model: False`.
-- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
-  `UnitConverter`, so every generator, built its own (about a second each).
-
-### Fixed — a Sobol analysis runs on casadi_python models
-
-- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
-  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
-  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
-  every model type, as a calibration does for its numeric evaluations.
-
-### Fixed — an emulator is not refused because its Python model has another file name
-
-- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
-  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
-  run on an emulator trained under another prefix (a workflow step's emulator used by another
-  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
-  fingerprint now also holds `model_content_sha256`: the model file with that file name left
-  out, and the utilities file, which the earlier hash did not cover. An emulator stored
-  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
-  this refusal.
-
-### Added — analysis options name the methods that read them
-
-- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
-  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
-  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
-  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
-  option without it is read by every method. `analysis_options(mode, method)` returns a
-  method's options, so a settings form shows and sends only those. No run reads the marker:
-  what each method accepts is unchanged.
-
-### Changed — the PCA parameter reduction checks for redundant parameters
-
-- `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
-  effect on the informative PCA modes over its prior range, beyond what the parameters already
-  kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
-  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
-  at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
-  with a step of 0.01 in ln(parameter), so 2 x `jacobian_points` x M extra runs, about 2.9% of
-  a 12-parameter run at `num_samples: 256`; `jacobian_location`, `jacobian_scheme`,
-  `jacobian_step` and `jacobian_check_steps` choose others). The redundancy is judged at each
-  point and summarised over the points by `redundancy_statistic` (`median`, or `rms`),
-  optionally leaving out points whose derivatives change with the step
-  (`redundancy_converged_only`). The defaults come from
-  `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
-  (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
-  parameters, and every parameter of a ratio or scaling symmetry.
-
-### Fixed — a failed Sobol sample is filled from its own outputs
-
-- A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
-  of every kind, mixing units. Each is now filled with that output's mean over the samples that
-  ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
-- A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
-  now spreads its samples over the MPI ranks, one process running them all.
-
-### Changed — the built-in hearts compute their chamber phases from the beat phase
-
-- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
-  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
-  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
-  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
-  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
-  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
-  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
-  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
-  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
-  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
-  made the same change.
-- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
-  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
-  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
-  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
-  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
-  state changes by round-off at the onset.
-- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
-  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
-
-### Fixed — casadi_integrator's jit falls back on Windows without MSVC
-
-- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
-  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
-  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
-  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
-  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
-  defaults), so an unset `jit` warns and runs without jit there.
-
-### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
-
-The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
-a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
-facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
-neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
-the module, the port's variables, the 1D vessel and the 0D modules.
-
-- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
-  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
-  condition the coupler sets.
-- Sums on the module's other ports generate; they are ordinary CellML.
-- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
-  vessel `v` ends sum, couple to 1D.
-
-### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
-
-- The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
-  `VARIABLE_INFO[] = {};` when the model has no constants, computed constants or algebraic
-  variables. An empty initialiser is not standard C, and MSVC 14.44 stopped on it with an internal
-  compiler error, so these models did not build in CUFLynx's Windows app.
-  `c_code_with_one_variables_array` now writes one placeholder entry there; `VARIABLE_COUNT`
-  stays 0, so the entry is never read. GCC and Clang builds are unchanged in behaviour.
-
-### Added — a pre-release test suite
-
-- `tests/test_solver_matrix.py` checks every forward backend against one converged
-  CVODE_myokit reference, by scaled RMS, a shift-tolerant maximum and the mean/min/max
-  features, with the gates in `tests/_solver_metrics.py`. CI also runs the `mpi` tests outside
-  the param-id files (test-mpi-rest), the simulation and solver-matrix tests at the oldest
-  supported backend versions (test-min-deps) and the batched C solvers under MSVC
-  (test-windows). `CUFLYNX_REQUIRED_BACKENDS` turns a skip for a backend the job installed into
-  a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
-  release (CONTRIBUTING.md).
-
-### Added — `cuflynx-upgrade junctions`
+#### Added — `cuflynx-upgrade junctions`
 
 The module library (circulatory-autogen-modules) removes its junction module types: vessels whose
 compliant end now has a summing port (`"multi_port": ["sum", "True"]`) do what they did, for any
@@ -213,34 +75,1368 @@ number of vessels at a node (node sums #609, node rule D #617).
   it suggests a lumped `vv` vessel between them.
 - The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
   `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
-### Changed — the tutorial notebooks run end to end in CI, with quick settings
 
-- Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
-  warm-up length, Sobol samples and genetic-algorithm calls in the two calibration notebooks;
-  pip install, example-image download, Fiji, an image of your own, sub-volume and Ilastik in the
-  image notebook. The defaults are what the tutorials teach with.
-- `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
-  notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
-  settings cell, and checks the key outputs: about 110 s for `generation_and_calibration.ipynb`
-  (including the C++ 0D build and run and the hybrid run), 20 s for
-  `generation_and_calibration_test.ipynb` and 6 s for `image_to_hemodynamics_model.ipynb`.
-  The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
-- The hybrid section of `generation_and_calibration.ipynb` runs too: its run length is two
-  settings, `hybrid_num_periods` (3) and `hybrid_period_s` (1.0 s), which the quick test sets to
-  two periods of 10 ms (the full run takes about 4 minutes per simulated second). The coupler's
-  pipes go under `generated_models_dir/coupler_pipes/` rather than `/tmp/`.
-- `image_to_hemodynamics_model.ipynb` runs to the end on a synthetic segmentation in the quick
-  test; the full run (example-image download) stays `manual`. `image_proc_funcs.py` built its
-  parameters for the model named in `user_inputs.yaml` (`3compartment` in a checkout, whose
-  `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
-  built, and read modules only from `module_config_user/`. It now takes the vessels of its own
-  module array and finds their modules with `ModuleSources`, as model generation does. The
-  network's open ends are no longer joined to pressure-inlet / pressure-outlet nodes (`P_inlet`
-  was removed in #155): an inlet vessel's entrance and an outlet vessel's exit are left
-  unconnected, generation makes their boundary conditions parameters (`<vessel>/u_in`,
-  `<vessel>/u_out`), and the pipeline writes the inlet and outlet pressures into them.
+#### Changed — obs_data items name their origin in an optional `data_reference`, which replaces `source`
 
-### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
+`data_reference` says where a calibration or validation datum comes from, spelled as the
+parameters-file column. It is optional, and a value that is not a string is refused.
+
+- The free-text `source` key is replaced by `data_reference` and still accepted, on data_items
+  and prediction_items (string or null). The parser reads it as the item's `data_reference`, so it
+  reaches everything below; an item with both keeps its `data_reference`. A file that uses it gets
+  one warning, giving the number of items: rename the key. A series item now needs `value` or
+  `value_path`: `source` no longer satisfies that rule (the parser already refused such an item
+  for having a `std` and no data).
+- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
+  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
+  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
+  `data_reference=`.
+- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
+  `data_reference` per item in `validation_results.json`.
+- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
+
+#### Changed — libCellML 0.7.2 or later
+
+libCellML 0.7 generates Python and C with constants, computed constants, algebraic and external variables in separate
+arrays. `PythonGenerator` and the C++ generator join them into the one `variables` array the solvers and the C++ model
+use, so generated models behave as before: on the test models, the values (Python and C) and the generated C++
+statements are the same as with 0.6.3. 0.6.3 flattened some models with wrong units (a conversion factor's units
+replaced by their inverse), which 0.7.1 fixes (#271). The requirement is `libcellml>=0.7.2`, the PyPI
+release: 0.7.1 drops an imported unit's exponent (SN_simple and the coupling `k_reduce` fail with a
+units mismatch), which 0.7.2 fixes (cellml/libcellml#1498).
+
+#### Changed — a generated model has one parameters file, nested JSON; the generated CSV is gone
+
+Generation writes one parameters file beside the generated model, `<prefix>_parameters.json` (in
+the generated-models directory; the model's own input file of that name stays in its resources
+directory), and no `<prefix>_parameters.csv`: every value the model uses, in the form of a
+model's parameters file (`aortic_root/C`, `heart/lv/E_A`, globals under `global`), with its units
+and data_reference. A value the model's parameters file does not set (a supermodule instance
+written `"heart": {}`, a module's default parameterisation, a supermodule parameterisation's
+global) names its source at the start of its data_reference:
+`"from <module_type>/<module_subtype> parameterisation <name>: <its own data_reference>"`; a
+data_reference already starting `from ` is not prefixed again, and none is cut at 80 characters.
+Generating again from it alone, with the same module array, gives the same model. A
+`<prefix>_parameters.csv` an older libcuflynx left in the generated model's directory is removed
+when the model is generated again.
+
+Everything that read the generated CSV reads the JSON, naming each parameter as the model does
+with `parameters_file.model_parameter_rows` (`C_aortic_root`, `E_A_heart__lv`, `R`): the
+calibration workflow (fixed values, identifiability's start point, the target's check of the
+calibrated names) and the methods LaTeX (`cuflynx-methods-latex --parameters` takes the JSON; a
+parameters file that does not exist, named or the default beside the model, is an error naming its
+path rather than a methods section citing no source).
+
+A calibration workflow's calibrated parameters (`write_calibrated`,
+`write_calibrated_parameters_to`) are the target's parameters file completed with every other
+value its model uses, with the calibrated values set, so a result reproduces the run without the
+module library; `write_calibrated_parameters_to` builds on the run's own generated target
+parameters file (regenerating the target only when the run has none) and still writes only its
+`path`.
+
+Renamed, so the names match the file: `generate_model(...)['used_parameters_path']` and
+`workflow_result['target_model']['used_parameters_path']` are `parameters_path` (which named the
+CSV); `runner.run_target_used_parameters` is `run_target_parameters`,
+`runner.target_used_parameters` is `target_generated_parameters`, and the `used_path` argument
+of `write_calibrated_parameters` is `generated_path`; `parameters_file.used_parameters_file_name`
+is gone (`parameters_file_name`). A workflow run whose `workflow_result.json` records a parameters
+CSV for its target model is refused when its calibrated parameters are written: run the workflow
+again.
+
+#### Changed — parameter values are nested JSON
+
+A model's parameter values are `<prefix>_parameters.json` beside its module array (schema
+`parameters.schema.json`), nested instance, sub-instance, variable:
+
+```json
+{"schema_version": 1,
+ "global": {"R": {"value": 8.314, "units": "J_per_mol_K", "data_reference": "..."}},
+ "aortic_root": {"C": {"value": 1.2e-8, "units": "m3_per_Pa", "data_reference": "Liang2009"}},
+ "heart": {"lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "..."}}}}
+```
+
+- A parameter is an object with `value` (a number, or text such as `EMPTY_MUST_BE_FILLED`; an empty
+  one is read as `EMPTY_MUST_BE_FILLED`), `units`, `data_reference` and any other string key (a
+  library's `sourced`). A number keeps the text it is written with. Every other object is an instance
+  or sub-instance. `global` holds the global constants. `global`, `value` and `schema_version` are
+  reserved: no module-array record, submodule or variable may have those names.
+- A path is the name users write: `aortic_root/C`, `heart/lv/E_A`, `global/R` or `R`.
+- A parameterisation, `parameterisations/<name>/<name>_parameters.json`, has the same form rooted at
+  its module: a component's own variables at the top (`{"C": {...}}`) and its global constants under
+  `global`; a supermodule's sub-instances (`{"lv": {"E_A": {...}}}`) and its globals.
+- A supermodule instance's values are in the model's file under its name. `cuflynx-upgrade
+  supermodule-instances <module array> --module-library-dir <library> [--instance N] [--replace]
+  [--parameters FILE]` copies them once from the version's template (its default parameterisation,
+  or the one the record names in its place, which must set every instance value the default sets,
+  and nested supermodules' templates under it); an instance that
+  has an entry keeps it. Generation refuses a supermodule instance the file has no entry for, naming that command.
+  Of a supermodule's parameterisation it reads only the globals; a value the model's file lacks comes
+  from the submodule version's `default_parameterisation`.
+- Calibration workflows write `<name>_calibrated_parameters.json` in the same form: a module array
+  target's full file with the calibrated values set, or a parameterisation's.
+- A parameters CSV is refused. `cuflynx-upgrade parameters <file | *_modules_config.json | directory>`
+  converts it to the `.json` beside it: a model's file (and the per-instance
+  `<prefix>_supermodule_parameters/` files beside its module array, moved in under each instance), a
+  parameterisation (globals by its config), a config's parameterisations (and a supermodule version's
+  `<module_type>_<module_subtype>_parameters.json`, folded into its default parameterisation), or every
+  one below a directory. Name the `.json` file in `input_param_file`.
+- Generation writes the generated model's parameters as `<prefix>_parameters.json` beside the
+  generated model (see "a generated model has one parameters file" above). A model with missing
+  values gets `<prefix>_parameters_unfinished.json` in its resources directory.
+
+#### Changed — params_for_id is JSON
+
+A calibration's parameters are `<prefix>_params_for_id.json` (schema `params_for_id.schema.json`), a
+flat list of entries, not nested by instance: an entry groups parameters or modifies them, so it is
+not one parameter.
+
+```json
+{"version": 1,
+ "params": [
+  {"targets": ["aortic_root/C"], "min": 1e-9, "max": 5e-8, "name_for_plotting": "C_{ao}"},
+  {"targets": ["heart/lv/E_A", "heart/rv/E_A"], "min": 1e8, "max": 5e8},
+  {"name": "R_scale", "modifies": ["venous_svc/R", "venous_ivc/R"], "modifier": "scale", "min": 0.5, "max": 2}]}
+```
+
+- Parameters are named as users write them: `<vessel>/<variable>`, a nested vessel by its path
+  (`heart/lv/E_A`, read as the model's `heart__lv`) and a global as `global/<variable>`.
+- A params_for_id CSV is refused (`params_for_id_file`, the default `<prefix>_params_for_id.*`, a
+  workflow step's `params_for_id`). `cuflynx-upgrade params-for-id <CSV | directory>` writes the
+  `.json` beside each CSV and removes it: one entry per row, `vessel_name "a b"` with `param_name "C"`
+  as `"targets": ["a/C", "b/C"]`, the `prior_*` columns under `prior_params`, numbers as written.
+  `ObsAndParamDataParser.params_for_id_csv_to_json` returns the same document.
+- Calibration workflows write a step's params_for_id with its priors' parameters, and a reduction's,
+  as `<step>_params_for_id.json`; a prior over parameters of different names is no longer refused.
+
+#### Changed — `solver: CVODE` for a cellml model is `CVODE_myokit`
+
+`solver: CVODE` (or `solver_info.solver: CVODE`) with `model_type: cellml` is read as
+`CVODE_myokit` when user_inputs are read, with one printed line saying so; a `solver_info` error
+then names the shorthand. The dated `user_inputs_<yymmdd>.yaml` keeps `CVODE`, as written; a
+pipeline bundle's config records `CVODE_myokit`, since its `run_pipeline.py` does not go through
+the reader. `CVODE` for a cpp model is unchanged. The shorthand is listed in
+`SOLVER_SCHEMA['solver_aliases_by_model_type']`.
+
+#### Changed — a nested vessel is written by its path
+
+An output or obs_data operand names a nested vessel by its path, as a host parameter already
+does: `SN/soma/membrane/V` (everything before the last `/` is the vessel's path) for the
+model's `SN__soma__membrane/V`. The flat `__` form is still accepted. A host parameter without
+a vessel (`R`, `global/R`) that no module of the model declares as a global constant is
+refused, as `<vessel>/<variable>` names the model doesn't have already are; models with 1D
+vessels are not checked.
+
+#### Removed — older module config, module array, parameter name and obs_data forms
+
+libcuflynx reads only the current forms of its input files. A file in an older form is refused
+with an error naming the `cuflynx-upgrade` command that converts it once, in place. Convert a
+model's module configs and module array before its parameter names.
+- Module configs (`cuflynx-upgrade module-config FILE`): the keys `vessel_type`, `BC_type`,
+  `module_file` and `module_type` (the component) -> `module_type`, `module_subtype`,
+  `component_file`, `component_type`; `default_instance` -> `default_parameterisation`; a
+  supermodule's `default_parameters` CSV -> its parameterisation `parameterisations/default/`;
+  `multi_port: "False"` (leave it out, or `null`/`false`).
+- Module arrays (`cuflynx-upgrade module-array FILE`): the keys and columns `vessel_type`,
+  `BC_type`, `inp_vessels`, `out_vessels`; `<prefix>_vessel_array.*` file names (renamed
+  `<prefix>_module_array.*`). A heart with one output no longer gets `par` and `pvn` added, by
+  the generator or the converter: a heart is a module like any other, and the array lists every
+  module. A model that relied on them adds the two rows the generator used to add,
+  `par,arterial_simple,vp,<heart>,pvn` and `pvn,arterial_simple,vp,par,<heart>`, and their
+  parameters. A heart's vessel inputs fill its ports in order, `v_ivc`, `v_svc`, then `v_pvn`,
+  and its vessel outputs `v_aov` (aorta) then `v_puv` (`par`): list the inferior vena cava, the
+  superior vena cava, then `pvn` in its inputs, and `par` after the aorta in its outputs. A
+  heart with only one vena cava lists a `zero_flow` instance first in its inputs, as the
+  `3compartment` arrays do. Without the two rows the heart's pulmonary ports are unconnected,
+  so `heart/u_par` and `heart/v_pvn` are boundary conditions that need values.
+- Generation lists the missing parameters, and names each boundary condition that no connected
+  module supplies with its module, so an unconnected port is easy to find.
+- Parameter names (`cuflynx-upgrade parameter-names --module-array ARRAY` or
+  `--supermodule-config CONFIG`, with `--module-library-dir` for library modules): a host
+  parameters file names a module's parameter `<vessel>/<variable>` (`aortic_root/C`), and
+  `C_aortic_root` is refused; a name without `/` is a global. A supermodule parameterisation row
+  is `<submodule>/<variable>`; `{var}_{sub}` is refused. Nested levels joined with a single `_`
+  are refused (`__` is the join).
+- Parameterisations: a version with an `instances/` directory and no `parameterisations/` is
+  refused; rename the directory.
+- obs_data (`cuflynx-upgrade obs-data FILE --user-inputs user_inputs.yaml`, or `--pre-time T
+  --sim-time T`, which win over the yaml's values): an obs_data must
+  have a `protocol_info` with `pre_times` and `sim_times`. A bare list of data items, or an
+  object without `protocol_info` timed by user_inputs.yaml's `pre_time`/`sim_time`, is refused.
+  `parse_obs_data_json` no longer takes `pre_time` / `sim_time`.
+- `python -m libcuflynx.utilities.config_schemas to-json` no longer takes `--style`, and
+  `module_array_to_json` no longer takes `style`: they write the current keys.
+
+#### Added — `cuflynx-upgrade`
+
+`cuflynx-upgrade module-config | module-array | obs-data | parameter-names` converts files written
+for an earlier libcuflynx, in place, and prints what it changed; `--dry-run` only prints. A file
+already in the current form is left as it is. It replaces `cuflynx-migrate-parameter-names`, which
+is removed (`cuflynx-upgrade parameter-names` takes the same options).
+
+#### Removed — old obs_data and params_for_id spellings, and `cuflynx-migrate-obs-data`
+
+No shipped or library file used them, so they are no longer read; the schema refuses them by name
+("'variable' was unexpected"):
+- obs_data items: `variable` (use `data_item_name` and `operands`), `name_for_plotting` (use
+  `trace_name_for_plotting` / `item_name_for_plotting`), `obs_type` (use `operation`),
+  `vm_path` / `im_path` and paths inside a `source` object (use `t_path` and `value_path`), and
+  `data_type: "timeseries"` (use `"series"`); the top-level `data_item` key (use `data_items`).
+- params_for_id: `operation` on a modifier entry (use `modifier`), and on a saved modifiers
+  record.
+
+- obs_data's `data_type: "prob_dist"` no longer gets its own advice: it is refused like any
+  other unknown data_type. An observable scored against a distribution is a `constant` with a
+  distribution `cost_type` and `prob_dist_params`.
+
+`cuflynx-migrate-obs-data`, which rewrote those spellings, is removed with them. A bare list of
+data items is refused too (see above).
+
+#### Removed — old configuration keys and Python names
+
+`user_inputs.yaml` keys and values that are no longer read are refused with a `ValueError`
+naming what to write instead:
+- `ga_options` / `debug_ga_options` -> `optimiser_options` / `debug_optimiser_options`.
+- `do_mcmc` / `mcmc_options` / `debug_mcmc_options` -> `do_uq` / `UQ_options` /
+  `debug_UQ_options`.
+- `model_type: cellml_only` -> `cellml`.
+- AADC `method: bdf_tape` / `bdf_kernel` -> `method: semi_implicit_signed` with
+  `gradient_strategy: tape` / `kernel`.
+- `sa_options.gradient_method: analytic` -> `auto`.
+- solver_info keys of another solver are no longer moved across: `MaximumStep` on solve_ivp
+  (`max_step`), casadi_integrator (`max_step_size`) or the cpp solvers (`dt_solver`), and
+  `MaximumNumberOfSteps` on solve_ivp or CVODE_myokit (no such setting) or casadi_integrator
+  (`max_num_steps`). The error lists the solver's own keys.
+
+External funcs files import the built-in funcs as `libcuflynx.funcs.cost_funcs_user` (and
+`operation_funcs_user`, `modifier_funcs_user`); the bare `from cost_funcs_user import ...` is
+refused with that import.
+
+Python names removed (use the second):
+- `OpencorParamID`, `OpencorMCMC` -> `ParamID`, `MCMC`.
+- `CVS0DParamID.run_mcmc()` -> `run_UQ()`; the `mcmc_options=` argument of `CVS0DParamID`,
+  `run_UQ`, `MCMC`, `MCMC.from_param_id` and `MCMC_plotter` -> `UQ_options=`.
+- `PARAM_MODIFIER_OPERATIONS`, `DEFAULT_PARAM_MODIFIER_OPERATION`, `param_modifier_operations`
+  -> `PARAM_MODIFIERS`, `DEFAULT_PARAM_MODIFIER`, `param_modifiers`.
+- `MODEL_TYPE_ALIASES`, `normalise_model_type`, `AADC_LEGACY_METHOD_ALIASES`,
+  `migrate_legacy_solver_info_keys` (none needed), `paramID.TAPE_CONSISTENT_AADC_METHODS` ->
+  `aadc_backend.TAPE_CONSISTENT_METHODS`, `CSV0DModelParser.split_0d_1d_vessel_array` ->
+  `split_0d_1d_module_array`, `sobol_SA.create_SA_info` -> `_create_SA_info`.
+- `libcuflynx.utilities.protocol_funcs` -> `libcuflynx.protocol_runners.ProtocolRunner`, and
+  the dead `libcuflynx.obsolete` package.
+
+The exported `run_pipeline.py` imports `libcuflynx.*` only and reads `do_uq` / `UQ_options`.
+
+#### Changed — input files are checked against their JSON Schemas on read
+
+obs_data, params_for_id, module config, module array and calibration workflow files are
+validated against the schemas shipped in `libcuflynx/schemas/` whenever libcuflynx reads them,
+so what an editor, PhLynx or CUFLynx validates is what libcuflynx accepts. `jsonschema` is a
+core dependency.
+
+- An error lists every problem, each with where it is (an item by its name) and what the field
+  is for: `at data_items[2] ('systolic').value: [1.0, 2.0] is not of type 'number' (A
+  constant's value and std are single numbers.)`.
+- obs_data and params_for_id: the schema replaces the readers' own key and type checks, which
+  are gone. Errors about unknown keys, types and missing settings read differently. Unknown
+  `prior_params` keys, which were ignored, are refused, and prior names are still read in any
+  case.
+- Calibration workflows: schema first too. `spec.py` keeps only what spans keys and steps
+  (which kinds use which sources, an emulator step's own values, where a model sits).
+- Module configs and module arrays: their readers' checks run first, then the schema.
+  The schema refuses what the readers did not check, for example `variables_and_units` access
+  other than `access`/`no_access`, a variable kind other than `constant`, `global_constant`,
+  `boundary_condition` or `variable`, and a port with no `variables`.
+- Enums are generated from libcuflynx's registries: `python -m libcuflynx.schemas.registries
+  --write`. The variable kind is now an enum, and `module_config_user/BVC_Kidney_module_config.json`
+  had two `"variable "` (trailing space) fixed.
+- PhLynx main's CA-format files and value lists are tested against the readers and schemas
+  (`tests/test_phlynx_consistency.py`, `PHLYNX_DIR`; CI checks PhLynx out).
+
+#### Changed — PhLynx's key names (#163)
+
+- Module configs and module arrays use PhLynx's keys: `module_type`, `module_subtype`,
+  `component_file`, `component_type`, `inp_instances`, `out_instances`. **Files CA writes use
+  them**, and so do `resources/`, `module_config_user/` and the built-in module configs. The
+  older `vessel_type`, `BC_type`, `module_file`, `module_type` (= the component, beside the other
+  older keys), `inp_vessels` and `out_vessels` are refused; `cuflynx-upgrade module-config` and
+  `cuflynx-upgrade module-array` convert them. Code reading a module dataframe's columns, or a
+  normalised record's keys, sees the new names.
+
+#### Changed — nested names, path references and interfaces (#582)
+
+- **Nested levels are joined with `__`**: the submodule `lv` of the supermodule instance `heart`
+  is `heart__lv`, its parameter `E_heart__lv`. A module-array or submodule name may not contain
+  `__` nor begin or end with `_`. Names joined with a single `_` (`heart_lv/q`, `E_heart_lv`)
+  are refused in parameters files, params_for_id and obs operands; `cuflynx-upgrade
+  parameter-names` converts a parameters file.
+- A host may name a submodule by its path (`heart/ra`, `neuron/soma/membrane`) in its own
+  inp/out list, keeping its own order; a `per_submodule_*` key may be a path into a nested
+  instance.
+- A supermodule entry may declare an `interface` that hosts bind to by port type.
+- `phlynx_*` keys on records and config entries are read and ignored.
+
+#### Removed — `cuflynx-sequential-param-id`
+
+The command and `user_run_files/run_sequential_param_id.sh` are gone, with the script and the
+two obsolete copies behind them. The stage was never implemented: the command only said so.
+Ordered calibrations and analyses are run by `cuflynx-calibration-workflow`.
+
+#### Added — JSON Schemas for all four input files
+
+- **`params_for_id.schema.json`**, new: the JSON form of params_for_id (version 1) that a CSV is converted to on read. Its entry keys, priors and prior settings are tested against `PARAMS_FOR_ID_ENTRY_KEYS` and `PARAM_PRIOR_TYPES`.
+- **`obs_data.schema.json`** now describes the data items, prediction items and `protocol_info` (with `protocol_traces` and `protocol_shapes`), not just the top level: every key with its default, and the rules the parser enforces (unknown keys, required keys, constant vs series shapes, a ground truth per item).
+- **`module_config.schema.json`, `module_array.schema.json`**: every key described; `variables_and_units` rows checked as `[name, units, access, kind]`; `multiply_factor` only on a Multiply port (and as a numeric string); list-form `multi_port` entries `"sum"`/`"True"`; `only_one_port` and `delay_info` added; names may carry surrounding whitespace, as the reader strips it.
+- Tests check each schema against its reader: key sets, and inputs both refuse.
+
+#### Added — parameter names written `<vessel>/<variable>`
+
+- **The `/` form.** A parameters file may name a module's parameter `aortic_root/C` (or `heart/lv/E`, for a supermodule's expanded submodule; `global/R` or `R` for a global). A supermodule's parameterisation and `default_parameters` rows name a submodule's parameter `lv/E`, or `soma/i_M/rho_M` when nested.
+  - Generated models keep their names (`C_aortic_root`), because CellML names cannot contain `/`.
+- **Why.** The `_` form cannot be split reliably when names contain `_`, which supermodule rows had to do: `g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`.
+- **The old form is refused**, in host parameters files and supermodule rows; `cuflynx-upgrade parameter-names` converts it.
+- **Checks on the new form.**
+  - A host `/` row naming a vessel or variable the model does not have, or a global constant through a vessel, is an error.
+  - A supermodule row naming a path that is not a submodule is an error.
+  - A parameterisation's rows must stay bare variable names.
+- **`cuflynx-upgrade parameter-names`** rewrites old names, in a host file (`--module-array`) or in a supermodule's files (`--supermodule-config`). It rewrites a name only when exactly one reading of it names a real variable of that module, and reports the others.
+
+#### Changed — vessel arrays are now called module arrays
+
+The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
+renamed. A `[file_prefix]_vessel_array.json`/`.csv` is refused; `cuflynx-upgrade module-array`
+renames and converts it. The
+functions and constants that carried the old name are renamed in the same way
+(`module_array_path`, `read_module_array_records`, `load_module_array`, `module_array_to_json`,
+`PHLYNX_MODULE_ARRAY_COLUMNS`, ...), without aliases, as none of them was released;
+`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`
+(the old name is removed). The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
+`convert_0d_to_1d` writes `[model]_hybrid_module_array.*`, and the JSON Schema is
+`libcuflynx/schemas/module_array.schema.json`. The `vessels_csv_abs_path` config key is unchanged (the record keys are renamed by #163, above).
+
+#### Changed — module instances are now called parameterisations
+
+A module version's named parameter sets live in `parameterisations/<name>/<name>_parameters.csv`
+(with `<name>_obs_data.json` and `<name>_params_for_id.csv`); a record or submodule picks one with
+`"parameterisation"`, and a config entry names its default with `"default_parameterisation"`.
+"Instance" now means one use of a version in a module array, as a PhLynx node does. The older
+names are refused: rename an `instances/` directory to `parameterisations/`, and convert
+`"default_instance"` with `cuflynx-upgrade module-config`. A module-array record or submodule must use
+`"parameterisation"`: `"instance"` there is a ValueError, and invalid in the JSON Schemas. The
+module is `libcuflynx.utilities.parameterisations` (was `module_instances`), with
+`record_parameterisation`, `parameterisations_dir`, `parameterisation_parameters_path`,
+`available_parameterisations`, `parameterisation_rows` and `component_parameterisation_rows`.
+
+#### Added — JSON module arrays and supermodules
+
+A module array can be a JSON list of records, `[file_prefix]_module_array.json`, with PhLynx's
+keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
+vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
+to the same record, so both are processed identically; the `.json` file is preferred when both
+exist, then `.csv`. Convert CSV arrays with
+`python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
+Every model in `resources/` that generated before generates byte-identical CellML from its CSV
+and from its JSON conversion.
+
+A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
+supermodule. An instance of it in a module array expands into `[instance]_[submodule]` modules
+before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
+instance link its hosts to individual submodules. Supermodules may nest. An optional
+`default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
+model's parameters file does not set them. See `tutorial/docs/design-model.md`.
+
+JSON Schemas for both files ship in `libcuflynx/schemas/` (`module_array.schema.json`,
+`module_config.schema.json`). The loaders check the same rules without a schema library;
+`jsonschema` is a `[dev]` dependency only, for the tests.
+
+The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_module_array.csv` and
+`[file_prefix]_1d_module_array.csv`, and the 1D generator reads the file the split wrote. Before,
+an input named `_module_array.csv` gave split files the 1D generator could not find.
+
+### Calibration and optimisers
+
+#### Changed — every CMA-ES run evaluates its start value first (changes results)
+
+- A CMA-ES run with two or more parameters sampled around its start value without evaluating
+  it, so a run started at a known optimum (a warm start, a profile likelihood point with several
+  free parameters) could end with a worse cost than its start. Every CMA-ES run now evaluates
+  the start first, as one of `num_calls_to_function`, as one-parameter runs already did; the
+  result is never worse than the start. CMA-ES results change slightly: one fewer CMA
+  candidate fits in the budget, and a run whose candidates never beat the start stops one
+  evaluation later.
+
+#### Removed — the CMA-ES `sigma0` option
+
+- `sigma0` was never applied (nevergrad picks the initial step from the bounds), and it is no
+  longer in `PARAM_ID_METHODS['CMA-ES']`. user_inputs whose `optimiser_options` or
+  `debug_optimiser_options` name it are refused with a `ValueError` saying to delete the line;
+  so is a `CMAESOptimiser` given it directly.
+
+#### Fixed — CMA-ES on one parameter no longer stalls at the bounds (changes results)
+
+- A `CMA-ES` calibration of a single parameter could keep proposing points on the parameter's
+  bounds and stop far from the minimum of a smooth cost. In one dimension nevergrad's `CMA`
+  runs its OnePlusOne search, not CMA; on a stand-in cost it ended more than 1% of the box from
+  the minimum in about a tenth of the seeds, and in a third when started on a bound. The
+  optimiser now gives nevergrad a second, unused variable, so it runs CMA: none of 1,000 such
+  runs fail. One-parameter CMA-ES runs give different numbers; runs with two or more
+  parameters are unchanged. The start value is still the first point evaluated, so a search
+  started at a known optimum (a profile likelihood point) never returns a worse cost.
+
+#### Changed — a calibration writes its best fit's error per observable when it ends
+
+- `CVS0DParamID.run()` ends by simulating once at the best fit and saving `percent_error_vec.npy`,
+  `std_error_vec.npy`, `error_vec_names.npy` and `error_vec_data_references.npy`
+  (`plot_outputs.ERROR_VEC_FILES`) in its output directory, with no figure. These were written
+  only by `plot_outputs` (`cuflynx-plot`). One extra simulation per calibration; a failure to
+  write them is a warning, not a failed calibration.
+- A calibration interrupted (Ctrl-C, `KeyboardInterrupt`) writes them for its best fit so far
+  (`best_param_vals.npy`, which the optimisers keep current). A run that is killed writes none:
+  `CVS0DParamID.save_best_fit_errors()`, on an object built from the same inputs, writes them
+  afterwards from its `best_param_vals.npy`.
+- A run removes the last run's error files when it starts, so they always belong to the
+  `best_param_vals.npy` beside them.
+- `ParamIDPlotOutputs.plot_reconstruction_pages(..., save_figures=False)` computes the vectors
+  without saving a figure; its label checks, which stopped the process, apply only when it saves.
+
+#### Changed — the Goodwin benchmark's CMA-ES starts off the truth
+
+`benchmarks/benchmark_specs.py`: CMA-ES starts at its model's values, and the Goodwin CellML's
+values are the truth the synthetic data was made at; since CMA-ES scores its start it stopped at
+once. It now runs on a copy of the CellML whose `ai`, `bi` and `Ai` start at 1.25 x the truth
+(`GOODWIN_CMAES_START`, inside the bounds); the other methods are unchanged.
+
+#### Changed — CMA-ES counts `max_patience` in generations: calibration results change
+
+- **CMA-ES results change.** `max_patience` now counts generations (one population of
+  candidates: 4 for two bounded parameters, at least the MPI rank count + 1) without an
+  improvement, as the schema already documented. It counted single cost evaluations, so on one
+  rank the default of 10 stopped a run after ten candidates without an improvement, under three
+  generations: a 2-parameter windkessel fit with a 600-call budget stopped after 21-42
+  evaluations at costs of 1e2, and now converges (cost < 1e-4, R and C within 0.02% of the
+  truth) in 290-520. Runs use more of `num_calls_to_function` and reach lower costs.
+- CMA-ES asks one whole generation per loop and spreads it over the ranks, instead of one
+  candidate per rank. On one rank the candidates are the same as before; on more ranks the
+  trajectory changes, because asking one per rank split generations so that nevergrad asked pycma
+  for the next generation before the last was told.
+- The CMA-ES `sigma0` option is not applied (nevergrad picks the initial step from the bounds), so
+  the run no longer prints an "Initial sigma" computed from the mean of the parameter ranges; a run
+  given `sigma0` says it is not applied. pycma's `InjectionWarning: orphanated injected solution`,
+  raised inside nevergrad's ask/tell, is silenced.
+
+#### Changed — the 3compartment model starts inside its calibration bounds (changes results)
+
+- `resources/3compartment_parameters.json`: `global/q_lv_init` is 1e-3 m3, inside the bounds
+  [2e-4, 1.5e-3] of `3compartment_params_for_id.json`. Simulations of this model, and
+  calibrations started from its defaults, give different numbers.
+
+#### Changed — CMA-ES is the default calibration method (changes results)
+
+- A calibration whose user_inputs name no `param_id_method` runs CMA-ES; it ran the genetic
+  algorithm, whose population of 744 per generation needs a budget of at least that many
+  evaluations. Set `param_id_method: genetic_algorithm` to keep the old behaviour. The output
+  directory name follows the method (`CMA-ES_<prefix>_<obs>`). A front end reads the default
+  from `SOLVER_SCHEMA['default_param_id_method']` (`DEFAULT_PARAM_ID_METHOD`).
+- The shipped `user_run_files/user_inputs.yaml` names `param_id_method: CMA-ES` (it named
+  `genetic_algorithm`), so a calibration run from it, or from a test config read from it that
+  sets no method, runs CMA-ES.
+- The genetic algorithm's default population is unchanged. `benchmarks/README.md` notes the
+  test that would decide whether it should scale with the number of parameters.
+
+#### Fixed — the dict route, the file route, workflows and CUFLynx give the same results
+
+- `offline_pre_time` is applied on every route. The dict route (`init_from_dict`, then
+  `set_ground_truth_data` / `set_params_for_id`) skipped the warm-up and the
+  `OFFLINE_PRE_TIME_INIT_STATE_ERROR` guard, which only the constructor ran, and Sobol SA never
+  applied `offline_pre_time` on any route. One helper, `paramID.apply_offline_pre_time`, now
+  runs both from the constructor, the setters and Sobol SA. **A calibration or Sobol SA of a
+  parameter that sets a state's initial value (e.g. `q_lv_init`) with `offline_pre_time` now
+  raises on the dict route and in Sobol SA as it already did on the file route**: the warm-up
+  froze that state, so the parameter had no effect. Drop `offline_pre_time` and put the whole
+  warm-up in `pre_times`, or calibrate a constant instead. On every backend the warm-up starts
+  from the model's initial values each time, so setting the obs_data twice gives the state once
+  does, and a protocol without `offline_pre_time` set after one with it clears the warm-up
+  (`clear_offline_default_state` on the helpers).
+- For the CellML (variable-step) solvers, `MaximumStep` sets the maximum step and `dt_solver`
+  is not read. The user_inputs parser no longer overwrites `MaximumStep` with `dt_solver` (so
+  workflow steps and `SensitivityAnalysis.init_from_dict` ran with a different maximum step than
+  `CVS0DParamID.init_from_dict` and CUFLynx). **Giving both with different values now raises**,
+  in the parser, `CVS0DParamID` and `SensitivityAnalysis`. A `dt_solver` alone no longer sets
+  `MaximumStep` for these solvers: it warns, once per run, that `dt_solver` has no effect and
+  the step is unbounded unless `MaximumStep` is set.
+- `CVODE_myokit`'s default `rtol` is 1e-6 everywhere: `get_solver_info_default('cellml')` now
+  reads the declared defaults (`SOLVER_INFO_FIELDS`) instead of its own 1e-8. A config with no
+  `solver_info` that went through the user_inputs parser ran at 1e-8 before.
+- `run_param_id` with `DEBUG` and no `debug_UQ_options` uses `UQ_options` (it raised `KeyError`).
+- `SensitivityAnalysis.init_from_dict` no longer edits the caller's dict.
+- A workflow's `step_result.json` records `solver_info`, the solver settings the step ran
+  with, for every step that runs a solver (calibration, sensitivity, emulation,
+  identifiability, sweep).
+
+### Calibration workflows
+
+#### Changed — a workflow step goes stale only when what it runs with changes
+
+- **A parameters file counts by its values.** A step's recorded `parameters`,
+  `target_parameters` and `target_parameters_file` inputs, and a module library's
+  `*_parameters.json` files, are hashed by each parameter's path, `value` and `units`
+  (`runner.parameters_digest`). Editing a note (`data_reference`), `origin`, `reason` or
+  derivation leaves the steps current; the outputs that show them read the file when they are
+  written, so the next run (`--stale-only` too) writes the calibrated parameters, the
+  calibrated CellML, the target model and the provenance graph's value boxes with the edited
+  notes. A step's own generated model keeps the notes it ran with.
+- **The funcs files leave the settings digest.** `operation_funcs_external_path`,
+  `cost_funcs_external_path` and `modifier_funcs_external_path` are not hashed with a
+  step's settings: each file is an input of its own, by its content (`operation_funcs`,
+  ...). So a workflow folder that is moved, or a packed workflow (which carries its funcs
+  under `settings/`) unzipped elsewhere, keeps its steps current; editing a funcs file
+  still makes them stale.
+- Runs recorded before this change are stale once, on the next status or `--stale-only` run.
+
+#### Added — the plan lists every value of the target, with where it comes from
+
+- `plan_workflow` (and `run_calibration_workflow(dry_run=True)`) returns `target_values`:
+  every value the target's model uses, before any step runs, each
+  `{name, value, units, origin, data_reference, reason, source, calibrated_by}`. They are the
+  target's parameters file's rows, then a module array's values from its module library (its
+  supermodules' and records' parameterisations, as generation merges them in), or a CellML or
+  external model's constants that file does not set. `origin` is the one recorded by the file
+  that sets the value, the library's parameterisation included (`None` where none is
+  recorded); `source` names that parameterisation (`''` for the target's own file);
+  `calibrated_by` lists the calibration steps whose values land on it. Names are written as the
+  target's parameters file writes them (`A/p`, `heart/lv/E`, a global by its name).
+
+#### Fixed — a calibration workflow run copied elsewhere stays current
+
+- A step's settings digest counts a path setting (`external_modules_dir`) by the module files
+  it names, not by its absolute path, and leaves the funcs files out (each is an input of its
+  own, by its content; see "a workflow step goes stale only when what it runs with changes"
+  above). A workflow
+  and its run copied to another folder no longer show every step stale, and editing the funcs
+  file now makes the steps that read it stale. A step with such a setting that ran before
+  this release shows its settings as changed until it runs again.
+
+#### Added — figure and simulate steps in a calibration workflow; `external_figures` is refused
+
+- **A `figure` step** draws a workflow's figures: `"function": "figures/fig.py:draw"` names a
+  Python function, and `"inputs": {"curves": {"sweep": "scan"}, "fit": {"values": "fit_a"}}`
+  gives each of its parameters one kind of result of one step (`sweep`, `values`, `obs_data`,
+  `params_for_id`, `sensitivity`, `progress`, `fit_errors`, `best_fit`,
+  `emulator_validation`,
+  `distribution`, `laplace`, `reduction`, `mcmc_chain`, `validation`,
+  `posterior_predictive`). libcuflynx loads the results, calls the function with them and `out_dir`, and records the files it returns. The function runs no
+  simulation, and is called with Matplotlib's settings as the rc file gives them. `"files"` lists
+  helpers the script reads. A run draws every figure step that is out of date (its script, files
+  or declaration changed, or a step it reads ran again) and whose inputs are current, whatever
+  `--from-step` and `--only` say; a failing figure does not stop the merge. Figure steps are in
+  the provenance diagram, `plan_workflow`, the methods LaTeX and `pack_workflow`
+  (`figures/<step_id>/`). See "Figure steps" in the parameter-identification docs.
+- A figure input also reads the newer step kinds: `values` a combine step, `distribution` and
+  `laplace` a uq step, and `profile_likelihood` an identifiability step's profiles.
+- `WorkflowBuilder.add_simulate(...)` and `add_figure(id, function='figs/draw.py:draw',
+  inputs={...}, files=[...])` write these steps, with their paths relative to the workflow file.
+- **Every figure script runs on its own too**: its `main` calls
+  `libcuflynx.calibration_workflow.figures.figure_main(draw, argv)`, which loads the same inputs
+  from a run directory with the same loaders (`python fig.py <run_dir> [--step ID] [--out-dir
+  DIR]`, or `--input name=kind:step`). `figures.output_differences(dir_a, dir_b)` compares two
+  sets of outputs: the same files, images pixel by pixel, other files byte for byte.
+- **Standard figures**: libcuflynx ships `standard_figures.py`, a figure script with
+  `sweep_traces`, `sweep_features`, `prediction_plots` (an obs_data's `prediction_plots` from a
+  simulate step), `validation` (the held-out prediction items against the model: a score
+  table, a parity plot of the scalar items and a plot per series item, from the `validation`
+  input), `protocol_inputs` (each `params_to_change` entry over time, numbers, traces
+  and shapes, from an obs_data), `sobol_indices`, `local_sensitivity` (a heatmap of a local
+  analysis's relative sensitivities), `pca_modes` (per PCA mode its feature loadings and each
+  parameter's ST, from a reduction step), `calibration_progress` (cost and normalised
+  parameters per generation, from the `progress` input: a calibration's optimiser history),
+  `mcmc_diagnostics` (each walker's trace, running mean and autocorrelation, from the
+  `mcmc_chain` input: a calibration's MCMC chain),
+  `emulator_validation` (parity and residual plots at an emulation step's held-out points),
+  `fit_errors` (the best fit's error per data_item, in percent and in noise stds, from a
+  calibration step's `fit_errors` input), `best_fit` (each data_item against the calibrated
+  model over its trace, a page per trace and experiment, from a calibration step's `best_fit`
+  input: its saved best-fit outputs and obs_data), `posterior`, `laplace` and
+  `posterior_predictive` (a uq step's check: each scalar observable's model intervals
+  in noise stds from its data, titled with the coverage, and the kept traces against
+  the recorded ones). A `sensitivity` input also carries `local` (a local analysis's
+  relative and absolute sensitivities), and a `reduction` input is a reduction step's report
+  with its PCA modes.
+  `figures.write_standard_figures(<dir>)` copies it beside a workflow, where figure steps name
+  its functions. A `sweep` input now also carries `manifest` (`sweep_manifest.json`), which
+  records the feature plots' point groups (`plot_groups`).
+- **A `simulate` step** runs a model once through its protocol: a sweep of no parameters, with
+  the same files, `fixed_from`, `result_from` and `on_target`. `"simulate": {"outputs": [...]}`
+  names the variables recorded over time. A step of one point also writes
+  `validation_results.json`, the obs_data's prediction items that carry a value against the
+  model, as `cuflynx-run-predictions` does.
+- **Migration: `external_figures` is refused.** The key recorded commands that libcuflynx never
+  ran. A workflow file with it now fails to load, with a message naming the entries: write each
+  as a `figure` step (a `simulate` step runs the model for it). Nothing converts it
+  automatically, because a command is not a Python function. The provenance graph keeps
+  `schema_version` 3: it no longer produces `external` nodes, and still draws one in a graph
+  written earlier.
+- A run's recorded workflow digest leaves figure steps out, so adding or changing one after a
+  run keeps the run's values current.
+
+#### Fixed — a step error raised on rank 0 reaches the other ranks
+
+- A `WorkflowStepError` raised inside rank 0's part of a step (a reduction that fails, a Sobol
+  run that wrote no indices) could not be unpickled on the way to the other ranks, so the run
+  ended with a `TypeError` about `__init__` in place of the step's message.
+
+#### Changed — calibration workflows name modules `module`, not `vessel`: convert workflow files
+
+- A workflow step places a library module with `module` (was `vessel`) and renames a module
+  array's modules with `module_map` (was `vessel_map`). Each calibrated, fixed or set record in a
+  run's `step_result.json` names its module `module` (was `vessel`), and a selection step's plan
+  entry (`--dry-run`) names where its library module sits `place` (was `vessel`).
+- The older keys are refused, naming `cuflynx-upgrade workflow <workflow file or directory>`,
+  which converts workflow files and the `step_result.json` files of earlier runs in place
+  (given a directory, every one below it). A converted run stays current: its steps are not
+  run again.
+
+#### Added — a sweep parameter takes `values` and `factors` together
+
+A calibration workflow's sweep parameter may give both: its values are the `values`, then
+the `factors` x the value the step's model gives it (`{"values": [1, 10, 100], "factors": [1]}`
+sweeps 1, 10, 100 and the model's own value). Other keys are refused.
+
+#### Added — protocol factors: a workflow step's protocol multiplies the values its model has
+
+- `protocol_info.params_to_change_factors`, in the shape of `params_to_change`, gives a parameter
+  as factors on the value the step's model gives it (after `fixed_from` / `result_from`; on the
+  target, the merged values). The calibration workflow resolves them once per step into absolute
+  `params_to_change` in `<step_id>/inputs/<step_id>_obs_data.json`, which the step reads; the
+  step's `step_result.json` records each base value and the step it came from under
+  `protocol_factors`, and the provenance diagram names them. A parameter in both keys, or one the
+  step calibrates or sweeps, is refused, and so is the key outside a workflow
+  (`parse_obs_data_json`). `workflow_model` hands over the obs_data resolved against the view's
+  model.
+
+#### Fixed — a sweep step is stale when its `sweep` block changes
+
+- A sweep step's recorded `settings` digest now covers its `sweep` block (parameters, values,
+  outputs, design, zip) as well as its settings, so editing it makes the step stale:
+  `--stale-only` reruns it and the provenance diagram marks it. Before, only the settings were
+  digested, and a changed sweep kept its old results. Sweeps run before this release show as
+  stale once.
+
+#### Fixed — a packed workflow leaves out each module version's test output
+
+- `pack_workflow` (and so a workflow run's packed inputs, CUFLynx's OMEX export of a workflow
+  and a study's `inputs/system/`) copied every file of each module version it uses, including
+  what the module library's tests write there: the `results/` and `plots/` directories and the
+  HTML report. These are local output, not part of the module, and were most of an archive's
+  size. They are no longer copied (`pack.VERSION_OUTPUT_DIRS`, `VERSION_OUTPUT_SUFFIXES`); a
+  directory of those names deeper inside a version is still packed.
+
+#### Changed — a workflow tab's model is generated faster
+
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
+#### Changed — the tutorial notebooks calibrate through a calibration workflow
+
+- Section B of `tutorial/interactive/generation_and_calibration.ipynb` builds a calibration
+  workflow with `WorkflowBuilder`: the obs_data from `ObsDataCreator`, the notebook's own
+  feature through `add_operation`, then the steps `screen` (sensitivity), `top2` (reduction,
+  in place of `choose_most_impactful_params_sobol`) and `fit` (calibration of what `top2`
+  kept), each added and run (`wf.run()`) in its own cell, read with `wf.result` and plotted with
+  `plot_step`. The ProtocolRunner
+  demo runs `wf.model("fit")`. The notebook ends by writing `calibration_workflow.json`, which
+  `cuflynx-calibration-workflow` (also under `mpiexec`) and CUFLynx's Workflow tab run with the
+  same results. Sections A and C are unchanged.
+- The inputs changed so that every route runs the same study: the solver settings are given
+  once, at workflow level (`solver: CVODE_myokit`, `MaximumStep` 0.001, `rtol` 1e-6, `atol` 1e-8,
+  no `dt_solver`), where the notebook replaced `solver_info` with `{"dt_solver": 0.01}`, which
+  dropped the solver's step and tolerances; the Sobol samples and the genetic algorithm are
+  seeded; the genetic algorithm's population is given in full (`DEBUG`'s small sizes) instead
+  of through `DEBUG`; `cost_type`, which the genetic algorithm does not read, is gone; and the
+  protocol has no `offline_pre_time`, which would have overwritten the calibrated initial blood
+  volume `q_lv_init` with a steady state saved at its default value (the warm-up is all
+  `pre_times`).
+- `generation_and_calibration_test.ipynb` is replaced by `workflow_quickstart.ipynb`: every
+  `WorkflowBuilder` call on the 3-compartment model in a few minutes (sensitivity, reduction,
+  calibration, identifiability, an emulator when `[emulation]` is installed, a set step, an
+  on-target sweep; `run()`, `run(only=, ranks=2)`, `status`, `result`, `plan`, `plot_step`,
+  `model`, `WorkflowBuilder.load`, `pack_workflow`). Both notebooks run again from the top in
+  the same folder: steps that are done and current are not run again. Its quick test is the CI coverage of the builder in
+  a kernel.
+
+#### Fixed — the calibration workflow's provenance diagram and study manifest
+
+- A step's parameter count includes the parameters `priors_from` adds (`params_for_id_used`).
+- Every step generated from a model gets an arrow from its model source, not only steps with no
+  `depends_on`; a step whose model is not the target's has a source box of its own.
+- `provenance.svg` names the values: a step's calibrated values, its priors and the values
+  earlier steps fixed (calibrated by which step on which obs_data, or set by hand and why), the
+  merged values in the target and the model source's values, a few per box.
+- The study manifest names a step's `manifest` only when that file exists (a `set` step has
+  none), and an external target's merged values file as `target.generated_parameters` instead of
+  calling its `.py` a `generated_model`.
+- `workflow_model(..., 'target')` takes the obs_data, params_for_id and results of the last
+  calibration on the target that has run, not the first, and marks merged values set by hand
+  with their `origin` and `reason`.
+
+#### Added — calibration workflows can express a GUI study
+
+- **A CellML model as a workflow's target and steps' model:**
+  `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` (`parameters` optional;
+  `spec.CellMLModel`, the builder's `cellml_model()`). Its parameters are its constants, named
+  `component/variable`. A step runs a copy with its values written in by the calibrated-model
+  writer (below; flattened when the file has imports, checked after writing), as
+  `model_type: cellml`, or with `model_type` `python`, `casadi_python` or `aadc_python` as the
+  Python generated from that copy (`spec.CELLML_MODEL_TYPES`; the values still go into the
+  CellML). `write_calibrated` writes `<stem>_calibrated_parameters.json` and
+  `<stem>_calibrated.cellml` beside it; a pack copies it with its imports.
+- A step on a CellML model reads a params_for_id, set entry or sweep name as the engine
+  does: `global/q_lv_init` is the constant `parameters_global/q_lv_init`
+  (`calibrated_model.constant_named`, the first of `model_qname_candidates` the model has).
+  Such a name was refused as "not a constant of the CellML model", though a direct run of
+  the same files calibrated it.
+- **`fixed_from` with a parameter subset:** an entry may be
+  `{"step": "<id>", "parameters": [...]}` (the builder's `fixed()`), which fixes only those of
+  the values the step calibrated or set, named as its model names them (as `priors_from`'s
+  `parameters`); its other values, and the values it was itself given, are not passed on. A
+  name the step does not calibrate or set is refused with the names it has. A step id alone
+  still fixes every value. A front end can tell from
+  `$defs.step.properties.fixed_from.items` accepting an object.
+- **A `combine` step kind:** `{"kind": "combine", "combine_from": [ids], "combine": {"method":
+  "best_fit" | "mean"}}` gives one value per parameter from several calibration, set or combine
+  steps: the values of the calibration with the lowest cost (calibrations of the same obs_data,
+  `cost_type` and parameters), or each parameter's mean. Later steps take from it
+  (`fixed_from`, `start_from`, `result_from`, a scale), and the target takes its values in
+  place of its inputs'. The builder's `add_combine()`. A front end can tell from `combine` in
+  `$defs.step.properties.kind.enum`.
+- **A reduction chosen by hand:** `param_reduction_options` `{"method": "manual", "parameters":
+  [names], "reason": "..."}` keeps the params_for_id entries named (as their entries are
+  labelled) and reads no Sobol run (`parameter_reduction.ManualReduction`). In a workflow, such
+  a reduction step has no `sensitivity_from` and names the `params_for_id` it keeps entries of;
+  a step fitting its choice (`params_for_id_from`) is checked before anything runs, since what
+  it calibrates is known from the file. The provenance graph marks the step's box
+  `set_by_hand`. The builder's `add_reduction(method='manual', parameters=, reason=,
+  params_for_id=)`. `ANALYSIS_OPTIONS['param_reduction']` has the two options, `parameters`
+  with the new descriptor type `list`. A front end can tell from `manual` in
+  `$defs.param_reduction_options.properties.method.enum`.
+- **`start_from`** on a calibration: a calibration or set step whose values of the step's own
+  parameters are where its fit starts (the model is generated with them, so they are x0). They
+  are not fixed. The builder's `add_calibration(start_from=)`.
+- **A `uq` step kind:** MCMC or a Laplace approximation (`UQ_options.method`: `mcmc`, `laplace`)
+  at `result_from` (a calibration or set step) or at the model's values, with no fit. It stores
+  its distribution (`<step>/distribution/`), which `priors_from` takes. The builder's
+  `add_uq()`. Outside a workflow, `param_id_run_script.run_uq(inp_data_dict, best_param_vals,
+  method)`, and `do_uq` with `method: laplace`. `ANALYSIS_OPTIONS['uq']` offers `laplace` and
+  its `num_samples`. A calibration with `store_distribution` and `method: laplace` is refused
+  (use a uq step). An empty `UQ_options` is MCMC with the defaults, and `add_uq()`'s
+  `uq_options` defaults to `{}`.
+- **A uq step runs the posterior predictive check** after its MCMC (draws from the chain after
+  `burn_in`) or Laplace approximation (draws from its stored samples), into
+  `<step>/posterior_predictive/`; `step_result.json` names `posterior_predictive_dir`,
+  `posterior_predictive_draws`, `posterior_predictive_coverage`, `posterior_predictive_series`
+  and a `posterior_predictive_summary`. New `UQ_options`: `posterior_predictive` (default true)
+  and `posterior_predictive_samples` (default 100). `posterior_predictive(samples=...)` checks
+  given draws in place of a chain, and a `CVS0DParamID` built to run MCMC can be the `client`
+  (`posterior_predictive.engine_of`).
+- **One calibrated-model writer** (`param_id.calibrated_model`): `write_cellml_values(path,
+  values, output_path, flatten=None)` and `substitute_parameter_values(text, values)` write
+  values named `vessel/param` or `component/variable` and return a report, `{'updated',
+  'unresolved', 'resolved': {name: 'component/variable'}}` (with `path` and `flattened` from
+  the file writer). `flatten=None` flattens a file with imports (a generated model) and writes
+  a single-file model in its own form, with only the values changed.
+  `write_calibrated_model(..., flatten=None, return_report=False)` and
+  `CVS0DParamID.write_calibrated_model(..., flatten=None)` (report in
+  `calibrated_model_report`) use it, as do a workflow's CellML steps, so a best fit gives the
+  same file from CA, a workflow and CUFLynx. An unresolved name is a warning.
+- **Signed local sensitivities:** `method: local` also writes `local_sensitivity_signed.csv`,
+  d ln Y / d ln p = (p / Y) dY/dp, NaN where Y = 0, its rows labelled as the Sobol outputs
+  (`<item_name_for_plotting> (Exp<e>, Sub<s>)`, `sobolSA.output_labels`). The nominal features
+  are evaluated before the sensitivities. `get_local_sensitivities()` adds `signed`,
+  `signed_output_names` and `nominal_feature_vals`; a workflow's local sensitivity step records
+  the file as `local_sensitivity_signed`.
+- **`emulator_dir`** on a calibration, sensitivity or uq step: an emulator trained outside the
+  workflow, in place of `emulator_from`; hashed into the step's inputs and packed.
+- **An identifiability step on an emulator:** `emulator_from` or `emulator_dir` (the builder's
+  `add_identifiability(emulator_from=, emulator_dir=)`), for a Laplace analysis or a profile
+  likelihood; `cuflynx-identifiability` reads `use_emulator` as a calibration does. The
+  `result_from` point of a step on an `emulator_dir` is no longer written into its model,
+  which made the emulator stale.
+- An identifiability step's `result_from` is optional (the analysis is then at the model's
+  values), and `result_from` may name a set step.
+- After a calibration step, the observables at its best fit and the error vectors
+  (`percent_error_vec.npy`, `error_vec_names.npy`), and, for a CellML model, the step's
+  calibrated CellML; a local sensitivity step records its nominal point (`nominal`), an
+  identifiability or uq step its point (`at_source`).
+- A calibration step checks its best fit against the obs_data's held-out data (prediction
+  items with a `value`): `validation_results.json` in its run directory, named by
+  `validation_results` in `step_result.json`, with each item's statistics under `validation`.
+- An identifiability step with `ia_options.method: profile_likelihood` records its profiles:
+  `profile_likelihood_dir`, and under `profile_likelihood` each parameter's file, the value
+  profiled about, its cost and its 95% interval.
+- A calibration step whose params_for_id has a modifier entry records and merges the values
+  of the parameters it modifies, `modifier(theta, baseline)`, and records theta under
+  `modifiers`. It recorded theta as each parameter's value, so the merged target had theta in
+  place of the parameter.
+- **A modifier's theta as a point:** a point set step entry `{"entry": <params_for_id
+  modifier entry name>, "theta": ..., "reason": ...}` (the builder's `set_theta`), and the
+  thetas a calibration fitted, are where a step with `start_from` or `result_from` starts or
+  analyses that modifier entry; the parameters it modifies keep their values in the step's
+  model. A params_for_id modifier entry takes `theta`, its starting and nominal value, which
+  the step's copy of the params_for_id carries. An identifiability, uq or local sensitivity
+  step with a modifier entry and no point was at the first modified parameter's value read
+  as theta; it is now at the theta that leaves the parameters at the model's values.
+- **`"point": true` on a set step:** its values are only a point for `start_from`,
+  `result_from` or `fixed_from`. They are not merged into the target (nor given to an
+  `on_target` sweep), so they give the target no second value of a parameter, and the
+  provenance diagram labels the step "point only, not in the target". The builder's
+  `add_set(..., point=True)`. An explicit key, so a hand-written workflow's meaning never
+  depends on how its steps are used.
+
+#### Changed — a parameter is given by one step
+
+- Two calibration (or combine) steps that give the target, or a step, the same parameter and
+  do not take from each other are a `WorkflowError`, naming the parameter, the steps and what
+  they give it to; a `combine` step settles it. For the target it is raised where the target
+  is merged for use (a run of more than one step, an `on_target` sweep, the calibrated
+  parameters); reading, the plan (its `target_overlap`) and a run of one step warn and use the
+  later step's value (`resolve_workflow(workflow, target_overlap='warn' | 'error')`). Two set
+  steps that do not take from each other setting one parameter warn, naming the one used. This replaces the "calibrated by more than one
+  step" warning: a step that takes from the other, directly or through other steps, replaces
+  its value with no warning, as does a set step. A step given a parameter by a step and by one
+  that took from it (`fixed_from`, `result_from`) gets the later one's value, where it was
+  "given two different fixed values" before. A step fitting a reduction's choice is checked at
+  the merge, once the reduction has run. **Migration:** a workflow that calibrated a parameter
+  in two unrelated steps and relied on the later one winning now names that: give the later
+  step `"fixed_from"` or `"start_from"` the earlier one, or add a combine step.
+
+#### Fixed — calibration workflow fixes
+
+- The provenance diagram marked every step on a CellML model stale: it compared the file's
+  sha256 with the step's `cellml_model` input, which the runner records as the digest of the
+  file and its imports. Both now use `runner.input_digest`, which also checks an
+  `emulator_dir` input (a directory) rather than reporting it missing.
+
+- Local sensitivity analysis run from a configuration that names its obs_data and params_for_id
+  files (`cuflynx-sensitivity`, a workflow's sensitivity step) raised "Local SA needs the config,
+  ground-truth data and params for id": its engine now reads those files itself.
+
+- A parameter given by more than one step was checked against every candidate a step fitting a
+  reduction's choice (`params_for_id_from`) might calibrate. Such a step is checked once the
+  reduction has run, against what it kept.
+- A sensitivity, identifiability or uq step's `fixed` (in `step_result.json` and the
+  `workflow_model` view) listed its own parameters' values from `result_from`. They are the
+  point it analyses (`at`, or a local analysis's `nominal`), not fixed values; the view's model
+  now has them too.
+- An MCMC or Laplace uq step announced optimiser defaults, and a local sensitivity analysis
+  Sobol's `num_samples` and `sample_type` defaults, that they do not use.
+- `write_calibrated` rounded the calibrated parameters file, and so the target's calibrated
+  CellML, to 10 significant figures; both keep full precision, as a step's calibrated CellML
+  does. The command reports the calibrated CellML it writes, and `--help` names it and every
+  step kind.
+- A pack put a CellML target at `inputs/_target/<its folder>/`; it is now in
+  `inputs/_target/`, with its imports at their relative paths.
+
+#### Added — external Python models in calibration workflows
+
+- A calibration workflow's `target`, and its steps' `model`, may be an external Python model:
+  `{"external_model_path": "model.py"}` (`spec.ExternalModel`, the builder's
+  `external_model()`). It is never generated: each step runs the `.py` with its values -- the
+  `SIM_HELPER.parameters` defaults with the step's fixed values over them -- in
+  `<step>/model/generated_models/<step>/<step>_parameters.json`. Every step kind runs on it.
+  It must be the target and every step's model; parameters keep their `component/variable`
+  names, and a name the class does not declare is refused when the workflow is resolved.
+  `write_calibrated` writes `<prefix>_calibrated_parameters.json` beside the `.py`
+  (`heat1d_model.py` -> `heat1d_calibrated_parameters.json`), and a pack copies the `.py` with
+  the files beside it.
+- New user input **`external_parameters_file`** (`model_type: external_python`): a parameters
+  file whose values replace the class defaults, set on the user class after `init_solver` and
+  kept by `reset_and_clear`. The parser passes it to the helper as the `external` solver's new
+  `solver_info` field `external_parameters_file`.
+- Example: `funcs_user/example_model_external/heat1d_calibration_workflow.json` (a `set` step,
+  a calibration with MCMC, and a refinement with its posterior as the prior).
+
+#### Added — building a calibration workflow in Python (`WorkflowBuilder`)
+
+- `libcuflynx.calibration_workflow.WorkflowBuilder` makes a `calibration_workflow.json` with
+  API calls: `add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`,
+  `add_identifiability`, `add_set`, `add_sweep` and `add_step`, whose keyword arguments are the
+  schema's step keys, with the helpers `library_module`, `module_array`, `selection`, `prior`,
+  `set_value` and `scale_value`; then `check`, `write`, `plan`, `run(only=, from_step=, force=,
+  ranks=)`, `status`, `result`, `model`, `step_dir` and `plot_step`. Each step, and the
+  workflow's settings, are checked against the schema when they are given. obs_data and
+  params_for_id may be dicts (or the in-code `{vessel_name, param_name, min, max}` entries),
+  written as files under `data/` beside the workflow. The result is an ordinary workflow file
+  that the command line and CUFLynx run and `pack_workflow` packs.
+  A run's first line names the steps it runs and those it keeps (done and current), or says
+  that nothing is left to run and how to run every step again (`wf.run(force=True)`).
+  See "Building a workflow in Python" in the parameter-identification docs, and the
+  "Calibration workflows" page of the API reference.
+- `run()` without `only` or `from_step` runs the steps that have not run or are stale and keeps
+  the rest, printing a line for each step kept, so a script or notebook can be run again;
+  `force=True` runs every step. `check()` (and `plan()`, `run()`) names what a run still
+  needs: a module library when a model names library modules, and the `optimiser_options` the
+  calibration method requires. `result(id)` returns what a step recorded.
+- `add_operation` (and `add_cost_func`, `add_modifier_func`) writes functions defined in a
+  script or notebook cell to the workflow's functions file; `remove_operation` and `functions`
+  remove and list them. The file's header records a checksum of what was generated: a builder
+  regenerates a file nobody edited (in a later session too) and refuses one edited by hand,
+  written by something else, or (when writing) holding functions it does not have (another
+  writer added them), until `add_operation(f, overwrite=True)` or
+  `write(overwrite=True)`. `WorkflowBuilder.load` reads a hand-edited file's functions, and
+  refuses to rewrite a file whose other top-level statements (a constant, a class) it would
+  drop.
+- `cuflynx-calibration-workflow --stale-only` and `run_calibration_workflow(stale_only=True)`
+  run only the steps that have not run or are stale. Their defaults are unchanged: every step
+  runs.
+- A step can no longer be named `models`, `target`, `_target` or `inputs`, names the run's
+  output directory uses itself (the schema refuses them). `WorkflowBuilder.model` generates
+  under the run's `models/` folder.
+- The genetic algorithm without `optimiser_options.num_calls_to_function` says so, instead of
+  a `KeyError`. The messages for a result a step needs name the Python call
+  (`wf.run(from_step=...)`) beside the command-line option, and a step left out of an `--only`
+  run that never ran is reported as "not run", not as reusing its earlier result.
+- `utilities.params_for_id_file.entries_to_document` converts the in-code params_for_id entries
+  to the JSON document.
+- `utilities.user_funcs_file` holds the layout of a user functions file (header, checksum line,
+  extra imports, the `CUFLYNX_OPERATIONS` / `CUFLYNX_COSTS` / `CUFLYNX_MODIFIERS` list, one
+  `def` per function): `funcs_file_source`, `write_funcs_file`, `read_funcs_file`,
+  `is_unedited` and `unkept_statements`, for `add_operation` and for CUFLynx's "Custom funcs"
+  dialog. The checksum line is a comment (`# libcuflynx-generated sha256: ...`).
+- A workflow step's recorded inputs include the user function files it runs with
+  (`operation_funcs_external_path`, `cost_funcs_external_path`,
+  `modifier_funcs_external_path`), so editing one makes the steps that use it stale. Steps run
+  before this are not made stale by it.
+- **Run output.** `wf.run()` prints the `[workflow]` lines only. A step's full output goes to
+  `<output_dir>/<step>/log.txt`, the rest to `<output_dir>/workflow_log.txt`;
+  `run(verbose=True)` prints everything as well.
+- **Paths.** `wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir()` and the
+  files in `wf.result()`, `wf.model()` and `wf.plot_step()` are `pathlib.Path`.
+- `add_reduction` takes the reduction's options as `param_reduction_options={...}`.
+- `wf.show_status()` and `wf.show_plan()` print `status()` and `plan()` as tables.
+- `wf.clean()` lists the files the builder wrote that no workflow in the directory uses any
+  more; `wf.clean(delete=True)` moves them to `data/removed/` and deletes nothing.
+- `wf.plot_step(id, formats=('png',))` saves the figures in the formats asked for.
+
+#### Changed — a workflow run with no output directory goes beside the workflow file
+
+- `cuflynx-calibration-workflow <file>` and `run_calibration_workflow(<file>)` without an
+  output directory run into `workflow_output/<workflow_name>` in the workflow file's
+  directory, where they used the working directory. It is the builder's `wf.output_dir`, so the
+  command and the builder continue one run. A workflow given as a dict still uses the working
+  directory. To keep the earlier place, pass `--output-dir ./workflow_output/<name>`.
+- `pack_workflow(..., overwrite=True)` (`--pack DIR --overwrite`) replaces an earlier pack. A
+  directory holding anything a pack does not write is still refused.
+
+#### Added — `set` and `sweep` workflow steps
+
+- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
+  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
+  the values with `fixed_from`, and they are merged into the target. Reports, the target's
+  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
+- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
+  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
+  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
+  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
+  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
+- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
+  values merged as the target merges them, after all of them: each step's own values, in run
+  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
+  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
+  diagram draws it below the merged box, with one box under it naming the files it wrote (their
+  folder once, then each file), done only when every file exists.
+- A workflow's optional `external_figures` declares figure scripts that run outside it: the
+  command, the step or target they read from, and the files they read and write. libcuflynx never
+  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
+  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
+  declaring them after a run keeps it current.
+- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
+  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
+  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
+  they don't know, naming the version found and the versions they read; write an older run's
+  graph again with `cuflynx-provenance <output_dir>`.
+- `pack_workflow` gives an on-target sweep no model of its own: it runs on the packed target.
+- The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
+  `sweep_results` relative to the working directory and resolves them on read, as it does every
+  step's other outputs.
+
+#### Added — a calibration workflow run writes its provenance
+
+- A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
+  self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
+  output directory alone. Each box says what set its values: calibrated, measured, inherited or
+  set by hand. A value nothing describes counts as unclassified, never as inherited.
+- A step box counts only scored data_items as observables. Helper items, with weight 0, only
+  feed other items, so they appear as `helper_items` in the graph.
+- `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
+  `libcellml_version`.
+- A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
+  `set_by_hand` requires. Generation carries both into its parameters file.
+
+#### Changed — a step's result stays current only if everything before it does
+
+- A step's recorded inputs now include its settings and the module library. Changed settings
+  stop a later step reusing its result. A changed library is a warning and `library_changed` in
+  `workflow_status`, since a library holds far more than one model uses.
+- The provenance graph judges a step's settings as the runner does, by that step's settings
+  alone: re-saving the workflow file with other formatting leaves every step current, and a
+  change to one step's settings makes that step and the steps after it stale, not the others.
+  `file_status` still says whether the file itself changed.
+- `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
+  direct source, and refuse a result whose source ran again after it.
+
+#### Added — calibration workflow steps that select instances of the target
+
+A step's model may be `{"select": ["C"]}` (or `["heart/lv"]`, or several records) against a
+module-array target. One instance runs as its library module placed at that instance; several run
+as the module array they form, cut from the target. The step starts from the target's values for
+them, and its obs_data and params_for_id name vessels as the target does. A boundary condition
+the selection leaves open takes its value from the step's protocol (`params_to_change`), and one
+with no value anywhere raises `UnsetParametersError`, which lists them. Any workflow step's
+protocol now gives the parameters its model would otherwise leave unset. A nested selection starts
+from the model's values under its path (`heart/lv`). The calibrated values are written
+(`write_calibrated`, and `write_calibrated_parameters_to(source, output_dir, path)`, which writes
+only `path`) as a copy of the target's parameters file with them set, a value inside a super
+instance under its path; the target's own files and the supermodule version's template are not
+changed.
+
+#### Added — packing a calibration workflow
+
+`pack_workflow(workflow, dest_dir)` and `cuflynx-calibration-workflow <workflow> --pack DIR`
+copy every file a workflow needs to run into one directory: the workflow rewritten to the
+packed files, each step's obs_data, params_for_id and module array with its parameters file,
+each module version it uses (with every units file of its library), and the files its settings
+name. Results are not packed. CUFLynx's OMEX export packs a workflow with it.
+
+#### Changed — workflow settings paths are relative to the workflow file
+
+`external_modules_dir` and the `*_funcs_external_path` settings of a calibration workflow are
+read relative to the workflow file, like its other paths, not to the directory it is run from.
+
+#### Added — analysis steps in calibration workflows
+
+A workflow step has a `kind`: `calibration` (the default, so existing files are unchanged),
+`sensitivity`, `reduction`, `emulation` or `identifiability`, so one `calibration_workflow.json`
+records the whole order of a study.
+
+- `sensitivity` runs Sobol or local sensitivity analysis (`settings.sa_options`).
+- `reduction` ranks a Sobol step's parameters (`sensitivity_from`) and keeps the `top_n`
+  (`reduction`: `index_type`, `criterion`, `threshold`), writing those rows of its
+  params_for_id; a calibration fits them with `params_for_id_from`.
+- `emulation` trains an emulator (`settings.emulator_settings`); a calibration or sensitivity
+  step with `emulator_from` runs on it, with a copy of the emulation step's model.
+- `identifiability` runs a Laplace analysis (`settings.ia_options`) at the values of the
+  calibration in its `result_from`.
+
+An emulation step may be trained on a reduction's parameters (`params_for_id_from`), and a
+calibration with the same `params_for_id_from` and `emulator_from` pointing at it can sample
+its posterior on that emulator (`store_distribution`). `SobolReduction`
+(`libcuflynx.sensitivity_analysis.parameter_reduction`) is the reduction, usable on its own.
+
+Only calibrations are merged into the target. The study manifest, `--dry-run` plan, status and
+methods LaTeX (text and flow chart) show each step's kind, what it takes from where and its
+outputs. `run_identifiability_analysis` takes `best_param_vals`, and Sobol indices are ranked by
+`libcuflynx.sensitivity_analysis.sobol_ranking`.
+
+#### Added — calibration workflows
+
+`cuflynx-calibration-workflow <workflow.json>` (and
+`libcuflynx.calibration_workflow.run_calibration_workflow`) runs calibrations in order and merges
+their results into one target model. Each step names the three inputs of an ordinary param_id
+run -- `model`, `obs_data` and `params_for_id`, paths relative to the workflow file -- so a
+workflow works in any repository. A model is a CA module array, or a module of a module library
+(`{module_type, version, parameterisation}`).
+
+- **Names between models.** A module array keeps its vessel names (`vessel_map` renames them
+  into the target's); a library module sits at a `submodule` of a supermodule target or a
+  `vessel` of a module-array target, inferred when it occurs once. `--dry-run` checks that every
+  calibrated parameter lands on a vessel of the target.
+- **Fixed values.** A step can take earlier steps' calibrated values as fixed parameter values
+  (`fixed_from`); it runs after the steps it takes values from.
+- **Distributions and priors.** A step can store its MCMC posterior (`store_distribution`:
+  chain, samples, stats; `StoredDistribution` samples and evaluates it). A later step can use it
+  as a joint prior (`priors_from`), represented as a multivariate normal, independent normals or
+  a KDE, each on a bounds-respecting scale.
+- **Reruns.** `--from-step` / `--only` rerun part of a workflow, refusing when an input it would
+  reuse has changed. `--dry-run` checks everything against the library and prints the plan.
+  `--write-calibrated` writes the merged set beside the target's parameters file, as
+  `<name>_calibrated_parameters.csv`, naming parameters `<vessel>/<variable>` and replacing rows
+  written in either form.
+- **A parameter calibrated by two steps** takes the later step's value, with a warning that
+  suggests `priors_from` for a Bayesian update instead.
+- **A step's `submodule`** is written `soma/i_M` when nested (`soma_i_M` is also read).
+- **Schema.** `libcuflynx/schemas/calibration_workflow.schema.json`.
+- **param_id.** `ParamID.set_joint_priors` / `CVS0DParamID.set_joint_priors` add log densities
+  over several parameters to the log prior. `run_param_id` passes `joint_priors` from its input
+  dict to both the calibration and the MCMC, and now returns
+  `{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}` instead of None.
+- **Testing.** `libcuflynx.external_testing.workflow_library.build_workflow_library` writes a
+  small module library with two workflows, for tests here and in CUFLynx.
+- **Docs.** The params_for_id prior columns are now documented; the docs had said only uniform
+  priors existed.
+
+### Sensitivity, parameter reduction, identifiability and UQ
+
+#### Changed — the PCA reduction leaves out unconverged derivative points by default: reduction results change
+
+- **Reduction results change for every user.** `sa_options.jacobian_check_steps` and
+  `param_reduction_options.redundancy_converged_only` now default to true: a Sobol run takes its
+  local derivatives at `jacobian_step` and at half of it, and a `pca` reduction's redundancy check
+  takes the `median` over the points where the two agree (within `redundancy_convergence_tol`).
+  On the Goodwin benchmark this keeps 4 parameters, its Fisher count, where the old defaults kept
+  5; FitzHugh-Nagumo (5) and Teusink (5) do not change, and on the 3-compartment test model all 8
+  points converge. `benchmarks/param_reduction/redundancy_comparison_results.md` is unchanged: its
+  rows name both settings, and the new defaults are its `K8_central_1e-2_checked`,
+  `median_converged` entries.
+- A Sobol run's derivatives cost twice the runs: `4 x jacobian_points x M` simulations, 5.8% of
+  a 12-parameter run at `num_samples: 256` (was 2.9%).
+- Reducing a Sobol run that has derivatives at one step (one made before this release, or with
+  `jacobian_check_steps: false`) is refused, naming the two fixes: rerun it with both steps, or
+  set `redundancy_converged_only: false` to use every point as before.
+
+#### Fixed — identifiability, plotting and multi-run engines use the user operation, cost and modifier files
+
+- `cuflynx-identifiability` (and an `identifiability` step of a calibration workflow) built its
+  engine without `operation_funcs_external_path`, `cost_funcs_external_path` and
+  `modifier_funcs_external_path`, so an obs_data naming a user operation stopped with an unknown
+  operation there, although the calibration and sensitivity stages of the same run worked. The
+  script now passes the three paths to the engine, as `param_id_run_script` does.
+- The same paths were also missing from the engines built by `plot_param_id_script.py`,
+  `run_multiple_param_id.py` and `MCMC_plotter.plot_mcmc_and_predictions`; `MCMC_plotter` now
+  takes and keeps the three paths, and the plot script passes them.
+
+#### Fixed — a Sobol analysis runs on casadi_python models
+
+- A Sobol analysis of a `casadi_python` model failed (`'numpy.ndarray' object has no attribute
+  'numel'`, or SALib's "could not broadcast input array"): it computed its features from
+  numeric traces with the CasADi operation funcs. It now uses the numpy operation funcs for
+  every model type, as a calibration does for its numeric evaluations.
+
+#### Fixed — the PCA reduction keeps the redundant parameter the Sobol indices rank highest (changes results)
+
+- With `redundancy_check`, the reduction kept at each step the parameter with the largest
+  local effect not yet explained. Of two parameters that are redundant in the informative
+  modes it could so keep the one with the lower Sobol index, on a small difference in local
+  effect: on a 3compartment run, `E_lv_B` (local effect 24.3, ST 0.34 in the first mode) over
+  `q_lv_init` (23.7, ST 0.61). It now keeps, of the parameters whose unexplained effect is
+  still at least `min_mode_std`, the one with the highest Sobol index over the informative
+  modes. The local effects decide which parameters are redundant; the Sobol indices, over the
+  whole prior box, decide which is kept. Which parameters a reduction keeps can change; when it stops is
+  decided as before.
+
+#### Added — analysis options name the methods that read them
+
+- An `ANALYSIS_OPTIONS` option read by only some of its mode's methods has `"methods": [...]`
+  (sa_options `gradient_method` and `fd_rel_step`: `["local"]`; `num_samples`, `sample_type`
+  and the `jacobian_*` options: `["sobol"]`; ia_options `num_points`: `["profile_likelihood"]`;
+  the param_reduction options by reduction; the MCMC options of UQ_options: `["mcmc"]`). An
+  option without it is read by every method. `analysis_options(mode, method)` returns a
+  method's options, so a settings form shows and sends only those. No run reads the marker:
+  what each method accepts is unchanged.
+
+#### Changed — the PCA parameter reduction checks for redundant parameters
+
+- `param_reduction_options.redundancy_check` (default true): a parameter is kept only if its
+  effect on the informative PCA modes over its prior range, beyond what the parameters already
+  kept explain, is at least `min_mode_std` noise stds. The effects come from a local Jacobian
+  every Sobol run now saves (`all_outputs_n<N>_Sobol_local_jacobian.csv`: central differences
+  at the first `sa_options.jacobian_points`, default 8, Saltelli base points, so
+  with a step of 0.01 in ln(parameter), so 2 x `jacobian_points` x M extra runs, about 2.9% of
+  a 12-parameter run at `num_samples: 256`; `jacobian_location`, `jacobian_scheme`,
+  `jacobian_step` and `jacobian_check_steps` choose others). The redundancy is judged at each
+  point and summarised over the points by `redundancy_statistic` (`median`, or `rms`),
+  optionally leaving out points whose derivatives change with the step
+  (`redundancy_converged_only`). The defaults come from
+  `benchmarks/param_reduction/compare_redundancy.py`. One parameter per informative mode
+  (`redundancy_check: false`) kept every parameter of a time course, which has more modes than
+  parameters, and every parameter of a ratio or scaling symmetry.
+
+#### Fixed — a failed Sobol sample is filled from its own outputs
+
+- A failed simulation or feature in a Sobol run was replaced by the mean of all earlier outputs
+  of every kind, mixing units. Each is now filled with that output's mean over the samples that
+  ran, and `sobol_problem.json` counts them (`failed_samples`) with a warning.
+- A Sobol run with `use_MPI=False` called a `generate_outputs` that does not exist. Every run
+  now spreads its samples over the MPI ranks, one process running them all.
+
+#### Fixed — `DEBUG: true` without `debug_UQ_options`
+
+- A calibration (user_inputs.yaml or a calibration workflow step) with `DEBUG: true` and no
+  `debug_UQ_options` stopped with `KeyError: 'debug_UQ_options'`. It now uses `UQ_options`, as the
+  parser already does.
+
+#### Added — parameter reduction by PCA modes of the Sobol outputs
+
+- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
+  chooses the parameters to calibrate after a Sobol analysis and writes them as
+  `reduced_params_for_id.json` with a report, `param_reduction.json`.
+- Why: (1) redundancy -- keep one parameter per direction the data can fix; on the
+  3compartment study the full fits have a singular Fisher information (condition number about
+  1e16 or singular) and the reduced fits 12-16. (2) noise-blindness -- a large Sobol index on an
+  output that moves by less than its noise is not kept.
+- `variance_fraction` defaults to 1: no relative cut, every mode above `min_mode_std` (the noise
+  floor) counts. A smaller value is a cut that ignores the noise and can drop a small mode the
+  data resolve.
+- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
+  their principal components, computes Sobol indices of each component's score, and keeps one
+  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
+  first. Parameters that move the data the same way, and effects smaller than the noise, are
+  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
+- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
+  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
+- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
+  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
+
+#### Changed — a workflow reduction step takes `settings.param_reduction_options`
+
+- A reduction step's options move from `"reduction": {"top_n": ...}` to
+  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
+  is refused. Without `method`, a reduction is now `pca`.
+- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
+  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
+- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
+- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
+  run's directory rather than its indices CSV.
+
+#### Added — profile likelihood for identifiability analysis (#519)
+
+- `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
+  each calibrated entry at a sweep of values around the best fit and re-calibrates the others at
+  each one, on `@is_MLE` costs (`MSE` becomes `gaussian_MLE` with a warning; a cost with no MLE
+  form is an error). The 95% interval is where `-ln L` stays within 1.92 of its minimum.
+- `<param_id_output_dir>/profile_likelihood/` gets one JSON and PDF per entry and `summary.json`.
+  Each JSON holds `param_values`, `costs` and `ci_95`, and each point's optimum:
+  `other_param_names` and `optima`, one row of the other entries' values per point. The points'
+  optimisers write no files, so the calibration's best-fit files are never overwritten.
+- `ParamID.make_optimiser` builds the optimiser for a cost object; `ParamID.run` uses it.
+  `remove_params_by_idx` re-indexes modifiers and per-entry lists.
+
+#### Changed — local SA differentiates prediction features analytically
+
+With `sa_options.include_prediction_items`, local SA's prediction-feature rows now use the same
+arm as the data_item rows (CasADi jacobian, or Myokit CVODES sensitivities) instead of always
+central finite differences: one extra solve rather than 2M. The prediction features are written
+as the data_items of a second engine and differentiated by the existing code. Finite
+differences are still used with `gradient_method: FD`, over an emulator, and, with a warning,
+when Myokit's arm cannot take them: it needs every prediction feature in one and the same
+sub-experiment.
+
+### Emulators and surrogates
+
+#### Added — a reduced parameter set is calibrated on the emulator of the full set
+
+- A workflow calibration with `params_for_id_from` a reduction and `emulator_from` the emulator
+  of the params_for_id that reduction chose from (it was refused) calibrates the parameters
+  the reduction kept and holds the emulator's other parameters at their values in the
+  emulation step's model. No second emulator is trained. The step's result has `held` (the
+  held parameters and values), `held_at` and `emulator_params_for_id`; `calibrated`,
+  `best_fit` and the values merged into the target are the kept parameters only. A held value
+  outside its params_for_id bounds is refused, as are `store_distribution` and `priors_from`
+  on such a step.
+- `ParamID.set_calibrated_entries(labels)` (`calibrated_entries` in the dict given to
+  `run_param_id`): calibrate only those params_for_id entries, the others held at their values
+  in the model. The cost is evaluated at the full vector (`param_id.held_entries.HeldEntries`,
+  which profile likelihood now uses for its held entry); `best_param_vals.npy` is the full
+  vector and `held_entries.json` records what was held. Not with `do_uq` or `do_ia`.
+- `workflow_model(..., validate=False)` skips the trial run generation ends with (a Myokit
+  compile, about half the time of a view), for a caller that compiles or runs the model itself
+  straight after. A model with parameters left unset is still refused. The default is
+  unchanged. In code, the generation dict key is `validate_generated_model: False`.
+- One pint `UnitRegistry` per process (`utility_funcs.unit_registry()`), where every
+  `UnitConverter`, so every generator, built its own (about a second each).
+
+#### Fixed — an emulator is not refused because its Python model has another file name
+
+- A generated Python model (`python`, `casadi_python`, `aadc_python`) names its own
+  `<prefix>_utilities.py`, so one CellML generated under two prefixes hashed differently and a
+  run on an emulator trained under another prefix (a workflow step's emulator used by another
+  step or run) was refused with "emulator is stale: model_sha256 has changed". The emulator's
+  fingerprint now also holds `model_content_sha256`: the model file with that file name left
+  out, and the utilities file, which the earlier hash did not cover. An emulator stored
+  without it is checked on `model_sha256` as before, so it needs no retraining unless it hit
+  this refusal.
+
+#### Changed — "surrogate" is the heading over emulators and reduced-order models
+
+- **Docs:** a *Surrogates* section with two pages under it, *Emulators* (the existing page) and
+  *Reduced-order models (ROMs)*: a ROM runs as an `external_python` model, also as a workflow
+  step's model.
+- **`ANALYSIS_OPTIONS['emulation']`** has `group: 'surrogate'` and `group_label: 'Surrogate'`,
+  and its `label` is `'Emulator'` (it was `'Emulator (surrogate model)'`), so a front end can
+  show the emulator under a Surrogate heading.
+- No key, command, package or result key is renamed: `do_emulation`, `use_emulator`,
+  `emulator_settings`, `emulator_from`, `emulator_dir`, the `emulation` step kind and
+  `cuflynx-train-emulator` are unchanged, and no file needs upgrading.
+
+### Solvers and backends
+
+#### Fixed — casadi_python uses CVODE_myokit's output times when dt does not divide the run
+
+- When `dt` did not divide `sim_time` (or `pre_time`), `casadi_python` stepped at exactly `dt`
+  and reported one more point than `CVODE_myokit`, ending past `sim_time` (138 points ending at
+  1.0001 s for `dt: 0.0073`, `sim_time: 1`). It now takes Myokit's grid: `int(sim_time/dt)`
+  steps spanning exactly `sim_time`, after `pre_time` run in full in `int(pre_time/dt)` steps
+  (at least one). Those steps are slightly longer than `dt`. The two backends now give the same
+  times sample by sample.
+- **casadi_python results change** where `dt` does not divide `sim_time` or `pre_time`: the
+  samples move to Myokit's times, and a `pre_time` shorter than `dt` is now run. Where `dt`
+  divides both, results are unchanged.
+- The python, aadc_python and external_python helpers still step at exactly `dt` on such grids.
+
+#### Fixed — casadi_integrator's jit falls back on Windows without MSVC
+
+- The check for a C compiler before jit looked for `gcc` on every platform, but CasADi's
+  `shell` plugin runs `cl.exe` and `link.exe` on Windows (and `clang` on macOS from CasADi 3.8).
+  On Windows with gcc on PATH and no MSVC the check passed, CasADi then failed to compile, and an
+  unset `jit` raised instead of falling back. The check now looks for the compiler and linker
+  the plugin will run (`shell_executables`: `jit_options` `compiler`/`linker`, else CasADi's
+  defaults), so an unset `jit` warns and runs without jit there.
+
+#### Fixed — the batched C solvers build with MSVC on a model with no non-state variables
+
+- The C that a `BE_batched_c` or `CVODES_batched_c` model compiles from had
+  `VARIABLE_INFO[] = {};` when the model has no constants, computed constants or algebraic
+  variables. An empty initialiser is not standard C, and MSVC 14.44 stopped on it with an internal
+  compiler error, so these models did not build in CUFLynx's Windows app.
+  `c_code_with_one_variables_array` now writes one placeholder entry there; `VARIABLE_COUNT`
+  stays 0, so the entry is never read. GCC and Clang builds are unchanged in behaviour.
+
+#### Changed — with `couple_to_1d`, a summing port is refused only where 1D and 0D modules meet (#649)
+
+The C++ generator refused, when coupling to a 1D model, any module next to an `FV1D_vessel` that had
+a `"sum"`, `"Multiply"` or list-form multi_port on any of its ports. It now refuses only the port
+facing the 1D vessel (the one the 0D-1D coupling sets), and only when that port also has 0D
+neighbours: the coupler sets that port's variables, so it would overwrite their sum. The error names
+the module, the port's variables, the 1D vessel and the 0D modules.
+
+- A sum whose only neighbour on its port is the 1D vessel generates. The CellML generator skips the
+  connection to an FV1D vessel, so the sum has no terms and its variable stays the boundary
+  condition the coupler sets.
+- Sums on the module's other ports generate; they are ordinary CellML.
+- The generated models are unchanged. This lets the module library's FV1D_vessel versions, whose
+  vessel `v` ends sum, couple to 1D.
+
+- `cuflynx-upgrade junctions <module_array> --module-library-dir <library>/modules` converts a
+  model: each junction version is retyped to the version the library's `renames.json` names in an
+  entry marked `"by": "cuflynx-upgrade junctions"` (same equations); an `inlet_flow constant_2`
+  becomes two `constant` sources; a `flow_merge`/`flow_split` is removed and its neighbours joined.
+  It renames what changed in `<prefix>_parameters.json`, `<prefix>_obs_data*.json` and
+  `<prefix>_params_for_id*.json`: `v_in_sum`/`v_out_sum` to `v_in`/`v_out`, and a numbered port
+  flow (`J/v_out_1`) to the inflow of the neighbour on that port (`s1/v`). Values the new version
+  has no variable for are dropped and listed. Run it after `cuflynx-upgrade module-names`.
+- The refusal of a node with several ends on both sides no longer suggests a `2in2out_junction`;
+  it suggests a lumped `vv` vessel between them.
+- The generator still connects the built-in junction modules (the `Min_`/`Nout_` walk in
+  `CVSCellMLGenerator`) while `resources/` uses them; it goes with the built-in modules.
+
+#### Fixed — the 0D-1D coupled run with CVODE, and a coupler that hung when a solver died
 
 - With the 0D model on CVODE, the 1D solver weights its boundary fluxes by each 0D step attempt
   within a coupling step. An attempt CVODE rejected (error test or nonlinear solve) was counted at
@@ -262,7 +1458,7 @@ number of vessels at a node (node sums #609, node rule D #617).
   had a hard-coded checkout path, the old `from_dict` / `CVS0DParamID(...)` calls and an unregistered
   custom feature. Outputs go to `$CUFLYNX_USER_DIR`, or the checkout when it is unset.
 
-### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
+#### Changed — OpenCOR's solver is libOpenCOR (`CVODE_libopencor`), and a solver comparison benchmark
 
 - **`solver: CVODE_libopencor`** runs CellML models with [libOpenCOR](https://opencor.ws/libopencor/),
   OpenCOR's simulation engine as a Python library: `pip install "libcuflynx[libopencor]"`
@@ -287,59 +1483,690 @@ number of vessels at a node (node sums #609, node rule D #617).
   CVODE step counts where exposed and the error against a reference backend, as JSON and
   Markdown.
 
-### Added — fixed constants in the provenance diagram
+#### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
 
-Decided by Finbar Argus on 2026-11-14, a follow-up to the parameter derivations below.
+- `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
+  output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
+  3compartment (2000 steps). The model is given the true time, so a model whose rates read the
+  variable of integration now runs correctly on them; the fixed-step methods warn that they hold
+  it at the run's start.
+- casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
+  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
+  them, end values held, the first value held through pre_time. CVODES restarts only where a
+  trace steps. It used to refuse a trace.
+- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
+  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
+  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
+  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
+  adjoint integrator is gone.
+- casadi_integrator `cvodes` / `idas` use the `csparse` (sparse LU) linear solver instead of CasADi's
+  default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
+  (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
+  `solver_info.options: {linear_solver: ...}`.
+- A solver given no `method` gets its default from `SOLVER_SCHEMA['default_method_by_solver']`
+  (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
+- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
+  casadi_integrator's right-hand side and derivatives to C, once per process per model,
+  timeline and options, for forward runs and, on CasADi >= 3.8, for the AD gradient too
+  (about 2.4x faster per gradient on a 2 s physiological run, after a one-off compile of the
+  sensitivity functions; CasADi 3.7 does not differentiate through a jit-compiled CVODES
+  integrator, so there the AD graph stays interpreted). With `jit` unset
+  and no C compiler or a non-writable working directory, it runs without jit and warns; an
+  explicit `jit: true` is then an error. `jit: false` turns it off.
+  A jit build never changes the working directory: objects and library go to a private temp
+  directory. CasADi 3.7 writes the generated C source to the cwd and 3.8 to that private
+  directory; this process's files are deleted after each build in both places.
+- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
+  when none is named.
+- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
+  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
+- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
+  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
+  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
+  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
+- SN_simple and other models that initialise a state from `*_init` computed constants now run
+  on `python` and `casadi_python`: libCellML sets those states in `compute_computed_constants`,
+  which the generated module now takes as an optional `states` argument (models without such
+  states keep `compute_computed_constants(variables)`). The solver helpers read the states from
+  it, `set_param_vals` refreshes them, and on casadi_python they stay symbolic in the constants
+  they come from, so the AD gradient through an `*_init`-driving parameter matches finite
+  differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
 
-- A derivation's `fixed_constants` entry may be a name or `{"name", "origin", "data_reference",
-  "reason"}` (`origin` `measured`, `inherited` or `set_by_hand`, which needs a `reason`). A bare
-  name has no origin and is drawn `unclassified`, never as inherited by default. A constant named
-  twice in one derivation is a `DerivationError`.
-- `cuflynx-derive --write` records the constants of a derived value's derivation, with value,
-  units and origin, in the leaf's new `fixed_constants` key (JSON text); generation carries it
-  into the generated parameters file, and a calibrated value drops it.
-- The provenance diagram has a "Fixed constants of derivations" box, with an arrow to the derived
-  values, listing each constant as `<derivation>/<constant>` with its value, units and origin
-  (first six, then "and k more in the graph file", as for other boxes of values). A run with no
-  fixed constants has no such box. It sits in the top row, left of the model source, above the
-  derived values, so its arrow crosses no other. The diagram's footer adds `N unclassified
-  constants` to its count of unclassified values, so no undescribed constant hides behind a zero.
-  The graph schema is unchanged (a `values` node).
+#### Added — the Teusink benchmark calibrates on the batched C solvers
 
-### Added — parameter reduction by PCA modes of the Sobol outputs
+`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
+`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
+(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
 
-- `param_reduction_options` (with `do_param_reduction`; `ANALYSIS_OPTIONS['param_reduction']`)
-  chooses the parameters to calibrate after a Sobol analysis and writes them as
-  `reduced_params_for_id.json` with a report, `param_reduction.json`.
-- Why: (1) redundancy -- keep one parameter per direction the data can fix; on the
-  3compartment study the full fits have a singular Fisher information (condition number about
-  1e16 or singular) and the reduced fits 12-16. (2) noise-blindness -- a large Sobol index on an
-  output that moves by less than its noise is not kept.
-- `variance_fraction` defaults to 1: no relative cut, every mode above `min_mode_std` (the noise
-  floor) counts. A smaller value is a cut that ignores the noise and can drop a small mode the
-  data resolve.
-- `method: pca` (the default) scales the Sobol outputs by their obs_data std and weight, takes
-  their principal components, computes Sobol indices of each component's score, and keeps one
-  parameter per component whose std is at least `min_mode_std` (1, the data's noise), largest
-  first. Parameters that move the data the same way, and effects smaller than the noise, are
-  not kept. `method: sobol` is the top-`n_params` ranking by Sobol index.
-- The Sobol run also writes `all_outputs_n<N>_Sobol_samples.csv`,
-  `all_outputs_n<N>_Sobol_outputs.csv` and `sobol_problem.json`.
-- `tests/test_param_reduction_study.py` smoke-tests the 3compartment study end to end at a tiny
-  budget (`run_study.py --methods` picks the parameter sets to calibrate, default all three).
+#### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
 
-### Changed — a workflow reduction step takes `settings.param_reduction_options`
+Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
+`rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
+CA warns about it only on older Myokit (`myokit>=1.39.1` still allows an installed 1.39.x).
+FSA solves can be slower on 1.40, because the steps now have to resolve the sensitivities too:
+myokit#1203 measured about 40% slower on one 27-state CA cardiovascular model at CA's default
+FSA tolerance (1e-8; a single measurement), and with sensitivities on, rtol=atol=1e-14 did
+not finish in practice.
 
-- A reduction step's options move from `"reduction": {"top_n": ...}` to
-  `"settings": {"param_reduction_options": {"method": "sobol", "n_params": ...}}`; the old key
-  is refused. Without `method`, a reduction is now `pca`.
-- `param_reduction_options` belong to the reduction step's own `settings`; the workflow's
-  settings and other steps refuse them. `{}` on a reduction step is `pca` with every default.
-- `min_mode_std` is measured over the whole prior box, a global measure, not local to the fit.
-- `SobolReduction(top_n=...)` is `SobolReduction(n_params=...)`, and `reduce` takes the Sobol
-  run's directory rather than its indices CSV.
+#### Added — `BE_batched_c`: generated C, one block of states at a time, on several threads
 
-### Added — parameter derivations and obs_data `input_items`
+A CellML solver for models made of many weakly connected parts, such as a module array of cells
+(#573). `get_simulation_helper(..., solver='BE_batched_c')` takes the same CellML file and protocols
+as `CVODE_myokit`.
+
+- **When to choose it.** `CVODE_myokit` stays the general-purpose default. `BE_batched_c` and
+  `CVODES_batched_c` are good when you have many perturbations through time, because CVODE would keep
+  stopping and restarting its adaptive time steps. They are opt-in: they run only when named in the config.
+  The solver section of `tutorial/docs/parameter-identification.md` says so.
+- **Blocks.** `generators/kernel_ir.py` reads libCellML's analysis into a language-neutral form and
+  splits the states into blocks that do not depend on one another. Blocks with the same equations
+  share one kernel, so 64 identical cells compile one kernel.
+- **Exact Jacobians.** Each kernel's Jacobian is made by forward-mode differentiation of the
+  equations. Only its structurally non-zero entries are written.
+- **C.** `generators/cpp/batched.py` writes the kernels as C next to libCellML's own C (as
+  `model_type: cpp` writes it, which gives initial values and outputs), renders the runtime from
+  `templates/batched_*.j2` and builds it with CMake. A built model is cached under a digest of its
+  CellML files, so later helpers load it in milliseconds.
+- **Integrators.** Each block gets its own adaptive, L-stable one-step method, chosen by
+  `solver_info` `method`:
+  - `backward_euler`, the default;
+  - `trbdf2`, second order, which is far more accurate at the same tolerance and usually faster.
+
+  Both use modified Newton, with the Jacobian and LU factors kept across steps. The step size changes only
+  when the error control allows more than 20% growth (or asks for any shrink), so the factors serve several
+  steps: 1.10-1.14x faster on AdaptOrDeity's colonies at the same error.
+- **Inputs that change at every call.** `bk_set_stop_at_outputs` (`BatchedSimulation.set_stop_at_outputs`, off
+  by default) ends steps on each run's last output time; a block whose inputs changed there restarts softly,
+  keeping its step size, Jacobian and LU factors (never from an interpolated state). With an input changed every
+  0.1 s, as a game's macro step does, that is 4.3-4.6x faster; with inputs that rarely change, 0.93-1.02x, hence
+  off. `CVODES_batched_c` accepts the call and ignores it.
+- **Threads and restarts.** OpenMP runs over the blocks, and results are the same for any number
+  of threads. A block whose inputs did not change between sub-experiments keeps its steps.
+- **Protocol traces.** A `params_to_change` entry naming a trace drives that constant along it, as on
+  `CVODE_myokit`: piecewise linear on the model's clock, held at its ends. Steps end on the trace's
+  breakpoints, and the kernels compute their computed constants, so everything that depends on the
+  traced constant follows it. SN_simple's protocol agrees with `CVODE_myokit` within 5e-4 of each
+  variable's range, 20x faster.
+- **Instances and outputs.** `bk_instance_*` steps copies of the model from the caller's own threads
+  (AdaptOrDeity's cells); `outputs` computes a few algebraic variables alone after each step.
+- **Limits.**
+  - It is meant for moderate tolerances (default `rtol` 1e-4).
+  - Its LU is dense, so a single block of hundreds of states is slow.
+  - It does not take models with algebraic loops or external variables.
+  - Excitable models want a `MaximumStep` or a tighter `rtol`: at `rtol` 1e-6 and no step cap, an action
+    potential in SN_simple lands 0.25 ms late (1.3 mV on its upstroke); with `MaximumStep` 1e-3, 0.09 mV.
+  - It has no sensitivities.
+- **user_inputs.** `solver: BE_batched_c` takes `method` `backward_euler` (the default) or `trbdf2`; each CellML
+  solver's methods are checked against its own list, not `CVODE_myokit`'s.
+- **First step after a restart.** Hairer, Norsett and Wanner's starting step, from weighted RMS norms over the
+  block's states and a second-derivative estimate, at least 64 ulps of t, so a state restarting at zero (weight
+  1/atol) no longer forces a step too small for t + h to differ from t (late restarts failed as "step too small").
+
+#### Added — `CVODES_batched_c`: one CVODES per block, on the same generated C
+
+`get_simulation_helper(..., solver='CVODES_batched_c')` builds `BE_batched_c`'s kernels, blocks, traces and
+outputs with a different runtime (`templates/batched_cvodes_runtime.c.j2`, which extends `batched_runtime.c.j2`).
+Each block gets its own CVODES: BDF with Newton, a dense LU and the exact Jacobian (CVODES's difference
+quotients with `jacobian: finite_difference`).
+
+- **Threads.** Blocks share nothing, so OpenMP runs over them with results that are the same for any number
+  of threads.
+- **Restarts.** A block is reinitialised (`CVodeReInit`) only when its inputs, its states, a trace or its time
+  origin change. A trace's breakpoints are CVODES stop times.
+- **Swapping solvers.** The library exports every `bk_*` function of `BE_batched_c`, plus
+  `bk_block_cvodes_flag`, so a program that steps `bk_instance_*` copies can swap one library for the other.
+  The one difference is `bk_instance_copy`: a copy starts CVODES afresh from the copied states, so it
+  follows its original to the tolerance rather than bit for bit.
+- **Settings.** The defaults are `CVODE_myokit`'s tolerances (`rtol` 1e-6, `atol` 1e-8).
+  `MaximumNumberOfSteps` counts the steps of one block in one run, as on `BE_batched_c`.
+- **Needs SUNDIALS 6 or later.** It is found from `SUNDIALS_DIR` or CMake's search path. Without SUNDIALS the
+  build fails with a message that says so, and its tests skip.
+- Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
+  instances on OpenMP threads.
+
+#### Fixed — the batched C libraries build with MSVC (#615)
+
+`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
+Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
+`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
+Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
+`--config Release` too.
+
+#### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
+
+MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
+(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
+`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
+min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
+
+#### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
+
+The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in
+`computeComputedConstants`. libCellML sets the states initialised by a computed constant there, so
+`SN_simple` did not compile. The rewrite also no longer leaves a stray `{` in `VARIABLE_INFO` when
+a kind of variable is empty.
+
+#### Fixed — `CVODE_myokit` on modules in other time units (#604)
+
+- A module whose time variable is in other units than the model's (e.g. `t` in ms in CA's
+  seconds-based model) has its derivatives taken w.r.t. its own time, as CellML defines them.
+  Myokit converted the module's `t` but not `dx/dt`, so such a module ran 1000x too slowly
+  under `CVODE_myokit` (libCellML's analyser, behind the python and C++ models, already
+  applies the factor). Results of
+  models with such modules change: `module_config_user/tutorial_modules.cellml`'s
+  `i_piezo_Na_tutorial` and `smc_hernandez_with_piezo` are the shipped ones.
+
+#### Changed — `time` means the same on every backend (#557)
+
+- `get_results(['time'])` and `get_time()` are the cumulative time after the experiment's
+  warm-up, the axis of the executor's `t_by_exp`, in every sub-experiment. **With
+  `pre_time > 0` this changes what the `python`, `casadi_python`, `aadc_python`,
+  `external_python` and OpenCOR backends return**: they gave the raw solver clock
+  (warm-up included); OpenCOR's `get_time` restarted at 0 in each sub-experiment; Myokit was
+  `pre_time` too large after the first sub-experiment. A time-based operation (e.g.
+  `first_peak_time`) on those backends now reads the same times Myokit gives.
+
+#### Fixed — traced inputs on Myokit (#556, #559)
+
+- A trace or shape of an experiment's first sub-experiment starts at that sub-experiment, not
+  at the start of the warm-up, and holds its first value through the warm-up.
+- Several inputs can follow traces in one sub-experiment: each is bound to its own Myokit label
+  (`pace`, `pace_1`, ...; a variable that already has a binding keeps it).
+- The offline warm-up (`offline_pre_time`) holds each traced input at its first value of
+  experiment 0, instead of 0.
+
+#### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
+
+The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
+libCellML's C code (`model0d_core.c/.h`), with its non-state variables in one `variables` array
+and named indices; the `Model0d` class, the solvers, `main0d` and a `CMakeLists.txt` are rendered
+from templates. Build with CMake (add `-DSUNDIALS_DIR=<prefix>` if SUNDIALS isn't found; versions
+5-7 work). Solvers are CVODE and the fixed-step RK4/Heun/midpoint/explEul; **PETSC is no longer
+supported** and is refused when `user_inputs.yaml` is validated. Generated models no longer get
+the `solver1d/Make_files` copied next to them (they built the old C++), and the coupler builds
+with CMake. FV_1d coupled output is identical to before.
+
+A model coupled to 1D can have a volume sum over its 1D vessels: the 1D solver sends their volume,
+which is a term of the volume sum, and it needs no value in the parameters file (the old generator
+stopped with `KeyError: 'bc_inlet0_or_outlet1'`). A value the 1D solver sends never needs one.
+
+#### Added — `api` blocks: couplings to other models described in module configs
+
+A module config entry can carry an `api` block. `role: consumer` describes calls the generated
+C++ makes (the FV 1D named-pipe protocol is now described this way in
+`coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
+e.g. a drop-in `lifex::Circulation`. A provider is its own module-array row
+(`module_format: external_api`) coupled to CellML modules through ports; values it sets become
+libCellML external variables. `external_modules_dir` also accepts a list of directories.
+
+#### Added — the FV 1D solver as a `process` module; `coupler_config.json` is generated
+
+A new `api` role, `process`, describes a program run alongside the generated model: what to
+launch (`program`), who launches it (`coordinator: coupler`) and the pipes it talks over
+(`channels`, `message_length`). `FV1D_solver` in `coupling_modules_config.json` is the FV 1D
+solver. The `FV1D_vessel` and `FV1D_volume_sum` entries name it (`"process": "FV1D_solver"`)
+instead of each repeating the pipe names. From it, C++ generation of a model coupled to 1D now
+writes `coupler_config.json`, which until now had to be written by hand:
+- `T0` is the global parameter `T`;
+- `nCC` is the number of whole periods covering `pre_time + sim_time`;
+- the pipe folder is the user input `coupler_pipe_dir` (default `cuflynx_pipes/<model>/` in the
+  system temp folder, which `TMPDIR` moves);
+- `python_path` is the generating Python, and the 1D solver is the installed one.
+
+`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid module array, and reads
+`<model>_module_array.csv` when there is no `<model>_0d_module_array.csv`. The coupler creates
+the pipe folder, and its default pipe folder and Python are no longer paths on one machine.
+`main0d`'s coupled defaults (`T0`, `nCC`) match the configuration. New example model
+`aortic_bif_0d` (all 0D); a test runs it against the same model with its vessels in 1D.
+
+#### Added — coupling generated C++ to external Python models (e.g. FEniCS)
+
+A module config entry with `"module_format": "external_api"` and
+`"api": {"role": "provider", "transport": "python", "python": {"file": ..., "class": ...}}` is an
+external Python model: a row of the module array, connected to CellML modules through its ports.
+- **Generation.** Generating the model as C++ also writes a C interface (`model0d_capi.cpp`,
+  built as the shared library `model0d_capi`) and `external_models.json`.
+- **Running.** `cuflynx-couple <model folder>` (or `libcuflynx.coupling.run_coupled`) builds the
+  library, then steps the C++ model and the class together.
+- **Directions.** No function list is needed: each port variable connected to a boundary
+  condition of the 0D model is set by the class, and each connected to a computed variable is
+  read by it. A port connected to several modules exchanges arrays.
+- **Coupling scheme.** Explicit staggered coupling (first order), or `subiterations` for a
+  trapezoidal fixed point (second order).
+- **Also:** MPI (the 0D model runs on every rank), output on the model's `dt`, and timings.
+
+New tutorial section "Coupling to External Models": an overview, coupling your own Python
+model, FEniCS tissue O2 with capillaries, FEniCS NE around a sympathetic varicosity, 1D
+finite-volume coupling, and troubleshooting. The FEniCS modules and system models live in
+circulatory-autogen-modules.
+
+#### Fixed — C++ generation
+
+- `Model0d::solveOneStep` returns a status (and `lastError()`) instead of calling `exit(1)`, and
+  `main0d` now exits non-zero when the solver fails (it returned 0).
+- CVODE restarts from the last good state after an error-test or convergence failure, so
+  models with time switches (a stimulus pulse train) run.
+- State initial values given by computed variables (e.g. a gate starting at its steady state)
+  are evaluated with Myokit; libCellML 0.6 accepts only constants there, so these models
+  could not be generated as C++ before.
+- CellML generation connects variables of equivalent units under different names (e.g.
+  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter".
+- `GE_capillary` listed `d_1` ... `s_2` twice in its config, and `capillary_GE` and
+  `pulmonary_GE_5_lobe_type` used `saturation_cap` without declaring it.
+
+#### Added — readable generated C/C++
+
+Generated C code names every state and variable index: `rates[S_heart_module_q_lv] =
+(variables[V_parameters_r_pvn] ...)` instead of `rates[3] = (variables[12] ...)`.
+`model0d_core.h` declares the `StateIndex`/`VariableIndex` enums, with each name's component,
+variable, units and type, and the wrapper, pipe hooks and api classes use the same names. The
+names are the generated Python's attribute names (shared `generators/naming.py`). Results are
+unchanged.
+
+#### Fixed — cpp generation and 1D coupling
+
+- `model_type: cpp` with CVODE always failed solver-settings validation.
+- Models with more than one delay variable did not compile; delays now use a time-stamped
+  history that works with variable CVODE steps.
+- 1D volume sum: the 1D solver opened its volume pipe in an order that deadlocked with the
+  coupler, and sent the volume in cm³ instead of m³.
+- 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
+  an `art_ven_type_<vessel>` parameter now sets it.
+
+### Model generation and the module library
+
+#### Changed — `cuflynx-generate` exits 1 when generation fails
+
+- `cuflynx-generate` exits with status 1 when generation, or the trial run that validates the
+  generated model, fails; it exited 0 either way. `run_param_id.sh` (and the other launchers
+  that generate first) now stop before calibrating a model that was not written. A missing
+  `model_1d_config_path` for a coupled C++ model is a failure (it exited 0), and regenerating a
+  CellML 2.0 model with fitted parameters reports success.
+
+#### Changed — the built-in hearts compute their chamber phases from the beat phase
+
+- The eight built-in heart components (`generators/resources/heart_modules.cellml`: `heart_simple`,
+  `heart_Ca_input`, `heart_simple_LVprop`, `heart_devel`, `heart_new_valve`, `heart_simple_wCont`,
+  `heart_simple_wCont_ASD`, `heart_nonstiff`) no longer integrate the phase states `chi_a` and `chi_v`.
+  Each phase is the closed form of the law they integrated: with `phi = (s - t_start_norm) -
+  floor(s - t_start_norm)`, `chi_floor` is 0 before the first onset, then `0.25 phi T/T_c` in
+  contraction, `0.25 + 0.25 (phi T - T_c)/T_r` in relaxation and `0.5 + 0.5 (phi T - T_c - T_r)/(T - T_c - T_r)`
+  in rest; `chi = floor(s - t_start_norm) + chi_floor` (0 before the first onset) stays an output and
+  equals the old state from the initial state every model had. Trajectories agree to 7e-8 (relative, worst
+  state, 3compartment at CVODE 1e-12). `eps_1` and `eps_2` are gone. The derivation is
+  circulatory-autogen-modules' `docs/heart/cardiac_clock_phase.md`, where the module library's hearts
+  made the same change.
+- Why: the integrated law switched on `floor(chi_a)` of a state that waits at exactly 0 until the atrial
+  onset; a Newton iterate a hair below 0 read the rest piece, the finite-difference Jacobian spanned the
+  jump, and in about one run in ten the atrium started 35-76 ms early or late (at any tolerance; seen in
+  libOpenCOR, Myokit and a C replica). `tests/test_heart_clock_phase.py` checks the closed form against
+  the integrated law, both forms of 3compartment against each other, and that no rate jumps when a clock
+  state changes by round-off at the onset.
+- A model that set its own initial `chi_a`, `chi_v` (a stored warm-up state) starts from the phase of its
+  `s` instead: the output `chi` follows `floor(s - t_start_norm)`.
+
+#### Fixed — the mixed venous O2 and CO2 contents weight each region by its own flow
+
+- The venous blood of several `tissue_GE_simple` regions is now mixed by a `venous_gas_mixing`
+  module. Each region gives its outflow and the gas it carries (`v_out`, `j_O2 = v C_O2_p`,
+  `j_CO2 = v C_CO2_p`) on a `gas_flux_port`; the module sums them through a multi_port "sum"
+  port and gives `C_O2_mix`, `C_CO2_mix` and `v_mix` to the venous `gas_transport_simple`.
+  Each mixed content is `C_mix = J v / (v^2 + eps^2)`, eps = 1e-12 m3/s: `J / v` to within
+  `(eps / v)^2` at any real flow, 0 at zero flow (t = 0) instead of 0/0, the right sign when
+  the total flow reverses, and smooth, so the solver sees no switch. The generated
+  `terminal_venous_connection` averaged the contents itself, pairing contents with terminal
+  flows by their order in the module array, so whenever the terminals and the gas-exchange
+  modules were listed in different orders each content was weighted by another region's flow.
+- **Breaking:** a `tissue_GE_simple` connected straight to a `gas_transport_simple` is now a
+  ValueError, and so is a `venous_gas_mixing` connected to a module through no port (e.g. a
+  `tissue_GE_simple` version without the `gas_flux_port`), which would leave that region out of
+  the mix. Migrate a module array by adding a `venous_gas_mixing` record whose
+  `inp_instances` are the gas-exchange modules and whose `out_instances` is the venous gas
+  transport, and pointing those at it (as `resources/control_parasymp_module_array.csv` does).
+  The built-in `tissue_GE_simple/nn` has the `gas_flux_port`, and `venous_gas_mixing/nn` is
+  built in; in the module library they are `tissue_GE_simple/Ursino2001_v02` and
+  `venous_gas_mixing/ArgusUNPUBLISHED_v01`.
+
+#### Added — generation stops on an old libCellML and names an edge that joins two computed variables
+
+- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
+- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
+  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
+  by any edge between them; pass a single signal through a variable on a node both connect to.
+
+#### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
+
+Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
+
+- Where three or more `vessel_port` ends meet, the end alone on its side of the node (a split's
+  parent outlet, a merge's child inlet) must be compliant: a vessel end with subtype letter `v`,
+  or, for a module that is not a vessel, a port whose `multi_port` has a `"sum"` entry (a
+  whole-port `"sum"` or a list containing `"sum"`), such as a heart chamber's `[v_in, u]` port
+  with `["sum", "True"]`. A `"Multiply"` or plain `"True"` port on a module that is not a vessel
+  does not own a node: "compliant" means the end that takes the sum and shares the pressure, and
+  those ports broadcast a value and sum nothing (decided by Finbar Argus on 2026-10-30). A
+  Multiply vessel_port feeding several neighbours is therefore refused; feeding one is
+  unchanged. A node that breaks this, or that has several ends
+  on both sides, stops generation before any mapping with a `ValueError` that names the node's
+  ends and the two fixes (swap subtypes so that end is `v`, or add a lumped `vv` vessel). These
+  nodes were already refused, through one connection at a time ("output BC is p, the input BC of
+  ... should be v", or an overused port), except where a `Min_`/`MinNout_` junction let a `p`
+  outlet feed several daughters; that exemption is removed. Nodes with an `FV1D_vessel` end and
+  two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
+- Every model in `resources/` and every system model of the module library generates the same
+  CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
+  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused; their tests
+  are expected failures. `generic_junction_test_{open,closed}_loop` is the rule-following version
+  of the same network: test2 differs from it only at those six nodes (parent `Nout_junction pv`
+  -> `arterial pp`, one daughter `pv` -> `vv` as a `Min_`/`MinNout_junction`).
+
+#### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
+
+Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;
+keeping the error for an unconnected `"sum"` that is not a `boundary_condition` confirmed on
+2026-10-29.
+
+- A `"sum"` variable with no module connected through its port is an ordinary unconnected
+  boundary condition: a constant whose value must be in the parameters file
+  (`<module>/<variable>`), and generation fails with the missing-parameters report when it is not.
+  It used to be 0 with a warning and needed no value; a model that relied on that needs the value
+  (0, to keep the same model) added to its parameters file. No sum component is written for it.
+  A `"sum"` variable that is not a `boundary_condition` with nothing connected is an error, since
+  nothing would give it a value. The built-in `volume_sum`'s `q` is now a `boundary_condition`.
+- A neighbour variable that reaches a `"sum"` (or a `"Multiply"` target) through two connections
+  between the same two modules is a `ValueError` naming both modules and both variables: it would be
+  counted twice. It used to be dropped silently. This happens when a module is listed twice in
+  another's `out_instances` through a multi_port, or when either module has two ports of the
+  matching `port_type` carrying the variable.
+
+#### Changed — a `volume_port` "sum" is an ordinary multi_port sum
+
+No `port_type` has a meaning of its own. A whole-port `"sum"` (any case) on any port, a `volume_port`
+included, is the list form with `"sum"` for every port variable: each variable is the sum, over every
+module connected through the port, of the neighbour's corresponding variable, computed in
+`multiport_sum_<module>_<variable>`. A port with several variables sums each of them, and on a
+general port a neighbour counts whichever side of the connection it is drawn on, as in PhLynx.
+
+- The `sum_blood_volume` component is gone. A blood-volume total such as the 3compartment
+  `volume_sum` is now read as `multiport_sum_volume_sum_q/q` (it was
+  `sum_blood_volume/q_volume_sum_sum`); obs_data, plots and checks that name the old output need
+  the new name. The values are the same for every model in `resources/` and the module library.
+- `FV1D_volume_sum`'s exit `volume_port` maps `q_sum`, so it is an ordinary term of the volume sum it
+  feeds.
+- With `couple_to_1d`, a `"sum"`, `"Multiply"` or list-form port is refused only on the port facing a
+  1D vessel, and only when 0D modules connect to that port too (see the #649 entry); sums elsewhere
+  in the 0D model are allowed.
+
+#### Changed — a variable may be summed through several ports
+
+A variable marked `"sum"` on two or more of a module's ports is the sum over the neighbours of all
+of those ports, in one `multiport_sum_<module>_<variable>` component.
+
+#### Added — `"multiply"` in a list-form `multi_port`
+
+A list-form port's entry may be `"multiply"` (any case), as PhLynx exports a port whose
+variables have different types: that variable reaches its neighbour times its factor, like a
+whole-port `"Multiply"`. `multiply_factor` may be a list aligned with the port's variables (a
+number for each Multiply variable, null for the others). A variable pair cannot be Multiply on
+both ends.
+
+#### Changed — a supermodule names its submodule versions; its instances are its own module array
+
+A supermodule version's config lists the module versions it is built from, `submodule_versions:
+[{"module_type", "module_subtype"}]`. Its instances and their connections are a module array of their
+own, `<module_type>_<module_subtype>_module_array.json` beside the config, whose records name no
+`parameterisation`. Its default parameterisation is the template of a new instance's values. An inline
+`submodules` list is refused; `cuflynx-upgrade module-config <file> --module-library-dir <library>`
+converts it: the records to the module array, and each instance's values (from the parameterisation it
+named, else its version's default, with the supermodule's default parameterisation's
+`<instance>/<variable>` rows over them) into the default parameterisation, nested by instance.
+
+#### Changed — the heart is connected like any other module
+
+Nothing in generation depends on a module being a heart or on an instance's name:
+- A module's inputs take its entrance ports of one `port_type` in the order its
+  `inp_instances` lists them (instances with no port of that type skipped), as its outputs
+  already took its exit ports in `out_instances` order. The rows' order no longer decides it:
+  a junction with two entrance ports of a type took its inputs in the order of their rows.
+  A model whose junction inputs were listed against their rows' order lists them in the order
+  it was generated with (CA's `physiological`, `control_phys*`, `cerebral*`, `elic`,
+  `FinalModel` arrays are reordered; their models are unchanged).
+- No zero-flow vena cava is added for a heart with one vena cava. List a `zero_flow`
+  instance (`module_type` `zero_flow`, `module_subtype` `nn`, a new built-in module with a
+  `vessel_port` exit) first among the heart's vessel inputs, as `3compartment` now does.
+  Otherwise its two vessel inputs take the `v_ivc` and `v_svc` ports, and `heart/v_pvn` is a
+  boundary condition to fill, named in the missing-parameters report. The `zero_flow` component
+  is in a model's `_modules.cellml` only when an instance uses it.
+- A model may have more than one heart.
+- A 1D vessel is coupled to the port of its 0D neighbour that joins them, found as above,
+  in the cpp generator and in `convert_0d_to_1d` (which takes the module sources as
+  `module_sources_inputs`); a heart's 1D outflow vessel no longer needs `aorta` in its name,
+  nor its venous inputs `ivc`, `svc` or `pvn`.
+- The CasADi solver diagnostics report, for each stiff mode, the inertance `I_<module>` of the
+  module of its dominant state and the inertance that would make it steppable, in place of the
+  `par` and `systemic_T` estimates.
+
+#### Fixed — PhLynx's `instance_parameters` / `global_parameters` (#558)
+
+- Parameters PhLynx (v0.3.0 on) hoists into `instance_parameters` and `global_parameters` resolve,
+  in the solvers, in `model_qname_candidates`, the variable mapping, methods and the
+  calibrated-value writer. One list, `parameter_names.HOISTED_PARAMETER_CONVENTIONS`, holds the
+  conventions they all read.
+
+#### Changed — multi-port coupling follows PhLynx (#575)
+
+- **Multiply on either end.** A `"Multiply"` port scales its variable into the neighbour
+  whichever end of the connection it is on; a downstream Multiply port was mapped like `"True"`
+  and its `multiply_factor` ignored. Multiply on both ends of a connection is a `ValueError`.
+- **One sum port per variable.** A variable summed through two different ports is a
+  `ValueError`; terms used to be merged into one sum.
+- **Boundary conditions.** Only a BC that a plain mapping connects to a non-blank partner, or
+  that is a sum result or Multiply output, is removed. A BC that is only a sum term, the source
+  of a Multiply, or mapped to a blank (`""`) slot keeps its own value (it used to lose it and
+  leave the model underdetermined). BCs connected only to each other are a `ValueError`.
+  The built-in `pulmonary_GE` computes `C_CO2_a` and `C_O2_a`, so they are now `variable`, not
+  `boundary_condition`.
+- **Units.** A coupling between different but compatible units is mapped directly, and the
+  solver converts it in the direction the value flows; the generated `unit_converter_*`
+  components are gone. Couplings between affine units (kelvin and celsius) are a `ValueError`.
+- **Port sizes.** A plain port pair with different numbers of variables is a `ValueError`; it
+  used to raise an `IndexError` or silently shift later mappings.
+
+#### Changed — a module type several sources define comes from the most specific one
+
+A `(vessel_type, BC_type)` defined in more than one module source used to keep the first entry
+in the type registry, then stop generation with a print and `exit()`. That is why a module
+library that copies built-in modules needed `use_builtin_modules: false`.
+
+- **Precedence.** The type is now taken from the most specific source: `external_modules_dir`,
+  then `module_library_dirs` in order, then `module_config_user`, then the built-in modules.
+- **One rule for everything.** The type registries (so instances resolve next to the winning
+  config), the module-config join and the CellML modules file all apply it, through
+  `ModuleSources` (`excluded_entries`, `excluded_components`, `component_registry()`,
+  `supermodule_registry()`).
+- **What is left out.** The shadowed definitions' config entries and CellML components. A
+  component that a type still in use needs is kept.
+- **Competition is reported.** A `ModuleShadowWarning` lists every type defined more than once
+  and the source that won.
+- **Within one source, a duplicate is a `ValueError`** naming the files. So is a repeated type
+  at the module-config join, which used to `exit()`.
+
+#### Added — module versions and instances
+
+A module library can lay a module version out as `<module_type>/versions/<version>/` with named
+parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
+suffix). A module-array record, or a supermodule's submodule, picks one with
+`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
+exists. The instance directory is found next to the config file the record's type came from.
+Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
+parameters: the host parameters file wins, then a supermodule's instance, then its
+`default_parameters`, then submodule/component instances. A supermodule entry can have instances
+too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
+works. An unknown instance is an error that lists the version's instances. Models without
+instances generate byte-identical CellML.
+
+A global constant is one value for the whole model, so when instances set one to different values
+the first is used and a `ConflictingGlobalWarning` names each value, its units and the record that
+set it. The warning is skipped when the host parameters file sets the global, and when a
+supermodule's instance overrides the instances inside it. It also says when the units differ: two
+modules then most likely mean different quantities by one name (in the module library, `T` is a
+temperature in the ion channels and a period in the cardiac clock).
+
+obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
+`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
+warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
+`obs_data.schema.json` describes the top level of an obs_data file.
+
+#### Fixed — a BC_type's first two letters are a BC pair only for vessels
+
+Non-vessel modules (cells, ion channels, controllers, heart parts, BC modules) can now have any
+`BC_type` / `module_subtype`, with no `nn` prefix. Before, every connection whose two sides did
+not start with `nn` had their first two letters checked as vessel BCs, so a version named
+`lv_...`, `rv_...` or `Up...` stopped generation, and a non-vessel neighbour of an Nout junction
+lost its connection. A module now counts as a vessel when its `BC_type` starts with `vv`, `vp`,
+`pv` or `pp` and it has vessel ports (a `vessel_port`, or a `flow_port` and a `pressure_port` at
+its entrance/exit); see `libcuflynx.utilities.vessel_bc`. Vessel BC pairs are checked as before,
+and all the built-in example models generate byte-identical CellML.
+
+#### Added — PhLynx module-config and module-array schemas; `"Sum"` and `"Multiply"` multi_ports
+
+The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both
+schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` is the BC_type,
+`component_file` is the module_file and `component_type` is the CellML component name. Each
+entry is detected on its own, by `module_subtype`, `component_file` or `component_type`, and is
+converted to the libcuflynx names when the config is loaded
+(`libcuflynx.utilities.config_schemas.normalise_module_config_entry`). An entry that mixes the
+two schemas is an error. Module arrays can use PhLynx's export layout too
+(`name, module_type, module_subtype, inp_instances, out_instances`). The layout is detected from
+the header.
+
+`multi_port` values are now case-insensitive. Before, only lowercase `"sum"` summed, and PhLynx's
+`"Sum"` behaved like `"True"`. On a `volume_port`, `"Sum"` now gives the same `sum_blood_volume`
+sum as `"sum"`. On any other port, `"sum"`/`"Sum"` needs exactly one variable, and that variable
+is the sum of the connected modules' corresponding variables. This is PhLynx's semantics, and it
+is implemented as the list form `["sum"]`. The module library's microvasculature_network
+`v_out_sum` ports need it. The new `"Multiply"` value, with an optional numeric
+`multiply_factor` (default 1), sets each downstream neighbour's variable to the factor times
+this module's variable, as PhLynx does. All the models in `resources/` that generated before
+still generate byte-identical CellML.
+
+#### Added — per-variable `multi_port`, for flow merge and split nodes
+
+A port's `multi_port` can now be a list with one entry per port variable. Use it when a port
+connected to several modules must sum some variables and share others:
+
+```json
+{"port_type": "vessel_port", "variables": ["v_in", "u"], "multi_port": ["sum", "True"]}
+```
+
+A `"sum"` variable (an input) equals the sum, over every module connected through the port, of
+the neighbour's corresponding port variable. A generated algebraic component,
+`multiport_sum_<vessel>_<variable>`, computes it. The component scales a neighbour in different
+but compatible units, and generation stops on incompatible units. With no neighbour, the variable
+is 0 and a warning is printed. A `"True"` variable (normally an output) is mapped to the
+corresponding variable of every neighbour. This works on entrance, exit and general ports.
+
+The module library's algebraic `flow_merge` (many inflows, one outflow) and `flow_split` (one
+inflow, many outflows) nodes need this: they sum the flows and share the node pressure. The string
+forms (`"True"`, `"sum"`) are unchanged, and models without a list-form port generate
+byte-identical CellML. The model checks reject a malformed list (wrong length, or an entry other
+than `"sum"`/`"True"`). The C++ generator's 0D-1D coupling (`couple_to_1d`) does not support
+list-form ports and raises `NotImplementedError`. Plain C++ generation works from the generated
+CellML and is not affected. See *Designing a model* in the tutorial.
+
+#### Added — `module_library_dirs` and `use_builtin_modules`
+
+Models can now be generated from an external module library laid out one module per
+directory, such as circulatory-autogen-modules (`modules/<name>/<name>_modules.cellml`,
+`<name>_modules_config.json`, `<name>_units.cellml`). `module_library_dirs` takes one path
+or a list, each searched recursively; only `*_modules_config.json` / `*_module_config.json`
+files are read as configs there, so parameter or obs_data JSON can sit next to a module.
+`use_builtin_modules: false` stops the built-in and `module_config_user` modules and units
+from loading, so a library can be the only source of modules and can redefine a built-in
+`(vessel_type, BC_type)` without the duplicate-entry exit. Both default to today's behaviour.
+
+#### Fixed — units files in `external_modules_dir` are loaded
+
+The docs said a `user_units.cellml` in `external_modules_dir` was picked up; it was not.
+Every `*units.cellml` there (and in `module_library_dirs`) is now merged into the generated
+units file. A unit defined identically in several files is written once; one defined
+differently in two files raises a `ValueError` naming both files.
+
+#### Fixed — generation fixes
+
+- `model_type: python` (and the CasADi / AADC variants) now defines every helper libCellML's
+  Python profile can emit: `eq_func`, `neq_func`, `or_func`, `xor_func`, `not_func`, `min` and
+  the reciprocal trig functions `sec` ... `acoth`. A model using `<eq/>`, `<or/>`, `<min/>` etc.
+  used to fail at run time with `NameError: name 'eq_func' is not defined` (#526).
+- A `sum` multi-port (e.g. a `volume_sum` vessel) with no inputs connected is now 0, with a
+  warning naming the vessel, and is still mapped to the vessel's port variable. Generation used
+  to fail with `IndexError: list index out of range` (#525).
+- The built-in constant boundary conditions (`inlet_pressure`, `outlet_pressure`, `inlet_flow`,
+  `outlet_flow` with BC_type `nn_constant`) list their port's flow / pressure variable in
+  `variables_and_units`, so they can be connected. Generation used to stop with "the port variable
+  v is not a variable for vessel type: inlet_pressure" (#529).
+- Generic junctions (`Min_junction`, `Nout_junction`, `MinNout_junction`) now include every
+  neighbour with a `vessel_port` facing the junction node, taking its flow and pressure from that
+  port, instead of skipping any neighbour whose BC_type starts with `nn`. A junction fed directly by
+  boundary conditions such as `inlet_flow nn_constant` used to fail with "Min_junction junc has NO
+  other vessels connected to its inlet node". Existing models generate byte-identical CellML (#524).
+- Unit converter components are named after the connection they sit on,
+  `unit_converter_[from module]_[from variable]_to_[to module]_[to variable]`, with one per
+  variable pair. They were named `unit_converter_[from units]_to_[to units]`, so a module output
+  shared (multi_port `"True"`) with two modules that both needed the same conversion gave two
+  components with the same name, and libCellML / Myokit rejected the model ("Component name must
+  be unique within model").
+- A venous module fed by a terminal takes the terminal flow into `v_in` through the
+  `terminal_venous_connection` when one of its *other* entrance ports has a list-form
+  multi_port, e.g. a separate `blood_uptake_port` with `multi_port: "sum"`. Only a list-form
+  multi_port on the module's `vessel_port` entrance (which sums the terminal flow itself) skips
+  that mapping now; before, any list-form entrance port did, and `v_in` was left unconnected.
+
+### obs_data, predictions and plots
+
+#### Fixed — validating a held-out series of a variable constant in the model
+
+- A prediction item's series on a variable that is constant in the model (recorded once) failed
+  the validation with "fp and xp are not of the same length"; the value is now held over the
+  sub-experiment, in `cuflynx-run-predictions`, after a calibration and in a simulate step.
+
+#### Changed — importing libcuflynx no longer changes Matplotlib's settings
+
+- libcuflynx's paper style (serif font, inward ticks, its font sizes and figure size) applies to
+  libcuflynx's own figures only: its plot functions draw inside
+  `libcuflynx.utilities.paperPlotSetup.paper_style()`. Importing `paramID`,
+  `sensitivityAnalysis`, `identifiabilityAnalysis` or `plot_generated_model_outputs` set it in
+  `matplotlib.rcParams` for the whole process, so a notebook's or another program's own figures
+  changed look once libcuflynx was imported. They now keep the caller's settings. libcuflynx's
+  figures look as before. A script that wants the style on its own figures can call
+  `paperPlotSetup.Setup_Plot(3)` (as before, global) or draw inside `paper_style()`.
+- Importing libcuflynx still picks the Agg backend when none was chosen and not in IPython
+  (`mpl_backend.use_agg_unless_interactive`); that is the only `rcParams` entry it sets.
+
+#### Fixed — a series data item's "error in stds" is mean(|obs - fit| / std): its values change
+
+- `plot_outputs` computed a series item's "error in stds" (`std_error_vec.npy` and the
+  error-in-stds bar plot) as mean(|obs - fit / std|), dividing only the fit by the std. It is
+  now mean(|obs - fit| / std), as for a constant item. Every series item's value changes; constant
+  and frequency items, the percent errors and the calibration cost are unchanged.
+
+#### Fixed — plots show in notebooks after importing libcuflynx, and coupled C++ outputs stay in the generated models folder
+
+- Importing `paramID`, `sensitivityAnalysis`, `identifiabilityAnalysis` or
+  `plot_generated_model_outputs` switched matplotlib to Agg for the whole session, so a later
+  `plt.show()` in a notebook warned "FigureCanvasAgg is non-interactive" and showed nothing. They,
+  `plot_prediction_plots` and the PCA-Sobol report now call
+  `libcuflynx.utilities.mpl_backend.use_agg_unless_interactive`, which selects Agg only when no
+  backend was chosen and the code is not running in IPython/Jupyter. Scripts and MPI runs still
+  render figures with Agg, with or without a display.
+- A C++ model coupled to 1D (`couple_to_1d`) wrote its 0D results to
+  `simulation_outputs_cpp/<model>/` two folders above the generated C++ model (the checkout root
+  in the tutorial). Its default output folder is now `simulation_outputs_cpp/` in the generated
+  C++ models directory, as for an uncoupled model; `cpp_output_dir` still overrides it. The
+  tutorial notebook reads the hybrid run's 0D results from there.
+
+#### Added — parameter derivations and obs_data `input_items`
 
 Decided by Finbar Argus on 2026-10-31.
 
@@ -405,180 +2232,340 @@ Decided by Finbar Argus on 2026-11-13:
   (`fixed_constants`), `fixed_constant_values` reads them from a model, and `cuflynx-derive`
   prints them.
 
-### Changed — casadi_python on cvodes: one solve per run, protocol traces, CasADi AD, JIT
+#### Fixed — plotting a data item whose operand is a model constant
 
-- `cvodes` / `idas` runs are one CVODES solve over the output grid instead of a restart at every
-  output step: 0.133 s -> 0.007 s on Lotka-Volterra (5000 steps), 0.33 s -> 0.054 s on
-  3compartment (2000 steps). The model is given the true time, so a model whose rates read the
-  variable of integration now runs correctly on them; the fixed-step methods warn that they hold
-  it at the run's start.
-- casadi_python on `cvodes` / `idas` drives a constant from a `protocol_traces` trace (and so
-  from `protocol_shapes`) as CVODE_myokit does: linear between points, sorted as Myokit sorts
-  them, end values held, the first value held through pre_time. CVODES restarts only where a
-  trace steps. It used to refuse a trace.
-- CasADi AD on `cvodes` / `idas` uses CVODES forward sensitivities, which match finite
-  differences on the stiff 3compartment model, warm-up included, and Myokit FSA on a
-  trace-driven model; the adjoint fails there with `CV_TOO_MUCH_WORK`. Every casadi_integrator
-  method is now in `ad_suitable_methods`, and the warning about a nonzero pre_time with an
-  adjoint integrator is gone.
-- casadi_integrator `cvodes` / `idas` use the `csparse` (sparse LU) linear solver instead of CasADi's
-  default sparse QR, which mis-solves the ill-conditioned Newton matrix of large stiff models
-  (physiological: 5x the steps and an error of 1.8 against CVODE_myokit, now 9e-4). Override with
-  `solver_info.options: {linear_solver: ...}`.
-- A solver given no `method` gets its default from `SOLVER_SCHEMA['default_method_by_solver']`
-  (`aadc_semi_implicit` -> `implicit_newton`, `casadi_integrator` -> `cvodes`) instead of RK45 and an exit.
-- `solver_info.jit` (default `true`, with optional `compiler` and `jit_options`) compiles the
-  casadi_integrator's right-hand side and derivatives to C, once per process per model,
-  timeline and options, for forward runs and, on CasADi >= 3.8, for the AD gradient too
-  (about 2.4x faster per gradient on a 2 s physiological run, after a one-off compile of the
-  sensitivity functions; CasADi 3.7 does not differentiate through a jit-compiled CVODES
-  integrator, so there the AD graph stays interpreted). With `jit` unset
-  and no C compiler or a non-writable working directory, it runs without jit and warns; an
-  explicit `jit: true` is then an error. `jit: false` turns it off.
-  A jit build never changes the working directory: objects and library go to a private temp
-  directory. CasADi 3.7 writes the generated C source to the cwd and 3.8 to that private
-  directory; this process's files are deleted after each build in both places.
-- `default_method_by_solver['casadi_integrator']` is `cvodes` (was `bdf`), the method CA uses
-  when none is named.
-- With no `model_type`, a named solver sets it: `solver: casadi_integrator` alone is a
-  casadi_python run. The default stays `cellml` on `CVODE_myokit`, with `do_ad: false`.
-- For front-ends: constants `DEFAULT_MODEL_TYPE`, `DEFAULT_DO_AD`, `SOLVER_SCHEMA
-  ['default_model_type']` and `['default_do_ad']`, `default_gradient_source(model_type,
-  solver)`, and a `default` flag on each `gradient_sources()` entry (the analytic source: Myokit
-  FSA for cellml + CVODE_myokit, CasADi AD for casadi_python).
-- SN_simple and other models that initialise a state from `*_init` computed constants now run
-  on `python` and `casadi_python`: libCellML sets those states in `compute_computed_constants`,
-  which the generated module now takes as an optional `states` argument (models without such
-  states keep `compute_computed_constants(variables)`). The solver helpers read the states from
-  it, `set_param_vals` refreshes them, and on casadi_python they stay symbolic in the constants
-  they come from, so the AD gradient through an `*_init`-driving parameter matches finite
-  differences. Trajectories agree with `CVODE_myokit` within 3e-7 (relative to the range).
+- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
+  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
+  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
+  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
+  prediction plots pad a constant prediction to its segment's length the same way.
 
-### Added — `set` and `sweep` workflow steps
+#### Added — trace inputs and time courses in `prediction_plots`
 
-- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
-  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
-  the values with `fixed_from`, and they are merged into the target. Reports, the target's
-  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
-- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
-  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
-  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
-  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
-  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
-  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
-- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
-  values merged as the target merges them, after all of them: each step's own values, in run
-  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
-  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
-  diagram draws it below the merged box, with one box under it naming the files it wrote (their
-  folder once, then each file), done only when every file exists.
-- A workflow's optional `external_figures` declares figure scripts that run outside it: the
-  command, the step or target they read from, and the files they read and write. libcuflynx never
-  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
-  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
-  declaring them after a run keeps it current.
-- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
-  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
-  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
-  they don't know, naming the version found and the versions they read; write an older run's
-  graph again with `cuflynx-provenance <output_dir>`.
-- `pack_workflow` gives an on-target sweep no model of its own: it runs on the packed target.
-- The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
-  `sweep_results` relative to the working directory and resolves them on read, as it does every
-  step's other outputs.
+- An input reference (`x`, `series`) takes an optional `reduce` that makes a trace one number:
+  `"final"`, `"mean"`, `"max"`, `"min"` or `{"at": <seconds from the start of the
+  sub-experiment>}`. A trace without `reduce` is no longer refused when the obs_data is read:
+  that experiment's point is left out with a `PredictionPlotWarning`.
+- Two kinds drawn from a simulation: `input_and_output` (per experiment, a `params_to_change`
+  input and a model output over time on two y-axes, with sub-experiment boundaries and any
+  series data for the output) and `output_vs_input` (the output against the input at the same
+  times, one line per experiment). Both take `{"name", "kind", "input": {"params_to_change"},
+  "output", "experiments"?}`; the schema enforces each kind's keys.
 
-### Added — the Teusink benchmark calibrates on the batched C solvers
+#### Added — predictions without a calibration (#569)
 
-`benchmarks/benchmark_specs.py`: `teusink` adds `multi_start (FD, CVODES_batched_c)` and
-`multi_start (FD, BE_batched_c)`, so the weekly CI benchmarks and the parallel-scaling study
-(`run_benchmarks.py --scaling`) run the batched solvers across MPI ranks, one thread per rank.
+- `libcuflynx.protocol_runners.run_prediction_items(model, obs, dt, solver_info, ...)` runs an
+  obs_data's protocol and returns its prediction items as traces, scalar features, per-segment
+  results and validation; `predict_on` does the same on an executor you have.
+- `cuflynx-run-predictions MODEL OBS_DATA --dt ...` writes `traces.npz`, `features.csv`,
+  `validation_results.json` and the `prediction_plots` figures.
+- `ProtocolRunner.run_protocols` takes `result_variables` and `return_segments`; `model_path` is
+  optional. **Its join of sub-experiments pads a scalar result to its own segment**
+  (`int(sim_time/dt)+1` samples, as the solvers step); it used to pad sub-experiment 0 to the
+  whole experiment and use `round`, so the result could be longer than `t`.
+- `save_prediction_data` is built on `predict_on`; its files are unchanged.
 
-### Added — profile likelihood for identifiability analysis (#519)
+#### Added — `prediction_plots` in obs_data (#568)
 
-- `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
-  each calibrated entry at a sweep of values around the best fit and re-calibrates the others at
-  each one, on `@is_MLE` costs (`MSE` becomes `gaussian_MLE` with a warning; a cost with no MLE
-  form is an error). The 95% interval is where `-ln L` stays within 1.92 of its minimum.
-- `<param_id_output_dir>/profile_likelihood/` gets one JSON and PDF per entry and `summary.json`.
-  Each JSON holds `param_values`, `costs` and `ci_95`, and each point's optimum:
-  `other_param_names` and `optima`, one row of the other entries' values per point. The points'
-  optimisers write no files, so the calibration's best-fit files are never overwritten.
-- `ParamID.make_optimiser` builds the optimiser for a cost object; `ParamID.run` uses it.
-  `remove_params_by_idx` re-indexes modifiers and per-entry lists.
+- An optional top-level list of figures: a scalar feature against another feature or against
+  the number an input is set to, across experiments, optionally one line per value of a series
+  input. A group is the data_items and prediction_items sharing an `item_name_for_plotting`.
+  Drawn by `save_prediction_data` and `cuflynx-run-predictions`; see the tutorial.
 
-### Fixed — the mixed venous O2 and CO2 contents weight each region by its own flow
+#### Fixed — docs of `offline_pre_time` (#560)
 
-- The venous blood of several `tissue_GE_simple` regions is now mixed by a `venous_gas_mixing`
-  module. Each region gives its outflow and the gas it carries (`v_out`, `j_O2 = v C_O2_p`,
-  `j_CO2 = v C_CO2_p`) on a `gas_flux_port`; the module sums them through a multi_port "sum"
-  port and gives `C_O2_mix`, `C_CO2_mix` and `v_mix` to the venous `gas_transport_simple`.
-  Each mixed content is `C_mix = J v / (v^2 + eps^2)`, eps = 1e-12 m3/s: `J / v` to within
-  `(eps / v)^2` at any real flow, 0 at zero flow (t = 0) instead of 0/0, the right sign when
-  the total flow reverses, and smooth, so the solver sees no switch. The generated
-  `terminal_venous_connection` averaged the contents itself, pairing contents with terminal
-  flows by their order in the module array, so whenever the terminals and the gas-exchange
-  modules were listed in different orders each content was weighted by another region's flow.
-- **Breaking:** a `tissue_GE_simple` connected straight to a `gas_transport_simple` is now a
-  ValueError, and so is a `venous_gas_mixing` connected to a module through no port (e.g. a
-  `tissue_GE_simple` version without the `gas_flux_port`), which would leave that region out of
-  the mix. Migrate a module array by adding a `venous_gas_mixing` record whose
-  `inp_instances` are the gas-exchange modules and whose `out_instances` is the venous gas
-  transport, and pointing those at it (as `resources/control_parasymp_module_array.csv` does).
-  The built-in `tissue_GE_simple/nn` has the `gas_flux_port`, and `venous_gas_mixing/nn` is
-  built in; in the module library they are `tissue_GE_simple/Ursino2001_v02` and
-  `venous_gas_mixing/ArgusUNPUBLISHED_v01`.
+- The tutorial lists every backend that runs it (now also OpenCOR and `aadc_python`) and the
+  calibration-parameter restriction; the benchmarks note and the Myokit docstring describe the
+  run-once behaviour.
 
-### Added — a calibration workflow run writes its provenance
+#### Added — prediction items as scalar features
 
-- A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
-  self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
-  output directory alone. Each box says what set its values: calibrated, measured, inherited or
-  set by hand. A value nothing describes counts as unclassified, never as inherited.
-- A step box counts only scored data_items as observables. Helper items, with weight 0, only
-  feed other items, so they appear as `helper_items` in the graph.
-- `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
-  `libcellml_version`.
-- A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
-  `set_by_hand` requires. Generation carries both into its parameters file.
+A `prediction_item` may carry an `operation` and `operation_kwargs`, with the same vocabulary and
+checks as a data_item. Such an item is a scalar feature, e.g. the max of a trace over its
+experiment, reduced over the last sub-experiment of that experiment. `prediction_info` gains
+parallel `operations` and `operation_kwargs` columns (`None` / `{}` when absent).
 
-### Changed — a step's result stays current only if everything before it does
+- **Validation.** Held-out data on such an item (`data_type: constant`) is compared with
+  `operation(operands)`. `save_prediction_data` records every operand of the item, so an
+  operation with two operands works. Each item in `validation_results.json` now names its
+  `operation`.
+- **SA.** New `sa_options.include_prediction_items` (bool, default false). Sobol and local SA
+  report these features as extra outputs, labelled `<data_item_name> (Exp<e>, Sub<s>)`. The
+  run also writes `sobol_output_features.json`, which says what each output column is. Local SA
+  computes these rows by finite differences.
+- **Emulators.** New `emulator_settings.include_prediction_items` (bool, default false). The
+  emulator is also trained on these features. The bundle records them in
+  `prediction_feature_labels`, and they get a separate `prediction_sha256` fingerprint.
+  Calibration on such an emulator still fits and checks only the data_item features. An SA that
+  asks for prediction features on an emulator trained without them stops and says to retrain.
 
-- A step's recorded inputs now include its settings and the module library. Changed settings
-  stop a later step reusing its result. A changed library is a warning and `library_changed` in
-  `workflow_status`, since a library holds far more than one model uses.
-- The provenance graph judges a step's settings as the runner does, by that step's settings
-  alone: re-saving the workflow file with other formatting leaves every step current, and a
-  change to one step's settings makes that step and the steps after it stale, not the others.
-  `file_status` still says whether the file itself changed.
-- `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
-  direct source, and refuse a result whose source ran again after it.
+**Sub-experiments and validation-only experiments.** A prediction item may set
+`subexperiment_idx` (default: its experiment's last; `prediction_info` gains
+`subexperiment_idxs`). Validation, the features and `save_prediction_data` use that segment, and
+series times run from its start, as for a data_item series. An item on a non-default segment is
+saved in `prediction_variable_data_exp_<e>_sub_<s>.npy`; the existing files are unchanged. For a
+multi-sub-experiment experiment, held-out series times now start at the start of the
+sub-experiment rather than the experiment. An experiment that no data_item belongs to is not
+simulated during calibration: not in any cost path, the best-fit check, or the
+all-outputs npz. It is simulated for the prediction data and validation, and for SA/emulator
+training only when a prediction feature needs it. A one-line message names such experiments.
+`libcuflynx.parsers.PrimitiveParsers.cost_experiment_idxs(protocol_info)` lists the ones the
+cost uses. An obs_data with no data_items at all has nothing to fit: calibration and UQ refuse it
+with a ValueError before simulating anything (it used to crash with an IndexError).
 
-### Changed — every calibration has a merge arrow in the methods flow chart
+**Scalar or series.** Every data_item and prediction_item is a scalar (`constant`: value and
+std are numbers) or a series (`series`: value is a list, std is a number or a list of the same
+length, obs_dt is required). The parser checks this and names the item; before, a `constant` with
+a list value was accepted, and a `series` with a number crashed. A series prediction item may
+have an operation, and is validated with the operation's series. Only scalar prediction items
+are features.
+
+Only scalar prediction items with an operation become features. The others are skipped, with a
+`PredictionFeatureWarning` that names them, and an operation that does not return a scalar
+raises `NonScalarPredictionFeatureError`. With both options off, SA outputs and emulator
+fingerprints are unchanged. Callers can feature-detect with
+`libcuflynx.sensitivity_analysis.SUPPORTS_PREDICTION_FEATURES`.
+
+#### Added — held-out data in `prediction_items`, scored after calibration
+
+A `prediction_item` may carry data that calibration never fits: `value` (with `data_type`,
+`std`, and `obs_dt` for a series). `prediction_info` gains parallel `data_types`, `values`,
+`stds` and `obs_dts` columns. After a calibration, `libcuflynx.param_id.validation` compares the
+calibrated model's prediction with the held-out data (a series at `k*obs_dt` within the run, a
+constant at the end of its experiment), and `save_prediction_data` writes
+`validation_results.json` with rmse, nrmse, mean |z|, the fraction within 2 std, and the model
+and data at the observation times. Prediction items without a `value` behave as before. See
+`tutorial/docs/parameter-identification.md`.
+
+The `std` is optional; without it there are no z-scores. When given, it is checked like a data
+item's: one finite positive number for a constant, and for a series one such number or one per
+point. A zero, negative or wrong-length `std` is a parse error naming the item.
+
+### Studies, commands, provenance and reporting
+
+#### Changed — bad input to the parsers and generators raises `CAInputError` instead of exiting
+
+- The user_inputs, module array and parameters parsers (`PrimitiveParsers`, `ModelParsers`), the
+  CellML and 1D Python generators, and `generate_with_new_architecture` raise
+  `libcuflynx.errors.CAInputError` (a `ValueError`) with the message they used to print before
+  calling `exit()` (#706). A caller running libcuflynx in-process (a notebook, CUFLynx, a
+  calibration workflow step) can catch it with `except Exception` and show the message; `exit()`
+  raised `SystemExit`, which ended a notebook kernel. `ObsDataError` is now a `CAInputError`.
+- The model checks run during generation (`checks/LumpedModelChecks.py`: a module type/subtype the
+  library lacks, a port variable the module does not have, a calibrated parameter missing from the
+  parameters file) raise `CAInputError` too.
+- So do calibration and sensitivity analysis on bad settings: an unknown `param_id_method` or
+  sensitivity `method`, a genetic-algorithm population larger than `num_calls_to_function` or
+  smaller than the MPI rank count, bad `multimodal_gaussian` `prob_dist_params`, an obs_data
+  `plot_type` or plot name that cannot be drawn, and a sensitivity data item with more than one
+  operand. Calling these objects out of order (SA before its data is set, `simulate_once` off rank
+  0, `set_bayesian_parameters` on a non-bayesian run) raises `RuntimeError`.
+- The console commands still exit non-zero, printing the traceback with the message.
+- Code that caught `SystemExit` from these modules catches `CAInputError` instead. A calibration
+  workflow step reports the message in its `WorkflowStepError`.
+
+#### Added — progress files for Sobol, emulator training and profile likelihood
+
+- Each of these runs writes `progress.json` into its output directory while it runs:
+  `{schema_version, kind, state, started, updated, phases}`, each phase with `name`, `state`,
+  `done`, `total` and `failed`. Rank 0 rewrites it atomically, at most about once a second, and
+  the state is `done` only once the result files are written. Schema:
+  `schemas/progress.schema.json`; writer: `libcuflynx.utilities.progress`.
+- The other MPI ranks report the items they finish to rank 0 about once a second
+  (`RankReports`), so the counts cover every rank while the run goes, not rank 0's block alone.
+- An emulator training's `training` phase lists each emulator compared (`models`: `name`,
+  `state`, `score`, `duration_s`); each design stage is its own `sampling` phase.
+- A Sobol run also writes `sobol_design.npy` and `sobol_design_params.json` before the first
+  simulation, `sobol_sample_status.npy` (0 not run, 1 ran, 2 failed per design row; it stays
+  after the run, where the outputs CSV holds the filled values), and `sobol_convergence.json`
+  (S1 and ST with confidence half-widths at num_samples / 8, / 4, / 2 and num_samples).
+- Docs: "Following a run: progress files" in `tutorial/docs/sensitivity-analysis.md`.
+
+#### Fixed — a config dict resolves its funcs paths against the cwd, like its other paths
+
+- A config passed to `parse_user_inputs_file` as a dict (a study script that changes into its
+  study directory and builds the config) resolved a relative `cost_funcs_external_path`,
+  `operation_funcs_external_path`, `modifier_funcs_external_path`, `external_model_path` or
+  `generated_model_path` against the checkout root (`user_data_root()`), while `resources_dir`
+  and `param_id_obs_path` resolved against the cwd, so `funcs_user/...` was looked for inside
+  circulatory_autogen. They now resolve against the cwd too. A `user_inputs.yaml` read by the
+  launchers still resolves them from the checkout root, and one named by
+  `user_inputs_path_override` from its own directory.
+
+#### Fixed — the provenance diagram draws given values into the model source
+
+- The boxes of values given in the parameters files (measured, derived, set by hand, calibrated
+  before the run) pointed to the target, as if the calibration steps had run without them. They
+  point to the model source, whose every generated step model holds them; to the target only
+  when no step comes from the model source. A reader of `provenance_graph.json` that draws
+  these edges must accept `__source__` as their end (the schema is unchanged).
+
+#### Fixed — the flattened-CellML cache in TMPDIR keeps at most 200 files
+
+- `CVODE_myokit` writes each model's flattened CellML to
+  `$TMPDIR/circulatory_autogen_flattened/`, one file per model path, and nothing removed
+  them: test runs and studies with many model paths filled TMPDIR. After each write only the
+  200 newest files are kept (`myokit_helper.FLATTENED_CELLML_CACHE_MAX_FILES`); a removed
+  model is flattened again when it is next run.
+
+#### Added — `cuflynx-init` writes a starter study
+
+- `cuflynx-init [DIR]` writes `user_run_files/user_inputs.yaml` and the 3compartment model's
+  resources (module array, parameters, params_for_id, obs_data) into DIR (default the current
+  directory) and prints what to run next, so a `pip install libcuflynx` has a config to start
+  from. It overwrites nothing unless given `--force`.
+
+#### Fixed — what a new user meets in the first hour
+
+Found by installing libcuflynx as a new user and following the tutorial from an empty directory.
+
+- **A missing `user_inputs.yaml`** is one line naming the user directory, how it was chosen
+  (`$CUFLYNX_USER_DIR`, the checkout, or the current directory) and what to do, in place of a
+  `FileNotFoundError` traceback (`paths.missing_user_inputs_message`).
+- **The shipped `user_run_files/user_inputs.yaml` names no path of one machine.**
+  `param_id_obs_path` is `resources/3compartment_obs_data.json` and the cpp paths are commented
+  out. A relative `param_id_obs_path` that is not there from the current directory (or from the
+  directory of the file `user_inputs_path_override` names) is now taken from the user directory,
+  so `cd user_run_files && ./run_param_id.sh` finds it. A path that resolved before still does.
+- **A key of a `user_inputs.yaml` that libcuflynx does not read is refused** with a
+  `UserInputsError` naming every such key and the closest key it does read (`param_id_methd`:
+  "Did you mean 'param_id_method'?"). It was ignored in silence and the default used. Keys the
+  parser derives (`model_path`, `parameters_csv_abs_path`, ...) are accepted, so a dated
+  `user_inputs_<yymmdd>.yaml` reads back, but never suggested; an optimiser option at the top
+  level (`num_calls_to_function`) is pointed to `optimiser_options`. Only files are checked, not
+  dicts built in code. `KNOWN_USER_INPUTS_KEYS` in `PrimitiveParsers.py` lists the keys, among
+  them `model_file`, `do_simulation` and `do_calibration`, which pipeline bundles and CUFLynx's
+  export write. **A tool that writes a new key into a user_inputs file must add it there**, or
+  libcuflynx refuses the file.
+- **`module_array_path` and `parameters_path`** may stand in for `file_prefix` + `resources_dir`
+  (`module_array_path: resources/3compartment_module_array.json`) and for `input_param_file`
+  (any path, not only in `resources_dir`). A relative path resolves as `resources_dir` does; an
+  alias that disagrees with the key it stands for is refused.
+- The version is 0.8.0.dev0.
+- **`parse_user_inputs_file` and the genetic algorithm raise instead of calling `exit()`** on a
+  configuration they refuse: `UserInputsError` (a `ValueError`) for an invalid `solver`,
+  `model_type`, solver method, `dt` or `solver_info` key, a missing `file_prefix` and the
+  `sp_minimize` requirements; `FileNotFoundError` for a `user_inputs_path_override`,
+  `param_id_obs_path`, `external_modules_dir` or `module_library_dirs` entry that does not exist;
+  `ValueError` for a genetic algorithm budget below its population or more MPI ranks than its
+  population. `cuflynx-generate` exited 0 on these, and a script calling `pid.run()` stopped with
+  exit 0; both now exit 1 with the message. Code that caught `SystemExit` around
+  `parse_user_inputs_file` should catch `ValueError` / `FileNotFoundError`.
+- `model_type: cpp` with no `solver_info.dt_solver` says which key to add, in place of
+  `KeyError: 'dt_solver'`.
+- A module array naming a module that no module library holds says how to give the library
+  (`module_library_dirs`, or `--module-library-dir`).
+- A calibration workflow run no longer writes `param_id_output/inputs/user_inputs/` in the
+  current directory: the generation steps' dated user_inputs copy goes with their staged
+  resources under `--output-dir`.
+- `CVS0DParamID.set_params_for_id` (and `get_param_id_info_from_entries`) also take the content
+  of a params_for_id file: the `{"version", "params"}` document or its list of entries with
+  `targets` or `modifies`. The `{vessel_name, param_name, ...}` entries are read as before.
+- "parameter X not found" and "variable X not found" from the Myokit helper name the model,
+  the closest names in it and the file such a name is written in.
+- When Myokit cannot compile a model because `Python.h` or SUNDIALS' `cvode/cvode.h` is missing,
+  generation prints what to install in place of the compiler traceback. The generated
+  `CMakeLists.txt` stops with how to install SUNDIALS or pass `-DSUNDIALS_DIR`.
+- Messages: "running on 1 rank; use mpiexec -n N to parallelise", the DEBUG warning says what
+  DEBUG does, "the parameters file" where a message said "CSV", and `cuflynx-plot` no longer
+  prints `doing ia for rank 0`.
+- Docs: Python 3.10 or newer, `python3-dev` in the prerequisites, one venv name (`venv`), the
+  clone URL, where the API example's resources come from, what generation writes, that
+  workflows need a newer libcuflynx than PyPI's 0.7.3, and the removed
+  `run_param_id_without_autogen.sh`.
+
+#### Changed — one working dir layout for CA runs, pipeline bundles and CUFLynx
+
+- **An MCMC run has its own run directory**, `mcmc_<prefix>_<obs>` beside the calibration's
+  `<param_id_method>_<prefix>_<obs>` (`paramID.case_dir_name`, `UQ_CASE_METHOD`), and its own
+  entry in the study manifest's `runs`. The chain, `mcmc_statistics.json`, the posterior point
+  estimates and the posterior predictive check go there; the calibration's directory keeps the
+  best fit. `CVS0DParamID.uq_output_dir` and `calibration_output_dir` name the two, and
+  `CVS0DParamID.mcmc_chain_path()` finds the chain (in a calibration's directory too, for a
+  run whose chain is there). `run_param_id` returns `uq_output_dir`. Readers that took the chain
+  from the calibration's directory now take it from the MCMC run's.
+- **A run in a working dir no longer copies its obs_data and params_for_id into its run
+  directory**: `inputs/` holds them, with `inputs/index.json`. A run with no working dir
+  (`write_cuflynx_study: false` or `cuflynx_study_copy_inputs: false`) still copies them.
+- **`CVS0DParamID.write_calibrated_model(cellml_path=None, output_dir=None)`** writes
+  `<param_id_output_dir>/<file_prefix>_calibrated.cellml`, the model with the best fit written
+  in (grouped and modifier rows expanded), and records it as the manifest's `model`.
+  `libcuflynx.param_id.calibrated_model.write_calibrated_model` does the same from a CellML, a
+  `param_id_info` and the values.
+- **A pipeline bundle is its study's working dir.** `run_pipeline.py` writes its results, the
+  manifest and `inputs/` into the bundle folder rather than `output/`; its sensitivity analysis
+  writes to `sensitivity/` there (an absolute `sa_options` `output_dir` is dropped from the
+  bundled yaml, a relative one goes under `sensitivity/`); the MLE obs_data its UQ stage scores
+  with is stored as `inputs/obs_data/<stamp>/uq_obs_data.json`; and a calibration leaves
+  `<prefix>_calibrated.cellml`. `plot_utilities.py` reads the chain and the posterior predictive
+  check from the MCMC run's directory, and still reads a bundle's `output/` folder when there is
+  one.
+
+#### Added — a pre-release test suite
+
+- `tests/test_solver_matrix.py` checks every forward backend against one converged
+  CVODE_myokit reference, by scaled RMS, a shift-tolerant maximum and the mean/min/max
+  features, with the gates in `tests/_solver_metrics.py`. CI also runs the `mpi` tests outside
+  the param-id files (test-mpi-rest), the simulation and solver-matrix tests at the oldest
+  supported backend versions (test-min-deps) and the batched C solvers under MSVC
+  (test-windows). `CUFLYNX_REQUIRED_BACKENDS` turns a skip for a backend the job installed into
+  a failure. `tests/run_release_checks.sh` runs every check, and is required before tagging a
+  release (CONTRIBUTING.md).
+
+#### Changed — the tutorial notebooks run end to end in CI, with quick settings
+
+- Each tutorial notebook has one settings cell (tagged `parameters`) holding its costly knobs:
+  warm-up length, Sobol samples and genetic-algorithm calls in the two calibration notebooks;
+  pip install, example-image download, Fiji, an image of your own, sub-volume and Ilastik in the
+  image notebook. The defaults are what the tutorials teach with.
+- `tests/interactive_tests/test_interactive_tutorial_notebooks.py` executes **every cell** of each
+  notebook in a Jupyter kernel (`nbclient`, in `[dev]`) with smaller values injected after the
+  settings cell, and checks the key outputs: about 110 s for `generation_and_calibration.ipynb`
+  (including the C++ 0D build and run and the hybrid run), 20 s for
+  `generation_and_calibration_test.ipynb` and 6 s for `image_to_hemodynamics_model.ipynb`.
+  The same notebooks with their shipped settings are the `manual` tests (`--run-manual`).
+- The hybrid section of `generation_and_calibration.ipynb` runs too: its run length is two
+  settings, `hybrid_num_periods` (3) and `hybrid_period_s` (1.0 s), which the quick test sets to
+  two periods of 10 ms (the full run takes about 4 minutes per simulated second). The coupler's
+  pipes go under `generated_models_dir/coupler_pipes/` rather than `/tmp/`.
+- `image_to_hemodynamics_model.ipynb` runs to the end on a synthetic segmentation in the quick
+  test; the full run (example-image download) stays `manual`. `image_proc_funcs.py` built its
+  parameters for the model named in `user_inputs.yaml` (`3compartment` in a checkout, whose
+  `resources/3compartment_parameters.json` it overwrote) instead of for the network it had just
+  built, and read modules only from `module_config_user/`. It now takes the vessels of its own
+  module array and finds their modules with `ModuleSources`, as model generation does. The
+  network's open ends are no longer joined to pressure-inlet / pressure-outlet nodes (`P_inlet`
+  was removed in #155): an inlet vessel's entrance and an outlet vessel's exit are left
+  unconnected, generation makes their boundary conditions parameters (`<vessel>/u_in`,
+  `<vessel>/u_out`), and the pipeline writes the inlet and outlet pressures into them.
+
+#### Added — fixed constants in the provenance diagram
+
+Decided by Finbar Argus on 2026-11-14, a follow-up to the parameter derivations below.
+
+- A derivation's `fixed_constants` entry may be a name or `{"name", "origin", "data_reference",
+  "reason"}` (`origin` `measured`, `inherited` or `set_by_hand`, which needs a `reason`). A bare
+  name has no origin and is drawn `unclassified`, never as inherited by default. A constant named
+  twice in one derivation is a `DerivationError`.
+- `cuflynx-derive --write` records the constants of a derived value's derivation, with value,
+  units and origin, in the leaf's new `fixed_constants` key (JSON text); generation carries it
+  into the generated parameters file, and a calibrated value drops it.
+- The provenance diagram has a "Fixed constants of derivations" box, with an arrow to the derived
+  values, listing each constant as `<derivation>/<constant>` with its value, units and origin
+  (first six, then "and k more in the graph file", as for other boxes of values). A run with no
+  fixed constants has no such box. It sits in the top row, left of the model source, above the
+  derived values, so its arrow crosses no other. The diagram's footer adds `N unclassified
+  constants` to its count of unclassified values, so no undescribed constant hides behind a zero.
+  The graph schema is unchanged (a `values` node).
+
+#### Changed — every calibration has a merge arrow in the methods flow chart
 
 - The chart drew merge arrows only for calibrations no other step took values from, though every
   calibration reaches the target. It now draws one for each calibration with a value in the
   target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
   writes the LaTeX, so the SVG diagram draws the same graph.
 
-### Added — generation stops on an old libCellML and names an edge that joins two computed variables
-
-- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
-  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
-- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
-  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
-  by any edge between them; pass a single signal through a variable on a node both connect to.
-
-### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
-
-Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
-`rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
-CA warns about it only on older Myokit (`myokit>=1.39.1` still allows an installed 1.39.x).
-FSA solves can be slower on 1.40, because the steps now have to resolve the sensitivities too:
-myokit#1203 measured about 40% slower on one 27-state CA cardiovascular model at CA's default
-FSA tolerance (1e-8; a single measurement), and with sensitivities on, rtol=atol=1e-14 did
-not finish in practice.
-
-### Changed — the study's working dir holds every input; the manifest's paths are all relative
+#### Changed — the study's working dir holds every input; the manifest's paths are all relative
 
 `param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
 anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
@@ -645,710 +2632,7 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 - `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
   for the manifest's further keys.
 
-### Changed — obs_data items name their origin in an optional `data_reference`, which replaces `source`
-
-`data_reference` says where a calibration or validation datum comes from, spelled as the
-parameters-file column. It is optional, and a value that is not a string is refused.
-
-- The free-text `source` key is replaced by `data_reference` and still accepted, on data_items
-  and prediction_items (string or null). The parser reads it as the item's `data_reference`, so it
-  reaches everything below; an item with both keeps its `data_reference`. A file that uses it gets
-  one warning, giving the number of items: rename the key. A series item now needs `value` or
-  `value_path`: `source` no longer satisfies that rule (the parser already refused such an item
-  for having a `std` and no data).
-- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
-  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
-  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
-  `data_reference=`.
-- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
-  `data_reference` per item in `validation_results.json`.
-- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
-  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
-  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
-  `data_reference`.
-- Each item names its own source: there is no file-level default (decided by Finbar Argus,
-  2026-10-31).
-
-### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
-
-Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
-
-- Where three or more `vessel_port` ends meet, the end alone on its side of the node (a split's
-  parent outlet, a merge's child inlet) must be compliant: a vessel end with subtype letter `v`,
-  or, for a module that is not a vessel, a port whose `multi_port` has a `"sum"` entry (a
-  whole-port `"sum"` or a list containing `"sum"`), such as a heart chamber's `[v_in, u]` port
-  with `["sum", "True"]`. A `"Multiply"` or plain `"True"` port on a module that is not a vessel
-  does not own a node: "compliant" means the end that takes the sum and shares the pressure, and
-  those ports broadcast a value and sum nothing (decided by Finbar Argus on 2026-10-30). A
-  Multiply vessel_port feeding several neighbours is therefore refused; feeding one is
-  unchanged. A node that breaks this, or that has several ends
-  on both sides, stops generation before any mapping with a `ValueError` that names the node's
-  ends and the two fixes (swap subtypes so that end is `v`, or add a lumped `vv` vessel). These
-  nodes were already refused, through one connection at a time ("output BC is p, the input BC of
-  ... should be v", or an overused port), except where a `Min_`/`MinNout_` junction let a `p`
-  outlet feed several daughters; that exemption is removed. Nodes with an `FV1D_vessel` end and
-  two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
-- Every model in `resources/` and every system model of the module library generates the same
-  CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
-  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused; their tests
-  are expected failures. `generic_junction_test_{open,closed}_loop` is the rule-following version
-  of the same network: test2 differs from it only at those six nodes (parent `Nout_junction pv`
-  -> `arterial pp`, one daughter `pv` -> `vv` as a `Min_`/`MinNout_junction`).
-
-### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
-
-Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;
-keeping the error for an unconnected `"sum"` that is not a `boundary_condition` confirmed on
-2026-10-29.
-
-- A `"sum"` variable with no module connected through its port is an ordinary unconnected
-  boundary condition: a constant whose value must be in the parameters file
-  (`<module>/<variable>`), and generation fails with the missing-parameters report when it is not.
-  It used to be 0 with a warning and needed no value; a model that relied on that needs the value
-  (0, to keep the same model) added to its parameters file. No sum component is written for it.
-  A `"sum"` variable that is not a `boundary_condition` with nothing connected is an error, since
-  nothing would give it a value. The built-in `volume_sum`'s `q` is now a `boundary_condition`.
-- A neighbour variable that reaches a `"sum"` (or a `"Multiply"` target) through two connections
-  between the same two modules is a `ValueError` naming both modules and both variables: it would be
-  counted twice. It used to be dropped silently. This happens when a module is listed twice in
-  another's `out_instances` through a multi_port, or when either module has two ports of the
-  matching `port_type` carrying the variable.
-
-### Added — `BE_batched_c`: generated C, one block of states at a time, on several threads
-
-A CellML solver for models made of many weakly connected parts, such as a module array of cells
-(#573). `get_simulation_helper(..., solver='BE_batched_c')` takes the same CellML file and protocols
-as `CVODE_myokit`.
-
-- **When to choose it.** `CVODE_myokit` stays the general-purpose default. `BE_batched_c` and
-  `CVODES_batched_c` are good when you have many perturbations through time, because CVODE would keep
-  stopping and restarting its adaptive time steps. They are opt-in: they run only when named in the config.
-  The solver section of `tutorial/docs/parameter-identification.md` says so.
-- **Blocks.** `generators/kernel_ir.py` reads libCellML's analysis into a language-neutral form and
-  splits the states into blocks that do not depend on one another. Blocks with the same equations
-  share one kernel, so 64 identical cells compile one kernel.
-- **Exact Jacobians.** Each kernel's Jacobian is made by forward-mode differentiation of the
-  equations. Only its structurally non-zero entries are written.
-- **C.** `generators/cpp/batched.py` writes the kernels as C next to libCellML's own C (as
-  `model_type: cpp` writes it, which gives initial values and outputs), renders the runtime from
-  `templates/batched_*.j2` and builds it with CMake. A built model is cached under a digest of its
-  CellML files, so later helpers load it in milliseconds.
-- **Integrators.** Each block gets its own adaptive, L-stable one-step method, chosen by
-  `solver_info` `method`:
-  - `backward_euler`, the default;
-  - `trbdf2`, second order, which is far more accurate at the same tolerance and usually faster.
-
-  Both use modified Newton, with the Jacobian and LU factors kept across steps. The step size changes only
-  when the error control allows more than 20% growth (or asks for any shrink), so the factors serve several
-  steps: 1.10-1.14x faster on AdaptOrDeity's colonies at the same error.
-- **Inputs that change at every call.** `bk_set_stop_at_outputs` (`BatchedSimulation.set_stop_at_outputs`, off
-  by default) ends steps on each run's last output time; a block whose inputs changed there restarts softly,
-  keeping its step size, Jacobian and LU factors (never from an interpolated state). With an input changed every
-  0.1 s, as a game's macro step does, that is 4.3-4.6x faster; with inputs that rarely change, 0.93-1.02x, hence
-  off. `CVODES_batched_c` accepts the call and ignores it.
-- **Threads and restarts.** OpenMP runs over the blocks, and results are the same for any number
-  of threads. A block whose inputs did not change between sub-experiments keeps its steps.
-- **Protocol traces.** A `params_to_change` entry naming a trace drives that constant along it, as on
-  `CVODE_myokit`: piecewise linear on the model's clock, held at its ends. Steps end on the trace's
-  breakpoints, and the kernels compute their computed constants, so everything that depends on the
-  traced constant follows it. SN_simple's protocol agrees with `CVODE_myokit` within 5e-4 of each
-  variable's range, 20x faster.
-- **Instances and outputs.** `bk_instance_*` steps copies of the model from the caller's own threads
-  (AdaptOrDeity's cells); `outputs` computes a few algebraic variables alone after each step.
-- **Limits.**
-  - It is meant for moderate tolerances (default `rtol` 1e-4).
-  - Its LU is dense, so a single block of hundreds of states is slow.
-  - It does not take models with algebraic loops or external variables.
-  - Excitable models want a `MaximumStep` or a tighter `rtol`: at `rtol` 1e-6 and no step cap, an action
-    potential in SN_simple lands 0.25 ms late (1.3 mV on its upstroke); with `MaximumStep` 1e-3, 0.09 mV.
-  - It has no sensitivities.
-- **user_inputs.** `solver: BE_batched_c` takes `method` `backward_euler` (the default) or `trbdf2`; each CellML
-  solver's methods are checked against its own list, not `CVODE_myokit`'s.
-- **First step after a restart.** Hairer, Norsett and Wanner's starting step, from weighted RMS norms over the
-  block's states and a second-derivative estimate, at least 64 ulps of t, so a state restarting at zero (weight
-  1/atol) no longer forces a step too small for t + h to differ from t (late restarts failed as "step too small").
-
-### Added — `CVODES_batched_c`: one CVODES per block, on the same generated C
-
-`get_simulation_helper(..., solver='CVODES_batched_c')` builds `BE_batched_c`'s kernels, blocks, traces and
-outputs with a different runtime (`templates/batched_cvodes_runtime.c.j2`, which extends `batched_runtime.c.j2`).
-Each block gets its own CVODES: BDF with Newton, a dense LU and the exact Jacobian (CVODES's difference
-quotients with `jacobian: finite_difference`).
-
-- **Threads.** Blocks share nothing, so OpenMP runs over them with results that are the same for any number
-  of threads.
-- **Restarts.** A block is reinitialised (`CVodeReInit`) only when its inputs, its states, a trace or its time
-  origin change. A trace's breakpoints are CVODES stop times.
-- **Swapping solvers.** The library exports every `bk_*` function of `BE_batched_c`, plus
-  `bk_block_cvodes_flag`, so a program that steps `bk_instance_*` copies can swap one library for the other.
-  The one difference is `bk_instance_copy`: a copy starts CVODES afresh from the copied states, so it
-  follows its original to the tolerance rather than bit for bit.
-- **Settings.** The defaults are `CVODE_myokit`'s tolerances (`rtol` 1e-6, `atol` 1e-8).
-  `MaximumNumberOfSteps` counts the steps of one block in one run, as on `BE_batched_c`.
-- **Needs SUNDIALS 6 or later.** It is found from `SUNDIALS_DIR` or CMake's search path. Without SUNDIALS the
-  build fails with a message that says so, and its tests skip.
-- Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
-  instances on OpenMP threads.
-
-### Fixed — the batched C libraries build with MSVC (#615)
-
-`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
-Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
-`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
-Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
-`--config Release` too.
-
-### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
-
-MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
-(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
-`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
-min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
-
-### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
-
-The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in
-`computeComputedConstants`. libCellML sets the states initialised by a computed constant there, so
-`SN_simple` did not compile. The rewrite also no longer leaves a stray `{` in `VARIABLE_INFO` when
-a kind of variable is empty.
-
-### Changed — libCellML 0.7.2 or later
-
-libCellML 0.7 generates Python and C with constants, computed constants, algebraic and external variables in separate
-arrays. `PythonGenerator` and the C++ generator join them into the one `variables` array the solvers and the C++ model
-use, so generated models behave as before: on the test models, the values (Python and C) and the generated C++
-statements are the same as with 0.6.3. 0.6.3 flattened some models with wrong units (a conversion factor's units
-replaced by their inverse), which 0.7.1 fixes (#271). The requirement is `libcellml>=0.7.2`, the PyPI
-release: 0.7.1 drops an imported unit's exponent (SN_simple and the coupling `k_reduce` fail with a
-units mismatch), which 0.7.2 fixes (cellml/libcellml#1498).
-
-### Changed — a `volume_port` "sum" is an ordinary multi_port sum
-
-No `port_type` has a meaning of its own. A whole-port `"sum"` (any case) on any port, a `volume_port`
-included, is the list form with `"sum"` for every port variable: each variable is the sum, over every
-module connected through the port, of the neighbour's corresponding variable, computed in
-`multiport_sum_<module>_<variable>`. A port with several variables sums each of them, and on a
-general port a neighbour counts whichever side of the connection it is drawn on, as in PhLynx.
-
-- The `sum_blood_volume` component is gone. A blood-volume total such as the 3compartment
-  `volume_sum` is now read as `multiport_sum_volume_sum_q/q` (it was
-  `sum_blood_volume/q_volume_sum_sum`); obs_data, plots and checks that name the old output need
-  the new name. The values are the same for every model in `resources/` and the module library.
-- `FV1D_volume_sum`'s exit `volume_port` maps `q_sum`, so it is an ordinary term of the volume sum it
-  feeds.
-- With `couple_to_1d`, a `"sum"`, `"Multiply"` or list-form port is refused only on the port facing a
-  1D vessel, and only when 0D modules connect to that port too (see the #649 entry); sums elsewhere
-  in the 0D model are allowed.
-
-### Changed — a variable may be summed through several ports
-
-A variable marked `"sum"` on two or more of a module's ports is the sum over the neighbours of all
-of those ports, in one `multiport_sum_<module>_<variable>` component.
-
-### Added — `"multiply"` in a list-form `multi_port`
-
-A list-form port's entry may be `"multiply"` (any case), as PhLynx exports a port whose
-variables have different types: that variable reaches its neighbour times its factor, like a
-whole-port `"Multiply"`. `multiply_factor` may be a list aligned with the port's variables (a
-number for each Multiply variable, null for the others). A variable pair cannot be Multiply on
-both ends.
-
-### Changed — a generated model has one parameters file, nested JSON; the generated CSV is gone
-
-Generation writes one parameters file beside the generated model, `<prefix>_parameters.json` (in
-the generated-models directory; the model's own input file of that name stays in its resources
-directory), and no `<prefix>_parameters.csv`: every value the model uses, in the form of a
-model's parameters file (`aortic_root/C`, `heart/lv/E_A`, globals under `global`), with its units
-and data_reference. A value the model's parameters file does not set (a supermodule instance
-written `"heart": {}`, a module's default parameterisation, a supermodule parameterisation's
-global) names its source at the start of its data_reference:
-`"from <module_type>/<module_subtype> parameterisation <name>: <its own data_reference>"`; a
-data_reference already starting `from ` is not prefixed again, and none is cut at 80 characters.
-Generating again from it alone, with the same module array, gives the same model. A
-`<prefix>_parameters.csv` an older libcuflynx left in the generated model's directory is removed
-when the model is generated again.
-
-Everything that read the generated CSV reads the JSON, naming each parameter as the model does
-with `parameters_file.model_parameter_rows` (`C_aortic_root`, `E_A_heart__lv`, `R`): the
-calibration workflow (fixed values, identifiability's start point, the target's check of the
-calibrated names) and the methods LaTeX (`cuflynx-methods-latex --parameters` takes the JSON; a
-parameters file that does not exist, named or the default beside the model, is an error naming its
-path rather than a methods section citing no source).
-
-A calibration workflow's calibrated parameters (`write_calibrated`,
-`write_calibrated_parameters_to`) are the target's parameters file completed with every other
-value its model uses, with the calibrated values set, so a result reproduces the run without the
-module library; `write_calibrated_parameters_to` builds on the run's own generated target
-parameters file (regenerating the target only when the run has none) and still writes only its
-`path`.
-
-Renamed, so the names match the file: `generate_model(...)['used_parameters_path']` and
-`workflow_result['target_model']['used_parameters_path']` are `parameters_path` (which named the
-CSV); `runner.run_target_used_parameters` is `run_target_parameters`,
-`runner.target_used_parameters` is `target_generated_parameters`, and the `used_path` argument
-of `write_calibrated_parameters` is `generated_path`; `parameters_file.used_parameters_file_name`
-is gone (`parameters_file_name`). A workflow run whose `workflow_result.json` records a parameters
-CSV for its target model is refused when its calibrated parameters are written: run the workflow
-again.
-
-### Added — calibration workflow steps that select instances of the target
-
-A step's model may be `{"select": ["C"]}` (or `["heart/lv"]`, or several records) against a
-module-array target. One instance runs as its library module placed at that instance; several run
-as the module array they form, cut from the target. The step starts from the target's values for
-them, and its obs_data and params_for_id name vessels as the target does. A boundary condition
-the selection leaves open takes its value from the step's protocol (`params_to_change`), and one
-with no value anywhere raises `UnsetParametersError`, which lists them. Any workflow step's
-protocol now gives the parameters its model would otherwise leave unset. A nested selection starts
-from the model's values under its path (`heart/lv`). The calibrated values are written
-(`write_calibrated`, and `write_calibrated_parameters_to(source, output_dir, path)`, which writes
-only `path`) as a copy of the target's parameters file with them set, a value inside a super
-instance under its path; the target's own files and the supermodule version's template are not
-changed.
-
-### Fixed — plotting a data item whose operand is a model constant
-
-- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
-  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
-  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
-  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
-  prediction plots pad a constant prediction to its segment's length the same way.
-
-### Fixed — `CVODE_myokit` on modules in other time units (#604)
-
-- A module whose time variable is in other units than the model's (e.g. `t` in ms in CA's
-  seconds-based model) has its derivatives taken w.r.t. its own time, as CellML defines them.
-  Myokit converted the module's `t` but not `dx/dt`, so such a module ran 1000x too slowly
-  under `CVODE_myokit` (libCellML's analyser, behind the python and C++ models, already
-  applies the factor). Results of
-  models with such modules change: `module_config_user/tutorial_modules.cellml`'s
-  `i_piezo_Na_tutorial` and `smc_hernandez_with_piezo` are the shipped ones.
-
-### Changed — a supermodule names its submodule versions; its instances are its own module array
-
-A supermodule version's config lists the module versions it is built from, `submodule_versions:
-[{"module_type", "module_subtype"}]`. Its instances and their connections are a module array of their
-own, `<module_type>_<module_subtype>_module_array.json` beside the config, whose records name no
-`parameterisation`. Its default parameterisation is the template of a new instance's values. An inline
-`submodules` list is refused; `cuflynx-upgrade module-config <file> --module-library-dir <library>`
-converts it: the records to the module array, and each instance's values (from the parameterisation it
-named, else its version's default, with the supermodule's default parameterisation's
-`<instance>/<variable>` rows over them) into the default parameterisation, nested by instance.
-
-### Changed — parameter values are nested JSON
-
-A model's parameter values are `<prefix>_parameters.json` beside its module array (schema
-`parameters.schema.json`), nested instance, sub-instance, variable:
-
-```json
-{"schema_version": 1,
- "global": {"R": {"value": 8.314, "units": "J_per_mol_K", "data_reference": "..."}},
- "aortic_root": {"C": {"value": 1.2e-8, "units": "m3_per_Pa", "data_reference": "Liang2009"}},
- "heart": {"lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "..."}}}}
-```
-
-- A parameter is an object with `value` (a number, or text such as `EMPTY_MUST_BE_FILLED`; an empty
-  one is read as `EMPTY_MUST_BE_FILLED`), `units`, `data_reference` and any other string key (a
-  library's `sourced`). A number keeps the text it is written with. Every other object is an instance
-  or sub-instance. `global` holds the global constants. `global`, `value` and `schema_version` are
-  reserved: no module-array record, submodule or variable may have those names.
-- A path is the name users write: `aortic_root/C`, `heart/lv/E_A`, `global/R` or `R`.
-- A parameterisation, `parameterisations/<name>/<name>_parameters.json`, has the same form rooted at
-  its module: a component's own variables at the top (`{"C": {...}}`) and its global constants under
-  `global`; a supermodule's sub-instances (`{"lv": {"E_A": {...}}}`) and its globals.
-- A supermodule instance's values are in the model's file under its name. `cuflynx-upgrade
-  supermodule-instances <module array> --module-library-dir <library> [--instance N] [--replace]
-  [--parameters FILE]` copies them once from the version's template (its default parameterisation,
-  or the one the record names in its place, which must set every instance value the default sets,
-  and nested supermodules' templates under it); an instance that
-  has an entry keeps it. Generation refuses a supermodule instance the file has no entry for, naming that command.
-  Of a supermodule's parameterisation it reads only the globals; a value the model's file lacks comes
-  from the submodule version's `default_parameterisation`.
-- Calibration workflows write `<name>_calibrated_parameters.json` in the same form: a module array
-  target's full file with the calibrated values set, or a parameterisation's.
-- A parameters CSV is refused. `cuflynx-upgrade parameters <file | *_modules_config.json | directory>`
-  converts it to the `.json` beside it: a model's file (and the per-instance
-  `<prefix>_supermodule_parameters/` files beside its module array, moved in under each instance), a
-  parameterisation (globals by its config), a config's parameterisations (and a supermodule version's
-  `<module_type>_<module_subtype>_parameters.json`, folded into its default parameterisation), or every
-  one below a directory. Name the `.json` file in `input_param_file`.
-- Generation writes the generated model's parameters as `<prefix>_parameters.json` beside the
-  generated model (see "a generated model has one parameters file" above). A model with missing
-  values gets `<prefix>_parameters_unfinished.json` in its resources directory.
-
-### Changed — params_for_id is JSON
-
-A calibration's parameters are `<prefix>_params_for_id.json` (schema `params_for_id.schema.json`), a
-flat list of entries, not nested by instance: an entry groups parameters or modifies them, so it is
-not one parameter.
-
-```json
-{"version": 1,
- "params": [
-  {"targets": ["aortic_root/C"], "min": 1e-9, "max": 5e-8, "name_for_plotting": "C_{ao}"},
-  {"targets": ["heart/lv/E_A", "heart/rv/E_A"], "min": 1e8, "max": 5e8},
-  {"name": "R_scale", "modifies": ["venous_svc/R", "venous_ivc/R"], "modifier": "scale", "min": 0.5, "max": 2}]}
-```
-
-- Parameters are named as users write them: `<vessel>/<variable>`, a nested vessel by its path
-  (`heart/lv/E_A`, read as the model's `heart__lv`) and a global as `global/<variable>`.
-- A params_for_id CSV is refused (`params_for_id_file`, the default `<prefix>_params_for_id.*`, a
-  workflow step's `params_for_id`). `cuflynx-upgrade params-for-id <CSV | directory>` writes the
-  `.json` beside each CSV and removes it: one entry per row, `vessel_name "a b"` with `param_name "C"`
-  as `"targets": ["a/C", "b/C"]`, the `prior_*` columns under `prior_params`, numbers as written.
-  `ObsAndParamDataParser.params_for_id_csv_to_json` returns the same document.
-- Calibration workflows write a step's params_for_id with its priors' parameters, and a reduction's,
-  as `<step>_params_for_id.json`; a prior over parameters of different names is no longer refused.
-
-### Added — trace inputs and time courses in `prediction_plots`
-
-- An input reference (`x`, `series`) takes an optional `reduce` that makes a trace one number:
-  `"final"`, `"mean"`, `"max"`, `"min"` or `{"at": <seconds from the start of the
-  sub-experiment>}`. A trace without `reduce` is no longer refused when the obs_data is read:
-  that experiment's point is left out with a `PredictionPlotWarning`.
-- Two kinds drawn from a simulation: `input_and_output` (per experiment, a `params_to_change`
-  input and a model output over time on two y-axes, with sub-experiment boundaries and any
-  series data for the output) and `output_vs_input` (the output against the input at the same
-  times, one line per experiment). Both take `{"name", "kind", "input": {"params_to_change"},
-  "output", "experiments"?}`; the schema enforces each kind's keys.
-
-### Changed — the heart is connected like any other module
-
-Nothing in generation depends on a module being a heart or on an instance's name:
-- A module's inputs take its entrance ports of one `port_type` in the order its
-  `inp_instances` lists them (instances with no port of that type skipped), as its outputs
-  already took its exit ports in `out_instances` order. The rows' order no longer decides it:
-  a junction with two entrance ports of a type took its inputs in the order of their rows.
-  A model whose junction inputs were listed against their rows' order lists them in the order
-  it was generated with (CA's `physiological`, `control_phys*`, `cerebral*`, `elic`,
-  `FinalModel` arrays are reordered; their models are unchanged).
-- No zero-flow vena cava is added for a heart with one vena cava. List a `zero_flow`
-  instance (`module_type` `zero_flow`, `module_subtype` `nn`, a new built-in module with a
-  `vessel_port` exit) first among the heart's vessel inputs, as `3compartment` now does.
-  Otherwise its two vessel inputs take the `v_ivc` and `v_svc` ports, and `heart/v_pvn` is a
-  boundary condition to fill, named in the missing-parameters report. The `zero_flow` component
-  is in a model's `_modules.cellml` only when an instance uses it.
-- A model may have more than one heart.
-- A 1D vessel is coupled to the port of its 0D neighbour that joins them, found as above,
-  in the cpp generator and in `convert_0d_to_1d` (which takes the module sources as
-  `module_sources_inputs`); a heart's 1D outflow vessel no longer needs `aorta` in its name,
-  nor its venous inputs `ivc`, `svc` or `pvn`.
-- The CasADi solver diagnostics report, for each stiff mode, the inertance `I_<module>` of the
-  module of its dominant state and the inertance that would make it steppable, in place of the
-  `par` and `systemic_T` estimates.
-
-### Changed — `solver: CVODE` for a cellml model is `CVODE_myokit`
-
-`solver: CVODE` (or `solver_info.solver: CVODE`) with `model_type: cellml` is read as
-`CVODE_myokit` when user_inputs are read, with one printed line saying so; a `solver_info` error
-then names the shorthand. The dated `user_inputs_<yymmdd>.yaml` keeps `CVODE`, as written; a
-pipeline bundle's config records `CVODE_myokit`, since its `run_pipeline.py` does not go through
-the reader. `CVODE` for a cpp model is unchanged. The shorthand is listed in
-`SOLVER_SCHEMA['solver_aliases_by_model_type']`.
-
-### Changed — a nested vessel is written by its path
-
-An output or obs_data operand names a nested vessel by its path, as a host parameter already
-does: `SN/soma/membrane/V` (everything before the last `/` is the vessel's path) for the
-model's `SN__soma__membrane/V`. The flat `__` form is still accepted. A host parameter without
-a vessel (`R`, `global/R`) that no module of the model declares as a global constant is
-refused, as `<vessel>/<variable>` names the model doesn't have already are; models with 1D
-vessels are not checked.
-
-### Removed — older module config, module array, parameter name and obs_data forms
-
-libcuflynx reads only the current forms of its input files. A file in an older form is refused
-with an error naming the `cuflynx-upgrade` command that converts it once, in place. Convert a
-model's module configs and module array before its parameter names.
-- Module configs (`cuflynx-upgrade module-config FILE`): the keys `vessel_type`, `BC_type`,
-  `module_file` and `module_type` (the component) -> `module_type`, `module_subtype`,
-  `component_file`, `component_type`; `default_instance` -> `default_parameterisation`; a
-  supermodule's `default_parameters` CSV -> its parameterisation `parameterisations/default/`;
-  `multi_port: "False"` (leave it out, or `null`/`false`).
-- Module arrays (`cuflynx-upgrade module-array FILE`): the keys and columns `vessel_type`,
-  `BC_type`, `inp_vessels`, `out_vessels`; `<prefix>_vessel_array.*` file names (renamed
-  `<prefix>_module_array.*`). A heart with one output no longer gets `par` and `pvn` added, by
-  the generator or the converter: a heart is a module like any other, and the array lists every
-  module. A model that relied on them adds the two rows the generator used to add,
-  `par,arterial_simple,vp,<heart>,pvn` and `pvn,arterial_simple,vp,par,<heart>`, and their
-  parameters. A heart's vessel inputs fill its ports in order, `v_ivc`, `v_svc`, then `v_pvn`,
-  and its vessel outputs `v_aov` (aorta) then `v_puv` (`par`): list the inferior vena cava, the
-  superior vena cava, then `pvn` in its inputs, and `par` after the aorta in its outputs. A
-  heart with only one vena cava lists a `zero_flow` instance first in its inputs, as the
-  `3compartment` arrays do. Without the two rows the heart's pulmonary ports are unconnected,
-  so `heart/u_par` and `heart/v_pvn` are boundary conditions that need values.
-- Generation lists the missing parameters, and names each boundary condition that no connected
-  module supplies with its module, so an unconnected port is easy to find.
-- Parameter names (`cuflynx-upgrade parameter-names --module-array ARRAY` or
-  `--supermodule-config CONFIG`, with `--module-library-dir` for library modules): a host
-  parameters file names a module's parameter `<vessel>/<variable>` (`aortic_root/C`), and
-  `C_aortic_root` is refused; a name without `/` is a global. A supermodule parameterisation row
-  is `<submodule>/<variable>`; `{var}_{sub}` is refused. Nested levels joined with a single `_`
-  are refused (`__` is the join).
-- Parameterisations: a version with an `instances/` directory and no `parameterisations/` is
-  refused; rename the directory.
-- obs_data (`cuflynx-upgrade obs-data FILE --user-inputs user_inputs.yaml`, or `--pre-time T
-  --sim-time T`, which win over the yaml's values): an obs_data must
-  have a `protocol_info` with `pre_times` and `sim_times`. A bare list of data items, or an
-  object without `protocol_info` timed by user_inputs.yaml's `pre_time`/`sim_time`, is refused.
-  `parse_obs_data_json` no longer takes `pre_time` / `sim_time`.
-- `python -m libcuflynx.utilities.config_schemas to-json` no longer takes `--style`, and
-  `module_array_to_json` no longer takes `style`: they write the current keys.
-
-### Added — `cuflynx-upgrade`
-
-`cuflynx-upgrade module-config | module-array | obs-data | parameter-names` converts files written
-for an earlier libcuflynx, in place, and prints what it changed; `--dry-run` only prints. A file
-already in the current form is left as it is. It replaces `cuflynx-migrate-parameter-names`, which
-is removed (`cuflynx-upgrade parameter-names` takes the same options).
-
-### Removed — old obs_data and params_for_id spellings, and `cuflynx-migrate-obs-data`
-
-No shipped or library file used them, so they are no longer read; the schema refuses them by name
-("'variable' was unexpected"):
-- obs_data items: `variable` (use `data_item_name` and `operands`), `name_for_plotting` (use
-  `trace_name_for_plotting` / `item_name_for_plotting`), `obs_type` (use `operation`),
-  `vm_path` / `im_path` and paths inside a `source` object (use `t_path` and `value_path`), and
-  `data_type: "timeseries"` (use `"series"`); the top-level `data_item` key (use `data_items`).
-- params_for_id: `operation` on a modifier entry (use `modifier`), and on a saved modifiers
-  record.
-
-- obs_data's `data_type: "prob_dist"` no longer gets its own advice: it is refused like any
-  other unknown data_type. An observable scored against a distribution is a `constant` with a
-  distribution `cost_type` and `prob_dist_params`.
-
-`cuflynx-migrate-obs-data`, which rewrote those spellings, is removed with them. A bare list of
-data items is refused too (see above).
-
-### Removed — old configuration keys and Python names
-
-`user_inputs.yaml` keys and values that are no longer read are refused with a `ValueError`
-naming what to write instead:
-- `ga_options` / `debug_ga_options` -> `optimiser_options` / `debug_optimiser_options`.
-- `do_mcmc` / `mcmc_options` / `debug_mcmc_options` -> `do_uq` / `UQ_options` /
-  `debug_UQ_options`.
-- `model_type: cellml_only` -> `cellml`.
-- AADC `method: bdf_tape` / `bdf_kernel` -> `method: semi_implicit_signed` with
-  `gradient_strategy: tape` / `kernel`.
-- `sa_options.gradient_method: analytic` -> `auto`.
-- solver_info keys of another solver are no longer moved across: `MaximumStep` on solve_ivp
-  (`max_step`), casadi_integrator (`max_step_size`) or the cpp solvers (`dt_solver`), and
-  `MaximumNumberOfSteps` on solve_ivp or CVODE_myokit (no such setting) or casadi_integrator
-  (`max_num_steps`). The error lists the solver's own keys.
-
-External funcs files import the built-in funcs as `libcuflynx.funcs.cost_funcs_user` (and
-`operation_funcs_user`, `modifier_funcs_user`); the bare `from cost_funcs_user import ...` is
-refused with that import.
-
-Python names removed (use the second):
-- `OpencorParamID`, `OpencorMCMC` -> `ParamID`, `MCMC`.
-- `CVS0DParamID.run_mcmc()` -> `run_UQ()`; the `mcmc_options=` argument of `CVS0DParamID`,
-  `run_UQ`, `MCMC`, `MCMC.from_param_id` and `MCMC_plotter` -> `UQ_options=`.
-- `PARAM_MODIFIER_OPERATIONS`, `DEFAULT_PARAM_MODIFIER_OPERATION`, `param_modifier_operations`
-  -> `PARAM_MODIFIERS`, `DEFAULT_PARAM_MODIFIER`, `param_modifiers`.
-- `MODEL_TYPE_ALIASES`, `normalise_model_type`, `AADC_LEGACY_METHOD_ALIASES`,
-  `migrate_legacy_solver_info_keys` (none needed), `paramID.TAPE_CONSISTENT_AADC_METHODS` ->
-  `aadc_backend.TAPE_CONSISTENT_METHODS`, `CSV0DModelParser.split_0d_1d_vessel_array` ->
-  `split_0d_1d_module_array`, `sobol_SA.create_SA_info` -> `_create_SA_info`.
-- `libcuflynx.utilities.protocol_funcs` -> `libcuflynx.protocol_runners.ProtocolRunner`, and
-  the dead `libcuflynx.obsolete` package.
-
-The exported `run_pipeline.py` imports `libcuflynx.*` only and reads `do_uq` / `UQ_options`.
-
-### Changed — input files are checked against their JSON Schemas on read
-
-obs_data, params_for_id, module config, module array and calibration workflow files are
-validated against the schemas shipped in `libcuflynx/schemas/` whenever libcuflynx reads them,
-so what an editor, PhLynx or CUFLynx validates is what libcuflynx accepts. `jsonschema` is a
-core dependency.
-
-- An error lists every problem, each with where it is (an item by its name) and what the field
-  is for: `at data_items[2] ('systolic').value: [1.0, 2.0] is not of type 'number' (A
-  constant's value and std are single numbers.)`.
-- obs_data and params_for_id: the schema replaces the readers' own key and type checks, which
-  are gone. Errors about unknown keys, types and missing settings read differently. Unknown
-  `prior_params` keys, which were ignored, are refused, and prior names are still read in any
-  case.
-- Calibration workflows: schema first too. `spec.py` keeps only what spans keys and steps
-  (which kinds use which sources, an emulator step's own values, where a model sits).
-- Module configs and module arrays: their readers' checks run first, then the schema.
-  The schema refuses what the readers did not check, for example `variables_and_units` access
-  other than `access`/`no_access`, a variable kind other than `constant`, `global_constant`,
-  `boundary_condition` or `variable`, and a port with no `variables`.
-- Enums are generated from libcuflynx's registries: `python -m libcuflynx.schemas.registries
-  --write`. The variable kind is now an enum, and `module_config_user/BVC_Kidney_module_config.json`
-  had two `"variable "` (trailing space) fixed.
-- PhLynx main's CA-format files and value lists are tested against the readers and schemas
-  (`tests/test_phlynx_consistency.py`, `PHLYNX_DIR`; CI checks PhLynx out).
-
-### Changed — `time` means the same on every backend (#557)
-
-- `get_results(['time'])` and `get_time()` are the cumulative time after the experiment's
-  warm-up, the axis of the executor's `t_by_exp`, in every sub-experiment. **With
-  `pre_time > 0` this changes what the `python`, `casadi_python`, `aadc_python`,
-  `external_python` and OpenCOR backends return**: they gave the raw solver clock
-  (warm-up included); OpenCOR's `get_time` restarted at 0 in each sub-experiment; Myokit was
-  `pre_time` too large after the first sub-experiment. A time-based operation (e.g.
-  `first_peak_time`) on those backends now reads the same times Myokit gives.
-
-### Fixed — traced inputs on Myokit (#556, #559)
-
-- A trace or shape of an experiment's first sub-experiment starts at that sub-experiment, not
-  at the start of the warm-up, and holds its first value through the warm-up.
-- Several inputs can follow traces in one sub-experiment: each is bound to its own Myokit label
-  (`pace`, `pace_1`, ...; a variable that already has a binding keeps it).
-- The offline warm-up (`offline_pre_time`) holds each traced input at its first value of
-  experiment 0, instead of 0.
-
-### Fixed — PhLynx's `instance_parameters` / `global_parameters` (#558)
-
-- Parameters PhLynx (v0.3.0 on) hoists into `instance_parameters` and `global_parameters` resolve,
-  in the solvers, in `model_qname_candidates`, the variable mapping, methods and the
-  calibrated-value writer. One list, `parameter_names.HOISTED_PARAMETER_CONVENTIONS`, holds the
-  conventions they all read.
-
-### Added — predictions without a calibration (#569)
-
-- `libcuflynx.protocol_runners.run_prediction_items(model, obs, dt, solver_info, ...)` runs an
-  obs_data's protocol and returns its prediction items as traces, scalar features, per-segment
-  results and validation; `predict_on` does the same on an executor you have.
-- `cuflynx-run-predictions MODEL OBS_DATA --dt ...` writes `traces.npz`, `features.csv`,
-  `validation_results.json` and the `prediction_plots` figures.
-- `ProtocolRunner.run_protocols` takes `result_variables` and `return_segments`; `model_path` is
-  optional. **Its join of sub-experiments pads a scalar result to its own segment**
-  (`int(sim_time/dt)+1` samples, as the solvers step); it used to pad sub-experiment 0 to the
-  whole experiment and use `round`, so the result could be longer than `t`.
-- `save_prediction_data` is built on `predict_on`; its files are unchanged.
-
-### Added — `prediction_plots` in obs_data (#568)
-
-- An optional top-level list of figures: a scalar feature against another feature or against
-  the number an input is set to, across experiments, optionally one line per value of a series
-  input. A group is the data_items and prediction_items sharing an `item_name_for_plotting`.
-  Drawn by `save_prediction_data` and `cuflynx-run-predictions`; see the tutorial.
-
-### Changed — PhLynx's key names (#163)
-
-- Module configs and module arrays use PhLynx's keys: `module_type`, `module_subtype`,
-  `component_file`, `component_type`, `inp_instances`, `out_instances`. **Files CA writes use
-  them**, and so do `resources/`, `module_config_user/` and the built-in module configs. The
-  older `vessel_type`, `BC_type`, `module_file`, `module_type` (= the component, beside the other
-  older keys), `inp_vessels` and `out_vessels` are refused; `cuflynx-upgrade module-config` and
-  `cuflynx-upgrade module-array` convert them. Code reading a module dataframe's columns, or a
-  normalised record's keys, sees the new names.
-
-### Changed — nested names, path references and interfaces (#582)
-
-- **Nested levels are joined with `__`**: the submodule `lv` of the supermodule instance `heart`
-  is `heart__lv`, its parameter `E_heart__lv`. A module-array or submodule name may not contain
-  `__` nor begin or end with `_`. Names joined with a single `_` (`heart_lv/q`, `E_heart_lv`)
-  are refused in parameters files, params_for_id and obs operands; `cuflynx-upgrade
-  parameter-names` converts a parameters file.
-- A host may name a submodule by its path (`heart/ra`, `neuron/soma/membrane`) in its own
-  inp/out list, keeping its own order; a `per_submodule_*` key may be a path into a nested
-  instance.
-- A supermodule entry may declare an `interface` that hosts bind to by port type.
-- `phlynx_*` keys on records and config entries are read and ignored.
-
-### Fixed — docs of `offline_pre_time` (#560)
-
-- The tutorial lists every backend that runs it (now also OpenCOR and `aadc_python`) and the
-  calibration-parameter restriction; the benchmarks note and the Myokit docstring describe the
-  run-once behaviour.
-
-### Added — packing a calibration workflow
-
-`pack_workflow(workflow, dest_dir)` and `cuflynx-calibration-workflow <workflow> --pack DIR`
-copy every file a workflow needs to run into one directory: the workflow rewritten to the
-packed files, each step's obs_data, params_for_id and module array with its parameters file,
-each module version it uses (with every units file of its library), and the files its settings
-name. Results are not packed. CUFLynx's OMEX export packs a workflow with it.
-
-### Changed — workflow settings paths are relative to the workflow file
-
-`external_modules_dir` and the `*_funcs_external_path` settings of a calibration workflow are
-read relative to the workflow file, like its other paths, not to the directory it is run from.
-
-### Added — analysis steps in calibration workflows
-
-A workflow step has a `kind`: `calibration` (the default, so existing files are unchanged),
-`sensitivity`, `reduction`, `emulation` or `identifiability`, so one `calibration_workflow.json`
-records the whole order of a study.
-
-- `sensitivity` runs Sobol or local sensitivity analysis (`settings.sa_options`).
-- `reduction` ranks a Sobol step's parameters (`sensitivity_from`) and keeps the `top_n`
-  (`reduction`: `index_type`, `criterion`, `threshold`), writing those rows of its
-  params_for_id; a calibration fits them with `params_for_id_from`.
-- `emulation` trains an emulator (`settings.emulator_settings`); a calibration or sensitivity
-  step with `emulator_from` runs on it, with a copy of the emulation step's model.
-- `identifiability` runs a Laplace analysis (`settings.ia_options`) at the values of the
-  calibration in its `result_from`.
-
-An emulation step may be trained on a reduction's parameters (`params_for_id_from`), and a
-calibration with the same `params_for_id_from` and `emulator_from` pointing at it can sample
-its posterior on that emulator (`store_distribution`). `SobolReduction`
-(`libcuflynx.sensitivity_analysis.parameter_reduction`) is the reduction, usable on its own.
-
-Only calibrations are merged into the target. The study manifest, `--dry-run` plan, status and
-methods LaTeX (text and flow chart) show each step's kind, what it takes from where and its
-outputs. `run_identifiability_analysis` takes `best_param_vals`, and Sobol indices are ranked by
-`libcuflynx.sensitivity_analysis.sobol_ranking`.
-
-### Removed — `cuflynx-sequential-param-id`
-
-The command and `user_run_files/run_sequential_param_id.sh` are gone, with the script and the
-two obsolete copies behind them. The stage was never implemented: the command only said so.
-Ordered calibrations and analyses are run by `cuflynx-calibration-workflow`.
-
-### Changed — multi-port coupling follows PhLynx (#575)
-
-- **Multiply on either end.** A `"Multiply"` port scales its variable into the neighbour
-  whichever end of the connection it is on; a downstream Multiply port was mapped like `"True"`
-  and its `multiply_factor` ignored. Multiply on both ends of a connection is a `ValueError`.
-- **One sum port per variable.** A variable summed through two different ports is a
-  `ValueError`; terms used to be merged into one sum.
-- **Boundary conditions.** Only a BC that a plain mapping connects to a non-blank partner, or
-  that is a sum result or Multiply output, is removed. A BC that is only a sum term, the source
-  of a Multiply, or mapped to a blank (`""`) slot keeps its own value (it used to lose it and
-  leave the model underdetermined). BCs connected only to each other are a `ValueError`.
-  The built-in `pulmonary_GE` computes `C_CO2_a` and `C_O2_a`, so they are now `variable`, not
-  `boundary_condition`.
-- **Units.** A coupling between different but compatible units is mapped directly, and the
-  solver converts it in the direction the value flows; the generated `unit_converter_*`
-  components are gone. Couplings between affine units (kelvin and celsius) are a `ValueError`.
-- **Port sizes.** A plain port pair with different numbers of variables is a `ValueError`; it
-  used to raise an `IndexError` or silently shift later mappings.
-
-### Added — JSON Schemas for all four input files
-
-- **`params_for_id.schema.json`**, new: the JSON form of params_for_id (version 1) that a CSV is converted to on read. Its entry keys, priors and prior settings are tested against `PARAMS_FOR_ID_ENTRY_KEYS` and `PARAM_PRIOR_TYPES`.
-- **`obs_data.schema.json`** now describes the data items, prediction items and `protocol_info` (with `protocol_traces` and `protocol_shapes`), not just the top level: every key with its default, and the rules the parser enforces (unknown keys, required keys, constant vs series shapes, a ground truth per item).
-- **`module_config.schema.json`, `module_array.schema.json`**: every key described; `variables_and_units` rows checked as `[name, units, access, kind]`; `multiply_factor` only on a Multiply port (and as a numeric string); list-form `multi_port` entries `"sum"`/`"True"`; `only_one_port` and `delay_info` added; names may carry surrounding whitespace, as the reader strips it.
-- Tests check each schema against its reader: key sets, and inputs both refuse.
-
-### Added — parameter names written `<vessel>/<variable>`
-
-- **The `/` form.** A parameters file may name a module's parameter `aortic_root/C` (or `heart/lv/E`, for a supermodule's expanded submodule; `global/R` or `R` for a global). A supermodule's parameterisation and `default_parameters` rows name a submodule's parameter `lv/E`, or `soma/i_M/rho_M` when nested.
-  - Generated models keep their names (`C_aortic_root`), because CellML names cannot contain `/`.
-- **Why.** The `_` form cannot be split reliably when names contain `_`, which supermodule rows had to do: `g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`.
-- **The old form is refused**, in host parameters files and supermodule rows; `cuflynx-upgrade parameter-names` converts it.
-- **Checks on the new form.**
-  - A host `/` row naming a vessel or variable the model does not have, or a global constant through a vessel, is an error.
-  - A supermodule row naming a path that is not a submodule is an error.
-  - A parameterisation's rows must stay bare variable names.
-- **`cuflynx-upgrade parameter-names`** rewrites old names, in a host file (`--module-array`) or in a supermodule's files (`--supermodule-config`). It rewrites a name only when exactly one reading of it names a real variable of that module, and reports the others.
-
-### Changed — local SA differentiates prediction features analytically
-
-With `sa_options.include_prediction_items`, local SA's prediction-feature rows now use the same
-arm as the data_item rows (CasADi jacobian, or Myokit CVODES sensitivities) instead of always
-central finite differences: one extra solve rather than 2M. The prediction features are written
-as the data_items of a second engine and differentiated by the existing code. Finite
-differences are still used with `gradient_method: FD`, over an emulator, and, with a warning,
-when Myokit's arm cannot take them: it needs every prediction feature in one and the same
-sub-experiment.
-
-### Added — every analysis records itself in a study manifest CUFLynx opens
+#### Added — every analysis records itself in a study manifest CUFLynx opens
 
 Calibration, UQ, sensitivity analysis and emulator training now record themselves in
 `<param_id_output_dir>/<study_name>_cuflynx_study.json` (`libcuflynx.utilities.cuflynx_study`):
@@ -1369,39 +2653,7 @@ each step (model, obs_data, params_for_id, sources, status, run directory). Each
 manifest links back with `workflow: {manifest, step}`. `write_cuflynx_study` is also a workflow
 setting.
 
-### Changed — a module type several sources define comes from the most specific one
-
-A `(vessel_type, BC_type)` defined in more than one module source used to keep the first entry
-in the type registry, then stop generation with a print and `exit()`. That is why a module
-library that copies built-in modules needed `use_builtin_modules: false`.
-
-- **Precedence.** The type is now taken from the most specific source: `external_modules_dir`,
-  then `module_library_dirs` in order, then `module_config_user`, then the built-in modules.
-- **One rule for everything.** The type registries (so instances resolve next to the winning
-  config), the module-config join and the CellML modules file all apply it, through
-  `ModuleSources` (`excluded_entries`, `excluded_components`, `component_registry()`,
-  `supermodule_registry()`).
-- **What is left out.** The shadowed definitions' config entries and CellML components. A
-  component that a type still in use needs is kept.
-- **Competition is reported.** A `ModuleShadowWarning` lists every type defined more than once
-  and the source that won.
-- **Within one source, a duplicate is a `ValueError`** naming the files. So is a repeated type
-  at the module-config join, which used to `exit()`.
-
-### Changed — vessel arrays are now called module arrays
-
-The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
-renamed. A `[file_prefix]_vessel_array.json`/`.csv` is refused; `cuflynx-upgrade module-array`
-renames and converts it. The
-functions and constants that carried the old name are renamed in the same way
-(`module_array_path`, `read_module_array_records`, `load_module_array`, `module_array_to_json`,
-`PHLYNX_MODULE_ARRAY_COLUMNS`, ...), without aliases, as none of them was released;
-`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`
-(the old name is removed). The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
-`convert_0d_to_1d` writes `[model]_hybrid_module_array.*`, and the JSON Schema is
-`libcuflynx/schemas/module_array.schema.json`. The `vessels_csv_abs_path` config key is unchanged (the record keys are renamed by #163, above).
-
-### Added — writing a model and its calibration up in LaTeX
+#### Added — writing a model and its calibration up in LaTeX
 
 - **`cuflynx-variable-mapping`** writes a model's `<prefix>_variable_mapping.csv`.
   - It lists every variable and parameter by its canonical `component/variable` name, with a LaTeX symbol from a default rule (Greek names, `_` subscripts, the module as a last subscript).
@@ -1415,374 +2667,6 @@ functions and constants that carried the old name are renamed in the same way
   - a TikZ flow chart of the calibration;
   - the protocol, observables, parameters, method, cost function, fixed values, priors, MCMC settings and results of each step.
 - **`libcuflynx.reporting`** is the Python API for both.
-
-### Added — calibration workflows
-
-`cuflynx-calibration-workflow <workflow.json>` (and
-`libcuflynx.calibration_workflow.run_calibration_workflow`) runs calibrations in order and merges
-their results into one target model. Each step names the three inputs of an ordinary param_id
-run -- `model`, `obs_data` and `params_for_id`, paths relative to the workflow file -- so a
-workflow works in any repository. A model is a CA module array, or a module of a module library
-(`{module_type, version, parameterisation}`).
-
-- **Names between models.** A module array keeps its vessel names (`vessel_map` renames them
-  into the target's); a library module sits at a `submodule` of a supermodule target or a
-  `vessel` of a module-array target, inferred when it occurs once. `--dry-run` checks that every
-  calibrated parameter lands on a vessel of the target.
-- **Fixed values.** A step can take earlier steps' calibrated values as fixed parameter values
-  (`fixed_from`); it runs after the steps it takes values from.
-- **Distributions and priors.** A step can store its MCMC posterior (`store_distribution`:
-  chain, samples, stats; `StoredDistribution` samples and evaluates it). A later step can use it
-  as a joint prior (`priors_from`), represented as a multivariate normal, independent normals or
-  a KDE, each on a bounds-respecting scale.
-- **Reruns.** `--from-step` / `--only` rerun part of a workflow, refusing when an input it would
-  reuse has changed. `--dry-run` checks everything against the library and prints the plan.
-  `--write-calibrated` writes the merged set beside the target's parameters file, as
-  `<name>_calibrated_parameters.csv`, naming parameters `<vessel>/<variable>` and replacing rows
-  written in either form.
-- **A parameter calibrated by two steps** takes the later step's value, with a warning that
-  suggests `priors_from` for a Bayesian update instead.
-- **A step's `submodule`** is written `soma/i_M` when nested (`soma_i_M` is also read).
-- **Schema.** `libcuflynx/schemas/calibration_workflow.schema.json`.
-- **param_id.** `ParamID.set_joint_priors` / `CVS0DParamID.set_joint_priors` add log densities
-  over several parameters to the log prior. `run_param_id` passes `joint_priors` from its input
-  dict to both the calibration and the MCMC, and now returns
-  `{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}` instead of None.
-- **Testing.** `libcuflynx.external_testing.workflow_library.build_workflow_library` writes a
-  small module library with two workflows, for tests here and in CUFLynx.
-- **Docs.** The params_for_id prior columns are now documented; the docs had said only uniform
-  priors existed.
-
-### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
-
-The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
-libCellML's C code (`model0d_core.c/.h`), with its non-state variables in one `variables` array
-and named indices; the `Model0d` class, the solvers, `main0d` and a `CMakeLists.txt` are rendered
-from templates. Build with CMake (add `-DSUNDIALS_DIR=<prefix>` if SUNDIALS isn't found; versions
-5-7 work). Solvers are CVODE and the fixed-step RK4/Heun/midpoint/explEul; **PETSC is no longer
-supported** and is refused when `user_inputs.yaml` is validated. Generated models no longer get
-the `solver1d/Make_files` copied next to them (they built the old C++), and the coupler builds
-with CMake. FV_1d coupled output is identical to before.
-
-A model coupled to 1D can have a volume sum over its 1D vessels: the 1D solver sends their volume,
-which is a term of the volume sum, and it needs no value in the parameters file (the old generator
-stopped with `KeyError: 'bc_inlet0_or_outlet1'`). A value the 1D solver sends never needs one.
-
-### Added — `api` blocks: couplings to other models described in module configs
-
-A module config entry can carry an `api` block. `role: consumer` describes calls the generated
-C++ makes (the FV 1D named-pipe protocol is now described this way in
-`coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
-e.g. a drop-in `lifex::Circulation`. A provider is its own module-array row
-(`module_format: external_api`) coupled to CellML modules through ports; values it sets become
-libCellML external variables. `external_modules_dir` also accepts a list of directories.
-
-### Added — the FV 1D solver as a `process` module; `coupler_config.json` is generated
-
-A new `api` role, `process`, describes a program run alongside the generated model: what to
-launch (`program`), who launches it (`coordinator: coupler`) and the pipes it talks over
-(`channels`, `message_length`). `FV1D_solver` in `coupling_modules_config.json` is the FV 1D
-solver. The `FV1D_vessel` and `FV1D_volume_sum` entries name it (`"process": "FV1D_solver"`)
-instead of each repeating the pipe names. From it, C++ generation of a model coupled to 1D now
-writes `coupler_config.json`, which until now had to be written by hand:
-- `T0` is the global parameter `T`;
-- `nCC` is the number of whole periods covering `pre_time + sim_time`;
-- the pipe folder is the user input `coupler_pipe_dir` (default `cuflynx_pipes/<model>/` in the
-  system temp folder, which `TMPDIR` moves);
-- `python_path` is the generating Python, and the 1D solver is the installed one.
-
-`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid module array, and reads
-`<model>_module_array.csv` when there is no `<model>_0d_module_array.csv`. The coupler creates
-the pipe folder, and its default pipe folder and Python are no longer paths on one machine.
-`main0d`'s coupled defaults (`T0`, `nCC`) match the configuration. New example model
-`aortic_bif_0d` (all 0D); a test runs it against the same model with its vessels in 1D.
-
-### Added — coupling generated C++ to external Python models (e.g. FEniCS)
-
-A module config entry with `"module_format": "external_api"` and
-`"api": {"role": "provider", "transport": "python", "python": {"file": ..., "class": ...}}` is an
-external Python model: a row of the module array, connected to CellML modules through its ports.
-- **Generation.** Generating the model as C++ also writes a C interface (`model0d_capi.cpp`,
-  built as the shared library `model0d_capi`) and `external_models.json`.
-- **Running.** `cuflynx-couple <model folder>` (or `libcuflynx.coupling.run_coupled`) builds the
-  library, then steps the C++ model and the class together.
-- **Directions.** No function list is needed: each port variable connected to a boundary
-  condition of the 0D model is set by the class, and each connected to a computed variable is
-  read by it. A port connected to several modules exchanges arrays.
-- **Coupling scheme.** Explicit staggered coupling (first order), or `subiterations` for a
-  trapezoidal fixed point (second order).
-- **Also:** MPI (the 0D model runs on every rank), output on the model's `dt`, and timings.
-
-New tutorial section "Coupling to External Models": an overview, coupling your own Python
-model, FEniCS tissue O2 with capillaries, FEniCS NE around a sympathetic varicosity, 1D
-finite-volume coupling, and troubleshooting. The FEniCS modules and system models live in
-circulatory-autogen-modules.
-
-### Fixed — C++ generation
-
-- `Model0d::solveOneStep` returns a status (and `lastError()`) instead of calling `exit(1)`, and
-  `main0d` now exits non-zero when the solver fails (it returned 0).
-- CVODE restarts from the last good state after an error-test or convergence failure, so
-  models with time switches (a stimulus pulse train) run.
-- State initial values given by computed variables (e.g. a gate starting at its steady state)
-  are evaluated with Myokit; libCellML 0.6 accepts only constants there, so these models
-  could not be generated as C++ before.
-- CellML generation connects variables of equivalent units under different names (e.g.
-  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter".
-- `GE_capillary` listed `d_1` ... `s_2` twice in its config, and `capillary_GE` and
-  `pulmonary_GE_5_lobe_type` used `saturation_cap` without declaring it.
-
-### Added — readable generated C/C++
-
-Generated C code names every state and variable index: `rates[S_heart_module_q_lv] =
-(variables[V_parameters_r_pvn] ...)` instead of `rates[3] = (variables[12] ...)`.
-`model0d_core.h` declares the `StateIndex`/`VariableIndex` enums, with each name's component,
-variable, units and type, and the wrapper, pipe hooks and api classes use the same names. The
-names are the generated Python's attribute names (shared `generators/naming.py`). Results are
-unchanged.
-
-### Fixed — cpp generation and 1D coupling
-
-- `model_type: cpp` with CVODE always failed solver-settings validation.
-- Models with more than one delay variable did not compile; delays now use a time-stamped
-  history that works with variable CVODE steps.
-- 1D volume sum: the 1D solver opened its volume pipe in an order that deadlocked with the
-  coupler, and sent the volume in cm³ instead of m³.
-- 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
-  an `art_ven_type_<vessel>` parameter now sets it.
-
-### Changed — module instances are now called parameterisations
-
-A module version's named parameter sets live in `parameterisations/<name>/<name>_parameters.csv`
-(with `<name>_obs_data.json` and `<name>_params_for_id.csv`); a record or submodule picks one with
-`"parameterisation"`, and a config entry names its default with `"default_parameterisation"`.
-"Instance" now means one use of a version in a module array, as a PhLynx node does. The older
-names are refused: rename an `instances/` directory to `parameterisations/`, and convert
-`"default_instance"` with `cuflynx-upgrade module-config`. A module-array record or submodule must use
-`"parameterisation"`: `"instance"` there is a ValueError, and invalid in the JSON Schemas. The
-module is `libcuflynx.utilities.parameterisations` (was `module_instances`), with
-`record_parameterisation`, `parameterisations_dir`, `parameterisation_parameters_path`,
-`available_parameterisations`, `parameterisation_rows` and `component_parameterisation_rows`.
-
-### Added — prediction items as scalar features
-
-A `prediction_item` may carry an `operation` and `operation_kwargs`, with the same vocabulary and
-checks as a data_item. Such an item is a scalar feature, e.g. the max of a trace over its
-experiment, reduced over the last sub-experiment of that experiment. `prediction_info` gains
-parallel `operations` and `operation_kwargs` columns (`None` / `{}` when absent).
-
-- **Validation.** Held-out data on such an item (`data_type: constant`) is compared with
-  `operation(operands)`. `save_prediction_data` records every operand of the item, so an
-  operation with two operands works. Each item in `validation_results.json` now names its
-  `operation`.
-- **SA.** New `sa_options.include_prediction_items` (bool, default false). Sobol and local SA
-  report these features as extra outputs, labelled `<data_item_name> (Exp<e>, Sub<s>)`. The
-  run also writes `sobol_output_features.json`, which says what each output column is. Local SA
-  computes these rows by finite differences.
-- **Emulators.** New `emulator_settings.include_prediction_items` (bool, default false). The
-  emulator is also trained on these features. The bundle records them in
-  `prediction_feature_labels`, and they get a separate `prediction_sha256` fingerprint.
-  Calibration on such an emulator still fits and checks only the data_item features. An SA that
-  asks for prediction features on an emulator trained without them stops and says to retrain.
-
-**Sub-experiments and validation-only experiments.** A prediction item may set
-`subexperiment_idx` (default: its experiment's last; `prediction_info` gains
-`subexperiment_idxs`). Validation, the features and `save_prediction_data` use that segment, and
-series times run from its start, as for a data_item series. An item on a non-default segment is
-saved in `prediction_variable_data_exp_<e>_sub_<s>.npy`; the existing files are unchanged. For a
-multi-sub-experiment experiment, held-out series times now start at the start of the
-sub-experiment rather than the experiment. An experiment that no data_item belongs to is not
-simulated during calibration: not in any cost path, the best-fit check, or the
-all-outputs npz. It is simulated for the prediction data and validation, and for SA/emulator
-training only when a prediction feature needs it. A one-line message names such experiments.
-`libcuflynx.parsers.PrimitiveParsers.cost_experiment_idxs(protocol_info)` lists the ones the
-cost uses. An obs_data with no data_items at all has nothing to fit: calibration and UQ refuse it
-with a ValueError before simulating anything (it used to crash with an IndexError).
-
-**Scalar or series.** Every data_item and prediction_item is a scalar (`constant`: value and
-std are numbers) or a series (`series`: value is a list, std is a number or a list of the same
-length, obs_dt is required). The parser checks this and names the item; before, a `constant` with
-a list value was accepted, and a `series` with a number crashed. A series prediction item may
-have an operation, and is validated with the operation's series. Only scalar prediction items
-are features.
-
-Only scalar prediction items with an operation become features. The others are skipped, with a
-`PredictionFeatureWarning` that names them, and an operation that does not return a scalar
-raises `NonScalarPredictionFeatureError`. With both options off, SA outputs and emulator
-fingerprints are unchanged. Callers can feature-detect with
-`libcuflynx.sensitivity_analysis.SUPPORTS_PREDICTION_FEATURES`.
-
-### Added — held-out data in `prediction_items`, scored after calibration
-
-A `prediction_item` may carry data that calibration never fits: `value` (with `data_type`,
-`std`, and `obs_dt` for a series). `prediction_info` gains parallel `data_types`, `values`,
-`stds` and `obs_dts` columns. After a calibration, `libcuflynx.param_id.validation` compares the
-calibrated model's prediction with the held-out data (a series at `k*obs_dt` within the run, a
-constant at the end of its experiment), and `save_prediction_data` writes
-`validation_results.json` with rmse, nrmse, mean |z|, the fraction within 2 std, and the model
-and data at the observation times. Prediction items without a `value` behave as before. See
-`tutorial/docs/parameter-identification.md`.
-
-The `std` is optional; without it there are no z-scores. When given, it is checked like a data
-item's: one finite positive number for a constant, and for a series one such number or one per
-point. A zero, negative or wrong-length `std` is a parse error naming the item.
-
-### Added — module versions and instances
-
-A module library can lay a module version out as `<module_type>/versions/<version>/` with named
-parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
-suffix). A module-array record, or a supermodule's submodule, picks one with
-`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
-exists. The instance directory is found next to the config file the record's type came from.
-Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
-parameters: the host parameters file wins, then a supermodule's instance, then its
-`default_parameters`, then submodule/component instances. A supermodule entry can have instances
-too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
-works. An unknown instance is an error that lists the version's instances. Models without
-instances generate byte-identical CellML.
-
-A global constant is one value for the whole model, so when instances set one to different values
-the first is used and a `ConflictingGlobalWarning` names each value, its units and the record that
-set it. The warning is skipped when the host parameters file sets the global, and when a
-supermodule's instance overrides the instances inside it. It also says when the units differ: two
-modules then most likely mean different quantities by one name (in the module library, `T` is a
-temperature in the ion channels and a period in the cardiac clock).
-
-obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
-`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
-warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
-`obs_data.schema.json` describes the top level of an obs_data file.
-
-### Added — JSON module arrays and supermodules
-
-A module array can be a JSON list of records, `[file_prefix]_module_array.json`, with PhLynx's
-keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
-vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
-to the same record, so both are processed identically; the `.json` file is preferred when both
-exist, then `.csv`. Convert CSV arrays with
-`python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
-Every model in `resources/` that generated before generates byte-identical CellML from its CSV
-and from its JSON conversion.
-
-A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
-supermodule. An instance of it in a module array expands into `[instance]_[submodule]` modules
-before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
-instance link its hosts to individual submodules. Supermodules may nest. An optional
-`default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
-model's parameters file does not set them. See `tutorial/docs/design-model.md`.
-
-JSON Schemas for both files ship in `libcuflynx/schemas/` (`module_array.schema.json`,
-`module_config.schema.json`). The loaders check the same rules without a schema library;
-`jsonschema` is a `[dev]` dependency only, for the tests.
-
-The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_module_array.csv` and
-`[file_prefix]_1d_module_array.csv`, and the 1D generator reads the file the split wrote. Before,
-an input named `_module_array.csv` gave split files the 1D generator could not find.
-
-### Fixed — a BC_type's first two letters are a BC pair only for vessels
-
-Non-vessel modules (cells, ion channels, controllers, heart parts, BC modules) can now have any
-`BC_type` / `module_subtype`, with no `nn` prefix. Before, every connection whose two sides did
-not start with `nn` had their first two letters checked as vessel BCs, so a version named
-`lv_...`, `rv_...` or `Up...` stopped generation, and a non-vessel neighbour of an Nout junction
-lost its connection. A module now counts as a vessel when its `BC_type` starts with `vv`, `vp`,
-`pv` or `pp` and it has vessel ports (a `vessel_port`, or a `flow_port` and a `pressure_port` at
-its entrance/exit); see `libcuflynx.utilities.vessel_bc`. Vessel BC pairs are checked as before,
-and all the built-in example models generate byte-identical CellML.
-
-### Added — PhLynx module-config and module-array schemas; `"Sum"` and `"Multiply"` multi_ports
-
-The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both
-schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` is the BC_type,
-`component_file` is the module_file and `component_type` is the CellML component name. Each
-entry is detected on its own, by `module_subtype`, `component_file` or `component_type`, and is
-converted to the libcuflynx names when the config is loaded
-(`libcuflynx.utilities.config_schemas.normalise_module_config_entry`). An entry that mixes the
-two schemas is an error. Module arrays can use PhLynx's export layout too
-(`name, module_type, module_subtype, inp_instances, out_instances`). The layout is detected from
-the header.
-
-`multi_port` values are now case-insensitive. Before, only lowercase `"sum"` summed, and PhLynx's
-`"Sum"` behaved like `"True"`. On a `volume_port`, `"Sum"` now gives the same `sum_blood_volume`
-sum as `"sum"`. On any other port, `"sum"`/`"Sum"` needs exactly one variable, and that variable
-is the sum of the connected modules' corresponding variables. This is PhLynx's semantics, and it
-is implemented as the list form `["sum"]`. The module library's microvasculature_network
-`v_out_sum` ports need it. The new `"Multiply"` value, with an optional numeric
-`multiply_factor` (default 1), sets each downstream neighbour's variable to the factor times
-this module's variable, as PhLynx does. All the models in `resources/` that generated before
-still generate byte-identical CellML.
-
-### Added — per-variable `multi_port`, for flow merge and split nodes
-
-A port's `multi_port` can now be a list with one entry per port variable. Use it when a port
-connected to several modules must sum some variables and share others:
-
-```json
-{"port_type": "vessel_port", "variables": ["v_in", "u"], "multi_port": ["sum", "True"]}
-```
-
-A `"sum"` variable (an input) equals the sum, over every module connected through the port, of
-the neighbour's corresponding port variable. A generated algebraic component,
-`multiport_sum_<vessel>_<variable>`, computes it. The component scales a neighbour in different
-but compatible units, and generation stops on incompatible units. With no neighbour, the variable
-is 0 and a warning is printed. A `"True"` variable (normally an output) is mapped to the
-corresponding variable of every neighbour. This works on entrance, exit and general ports.
-
-The module library's algebraic `flow_merge` (many inflows, one outflow) and `flow_split` (one
-inflow, many outflows) nodes need this: they sum the flows and share the node pressure. The string
-forms (`"True"`, `"sum"`) are unchanged, and models without a list-form port generate
-byte-identical CellML. The model checks reject a malformed list (wrong length, or an entry other
-than `"sum"`/`"True"`). The C++ generator's 0D-1D coupling (`couple_to_1d`) does not support
-list-form ports and raises `NotImplementedError`. Plain C++ generation works from the generated
-CellML and is not affected. See *Designing a model* in the tutorial.
-
-### Added — `module_library_dirs` and `use_builtin_modules`
-
-Models can now be generated from an external module library laid out one module per
-directory, such as circulatory-autogen-modules (`modules/<name>/<name>_modules.cellml`,
-`<name>_modules_config.json`, `<name>_units.cellml`). `module_library_dirs` takes one path
-or a list, each searched recursively; only `*_modules_config.json` / `*_module_config.json`
-files are read as configs there, so parameter or obs_data JSON can sit next to a module.
-`use_builtin_modules: false` stops the built-in and `module_config_user` modules and units
-from loading, so a library can be the only source of modules and can redefine a built-in
-`(vessel_type, BC_type)` without the duplicate-entry exit. Both default to today's behaviour.
-
-### Fixed — units files in `external_modules_dir` are loaded
-
-The docs said a `user_units.cellml` in `external_modules_dir` was picked up; it was not.
-Every `*units.cellml` there (and in `module_library_dirs`) is now merged into the generated
-units file. A unit defined identically in several files is written once; one defined
-differently in two files raises a `ValueError` naming both files.
-
-### Fixed
-
-- `model_type: python` (and the CasADi / AADC variants) now defines every helper libCellML's
-  Python profile can emit: `eq_func`, `neq_func`, `or_func`, `xor_func`, `not_func`, `min` and
-  the reciprocal trig functions `sec` ... `acoth`. A model using `<eq/>`, `<or/>`, `<min/>` etc.
-  used to fail at run time with `NameError: name 'eq_func' is not defined` (#526).
-- A `sum` multi-port (e.g. a `volume_sum` vessel) with no inputs connected is now 0, with a
-  warning naming the vessel, and is still mapped to the vessel's port variable. Generation used
-  to fail with `IndexError: list index out of range` (#525).
-- The built-in constant boundary conditions (`inlet_pressure`, `outlet_pressure`, `inlet_flow`,
-  `outlet_flow` with BC_type `nn_constant`) list their port's flow / pressure variable in
-  `variables_and_units`, so they can be connected. Generation used to stop with "the port variable
-  v is not a variable for vessel type: inlet_pressure" (#529).
-- Generic junctions (`Min_junction`, `Nout_junction`, `MinNout_junction`) now include every
-  neighbour with a `vessel_port` facing the junction node, taking its flow and pressure from that
-  port, instead of skipping any neighbour whose BC_type starts with `nn`. A junction fed directly by
-  boundary conditions such as `inlet_flow nn_constant` used to fail with "Min_junction junc has NO
-  other vessels connected to its inlet node". Existing models generate byte-identical CellML (#524).
-- Unit converter components are named after the connection they sit on,
-  `unit_converter_[from module]_[from variable]_to_[to module]_[to variable]`, with one per
-  variable pair. They were named `unit_converter_[from units]_to_[to units]`, so a module output
-  shared (multi_port `"True"`) with two modules that both needed the same conversion gave two
-  components with the same name, and libCellML / Myokit rejected the model ("Component name must
-  be unique within model").
-- A venous module fed by a terminal takes the terminal flow into `v_in` through the
-  `terminal_venous_connection` when one of its *other* entrance ports has a list-form
-  multi_port, e.g. a separate `blood_uptake_port` with `multi_port: "sum"`. Only a list-form
-  multi_port on the module's `vessel_port` entrance (which sums the terminal flow itself) skips
-  that mapping now; before, any list-form entrance port did, and `v_in` was left unconnected.
 
 ## 0.7.3 — 2026-09-05
 

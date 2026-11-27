@@ -233,8 +233,8 @@ def assert_fitzhugh_nagumo(result, mpi_comm):
 
 # Ground-truth parameters the synthetic 3compartment obs data is generated at, by forward
 # simulating the model. All four lie inside the identification bounds in
-# 3compartment_params_for_id.json -- note the model's own q_lv_init default (2e-3) does NOT, so the
-# CSV defaults cannot be used wholesale as a ground truth.
+# 3compartment_params_for_id.json, as does the model's own q_lv_init default (1e-3 m3, in
+# [2e-4, 1.5e-3]).
 THREE_COMPARTMENT_TRUE_PARAMS = np.array([8.0e-4, 1.2028e-8, 3.66575e8, 1.0664e7])
 THREE_COMPARTMENT_PARAM_LABELS = ['q_lv_init', 'C_ao', 'E_lv_A', 'E_lv_B']
 THREE_COMPARTMENT_PARAM_NAMES = ['global/q_lv_init', 'aortic_root/C',
@@ -468,6 +468,30 @@ def assert_three_compartment(result, mpi_comm):
 # Ground-truth parameters the synthetic obs data was generated at (the model's own PMR values).
 GOODWIN_TRUE_PARAMS = np.array([72.0, 2.0, 36.0])
 GOODWIN_PARAM_LABELS = ['a_i', 'b_i', 'A_i']
+#: the CellML variables (component Xi) of GOODWIN_TRUE_PARAMS
+GOODWIN_CELLML_NAMES = ['ai', 'bi', 'Ai']
+#: where CMA-ES starts: 1.25 x the truth, inside the bounds of Goodwin_params_for_id.json. CMA-ES
+#: starts at the model's own values, which are the truth, and scores its start, so a run from
+#: there converges at once and tests nothing.
+GOODWIN_CMAES_START = 1.25 * GOODWIN_TRUE_PARAMS
+
+
+def _place_external_cellml_with_values(resources_dir, generated_models_dir, file_prefix, values):
+    """_place_external_cellml, with the initial values of the named variables replaced:
+    ``values`` is {variable name: value}, each name declared once in the file."""
+    import re
+    _place_external_cellml(resources_dir, generated_models_dir, file_prefix)
+    path = os.path.join(generated_models_dir, file_prefix, f'{file_prefix}.cellml')
+    with open(path) as f:
+        text = f.read()
+    for name, value in values.items():
+        text, count = re.subn(rf'initial_value="[^"]*"(\s+name="{re.escape(name)}")',
+                              rf'initial_value="{float(value)!r}"\1', text)
+        if count != 1:
+            raise ValueError(f'{path} declares variable "{name}" with an initial value {count} '
+                             f'times; expected once.')
+    with open(path, 'w') as f:
+        f.write(text)
 
 
 def _place_external_cellml(resources_dir, generated_models_dir, file_prefix):
@@ -537,6 +561,7 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
     rank = mpi_comm.Get_rank()
     models = os.path.join(generated_models_dir, 'goodwin')
     casadi_models = os.path.join(generated_models_dir, 'goodwin_casadi')
+    cmaes_models = os.path.join(generated_models_dir, 'goodwin_cmaes_start')
 
     config = goodwin_config(base_config, resources_dir, output_dir, models, 'genetic_algorithm')
     config['optimiser_options'] = {
@@ -572,15 +597,20 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
     methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)',
                'multi_start (CasADi AD)']
 
-    # Place the external PMR CellML where CA's loader expects it (no CSV generation step), and
-    # emit the casadi_python model beside it for the CasADi AD variant.
+    # Place the external PMR CellML where CA's loader expects it (no CSV generation step), emit
+    # the casadi_python model beside it for the CasADi AD variant, and a copy starting at
+    # GOODWIN_CMAES_START for CMA-ES, which starts at the model's values.
     if rank == 0:
         _place_external_cellml(resources_dir, models, 'Goodwin')
         _generate_casadi_from_external_cellml(resources_dir, casadi_models, 'Goodwin')
+        _place_external_cellml_with_values(
+            resources_dir, cmaes_models, 'Goodwin',
+            dict(zip(GOODWIN_CELLML_NAMES, GOODWIN_CMAES_START)))
     mpi_comm.Barrier()
 
     comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
                                      extra_method_configs=extra)
+    comparison.method_configs['CMA-ES']['generated_models_dir'] = cmaes_models
     for method in methods:
         assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
 

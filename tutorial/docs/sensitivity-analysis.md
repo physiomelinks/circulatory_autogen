@@ -37,7 +37,7 @@ sa_options:
     sample_type: saltelli
     output_dir: <SA_outputs_path>
 ```
-Currently, the available options for `method` are **`'naive'`** and **`'sobol'`**. Available sample types are [**'saltelli'**]. What we call `num_samples` here is actually the `num_samples` in
+The available options for `method` are **`'sobol'`** and **`'local'`** (derivatives at one point; see [Local sensitivity files](#local-sensitivity-files-method-local)). `num_samples` and `sample_type` are for `sobol` only. Available sample types are [**'saltelli'**]. What we call `num_samples` here is actually the `num_samples` in
 
 `actual_num_samples = num_samples (2M+2)`
 
@@ -88,7 +88,8 @@ sa_options:
   `kind` (`data_item`, `prediction_item` or `cost`), `data_item_name`, `experiment_idx` and
   `subexperiment_idx`.
 - With `method: local` they are extra rows of `local_sensitivity_absolute.csv` and
-  `local_sensitivity_relative.csv`, named by `data_item_name`. `get_local_sensitivities()`
+  `local_sensitivity_relative.csv`, named by `data_item_name`, and of
+  `local_sensitivity_signed.csv`, named as their Sobol columns. `get_local_sensitivities()`
   lists them under `prediction_feature_names`. They are computed the same way as the
   data_item rows: by the analytic arm (CasADi, or Myokit CVODES sensitivities), or by central
   finite differences with `fd_rel_step` (2M more simulations) when `gradient_method: FD` or over
@@ -102,6 +103,27 @@ sa_options:
   retrain.
 
 Without the option, nothing changes: the outputs and files are exactly the data_item ones.
+
+### Local sensitivity files (`method: local`)
+
+`method: local` differentiates each scalar feature Y with respect to each parameter p at one
+point (the model's values, or a workflow step's `result_from`), and writes three CSVs to
+`output_dir`. Each has an `output` column and one column per parameter, named by its entry label
+(a grouped row joins its members with `+`; a modifier uses its own name):
+
+| File | Value | Rows labelled |
+|---|---|---|
+| `local_sensitivity_absolute.csv` | dY/dp | as the engine labels an observable (`<item_name_for_plotting>`, with `[exp e, sub s]` only when that repeats) |
+| `local_sensitivity_relative.csv` | \|p\| dY/dp / \|Y\|; 0.0 where Y = 0 | as the absolute file |
+| `local_sensitivity_signed.csv` | d ln Y / d ln p = (p / Y) dY/dp; NaN where Y = 0, where it is undefined | as the Sobol outputs: `<item_name_for_plotting> (Exp<e>, Sub<s>)`, made unique the same way |
+
+The signed file says which way a feature moves: -1 means a 1% rise in p lowers Y by about 1%.
+The relative file keeps the sign of dY/dp only, so the two disagree where p or Y is negative.
+Its row labels are the column names of `all_outputs_n<N>_Sobol_indices.csv` (after `S1_` and
+`ST_`), so one heatmap can show a Sobol index and a local coefficient of one observable side by
+side. `get_local_sensitivities()` returns the matrices (`absolute`, `relative`, `signed`) with
+`signed_output_names`, `nominal_param_vals` and `nominal_feature_vals`. A workflow's local
+sensitivity step names the signed file in its `step_result.json`, as `local_sensitivity_signed`.
 
 ## How to run SA script
 
@@ -281,7 +303,12 @@ derivatives, and then a reduction needs `redundancy_check: false`.
 outputs (the `max` or `mean` by `criterion`), dropping any below `threshold`. It ignores the
 noise and counts correlated outputs separately.
 
-Both write `param_reduction.json`: the options and the kept parameters with their scores. For
+**`method: manual`** keeps the parameters named in `parameters`, a choice made by hand for
+the `reason` given (both required). It reads nothing of the Sobol run; it records the choice
+where the other methods record theirs. A parameter is named as its params_for_id entry is
+labelled (`heart/E_lv_A`; a grouped entry's names joined by `+`; a modifier's name).
+
+Each writes `param_reduction.json`: the options and the kept parameters with their scores. For
 `pca` each kept parameter also has its mode, and the report lists every mode's std and variance
 share. `pca_modes.csv` holds each mode's loadings on the outputs, `pca_mode_sobol_indices.csv`
 the indices per mode (in the layout of the Sobol indices CSV), and `pca_mode_sobol_ST.png` a
@@ -312,3 +339,49 @@ You should have Sobol index plots saved to `sa_options.output_dir`.
 
 - If you see errors about `params_for_id_path`, confirm your `params_for_id.json` filename and `resources_dir`.
 - If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the environment you are running from — it is the `[mpi]` extra, not part of a plain `pip install libcuflynx`.
+
+## Following a run: progress files
+
+A Sobol analysis, an emulator training and a profile likelihood each write `progress.json` into
+the directory their results go to (the `sa_options` `output_dir`, the emulator's directory,
+`profile_likelihood/`; in a calibration workflow, the step's own folders). MPI rank 0 rewrites
+it while the run goes, at most about once a second, through a rename, so a reader never sees
+half a file. CUFLynx reads the same file; nothing in it depends on how the run was started.
+
+```json
+{"schema_version": 1, "kind": "sobol", "state": "running",
+ "started": "2026-11-23T02:10:00+00:00", "updated": "2026-11-23T02:10:41+00:00",
+ "phases": [{"name": "sampling", "state": "running", "done": 1200, "total": 4608, "failed": 3}]}
+```
+
+- `kind` is `sobol`, `emulation` or `profile_likelihood`.
+- `state` is `running`, then `done` once the result files are written, or `failed` if the run
+  raised an error. A run that was killed stays `running`: compare `updated` with the clock.
+- Each phase counts `done` of `total` items, with those that `failed` among the done, and has
+  its own `state` (`queued`, `running`, `done`, `failed`). A phase is added when its size is
+  known, so later phases can be missing while an earlier one runs.
+
+| Kind | Phases |
+|---|---|
+| `sobol` | `sampling` (the model runs of the design), `local_jacobian` (the runs for a PCA reduction's redundancy check, when there are any), `analysis` |
+| `emulation` | one `sampling` phase per design stage, with `stage` and `method` (the training simulations), then `training`, whose `models` list each emulator compared: `name`, `state`, `score` (its held-out value of the phase's `metric`) and `duration_s` |
+| `profile_likelihood` | one phase per calibrated entry, named by its label, with `param_index`: the points evaluated of `num_points`; a failed point is one whose re-calibration gave no finite cost |
+
+The file's definition is `libcuflynx/schemas/progress.schema.json`
+(`libcuflynx.schemas.PROGRESS_SCHEMA`); the writer is `libcuflynx.utilities.progress`. A phase
+may gain keys: ignore those you do not know.
+
+A Sobol run also writes, in the same directory:
+
+- `sobol_design.npy`: the design (samples by parameters) in run order, before the first
+  simulation, and `sobol_design_params.json` with its columns (`names`, `bounds`,
+  `num_samples`, `sample_type`, `rows`).
+- `sobol_sample_status.npy`: one int8 per design row, 0 not run, 1 ran, 2 failed (an output
+  that is not finite), rewritten as the ranks report and kept after the run. Failed samples are
+  filled with each output's mean before the indices are computed, so the outputs CSV does not
+  show which they were; this file does.
+- `sobol_convergence.json`, at the end: S1 and ST with their confidence half-widths at
+  `num_samples` / 8, / 4, / 2 and `num_samples` base samples (from 4 up), each the analysis the
+  run would have given had it stopped there:
+  `{"n": [32, 64, 128, 256], "outputs": {output: {"S1": {parameter: [[value, conf], ...]}, "ST": {...}}}}`,
+  one `[value, conf]` per entry of `n`; a value that is not finite is `null`.

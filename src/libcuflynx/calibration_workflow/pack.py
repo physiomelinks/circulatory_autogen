@@ -9,14 +9,22 @@ Layout of the packed directory::
                                   its parameters file (a file several steps share is packed
                                   once, under the first), and the parameters file's
                                   <name>_derivations.json with the CellML and Python files it
-                                  reads, at their paths relative to it
+                                  reads, at their paths relative to it; and the emulator
+                                  directory it names (emulator_dir)
     inputs/_target/               the target's module array and parameters file, with its
-                                  variable_mapping.csv if it has one
+                                  variable_mapping.csv if it has one; or, for an external
+                                  model, the .py and every file beside it; or, for a CellML
+                                  model, the CellML, the files it imports at their paths
+                                  relative to it, and its parameters file
     modules/                      each module version the workflow uses, laid out as in its
                                   library, and every units file of that library
-                                  (modules/<n>/ for the n-th of several libraries)
+                                  (modules/<n>/ for the n-th of several libraries). A
+                                  version's test output is left out: its results/ and plots/
+                                  directories and its HTML report
     settings/                     the files and directories its settings name
                                   (external_modules_dir, *_funcs_external_path)
+    figures/<step_id>/            a figure step's script and the files it lists, laid out as
+                                  they are beside each other
 
 Built-in modules are not packed: they come with libcuflynx.
 '''
@@ -33,7 +41,14 @@ from libcuflynx.calibration_workflow.spec import (PATH_SETTINGS, WORKFLOW_FILE_N
 INPUTS_DIR = 'inputs'
 MODULES_DIR = 'modules'
 SETTINGS_DIR = 'settings'
+FIGURES_DIR = 'figures'
 TARGET_OWNER = '_target'
+#: what a pack writes at the top of its directory
+PACKED_NAMES = (WORKFLOW_FILE_NAME, INPUTS_DIR, MODULES_DIR, SETTINGS_DIR)
+#: What a module library's tests write into a version directory: directories of this name and
+#: files of this suffix, directly in the version directory, are not part of the module.
+VERSION_OUTPUT_DIRS = ('results', 'plots')
+VERSION_OUTPUT_SUFFIXES = ('.html',)
 
 
 def _ignore_hidden(directory, names):
@@ -77,6 +92,69 @@ class _Packer:
             self._copy(source, relative)
         self.packed[real] = relative
         return relative
+
+    def external(self, source):
+        '''Copy an external model -- the ``.py`` and every file beside it (not its
+        subdirectories, where runs may write), as a model may read data there -- into
+        ``inputs/_target/<directory>/``; the ``.py``'s path in the pack. Each file copied is the
+        pack's copy of it, so obs_data or a params_for_id beside the model is packed once.'''
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        directory = os.path.dirname(real)
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER, os.path.basename(directory))
+        for name in sorted(os.listdir(directory)):
+            path = os.path.join(directory, name)
+            if name.startswith('.') or not os.path.isfile(path):
+                continue
+            relative = os.path.join(home, name)
+            self._copy(path, relative)
+            self.packed.setdefault(os.path.realpath(path), relative)
+        return self.packed[real]
+
+    def cellml(self, source):
+        '''Copy a CellML model, and the files it imports at their paths relative to it, into
+        ``inputs/_target/`` (a CellML target is every step's model, so it is the pack's one
+        CellML model); the CellML's path in the pack.'''
+        from libcuflynx.calibration_workflow.cellml_files import cellml_imports
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        directory = os.path.dirname(real)
+        home = os.path.join(INPUTS_DIR, TARGET_OWNER)
+        for path in [real] + cellml_imports(real):
+            relative = os.path.relpath(path, directory)
+            if relative.startswith(os.pardir):
+                raise ValueError(f'{source} imports {path}, outside its directory; keep the '
+                                 f'files a CellML model imports in its directory or below.')
+            self._copy(path, os.path.join(home, relative))
+            self.packed.setdefault(path, os.path.join(home, relative))
+        return self.packed[real]
+
+    def directory(self, source, owner):
+        '''Copy a directory into ``inputs/<owner>/<its name>/`` (once); its path in the
+        pack.'''
+        real = os.path.realpath(source)
+        if real in self.packed:
+            return self.packed[real]
+        relative = os.path.join(INPUTS_DIR, owner, os.path.basename(os.path.normpath(source)))
+        for path in _visible_files(source):
+            self._copy(path, os.path.join(relative, os.path.relpath(path, source)))
+        self.packed[real] = relative
+        return relative
+    def figure(self, step):
+        '''Copy a figure step's script and ``files`` into ``figures/<step id>/``, laid out as
+        they are beside each other; their paths in the pack, the script first.'''
+        sources = [step.figure['script']] + list(step.figure['files'])
+        base = os.path.commonpath([os.path.dirname(os.path.abspath(p)) for p in sources])
+        packed = []
+        for source in sources:
+            relative = os.path.join(FIGURES_DIR, step.id,
+                                    os.path.relpath(os.path.abspath(source), base))
+            self._copy(source, relative)
+            self.packed.setdefault(os.path.realpath(source), relative)
+            packed.append(relative)
+        return packed
 
     def derivations(self, parameters_source, packed_parameters):
         '''Copy the derivations file beside ``parameters_source``, if there is one, beside its
@@ -125,6 +203,21 @@ def _visible_files(directory):
     return found
 
 
+def _version_files(version_dir):
+    '''The files of a module version: its visible files without its test output
+    (``VERSION_OUTPUT_DIRS``, ``VERSION_OUTPUT_SUFFIXES``).'''
+    found = []
+    for path in _visible_files(version_dir):
+        relative = os.path.relpath(path, version_dir)
+        top = relative.split(os.sep)[0]
+        if top in VERSION_OUTPUT_DIRS and top != relative:
+            continue
+        if top == relative and relative.endswith(VERSION_OUTPUT_SUFFIXES):
+            continue
+        found.append(path)
+    return found
+
+
 def module_version_files(config_paths, library_dirs):
     '''The files that hold the module versions whose config files are ``config_paths``, laid
     out as their libraries ``library_dirs`` lay them out.
@@ -132,8 +225,8 @@ def module_version_files(config_paths, library_dirs):
     Returns ``(homes, versions, files)``: ``homes`` is where each library goes (``modules``,
     or ``modules/<n>`` for the n-th of several), ``versions`` the version directories, and
     ``files`` ``{path relative to the copy: source file}`` -- every file of each version
-    directory, and every units file of each library, since units are looked up across the
-    whole library. A config outside ``library_dirs`` (a built-in or external_modules_dir
+    directory but its test output (``_version_files``), and every units file of each library,
+    since units are looked up across the whole library. A config outside ``library_dirs`` (a built-in or external_modules_dir
     module) is left out. ``pack_workflow`` and the study manifest's ``inputs/system/``
     (``utilities/cuflynx_study.py``) both copy these files.
     '''
@@ -150,7 +243,7 @@ def module_version_files(config_paths, library_dirs):
         relative = os.path.join(homes[i], os.path.relpath(
             version_dir, os.path.realpath(libraries[i])))
         packed_versions.append(relative)
-        for path in _visible_files(version_dir):
+        for path in _version_files(version_dir):
             files[os.path.join(relative, os.path.relpath(path, version_dir))] = path
     for i, library in enumerate(libraries):
         for path in _visible_files(library):
@@ -159,9 +252,13 @@ def module_version_files(config_paths, library_dirs):
     return homes, packed_versions, files
 
 
-def pack_workflow(source, dest_dir, module_library_dirs=None):
+def pack_workflow(source, dest_dir, module_library_dirs=None, overwrite=False):
     '''Copy what the calibration workflow ``source`` (a calibration_workflow.json path) needs to
     run into ``dest_dir`` (see the module docstring), checking it first as a run would.
+
+    ``dest_dir`` is a new or empty directory. With ``overwrite=True`` it may also hold an
+    earlier pack, which is replaced: a directory holding anything a pack does not write
+    (PACKED_NAMES) is still refused, so nothing else is ever removed.
 
     Returns ``{'workflow': the packed workflow file, 'files': [every file written, relative to
     dest_dir], 'modules': [the module version directories packed, relative to dest_dir],
@@ -177,14 +274,33 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     if workflow.raw is None or workflow.path is None:
         raise ValueError('pack_workflow packs a workflow file; save the workflow first.')
     os.makedirs(dest_dir, exist_ok=True)
-    if os.listdir(dest_dir):
-        raise ValueError(f'{dest_dir} is not empty; pack into a new directory.')
+    held = sorted(os.listdir(dest_dir))
+    if held and not overwrite:
+        raise ValueError(f'{dest_dir} is not empty; pack into a new directory, or replace an '
+                         f'earlier pack with overwrite=True.')
+    other = [name for name in held if name not in PACKED_NAMES]
+    if other:
+        raise ValueError(f'{dest_dir} holds {other}, which a pack does not write, so it is not '
+                         f'replaced; pack into a new directory.')
+    for name in held:
+        path = os.path.join(dest_dir, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
     packer = _Packer(dest_dir)
     raw = copy.deepcopy(workflow.raw)
 
     def model(spec_model, owner):
         if spec_model.kind in ('library', 'selection'):
             return spec_model.as_dict()    # a selection's files are the target's
+        if spec_model.kind == 'external':
+            return {'external_model_path': packer.external(spec_model.path)}
+        if spec_model.kind == 'cellml':
+            packed = {'cellml_model_path': packer.cellml(spec_model.path)}
+            if spec_model.parameters:
+                packed['parameters'] = packer.file(spec_model.parameters, TARGET_OWNER)
+            return packed
         array = packer.file(spec_model.module_array, owner)
         packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}
@@ -205,8 +321,18 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     if not raw['settings']:
         del raw['settings']
     for raw_step, step in zip(raw['steps'], workflow.steps):
+        if step.kind == 'figure':
+            packed = packer.figure(step)
+            raw_step['function'] = f'{packed[0]}:{step.figure["function"]}'
+            if packed[1:]:
+                raw_step['files'] = packed[1:]
+            continue
         if step.model is None:
-            continue                   # a reduction or set step names no files
+            # a reduction, set or combine step names no files, but a reduction chosen by
+            # hand: the params_for_id it keeps entries of
+            if step.params_for_id:
+                raw_step['params_for_id'] = packer.file(step.params_for_id, step.id)
+            continue
         if not raw_step.get('on_target'):
             # a sweep on the target runs on the packed target, so it names no model of its own
             raw_step['model'] = model(step.model, step.id)
@@ -214,6 +340,8 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
             raw_step['obs_data'] = packer.file(step.obs_data, step.id)
         if step.params_for_id:
             raw_step['params_for_id'] = packer.file(step.params_for_id, step.id)
+        if step.emulator_dir:
+            raw_step['emulator_dir'] = packer.directory(step.emulator_dir, step.id)
         if raw_step.get('settings'):
             settings(raw_step['settings'], step.settings)
 

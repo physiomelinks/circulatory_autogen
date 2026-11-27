@@ -19,15 +19,20 @@ Each point sets the parameters at the start of every experiment of the protocol,
 step's ``obs_data`` protocol, or one run of ``sim_time`` after ``pre_time``. Under MPI each rank
 runs a contiguous block of points. A point that fails keeps its row, as NaN, and the error is
 recorded. An ``obs_data``'s prediction items give a scalar feature per point, and each feature is
-drawn against the parameters as a ``feature_vs_input`` plot.
+drawn against the parameters as a ``feature_vs_input`` plot. A step of one point (a simulate
+step) also compares the prediction items that carry a value with the model
+(``param_id.validation``).
 
 Output (``<step_dir>/sweep/``)::
 
     sweep_results.npz     points (points, parameters), failed, parameters, outputs, features,
                           feature_values (points, features), and per experiment e
                           time_<e> and trace_<e> (points, outputs, times)
-    sweep_manifest.json   the design, each parameter's values, and what failed
+    sweep_manifest.json   the design, each parameter's values, the feature plots' point
+                          groups (plot_groups), and what failed
     <plot name>.png       the feature plots
+    validation_results.json   one point only, when a prediction item carries a value: each
+                          such item's scores and its data and model points
 '''
 
 import itertools
@@ -46,19 +51,21 @@ DEFAULT_SOLVER = 'CVODE_myokit'
 
 
 def parameter_values(spec, nominal=None, where=''):
-    '''The values one sweep ``spec`` gives a parameter whose value in the model is ``nominal``;
-    None for ``factors`` when ``nominal`` is not known yet.'''
+    '''The values one sweep ``spec`` gives a parameter whose value in the model is ``nominal``:
+    ``values`` and then ``factors`` x ``nominal`` when it gives both; None for ``factors`` when
+    ``nominal`` is not known yet.'''
     if isinstance(spec, list):
         spec = {'min': spec[0], 'max': spec[1]}
-    if 'values' in spec:
-        return np.asarray(spec['values'], dtype=float)
-    if 'factors' in spec:
+    if 'values' in spec or 'factors' in spec:
+        values = np.asarray(spec.get('values', []), dtype=float)
+        if 'factors' not in spec:
+            return values
         if nominal is None:
             return None
         if nominal == 0:
             raise WorkflowError(f'{where}: "factors" multiply the model\'s value, which is 0; '
                                 f'give "values" or a range.')
-        return float(nominal) * np.asarray(spec['factors'], dtype=float)
+        return np.concatenate([values, float(nominal) * np.asarray(spec['factors'], dtype=float)])
     low, high = float(spec['min']), float(spec['max'])
     points = int(spec.get('points', DEFAULT_POINTS))
     if not low < high:
@@ -154,8 +161,14 @@ class PointRunner:
         from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
 
         self.outputs = list(outputs)
-        solver = settings.get('solver') or DEFAULT_SOLVER
+        from libcuflynx.parsers.PrimitiveParsers import SOLVER_SCHEMA
+        solver = settings.get('solver') or SOLVER_SCHEMA['default_solver_by_model_type'].get(
+            settings.get('model_type'), DEFAULT_SOLVER)
         solver_info = dict(settings.get('solver_info') or {})
+        if solver != 'CVODE_myokit' and SOLVER_SCHEMA['methods_by_solver'].get(solver):
+            # the method the user_inputs parser gives a solver that is named none
+            solver_info.setdefault('method', SOLVER_SCHEMA['default_method_by_solver'].get(
+                solver, 'RK45' if solver == 'solve_ivp' else None))
         if solver == 'CVODE_myokit':
             # Without a MaximumStep the calibration runs CVODE uncapped; ProtocolRunner would
             # cap it at 1e-3, which over a long pre_time costs millions of steps per point.
@@ -164,6 +177,10 @@ class PointRunner:
             model_path, inp_data_dict={'dt': settings['dt'], 'solver_info': solver_info},
             solver=solver,
             model_type=settings.get('model_type'))
+        #: the solver settings the points run with (the workflow's, with the runner's defaults)
+        self.solver_info = {'solver': solver,
+                            **(getattr(self.runner.sim_helper, 'solver_info', None)
+                               or solver_info)}
         self.prediction_info = None
         if obs_data_path:
             parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=obs_data_path)
@@ -179,12 +196,14 @@ class PointRunner:
                              'params_to_change': {}}
 
     def __call__(self, names, values):
-        '''``(times, traces, features)`` at one point: per experiment the recorded time and
-        ``(outputs, times)`` array, and ``{feature: value}``. Raises when the point fails.'''
+        '''``(times, traces, features, validation)`` at one point: per experiment the recorded
+        time and ``(outputs, times)`` array, ``{feature: value}``, and the validation of the
+        prediction items that carry a value (``{"items": [...]}``, empty without them). Raises
+        when the point fails.'''
         from libcuflynx.protocol_runners.predictions import predict_on
 
         values = [float(value) for value in values]
-        times, traces, features = [], [], {}
+        times, traces, features, validation = [], [], {}, {'items': []}
         try:
             if self.outputs:
                 times, recorded, _ = self.runner.run_protocols(
@@ -193,13 +212,15 @@ class PointRunner:
                 traces = [np.asarray(columns, dtype=float) for columns in recorded]
             if self.prediction_info is not None:
                 self.runner._apply_protocol_info(self.protocol)
-                features = predict_on(self.runner._executor, self.protocol, self.prediction_info,
-                                      self.funcs, id_param_names=names,
-                                      id_param_vals=values).features
+                predicted = predict_on(self.runner._executor, self.protocol,
+                                       self.prediction_info, self.funcs, id_param_names=names,
+                                       id_param_vals=values)
+                features, validation = predicted.features, predicted.validation
         except Exception:
             self.runner.sim_helper.reset_and_clear()
             raise
-        return [np.asarray(t, dtype=float) for t in times], traces, dict(features)
+        return ([np.asarray(t, dtype=float) for t in times], traces, dict(features),
+                validation)
 
 
 def run_on_ranks(evaluate, count, comm):
@@ -226,7 +247,7 @@ def _results_arrays(names, points, outputs, by_point):
     count = len(points)
     failed = np.array([by_point[i][1] is not None for i in range(count)], dtype=bool)
     good = next(by_point[i][0] for i in range(count) if not failed[i])
-    times, traces, features = good
+    times, traces, features, _ = good
     feature_names = list(features)
     arrays = {'points': points, 'failed': failed, 'parameters': np.array(names),
               'outputs': np.array(outputs, dtype=str), 'features': np.array(feature_names,
@@ -236,16 +257,17 @@ def _results_arrays(names, points, outputs, by_point):
         arrays[f'time_{experiment}'] = time
         arrays[f'trace_{experiment}'] = np.full((count,) + trace.shape, np.nan)
     for index in np.flatnonzero(~failed):
-        _, point_traces, point_features = by_point[index][0]
+        _, point_traces, point_features, _ = by_point[index][0]
         for experiment, trace in enumerate(point_traces):
             arrays[f'trace_{experiment}'][index] = trace
         arrays['feature_values'][index] = [point_features[name] for name in feature_names]
     return arrays
 
 
-def _plot_groups(sweep, names, points, nominal):
-    '''``[(x parameter index, series parameter index or None, point indices)]``, a figure's
-    points by the design: one parameter at a time, or a grid of at most two parameters.'''
+def plot_groups(sweep, names, points, nominal):
+    '''``[{"x": parameter, "series": parameter or None, "points": [point index, ...]}]``, a
+    feature figure's points by the design: one parameter at a time, or a grid of at most two
+    parameters. The manifest records them, so the figures can be drawn from the files alone.'''
     axes = axis_groups(sweep)
     if not names:
         return []
@@ -254,24 +276,29 @@ def _plot_groups(sweep, names, points, nominal):
         start = 0
         for group in axes:
             size = len(parameter_values(sweep['parameters'][group[0]], nominal[group[0]]))
-            groups.append((names.index(group[0]), None, list(range(start, start + size))))
+            groups.append({'x': group[0], 'series': None,
+                           'points': list(range(start, start + size))})
             start += size
         return groups
     if len(axes) > 2:
         return []
-    return [(names.index(axes[0][0]), names.index(axes[1][0]) if len(axes) == 2 else None,
-             list(range(len(points))))]
+    return [{'x': axes[0][0], 'series': axes[1][0] if len(axes) == 2 else None,
+             'points': list(range(len(points)))}]
 
 
-def plot_features(sweep, names, points, nominal, arrays, out_dir):
-    '''Draw each feature against the swept parameters as ``feature_vs_input`` plots; a failed
-    point has no mark. Returns the paths.'''
+def plot_features(groups, names, points, arrays, out_dir):
+    '''Draw each feature against the swept parameters as ``feature_vs_input`` plots, one per
+    feature and entry of ``groups`` (:func:`plot_groups`); a failed point has no mark. Returns
+    the paths.'''
     import pandas as pd
     from libcuflynx.param_id.prediction_plots import plot_prediction_plots
 
+    names = [str(name) for name in names]
     paths = []
-    for x_index, series_index, group in _plot_groups(sweep, names, points, nominal):
-        group = [i for i in group if not arrays['failed'][i]]
+    for entry in groups:
+        x_index = names.index(entry['x'])
+        series_index = None if entry['series'] is None else names.index(entry['series'])
+        group = [i for i in entry['points'] if not arrays['failed'][i]]
         if not group:
             continue
         protocol = {'sim_times': [[1.0]] * len(group),
@@ -298,21 +325,23 @@ def plot_features(sweep, names, points, nominal, arrays, out_dir):
 
 def run_points(sweep, generated, settings, obs_data_path, nominal, comm, where):
     '''Run every point of ``sweep`` on the model ``generated``, spread across ranks. Returns
-    ``(names, points, by_point)`` with ``by_point`` as :func:`run_on_ranks` gives it. Every rank
-    must call it, and only :func:`write_results` writes.'''
+    ``(names, points, by_point, solver_info)`` with ``by_point`` as :func:`run_on_ranks` gives
+    it and ``solver_info`` the solver settings the points ran with. Every rank must call it, and
+    only :func:`write_results` writes.'''
     names, points = sweep_points(sweep, nominal, where)
     runner = PointRunner(generated['model_path'], settings, obs_data_path, sweep['outputs'])
     if not sweep['outputs'] and runner.prediction_info is None:
         raise WorkflowError(f'{where}: records nothing: give "outputs", or prediction items in '
                             f'its obs_data.')
     return names, points, run_on_ranks(lambda index: runner(names, points[index]), len(points),
-                                       comm)
+                                       comm), runner.solver_info
 
 
 def write_results(sweep, names, points, by_point, nominal, units, out_dir, where):
     '''Rank 0: write what :func:`run_points` gave to ``out_dir``. Returns ``{sweep_dir,
     sweep_results, sweep_manifest, design, parameters, n_points, n_failed, outputs, features,
-    plots}``. WorkflowError when every point failed: the run is misconfigured, and the first
+    plots, validation_results}`` (validation_results None unless one point validated
+    prediction items). WorkflowError when every point failed: the run is misconfigured, and the first
     error says how.'''
     errors = {i: by_point[i][1] for i in range(len(points)) if by_point[i][1] is not None}
     if len(errors) == len(points):
@@ -323,9 +352,10 @@ def write_results(sweep, names, points, by_point, nominal, units, out_dir, where
     results_path = os.path.join(out_dir, RESULTS_FILE)
     np.savez(results_path, **arrays)
     features = [str(name) for name in arrays['features']]
-    plots = plot_features(sweep, names, points, nominal, arrays, out_dir) if features else []
+    groups = plot_groups(sweep, names, points, nominal)
+    plots = plot_features(groups, names, points, arrays, out_dir) if features else []
     manifest = {
-        'design': sweep['design'], 'zip': sweep.get('zip', []),
+        'design': sweep['design'], 'zip': sweep.get('zip', []), 'plot_groups': groups,
         'n_points': len(points), 'n_failed': len(errors),
         'parameters': [{'name': name, 'units': units.get(name, ''), 'nominal': nominal[name],
                         'values': sorted({float(v) for v in points[:, column]})}
@@ -334,10 +364,14 @@ def write_results(sweep, names, points, by_point, nominal, units, out_dir, where
         'failures': [{'point': int(index), 'values': points[index].tolist(), 'error': error}
                      for index, error in sorted(errors.items())],
         'results': RESULTS_FILE, 'plots': [os.path.basename(path) for path in plots]}
+    validation_path = None
+    if len(points) == 1 and not errors:
+        from libcuflynx.param_id.validation import write_validation_results
+        validation_path = write_validation_results(by_point[0][0][3], out_dir)
     manifest_path = os.path.join(out_dir, MANIFEST_FILE)
     with open(manifest_path, 'w') as f:
         json.dump(manifest, f, indent=1)
     return {'sweep_dir': out_dir, 'sweep_results': results_path, 'sweep_manifest': manifest_path,
             'design': sweep['design'], 'parameters': names, 'n_points': len(points),
             'n_failed': len(errors), 'outputs': list(sweep['outputs']), 'features': features,
-            'plots': plots}
+            'plots': plots, 'validation_results': validation_path}

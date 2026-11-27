@@ -22,6 +22,7 @@ except Exception:
     ScalarFloat = None
 import re
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.parsers.solver_names import canonical_solver_name
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
@@ -45,48 +46,37 @@ from libcuflynx.utilities.config_schemas import (load_module_config, load_module
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
                                         default_param_id_output_dir, default_resources_dir,
                                         default_sensitivity_outputs_dir, default_user_inputs_dir,
-                                        user_data_root)
+                                        missing_user_inputs_message, user_data_root)
 
 mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
 
 
-class ObsDataError(ValueError):
+class ObsDataError(CAInputError):
     """An ``obs_data.json`` the parser cannot use, described well enough to fix it.
 
-    These checks used to ``print()`` and ``exit()``. That is survivable in a script, where
-    the message lands on the terminal the user is already reading, and unrecoverable
-    anywhere else: ``exit()`` raises ``SystemExit``, which inherits from ``BaseException``
-    and so passes straight through the ``except Exception`` an embedding application wraps
-    the parser in. CUFLynx turned one of these into a bare "Internal Server Error", with
-    the explanation visible only in the server's own stdout.
-
-    So they raise, and the message carries the offending numbers rather than naming the
-    keys and leaving the reader to go and look them up.
+    The message carries the offending numbers rather than naming the keys and leaving the
+    reader to go and look them up. See :class:`libcuflynx.errors.CAInputError` for why
+    input errors raise rather than ``exit()``.
     """
 
 
-def resolve_user_path(path, user_files_dir):
-    """Resolve a user-supplied relative path from ``user_inputs.yaml``.
+class UserInputsError(CAInputError):
+    """A ``user_inputs`` configuration the parser cannot use. The message says what to change."""
 
-    Absolute paths are returned unchanged. A relative one is resolved against the directory
-    the config came from when ``user_inputs_path_override`` named one (``user_files_dir``),
-    and otherwise against :func:`~libcuflynx.utilities.paths.user_data_root` -- the
-    checkout root when there is one, ``$CUFLYNX_USER_DIR`` if set, the cwd from a wheel
-    install.
 
-    Not ``os.path.abspath``, which resolves against the *current working directory*. The
-    documented way to start a run is ``cd user_run_files && ./run_param_id.sh 4``, so a
-    config saying ``cost_funcs_external_path: funcs_user/my_costs.py`` -- copied verbatim
-    out of funcs_user/README.md and CHANGELOG.md, both of which promise resolution from the
-    repository root -- looked for ``user_run_files/funcs_user/my_costs.py`` and raised
-    FileNotFoundError.
+def resolve_user_path(path, base_dir):
+    """Resolve a user-supplied relative file path from user inputs against ``base_dir``.
+
+    Absolute paths and empty values are returned unchanged. ``parse_user_inputs_file``
+    picks the base: the directory of a config named by ``user_inputs_path_override``; for
+    ``user_run_files/user_inputs.yaml``, :func:`~libcuflynx.utilities.paths.user_data_root`
+    (the checkout root, ``$CUFLYNX_USER_DIR`` if set, the cwd from a wheel install), since
+    the launchers run from ``user_run_files/``; for a dict, the cwd, as for ``resources_dir``.
     """
-    if not path:
+    if not path or os.path.isabs(path):
         return path
-    if os.path.isabs(path):
-        return path
-    return os.path.join(user_files_dir or user_data_root(), path)
+    return os.path.join(base_dir, path)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +117,8 @@ CASADI_JIT_DEFAULT = True
 #: The do_ad of a run whose user_inputs does not set it: finite-difference gradients. With do_ad
 #: true the gradient is the model_type's default analytic source (default_gradient_source).
 DEFAULT_DO_AD = False
+#: The calibration method used when user_inputs names no param_id_method.
+DEFAULT_PARAM_ID_METHOD = 'CMA-ES'
 
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
@@ -199,6 +191,7 @@ SOLVER_SCHEMA = {
     # analytic gradient do_ad: true takes.
     'default_model_type': DEFAULT_MODEL_TYPE,
     'default_do_ad': DEFAULT_DO_AD,
+    'default_param_id_method': DEFAULT_PARAM_ID_METHOD,
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
         # CVODE_myokit: installed with libcuflynx, whereas CVODE_libopencor needs the
@@ -442,6 +435,10 @@ SOLVER_INFO_FIELDS = {
         {'name': 'user_config', 'type': 'dict', 'default': None, 'required': False,
          'description': "free-form options dict passed to the user class's init_solver via "
                         "config['solver_info']"},
+        {'name': 'external_parameters_file', 'type': 'str', 'default': None, 'required': False,
+         'description': "a parameters file ({component: {variable: {value, ...}}}) whose values "
+                        "replace the defaults of SIM_HELPER.parameters; set from the user input "
+                        "external_parameters_file"},
     ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
@@ -1147,9 +1144,13 @@ def apply_modifier_identity_nominals(param_id_info, nominal_vals):
     thetas keep the first target exact -- the others are as close as one theta allows, which
     is the entry's own approximation, not this function's. Falls back to the operation's
     static ``identity`` metadata for records without probed coefficients (built by hand or
-    saved before the probe existed). Returns ``nominal_vals``, modified in place.
+    saved before the probe existed). An entry that gives its own ``theta`` has that instead.
+    Returns ``nominal_vals``, modified in place.
     """
     for mod in param_id_info.get("modifiers") or []:
+        if mod.get("theta") is not None:
+            nominal_vals[mod["index"]] = float(mod["theta"])
+            continue
         modifier = _modifier_name(mod)
         affine = mod.get("affine")
         baselines = mod.get("baselines")
@@ -1261,6 +1262,10 @@ PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
     # the parameters it modifies. ("Operations" act on *outputs*, in obs_data; what acts on
     # parameters is a modifier.)
     'modifies', 'modifier', 'inputs',
+    # A modifier entry's `theta` is where its calibrated value starts and what a local
+    # sensitivity is taken about; without it, the theta that leaves the modified parameters at
+    # their values in the model.
+    'theta',
 })
 
 
@@ -1582,9 +1587,6 @@ PARAM_ID_METHODS = {
         'options': [
             # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
             {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
-            {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
-             'description': ('Not applied: nevergrad chooses the initial CMA-ES step from '
-                             'the parameter bounds, and a run given sigma0 says so.')},
             _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE, _OPT_SEED,
         ],
     },
@@ -1914,9 +1916,11 @@ ANALYSIS_OPTIONS = {
         'options_key': 'UQ_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'mcmc', 'required': False,
-             'choices': ['mcmc'],
-             'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
-                            'is implemented so far.'},
+             'choices': ['mcmc', 'laplace'],
+             'description': "Uncertainty-quantification method. 'mcmc' samples the posterior "
+                            "from the best fit; 'laplace' approximates it there by a Gaussian "
+                            'from the Hessian of the cost (ia_options configure that), without '
+                            'sampling.'},
             {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
              'methods': ['mcmc'],
              'choices': ['emcee', 'pymc'],
@@ -1926,6 +1930,20 @@ ANALYSIS_OPTIONS = {
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'methods': ['mcmc'],
              'description': 'Number of MCMC steps per walker.'},
+            {'name': 'num_samples', 'type': 'int', 'default': 2000, 'required': False,
+             'methods': ['laplace'],
+             'description': "method 'laplace' in a calibration workflow's uq step: the draws of "
+                            'the Gaussian it stores as its distribution (those outside the '
+                            'params_for_id bounds are dropped).'},
+            {'name': 'posterior_predictive', 'type': 'bool', 'default': True, 'required': False,
+             'description': "A calibration workflow's uq step: after the MCMC or Laplace "
+                            'approximation, run the posterior predictive check '
+                            '(param_id.posterior_predictive): the model at posterior draws, '
+                            'and how often the data lies inside their intervals. Written in '
+                            "the step's posterior_predictive directory."},
+            {'name': 'posterior_predictive_samples', 'type': 'int', 'default': 100,
+             'required': False,
+             'description': 'The posterior draws the posterior predictive check simulates.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'methods': ['mcmc'],
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
@@ -1973,17 +1991,21 @@ ANALYSIS_OPTIONS = {
         'options_key': 'param_reduction_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'pca', 'required': False,
-             'choices': ['pca', 'sobol'],
-             'description': ('How to choose the parameters to calibrate from a Sobol analysis. '
+             'choices': ['pca', 'sobol', 'manual'],
+             'description': ('How to choose the parameters to calibrate from a Sobol analysis, '
+                             'or "manual": the parameters named in "parameters", chosen by hand '
+                             'for the "reason" given, with no Sobol analysis read. '
                              '"pca": PCA of the Sobol outputs (scaled by their obs_data std and '
                              'weight), Sobol indices of each mode, then one parameter per mode '
                              'that moves the data by more than its noise, largest mode first. '
                              '"sobol": the n_params parameters with the highest index over the '
                              'outputs, by criterion.')},
             {'name': 'n_params', 'type': 'int', 'default': None, 'required': False,
+             'methods': ['pca', 'sobol'],
              'description': ('How many parameters to keep. For "pca" at most this many (default: '
                              'one per informative mode); "sobol" needs it.')},
             {'name': 'index_type', 'type': 'enum', 'default': 'ST', 'required': False,
+             'methods': ['pca', 'sobol'],
              'choices': ['ST', 'S1'],
              'description': 'Rank by total (ST) or first-order (S1) Sobol indices.'},
             {'name': 'criterion', 'type': 'enum', 'default': 'max', 'required': False,
@@ -2042,6 +2064,14 @@ ANALYSIS_OPTIONS = {
              'required': False,
              'description': ('For redundancy_converged_only: the largest change between the two '
                              'steps, relative to the effect (or to min_mode_std, if larger).')},
+            {'name': 'parameters', 'type': 'list', 'default': None, 'required': False,
+             'methods': ['manual'],
+             'description': ('For "manual" (which needs it): the parameters to keep, each named '
+                             'as its params_for_id entry is labelled ("heart/E_lv_A"; a grouped '
+                             'entry\'s names joined by "+"; a modifier\'s name).')},
+            {'name': 'reason', 'type': 'str', 'default': None, 'required': False,
+             'methods': ['manual'],
+             'description': 'For "manual" (which needs it): why these parameters were chosen.'},
             {'name': 'sensitivity_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('The Sobol run to read (its output_dir). Default: '
                              'sa_options.output_dir. In a calibration workflow, the '
@@ -2107,8 +2137,13 @@ ANALYSIS_OPTIONS = {
     # solver named by `solver`; `use_flag` (use_emulator) makes calibration, SA, MCMC and IA
     # evaluate the trained emulator instead of that solver. They are independent -- training
     # once and then using it across several runs is the normal shape (#333).
+    # `group` / `group_label` name the heading a front end shows this mode under: an emulator
+    # is one kind of surrogate (a reduced-order model, run as an external_python model, is the
+    # other and has no settings here).
     'emulation': {
-        'label': 'Emulator (surrogate model)',
+        'label': 'Emulator',
+        'group': 'surrogate',
+        'group_label': 'Surrogate',
         'enable_flag': 'do_emulation',
         'use_flag': 'use_emulator',
         'options_key': 'emulator_settings',
@@ -2311,6 +2346,20 @@ REMOVED_USER_INPUTS_KEYS = {
     'do_mcmc': 'do_uq',
 }
 
+# optimiser_options keys CA does not read, with what to do instead.
+REMOVED_OPTIMISER_OPTIONS = {
+    'sigma0': ("The CMA-ES option 'sigma0' has been removed: it was never applied (nevergrad "
+               "chooses the initial step from the parameter bounds). Delete the sigma0 line "
+               "from {where}."),
+}
+
+
+def refuse_removed_optimiser_options(options, where='optimiser_options'):
+    """Raise ValueError for an option in REMOVED_OPTIMISER_OPTIONS."""
+    for key, message in REMOVED_OPTIMISER_OPTIONS.items():
+        if key in (options or {}):
+            raise ValueError(message.format(where=where))
+
 
 def refuse_removed_user_inputs(inp_data_dict):
     """Raise ValueError naming the replacement for a key or value CA does not accept."""
@@ -2318,6 +2367,8 @@ def refuse_removed_user_inputs(inp_data_dict):
         if old_key in inp_data_dict:
             raise ValueError(f'user_inputs key {old_key!r} is not supported; '
                              f'write {new_key!r} instead.')
+    for where in ('optimiser_options', 'debug_optimiser_options'):
+        refuse_removed_optimiser_options(inp_data_dict.get(where), where)
     if inp_data_dict.get('model_type') == 'cellml_only':
         raise ValueError("model_type 'cellml_only' is not supported; write 'cellml' instead.")
     solver_info = inp_data_dict.get('solver_info') or {}
@@ -2325,6 +2376,142 @@ def refuse_removed_user_inputs(inp_data_dict):
     if method in ('bdf_tape', 'bdf_kernel'):
         raise ValueError(f"solver_info method {method!r} is not supported; write method: "
                          f"semi_implicit_signed with gradient_strategy: {method[4:]} instead.")
+
+
+# Every top-level user_inputs key libcuflynx reads or writes back (the keys the parser derives
+# are here too, since a dated user_inputs_<yymmdd>.yaml holds them, and the keys a pipeline
+# bundle or CUFLynx's export writes: model_file, do_simulation, do_calibration). A key not
+# listed is refused when a file is read, so add a new key here:
+# tests/test_new_user_first_hour.py checks every key the code reads is listed.
+KNOWN_USER_INPUTS_KEYS = frozenset({
+    'DEBUG', 'MaximumNumberOfSteps', 'UQ_options', 'calibrated_entries',
+    'cost_funcs_external_path', 'couple_to_1d',
+    'coupler_pipe_dir', 'cpp_1d_model_config_path', 'cpp_generated_models_dir', 'cpp_output_dir',
+    'create_main_0d', 'cuflynx_study_copy_inputs', 'cuflynx_working_dir', 'debug_UQ_options',
+    'debug_optimiser_options', 'do_ad', 'do_calibration', 'do_emulation', 'do_ia',
+    'do_param_reduction', 'do_sensitivity', 'do_simulation', 'do_uq', 'dt', 'emulator_settings',
+    'external_model_path',
+    'external_modules_dir', 'external_parameters_file', 'file_name_prefix', 'file_prefix',
+    'file_prefix_0d', 'file_prefix_1d',
+    'generate_1d', 'generated_model_path', 'generated_models_dir', 'generated_models_subdir',
+    'human_readable', 'ia_options', 'identifiability_analysis_options', 'input_param_file',
+    'joint_priors', 'max_num_steps', 'max_step', 'method', 'model_1d_config_path', 'model_path',
+    'model_file', 'model_type', 'modifier_funcs_external_path', 'module_array_path',
+    'module_library_dirs', 'num_samples',
+    'obs_data_dict', 'one_rank', 'operation_funcs_external_path', 'optimiser_options',
+    'output_dir', 'override_best_param_vals_for_ia', 'param_id_method', 'param_id_obs_path',
+    'param_id_output_dir', 'param_id_output_dir_abs_path', 'param_reduction_options',
+    'parameters_csv_abs_path', 'parameters_path', 'params_for_id', 'params_for_id_file',
+    'params_for_id_path',
+    'plot_predictions', 'pre_time', 'resources_dir', 'sa_options', 'sample_type', 'sim_time',
+    'solver', 'solver_1d_type', 'solver_info', 'study_name', 'uncalibrated_model_path',
+    'use_builtin_modules', 'use_emulator', 'user_inputs_path', 'user_inputs_path_override',
+    'validate_generated_model',
+    'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
+    'write_cuflynx_study',
+})
+
+
+# The known keys the parser (or a calibration workflow) sets itself, overwriting any value a
+# user gives. They do not warn, but are never offered as the key a user meant.
+DERIVED_USER_INPUTS_KEYS = frozenset({
+    'calibrated_entries', 'cuflynx_working_dir', 'file_prefix_0d', 'file_prefix_1d', 'generated_models_subdir',
+    'model_path', 'param_id_output_dir_abs_path', 'parameters_csv_abs_path',
+    'params_for_id_path', 'uncalibrated_model_path', 'user_inputs_path',
+    'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path', 'vessels_csv_abs_path',
+})
+
+# The optimiser_options keys of every param_id_method, so one put at the top level is pointed
+# to optimiser_options.
+OPTIMISER_OPTION_KEYS = frozenset(option['name'] for method in PARAM_ID_METHODS.values()
+                                  for option in method.get('options', []))
+
+
+def unknown_user_inputs_keys(inp_data_dict):
+    """``{key: closest key a user sets, or None}`` for the top-level keys libcuflynx does not
+    read. An optimiser option at the top level maps to ``'optimiser_options'``."""
+    import difflib
+    candidates = sorted(KNOWN_USER_INPUTS_KEYS - DERIVED_USER_INPUTS_KEYS)
+    unknown = {}
+    for key in inp_data_dict:
+        if key in KNOWN_USER_INPUTS_KEYS or key in REMOVED_USER_INPUTS_KEYS:
+            continue
+        if key in OPTIMISER_OPTION_KEYS:
+            unknown[key] = 'optimiser_options'
+            continue
+        close = difflib.get_close_matches(str(key), candidates, n=1, cutoff=0.6)
+        unknown[key] = close[0] if close else None
+    return unknown
+
+
+def refuse_unknown_user_inputs_keys(inp_data_dict, source):
+    """Raise UserInputsError naming each key of a user_inputs file that libcuflynx does not
+    read, with the closest key it does read, so a mistyped key cannot silently leave its
+    default in place. For a file a user wrote: a dict built in code may carry keys of its own.
+    Every MPI rank raises, as every rank reads the same file."""
+    lines = []
+    for key, close in unknown_user_inputs_keys(inp_data_dict).items():
+        if key in OPTIMISER_OPTION_KEYS:
+            hint = ' It is an optimiser option: put it under optimiser_options.'
+        else:
+            hint = f' Did you mean {close!r}?' if close else ''
+        lines.append(f'  {key!r} is not a key libcuflynx reads.{hint}')
+    if lines:
+        raise UserInputsError(f'{source} has unknown user_inputs keys:\n' + '\n'.join(lines))
+
+
+# Keys that name a file in place of the keys libcuflynx reads: alias -> what it sets.
+USER_INPUTS_PATH_ALIASES = {
+    'module_array_path': ('file_prefix', 'resources_dir'),
+    'parameters_path': ('input_param_file',),
+}
+_MODULE_ARRAY_SUFFIXES = ('_module_array.json', '_module_array.csv')
+
+
+def apply_user_inputs_path_aliases(inp_data_dict, user_files_dir=''):
+    """Replace the alias keys by the keys they stand for, in place.
+
+    ``module_array_path: resources/<prefix>_module_array.json`` sets ``file_prefix`` and
+    ``resources_dir``; ``parameters_path: <file>`` sets ``input_param_file`` (absolute, so it
+    is not joined to ``resources_dir``). A relative path resolves from ``user_files_dir``, as
+    ``resources_dir`` does. An alias whose target key is also set to something else raises
+    UserInputsError. The aliases are removed, so the resolved config holds only the keys they
+    stand for."""
+    if inp_data_dict.get('module_array_path'):
+        given = str(inp_data_dict.pop('module_array_path'))
+        name = os.path.basename(given)
+        suffix = next((s for s in _MODULE_ARRAY_SUFFIXES if name.endswith(s)), None)
+        if suffix is None or name == suffix:
+            raise UserInputsError(f'module_array_path {given!r} must name a '
+                                  f'<file_prefix>_module_array.json or .csv file.')
+        derived = {'file_prefix': name[:-len(suffix)], 'resources_dir': os.path.dirname(given)}
+        for key, value in derived.items():
+            set_to = inp_data_dict.get(key)
+            same = (set_to == value if key == 'file_prefix' else set_to is not None and
+                    os.path.normpath(os.path.join(user_files_dir, str(set_to))) ==
+                    os.path.normpath(os.path.join(user_files_dir, value)))
+            if set_to is not None and not same:
+                raise UserInputsError(f'module_array_path {given!r} means {key}: {value!r}, but '
+                                      f'{key} is set to {set_to!r}. Set one of them.')
+            inp_data_dict[key] = value
+    else:
+        inp_data_dict.pop('module_array_path', None)
+    if inp_data_dict.get('parameters_path'):
+        given = str(inp_data_dict.pop('parameters_path'))
+        if inp_data_dict.get('input_param_file'):
+            raise UserInputsError(f'parameters_path {given!r} and input_param_file '
+                                  f'{inp_data_dict["input_param_file"]!r} are both set. Set one '
+                                  f'of them.')
+        inp_data_dict['input_param_file'] = os.path.abspath(os.path.join(user_files_dir, given))
+    else:
+        inp_data_dict.pop('parameters_path', None)
+
+
+def invalid_solver_message(solver_name):
+    """The message for a ``solver`` no model type has, listing the solvers of each."""
+    valid = '; '.join(f'{model_type}: {", ".join(solvers)}'
+                      for model_type, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items())
+    return f'Invalid solver: {solver_name}. Valid solvers by model_type: {valid}.'
 
 
 def default_model_type_for(inp_data_dict):
@@ -2495,6 +2682,8 @@ class YamlFileParser(object):
         loaded_from = None
         if inp_data_dict is None:
             loaded_from = os.path.join(user_inputs_dir, 'user_inputs.yaml')
+            if not os.path.isfile(loaded_from):
+                raise FileNotFoundError(missing_user_inputs_message(loaded_from))
             with open(loaded_from, 'r') as file:
                 inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
             if "user_inputs_path_override" in inp_data_dict.keys() and inp_data_dict["user_inputs_path_override"]:
@@ -2504,22 +2693,27 @@ class YamlFileParser(object):
                     with open(inp_data_dict["user_inputs_path_override"], 'r') as file:
                         inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
                 else:
-                    print(f"User inputs file not found at {inp_data_dict['user_inputs_path_override']}")
-                    print("Check the user_inputs_path_override key in user_inputs.yaml and set it to False if "
-                            "you want to use the default user_inputs.yaml location")
-                    exit()
+                    raise FileNotFoundError(
+                        f"user_inputs_path_override in {loaded_from} names "
+                        f"{inp_data_dict['user_inputs_path_override']}, which does not exist. "
+                        f"Correct the path, or set user_inputs_path_override: False to use "
+                        f"{loaded_from} itself.")
             else:
                 user_files_dir = ''
         else:
             user_files_dir = ''
 
         if inp_data_dict is None:
-            print('no inp_data_dict provided and user_inputs.yaml not found, exiting')
-            exit()
-            
+            raise UserInputsError(f'{loaded_from or "the user inputs"} holds no settings: '
+                                  f'expected a mapping of user_inputs keys.')
+        if loaded_from is not None:
+            refuse_unknown_user_inputs_keys(inp_data_dict, loaded_from)
+        apply_user_inputs_path_aliases(inp_data_dict, user_files_dir)
+
         if 'file_prefix' not in inp_data_dict.keys():
-            print('file_prefix not found in inp_data_dict, exiting')
-            exit()
+            raise UserInputsError(f'{loaded_from or "user_inputs"} has no file_prefix: set it to '
+                                  f'the model name its resources files start with '
+                                  f'(e.g. file_prefix: 3compartment).')
         else:
             file_prefix = inp_data_dict['file_prefix']
 
@@ -2537,7 +2731,7 @@ class YamlFileParser(object):
             inp_data_dict['couple_to_1d'] = False
         
         if 'param_id_method' not in inp_data_dict.keys():
-            inp_data_dict['param_id_method'] = 'genetic_algorithm'
+            inp_data_dict['param_id_method'] = DEFAULT_PARAM_ID_METHOD
         inp_data_dict.setdefault('do_ad', DEFAULT_DO_AD)
 
         # cellml models get an AD gradient too, via Myokit CVODES forward sensitivity,
@@ -2550,11 +2744,11 @@ class YamlFileParser(object):
                 and not _fsa_ad and not inp_data_dict.get('use_emulator'):
             # An emulator is exempt: its gradient comes from finite differences on its own
             # evaluations, which is affordable in a way FD on a solver is not (#333).
-            print('Parameter identification with sp_minimize requires model_type to be '
-                  '"casadi_python" or "aadc_python", or "cellml" with solver '
-                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
-                  'use_emulator: true, whose gradient is finite differences on the emulator.')
-            exit()
+            raise UserInputsError(
+                'Parameter identification with sp_minimize requires model_type to be '
+                '"casadi_python" or "aadc_python", or "cellml" with solver '
+                '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
+                'use_emulator: true, whose gradient is finite differences on the emulator.')
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
         # casadi_python (symbolic), aadc_python (tape), and cellml + Myokit CVODES FSA
@@ -2566,20 +2760,14 @@ class YamlFileParser(object):
                   'Set model_type to "casadi_python"/"aadc_python", or use "cellml" with '
                   'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
-        # The user's own cost / operation / modifier funcs files, and the user's own solver
-        # class for model_type: external_python. All four are file paths a user types into
-        # user_inputs.yaml, and funcs_user/README.md, CHANGELOG.md and the commented example
-        # in user_inputs.yaml all show them relative and all say they resolve from the
-        # repository root. Nothing resolved them at all: they reached
-        # external_funcs.register_funcs_from_file(), which does os.path.abspath() -- i.e.
-        # relative to the cwd, which for the documented `cd user_run_files && ./run_*.sh`
-        # workflow is the wrong directory, so the README's own example raised
-        # FileNotFoundError.
+        # The user's own funcs files and external_python model (see resolve_user_path for
+        # the base each kind of caller gets).
+        user_paths_base = user_files_dir or (user_data_root() if loaded_from else os.getcwd())
         for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
                      'modifier_funcs_external_path', 'external_model_path',
-                     'generated_model_path'):
+                     'external_parameters_file', 'generated_model_path'):
             if inp_data_dict.get(_key):
-                inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
+                inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_paths_base)
 
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():
@@ -2597,13 +2785,25 @@ class YamlFileParser(object):
         
         if inp_data_dict.get('param_id_obs_path'):
             # Resolved for every stage, since the dated archive of this config names it too.
-            inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
+            given_obs_path = inp_data_dict['param_id_obs_path']
+            obs_path = os.path.join(user_files_dir, given_obs_path)
+            if not os.path.isabs(given_obs_path) and not os.path.exists(obs_path):
+                # A relative path that is not there from the current directory (or from the
+                # directory of the user_inputs_path_override file) is taken from the user
+                # directory, so `cd user_run_files && ./run_param_id.sh` finds it too.
+                in_user_dir = os.path.join(user_data_root(), given_obs_path)
+                if os.path.exists(in_user_dir):
+                    obs_path = in_user_dir
+            inp_data_dict['param_id_obs_path'] = obs_path
 
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
                 if not os.path.exists(inp_data_dict['param_id_obs_path']):
-                    print(f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist')
-                    exit()
+                    raise FileNotFoundError(
+                        f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist '
+                        f'(a relative path is looked for from the current directory, or the '
+                        f'user_inputs_path_override file\'s directory, then from the user '
+                        f'directory {user_data_root()}).')
             else:
                 print(f'param_id_obs_path not defined in user_inputs.yaml')
                 print(f'Must run param_id.create_param_id_obs to create the param_id_observables')
@@ -2663,8 +2863,8 @@ class YamlFileParser(object):
         elif inp_data_dict.get('model_type') == 'aadc_python':
             model_ext = '.py'
         else:
-            print(f'Invalid model type: {inp_data_dict.get("model_type")}')
-            exit()
+            raise UserInputsError(f'Invalid model_type: {inp_data_dict.get("model_type")}. Valid '
+                                  f'model types: {sorted(SOLVER_SCHEMA["solvers_by_model_type"])}.')
 
         if model_ext is not None:
             # generated_model_path names a model to run that is kept somewhere else, such as the
@@ -2687,8 +2887,8 @@ class YamlFileParser(object):
             if ScalarFloat is not None and isinstance(inp_data_dict['dt'], ScalarFloat):
                 inp_data_dict['dt'] = float(inp_data_dict['dt'])
             if type(inp_data_dict['dt']) != float:
-                print(f'dt must be a float, but is {type(inp_data_dict["dt"])}')
-                exit()
+                raise UserInputsError(f'dt must be a float (e.g. 0.01 or 1.0), but is '
+                                      f'{inp_data_dict["dt"]!r} ({type(inp_data_dict["dt"]).__name__}).')
             
         if 'pre_time' in inp_data_dict.keys():
             inp_data_dict['pre_time'] = inp_data_dict['pre_time']
@@ -2736,9 +2936,8 @@ class YamlFileParser(object):
             model_type = inp_data_dict.get('model_type')
             solver_name = SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type)
             if solver_name is None:
-                print(f'Invalid model type: {model_type}. Valid types: '
-                      f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
-                exit()
+                raise UserInputsError(f'Invalid model_type: {model_type}. Valid model types: '
+                                      f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}.')
         else:
             valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
@@ -2747,8 +2946,7 @@ class YamlFileParser(object):
                 solver_name not in valid_casadi_solvers and
                 solver_name not in valid_aadc_solvers and
                 solver_name not in valid_external_solvers):
-                print(f'Invalid solver: {solver_name}')
-                exit()
+                raise UserInputsError(invalid_solver_message(solver_name))
         
 
         if 'solver_info' in inp_data_dict:
@@ -2788,17 +2986,19 @@ class YamlFileParser(object):
         if 'solver' not in solver_info:
             solver_info['solver'] = solver_name
 
-        dt_solver = solver_info.get('dt_solver')
-        if dt_solver is None:
-            dt_solver = solver_info.get('MaximumStep')
-        if dt_solver is None:
-            dt_solver = solver_info.get('max_step_size')
-        if dt_solver is None:
-            dt_solver = solver_info.get('max_step')
-        if dt_solver is not None:
-            solver_info['dt_solver'] = dt_solver
-        if solver_info.get('solver') in valid_cellml_solvers and dt_solver is not None:
-            solver_info['MaximumStep'] = dt_solver
+        if solver_info.get('solver') in valid_cellml_solvers:
+            # Variable-step: MaximumStep bounds the step and dt_solver is not read.
+            check_dt_solver_and_max_step(solver_info)
+        else:
+            dt_solver = solver_info.get('dt_solver')
+            if dt_solver is None:
+                dt_solver = solver_info.get('MaximumStep')
+            if dt_solver is None:
+                dt_solver = solver_info.get('max_step_size')
+            if dt_solver is None:
+                dt_solver = solver_info.get('max_step')
+            if dt_solver is not None:
+                solver_info['dt_solver'] = dt_solver
 
         inp_data_dict['solver_info'] = solver_info
 
@@ -2815,9 +3015,8 @@ class YamlFileParser(object):
                 if solver_method is not None:
                     inp_data_dict['solver_info']['method'] = solver_method
                 else:
-                    print(f'solver {solver_name} not compatible with model_type cpp; use one of '
-                          f'{valid_cpp_solvers} in the user_inputs.yaml file')
-                    exit()
+                    raise UserInputsError(f'solver {solver_name} not compatible with model_type cpp; '
+                                          f'use one of {valid_cpp_solvers}.')
             elif solver_name in valid_external_solvers:
                 # There is no method to choose: the external class owns its scheme. The
                 # placeholder keeps solver_info the same shape as every other model_type's.
@@ -2846,64 +3045,53 @@ class YamlFileParser(object):
             and solver_name not in valid_casadi_solvers
             and solver_name not in valid_aadc_solvers
             and solver_name not in valid_external_solvers):
-            print(f'Invalid solver: {solver_name}')
-            print(f'Valid CellML solvers: {valid_cellml_solvers}')
-            print(f'Valid Python solvers: {valid_python_solvers}')
-            print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            print(f'Valid CasADi solvers: {valid_casadi_solvers}')
-            print(f'Valid AADC solvers: {valid_aadc_solvers}')
-            print(f'Valid external solvers: {valid_external_solvers}')
-            exit()
+            raise UserInputsError(invalid_solver_message(solver_name))
         
         
         # Validate solver-model compatibility
         # CellML and CasADi solvers cannot be used with Python models
         if inp_data_dict.get('model_type') == 'python' and solver_name not in valid_python_solvers:
-                print(f'Solver {solver_method} cannot be used with Python models (model_type="python")')
-                print(f'Use {valid_python_solvers} for Python models')
-                exit()
+            raise UserInputsError(f'Solver {solver_method} cannot be used with Python models '
+                                  f'(model_type="python"). Use {valid_python_solvers}.')
 
         # solve_ivp methods can only be used with the libCellML-generated Python models
         if solver_method in valid_solve_ivp_methods:
             if inp_data_dict.get('model_type') not in ['python', None]:
-                print(f'solve_ivp method {solver_method} requires model_type to be "python"')
-                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
-                print(f'Use {valid_cpp_solvers} for Cpp models')
-                exit()
+                raise UserInputsError(
+                    f'solve_ivp method {solver_method} requires model_type to be "python". Use '
+                    f'CVODE_myokit or CVODE_libopencor for CellML models, {valid_cpp_solvers} '
+                    f'for Cpp models.')
 
         if solver_name in valid_cellml_solvers and solver_method not in _methods[solver_name]:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {_methods[solver_name]}')
-            exit()
+            raise UserInputsError(f'solver method {solver_method} not compatible with solver '
+                                  f'{solver_name}, use {_methods[solver_name]}.')
         
         if solver_name in valid_cpp_solvers and solver_method not in valid_cpp_methods:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_cpp_methods} for Cpp models')
-            exit()
+            raise UserInputsError(f'solver method {solver_method} not compatible with solver '
+                                  f'{solver_name}, use {valid_cpp_methods} for Cpp models.')
         if solver_name in valid_python_solvers and solver_method not in valid_solve_ivp_methods:
-            print(f'solver method {solver_method} not compatible with solver {solver_name}, use {valid_solve_ivp_methods} for Python models')
-            exit()
+            raise UserInputsError(f'solver method {solver_method} not compatible with solver '
+                                  f'{solver_name}, use {valid_solve_ivp_methods} for Python models.')
 
         # CellML and Python solvers cannot be used with CasADi Python models
         if inp_data_dict.get('model_type') == 'casadi_python' and solver_name not in valid_casadi_solvers:
-                print(f'Solver {solver_method} cannot be used with CasADi Python models (model_type="casadi_python")')
-                print(f'Use {valid_casadi_solvers} for CasADi Python models')
-                exit()
+            raise UserInputsError(f'Solver {solver_method} cannot be used with CasADi Python models '
+                                  f'(model_type="casadi_python"). Use {valid_casadi_solvers}.')
 
         # AADC solvers can only be used with AADC Python models
         if inp_data_dict.get('model_type') == 'aadc_python' and solver_name not in valid_aadc_solvers:
-                print(f'Solver {solver_name} cannot be used with AADC Python models')
-                print(f'Use {valid_aadc_solvers} for AADC Python models')
-                exit()
+            raise UserInputsError(f'Solver {solver_name} cannot be used with AADC Python models. '
+                                  f'Use {valid_aadc_solvers}.')
 
         # The external solver wraps a user-supplied solver class, and nothing else can.
         if inp_data_dict.get('model_type') == 'external_python' and solver_name not in valid_external_solvers:
-                print(f'Solver {solver_name} cannot be used with external Python models (model_type="external_python")')
-                print(f'Use {valid_external_solvers} for external Python models')
-                exit()
+            raise UserInputsError(f'Solver {solver_name} cannot be used with external Python models '
+                                  f'(model_type="external_python"). Use {valid_external_solvers}.')
         if solver_name in valid_external_solvers and inp_data_dict.get('model_type') != 'external_python':
-                print(f'Solver {solver_name} requires model_type to be "external_python"')
-                print('It wraps a user-supplied solver class that does its own time stepping '
-                      '(the class registered as SIM_HELPER in external_model_path)')
-                exit()
+            raise UserInputsError(
+                f'Solver {solver_name} requires model_type to be "external_python": it wraps a '
+                f'user-supplied solver class that does its own time stepping (the class '
+                f'registered as SIM_HELPER in external_model_path).')
 
         # CasADi solvers can only be used with CasADi Python models.
         # aadc_python is exempted here so that a stale config carrying the removed AADC
@@ -2912,16 +3100,22 @@ class YamlFileParser(object):
         # "requires model_type casadi_python" message.
         if solver_method in valid_casadi_solver_plugins:
             if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
-                print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
-                print('Use CVODE_myokit or CVODE_libopencor for CellML models')
-                print(f'Use {valid_cpp_solvers} for Cpp models')
-                exit()
+                raise UserInputsError(
+                    f'CasADi solver {solver_method} requires model_type to be "casadi_python". '
+                    f'Use CVODE_myokit or CVODE_libopencor for CellML models, '
+                    f'{valid_cpp_solvers} for Cpp models.')
+
+        # The external helper is built from solver_info at every construction site, so the
+        # values file of an external model travels there.
+        if inp_data_dict.get('model_type') == 'external_python' and \
+                inp_data_dict.get('external_parameters_file'):
+            inp_data_dict['solver_info']['external_parameters_file'] = \
+                inp_data_dict['external_parameters_file']
 
         try:
             validate_solver_info(solver_name, inp_data_dict['solver_info'])
         except ValueError as exc:
-            print(f'{exc}{solver_alias_note(inp_data_dict)}')
-            exit()
+            raise UserInputsError(f'{exc}{solver_alias_note(inp_data_dict)}') from None
 
         inp_data_dict.setdefault('DEBUG', False)
         if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
@@ -2936,8 +3130,7 @@ class YamlFileParser(object):
                 if not os.path.isabs(ext_dir):
                     ext_dir = os.path.join(user_files_dir, ext_dir)
                 if not os.path.exists(ext_dir):
-                    print(f'external_modules_dir={ext_dir} does not exist')
-                    exit()
+                    raise FileNotFoundError(f'external_modules_dir={ext_dir} does not exist.')
                 resolved.append(ext_dir)
             if isinstance(inp_data_dict['external_modules_dir'], (list, tuple)):
                 inp_data_dict['external_modules_dir'] = resolved
@@ -2951,8 +3144,7 @@ class YamlFileParser(object):
             if not os.path.isabs(library_dir):
                 library_dir = os.path.join(user_files_dir, library_dir)
             if not os.path.isdir(library_dir):
-                print(f'module_library_dirs entry {library_dir} does not exist')
-                exit()
+                raise FileNotFoundError(f'module_library_dirs entry {library_dir} does not exist.')
             module_library_dirs.append(library_dir)
         inp_data_dict['module_library_dirs'] = module_library_dirs or None
 
@@ -2992,11 +3184,16 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['sa_options'].keys():
                 print('No method specified for sensitivity analysis, setting to sobol by default')
                 inp_data_dict['sa_options']['method'] = 'sobol'
+            # the Sobol sampling manager is built for every method, but only sobol samples:
+            # the defaults are announced only to a sobol run
+            sobol = inp_data_dict['sa_options']['method'] == 'sobol'
             if 'num_samples' not in inp_data_dict['sa_options'].keys():
-                print('No num_samples specified for sensitivity analysis, setting to 32 by default')
+                if sobol:
+                    print('No num_samples specified for sensitivity analysis, setting to 32 by default')
                 inp_data_dict['sa_options']['num_samples'] = 32
             if 'sample_type' not in inp_data_dict['sa_options'].keys():
-                print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
+                if sobol:
+                    print('No sample_type specified for sensitivity analysis, setting to saltelli by default')
                 inp_data_dict['sa_options']['sample_type'] = 'saltelli'
             
         # Parameter reduction after a Sobol analysis (ANALYSIS_OPTIONS['param_reduction']):
@@ -3144,6 +3341,42 @@ def step_from_dt_solver(solver_name, solver_info):
     return solver_info
 
 
+def check_dt_solver_and_max_step(solver_info, model_type='cellml'):
+    """Raise when a cellml (variable-step) solver is given both ``dt_solver`` and a different
+    ``MaximumStep``, and warn (once per run) when it is given ``dt_solver`` and no ``MaximumStep``.
+
+    For these solvers ``MaximumStep`` bounds the integrator step and ``dt_solver`` is not read
+    (it is the step of the fixed-step and C++ solvers), so two different values mean the config
+    asks for a step it would not get. Every entry point applies this one rule: the yaml/dict
+    parser, ``CVS0DParamID`` and ``SensitivityAnalysis``.
+    """
+    if not solver_info:
+        return
+    solver = solver_info.get('solver') or \
+        SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type or 'cellml')
+    solver = canonical_solver_name(solver) if solver else solver
+    solver = SOLVER_SCHEMA['solver_aliases_by_model_type'].get(model_type or 'cellml', {}).get(
+        solver, solver)
+    if solver not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']:
+        return
+    dt_solver, max_step = solver_info.get('dt_solver'), solver_info.get('MaximumStep')
+    if dt_solver is not None and 'MaximumStep' not in solver_info:
+        # Python shows a warning from one line once per process: once per run, on rank 0.
+        if rank == 0:
+            warnings.warn(
+                f"solver_info sets dt_solver={dt_solver} without MaximumStep for the "
+                f"variable-step solver {solver!r}. dt_solver has no effect for this solver, and "
+                f"its step is unbounded unless MaximumStep is set. Set MaximumStep to bound the "
+                f"step, or remove dt_solver.", UserWarning)
+    if dt_solver is None or max_step is None or float(dt_solver) == float(max_step):
+        return
+    raise ValueError(
+        f"solver_info sets dt_solver={dt_solver} and MaximumStep={max_step} for the "
+        f"variable-step solver {solver!r}. MaximumStep sets its maximum step; dt_solver is only "
+        f"read by the fixed-step and C++ solvers. Remove dt_solver, or set it equal to "
+        f"MaximumStep.")
+
+
 # What to write instead of a CVODE-style key on a solver that does not take it.
 _SOLVER_INFO_KEY_HINTS = {
     ('casadi_integrator', 'MaximumStep'): 'use max_step_size instead of MaximumStep',
@@ -3222,12 +3455,11 @@ def _solver_info_default_for(model_type, solver_name):
 
 def get_solver_info_default(model_type):
     if model_type == 'cellml':
+        # CVODE_myokit's declared defaults (SOLVER_INFO_FIELDS), the values its helper applies.
         return {
             'solver': 'CVODE_myokit',
-            'MaximumStep': 0.001,
             'MaximumNumberOfSteps': 5000,
-            'rtol': 1e-8,
-            'atol': 1e-8
+            **solver_field_defaults('CVODE_myokit'),
         }
     if model_type == 'python':
         return {
@@ -3508,14 +3740,13 @@ class JSONFileParser(object):
             module_type = vessel_tup.module_type
             module_subtype = vessel_tup.module_subtype
             if len(module_subtype) <1 or len(module_type) <1:
-                print('You have an empty entry in your module array, exiting')
-                exit()
+                raise CAInputError('You have an empty entry in your module array')
             this_vessel_module_df = module_df.loc[((module_df["module_type"] == module_type)
                                                    & (module_df["module_subtype"] == module_subtype))].squeeze()
             if this_vessel_module_df.empty:
-                print(f'combination of module_type = {module_type} and module_subtype = {module_subtype} doesn\'t exist, check module_config.json',
-                        'for this combination')
-                exit()
+                raise CAInputError(f'combination of module_type = {module_type} and module_subtype = '
+                                   f'{module_subtype} doesn\'t exist, check module_config.json for '
+                                   f'this combination')
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
                 val = this_vessel_module_df[column]
@@ -3539,14 +3770,15 @@ class JSONFileParser(object):
             vessel_df[column] = add_on_lists[column]
 
 
-def validate_params_to_change(protocol_info):
+def validate_params_to_change(protocol_info, entry="params_to_change"):
     """
-    Raise ValueError if params_to_change rows are not aligned with sim_times.
+    Raise ValueError if the rows of protocol_info[entry] (params_to_change, or another
+    entry of its shape) are not aligned with sim_times.
 
     Every key must have one experiment row per entry in sim_times, and each row
     must have one value per subexperiment (len(sim_times[exp_idx])).
     """
-    ptc = protocol_info.get("params_to_change") or {}
+    ptc = protocol_info.get(entry) or {}
     if not ptc:
         return
 
@@ -3587,7 +3819,7 @@ def validate_params_to_change(protocol_info):
 
     if errors:
         raise ValueError(
-            "params_to_change shape mismatch:\n" + "\n".join(errors)
+            f"{entry} shape mismatch:\n" + "\n".join(errors)
         )
 
 
@@ -3863,6 +4095,13 @@ class ObsAndParamDataParser(object):
             if key not in protocol_info or _is_missing_scalar(protocol_info[key]):
                 protocol_info[key] = copy.deepcopy(default)
 
+        if protocol_info.get('params_to_change_factors'):
+            raise ValueError(
+                "protocol_info.params_to_change_factors multiplies the values a calibration "
+                "workflow step's model gives its parameters, so it is resolved by the workflow "
+                "and read only in a workflow step; in a plain run give absolute values in "
+                "params_to_change.")
+        protocol_info.pop('params_to_change_factors', None)
         validate_params_to_change(protocol_info)
         # Shapes become traces here, once, so every consumer downstream --
         # solver helpers, plotting, anything added later -- keeps seeing only
@@ -4425,20 +4664,17 @@ class ObsAndParamDataParser(object):
         if "experiment_colors" not in protocol or protocol["experiment_colors"] is None:
             protocol["experiment_colors"] = ['r'] * N_exp
         elif len(protocol["experiment_colors"]) != N_exp:
-            print('Error: experiment_colors length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_colors length does not match num_experiments')
             
         if "experiment_labels" not in protocol or protocol["experiment_labels"] is None:
             protocol["experiment_labels"] = [None] * N_exp
         elif len(protocol["experiment_labels"]) != N_exp:
-            print('Error: experiment_labels length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_labels length does not match num_experiments')
         
         if "experiment_ids" not in protocol or protocol["experiment_ids"] is None:
             protocol["experiment_ids"] = [None] * N_exp
         elif len(protocol["experiment_ids"]) != N_exp:
-            print('Error: experiment_ids length does not match num_experiments, exiting')
-            exit()
+            raise CAInputError('experiment_ids length does not match num_experiments')
 
         # --- Weight Mapping Initialization ---
         
@@ -4761,7 +4997,9 @@ class ObsAndParamDataParser(object):
     def get_param_id_info_from_entries(self, params_for_id_entries, idxs_to_ignore=None):
         """
         Build param_id_info from a list/dict of parameter entries.
-        Each entry should include: vessel_name, param_name, min, max.
+        Each entry should include: vessel_name, param_name, min, max. Entries in the form of a
+        params_for_id file (``targets`` or ``modifies``), or the whole ``{"version", "params"}``
+        document, are read as the file is.
         """
         if params_for_id_entries is None:
             print('params_for_id_entries cannot be None, exiting')
@@ -4774,6 +5012,21 @@ class ObsAndParamDataParser(object):
                                               idxs_to_ignore=idxs_to_ignore)
             if "params" in params_for_id_entries:
                 params_for_id_entries = params_for_id_entries["params"]
+
+        if isinstance(params_for_id_entries, dict) and 'version' in params_for_id_entries:
+            doc = params_for_id_entries
+        elif isinstance(params_for_id_entries, list) and any(
+                isinstance(entry, dict) and ('targets' in entry or 'modifies' in entry)
+                for entry in params_for_id_entries):
+            from libcuflynx.utilities.params_for_id_file import VERSION
+            doc = {'version': VERSION, 'params': params_for_id_entries}
+        else:
+            doc = None
+        if doc is not None:
+            entries = self.resolve_params_for_id_doc(
+                doc, modifier_funcs=get_modifier_funcs(self.modifier_funcs_external_path),
+                source='params_for_id entries')
+            return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
         if not isinstance(params_for_id_entries, list):
             raise ValueError("params_for_id_entries must be a list of dicts or include params_for_id_path")
@@ -4917,6 +5170,8 @@ class ObsAndParamDataParser(object):
                 # time: a_i is the gradient chain-rule weight, and inverting at the first
                 # target's baseline gives theta's starting value.
                 "affine": None,
+                # The entry's `theta`: its nominal value in place of the identity.
+                "theta": entries[II].get("theta"),
             }
             for II in range(N_params) if entries[II].get("modifies")
         ]

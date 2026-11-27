@@ -73,6 +73,12 @@ PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
 GLOBAL_PREFIX = GLOBAL + SEPARATOR
 
 
+#: how to name a module library, appended to the errors of a module that has none
+MODULE_LIBRARY_HINT = (' Give the library that holds it: module_library_dirs in user_inputs.yaml '
+                       'or in the calibration workflow file, or --module-library-dir with '
+                       'cuflynx-calibration-workflow.')
+
+
 def check_parameterisation_name(value, where, key=PARAMETERISATION_KEY):
     '''``value`` if it is a usable parameterisation name; ValueError naming ``where``
     otherwise.'''
@@ -205,7 +211,8 @@ def parameterisation_rows(entry, parameterisation, where):
             f'{where}: names parameterisation "{parameterisation}" of {label}, but that module config '
             f'was not loaded from a module library directory, so there is nowhere to look for '
             f'parameterisations. Parameterisations live in <module>/versions/<version>/'
-            f'{PARAMETERISATIONS_DIR}/<name>/ next to the version\'s *_modules_config.json.')
+            f'{PARAMETERISATIONS_DIR}/<name>/ next to the version\'s *_modules_config.json.'
+            f'{MODULE_LIBRARY_HINT}')
     version_dir = os.path.dirname(os.path.abspath(config_path))
     if not os.path.isdir(parameterisations_dir(config_path)):
         raise ValueError(
@@ -328,7 +335,8 @@ def component_parameterisation_rows(records, component_registry, source=None, se
             if parameterisation is not None:
                 raise ValueError(f'{where}: names parameterisation "{parameterisation}", but no module '
                                  f'config entry of that type was found, so there is no module '
-                                 f'library directory to look for its parameterisations in.')
+                                 f'library directory to look for its parameterisations in.'
+                                 f'{MODULE_LIBRARY_HINT}')
             continue
         used, raw = parameterisation_rows(entry, parameterisation, where)
         globals_ = global_constants(entry)

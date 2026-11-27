@@ -11,7 +11,7 @@ name = "libcuflynx"
 # the `libcuflynx` namespace. The flat import names (`parsers`, `param_id`, ...) keep working
 # through this release as deprecation shims and are removed in 0.6.0 -- see
 # libcuflynx/_deprecated_aliases.py::REMOVAL_VERSION, which the shims' warning text quotes.
-version = "0.7.3"
+version = "0.8.0"
 description = "Generation and calibration of CellML circulatory system models from module arrays"
 readme = "README.md"
 # 3.9 is the real floor, not a conservative label: utilities/package_resources.py needs
@@ -96,6 +96,8 @@ dependencies = [
 # works the same from a checkout, a wheel, or a conda env, and resolves through PATH like any
 # other program. Every target is a `main()` in the named module; tests/test_console_entry_points.py
 # is table-driven off this block, so a new entry point cannot be added without being tested.
+# Writes a starter study (user_run_files/user_inputs.yaml + the 3compartment resources).
+cuflynx-init = "libcuflynx.scripts.init_script:main"
 cuflynx-generate = "libcuflynx.scripts.script_generate_with_new_architecture:main"
 cuflynx-param-id = "libcuflynx.scripts.param_id_run_script:main"
 # Calibrations and analyses run in order from a calibration_workflow.json, merged into one model.
@@ -142,8 +144,10 @@ where = ["src"]
 "libcuflynx.generators" = ["resources/*.cellml", "resources/*.json"]
 # The Jinja2 templates the C++ generator (model_type: cpp) renders.
 "libcuflynx.generators.cpp" = ["templates/*.j2"]
-# Example input for example_format_obs_data_json_file(), which is itself shipped.
-"libcuflynx.scripts" = ["example_data/*.csv"]
+# Example input for example_format_obs_data_json_file(), which is itself shipped, and the
+# starter study cuflynx-init writes.
+"libcuflynx.scripts" = ["example_data/*.csv", "starter/*.yaml", "starter/*.csv",
+                       "starter/*.json"]
 # JSON Schemas of the input files: every reader validates its file against its schema.
 "libcuflynx.schemas" = ["*.schema.json"]
 

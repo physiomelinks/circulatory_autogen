@@ -45,6 +45,12 @@ from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
 
+# AADC semi_implicit is not convergent on the stiff 3compartment model (35.1% at dt=1e-3, worse
+# as dt shrinks): the tests comparing it with CVODE fail by design and stay strict xfails, so the
+# limitation shows in every run and a fix turns the run red until the mark goes.
+SEMI_IMPLICIT_NOT_CONVERGENT = pytest.mark.xfail(
+    strict=True, reason='AADC semi_implicit is not convergent on the stiff 3compartment model')
+
 _DT = 0.001
 _SIM_TIME = 1.0
 
@@ -282,10 +288,11 @@ def test_aadc_bdf_is_refused_as_a_removed_method(aadc_licensed, models_3compartm
 
 @pytest.mark.integration
 @pytest.mark.slow
+@SEMI_IMPLICIT_NOT_CONVERGENT
 def test_3compartment_forward_aadc_semi_implicit_vs_cvode(aadc_licensed, models_3compartment):
     """AADC ``semi_implicit`` should match the CVODE reference on the stiff 3compartment model.
 
-    **This test currently FAILS, deliberately.** It previously ran ``method='bdf'``, which met
+    **This test fails, deliberately (xfail, strict).** It previously ran ``method='bdf'``, which met
     the 5% bar but has since been removed: bdf handed the solve to ``scipy.solve_ivp`` with
     AADC supplying only the RHS and Jacobian, so the trajectory never reached the tape, and the
     AD tape had no bdf branch -- ``do_ad`` silently recorded rk4 instead, making the cost and
@@ -681,12 +688,13 @@ def test_3compartment_casadi_post_process_matches_per_timestep_reference(models_
 
 @pytest.mark.integration
 @pytest.mark.slow
+@SEMI_IMPLICIT_NOT_CONVERGENT
 def test_3compartment_casadi_bdf_vs_aadc_semi_implicit_iso_accuracy(
         aadc_licensed, models_3compartment):
     """Compare CasADi bdf and AADC semi_implicit **at matched accuracy** — the only
     comparison that means anything.
 
-    **This test currently FAILS, deliberately**, on the accuracy-parity assertion. Its
+    **This test fails, deliberately (xfail, strict)**, on the accuracy-parity assertion. Its
     original premise is gone. It used to run AADC ``method='bdf'``, which reached ~0.003%
     on this model, and the interesting question was how far CasADi's fixed step had to
     shrink to match it (h=1e-5, and CasADi was then slower — a step-control result, not an

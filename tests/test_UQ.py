@@ -25,7 +25,7 @@ import pytest
 
 from _mpi_probes import _pymc_available
 
-from libcuflynx.param_id.paramID import CVS0DParamID
+from libcuflynx.param_id.paramID import CVS0DParamID, UQ_CASE_METHOD, case_dir_name
 from libcuflynx.scripts.param_id_run_script import run_param_id
 # mpi_comm is a fixture defined in test_param_id, so it has to be imported here to be visible to
 # these tests -- not merely referenced in their signatures.
@@ -84,6 +84,14 @@ def _uq_config(base_user_inputs, resources_dir, temp_output_dir, obs_path, libra
     return config
 
 
+def _mcmc_dir(calibration_dir, config):
+    """The directory of the MCMC run that followed the calibration in ``calibration_dir``."""
+    obs = os.path.basename(calibration_dir)[
+        len(f"{config['param_id_method']}_{config['file_prefix']}_"):]
+    return os.path.join(os.path.dirname(calibration_dir),
+                        case_dir_name(UQ_CASE_METHOD, config['file_prefix'], obs))
+
+
 def _load_chain_after_burn_in(output_dir, burn_in):
     chain_file = os.path.join(output_dir, 'mcmc_chain.npy')
     assert os.path.exists(chain_file), 'MCMC chain file should exist'
@@ -140,7 +148,8 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
         output_dir = os.path.join(
             temp_output_dir,
             f"{config['param_id_method']}_{config['file_prefix']}_Simple_ODE_Benchmark_obs_data")
-        samples = _load_chain_after_burn_in(output_dir, config['UQ_options']['burn_in'])
+        samples = _load_chain_after_burn_in(_mcmc_dir(output_dir, config),
+                                           config['UQ_options']['burn_in'])
 
         mcmc_obj = _mcmc_object(config, resources_dir, temp_output_dir)
         mcmc_obj.plot_mcmc()
@@ -185,7 +194,8 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
             temp_output_dir,
             f"{config['param_id_method']}_{config['file_prefix']}_"
             f"Simple_ODE_Benchmark_KDE_obs_data")
-        samples = _load_chain_after_burn_in(output_dir, config['UQ_options']['burn_in'])
+        samples = _load_chain_after_burn_in(_mcmc_dir(output_dir, config),
+                                           config['UQ_options']['burn_in'])
 
         mcmc_obj = _mcmc_object(config, resources_dir, temp_output_dir)
         mcmc_obj.plot_mcmc()
@@ -225,7 +235,8 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
             temp_output_dir,
             f"{config['param_id_method']}_{config['file_prefix']}_"
             f"Simple_ODE_Benchmark_bimodal_obs_data")
-        samples = _load_chain_after_burn_in(output_dir, config['UQ_options']['burn_in'])
+        samples = _load_chain_after_burn_in(_mcmc_dir(output_dir, config),
+                                           config['UQ_options']['burn_in'])
         flat_samples = samples.reshape(-1, samples.shape[-1])
 
         mcmc_obj = _mcmc_object(config, resources_dir, temp_output_dir)

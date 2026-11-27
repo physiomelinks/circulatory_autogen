@@ -15,7 +15,8 @@ from SALib.sample import saltelli
 
 from libcuflynx.parsers.PrimitiveParsers import analysis_options
 from libcuflynx.sensitivity_analysis.parameter_reduction import (
-    PATH_OPTIONS, ParamReduction, PCASobolReduction, SobolReduction, SensitivityFilesError,
+    PATH_OPTIONS, REDUCTIONS, ParamReduction, PCASobolReduction, SobolReduction,
+    SensitivityFilesError,
     run_param_reduction, sobol_run_files)
 from libcuflynx.sensitivity_analysis.sobolSA import jacobian_options
 from libcuflynx.utilities.params_for_id_file import write_params_for_id
@@ -144,9 +145,9 @@ def test_a_pca_reduction_needs_the_saved_samples(tmp_path):
 def test_options_are_the_param_reduction_options_descriptors():
     descriptors = {o['name']: o for o in analysis_options('param_reduction')}
     # every option is read by a method, or says where to read and write
-    read = set(PCASobolReduction.OPTIONS) | set(SobolReduction.OPTIONS) | {'method'}
+    read = set().union(*(cls.OPTIONS for cls in REDUCTIONS.values())) | {'method'}
     assert set(descriptors) == read | set(PATH_OPTIONS)
-    assert descriptors['method']['choices'] == ['pca', 'sobol']
+    assert descriptors['method']['choices'] == list(REDUCTIONS)
     # each method's defaults are the descriptors'
     pca = ParamReduction.from_options({})
     assert isinstance(pca, PCASobolReduction)

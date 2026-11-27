@@ -296,8 +296,8 @@ def _fmt(value):
 
 
 def method_text(settings):
-    from libcuflynx.parsers.PrimitiveParsers import PARAM_ID_METHODS
-    method = settings.get('param_id_method') or 'genetic_algorithm'
+    from libcuflynx.parsers.PrimitiveParsers import DEFAULT_PARAM_ID_METHOD, PARAM_ID_METHODS
+    method = settings.get('param_id_method') or DEFAULT_PARAM_ID_METHOD
     meta = PARAM_ID_METHODS.get(method, {})
     label = meta.get('label') or method
     text = f'Parameters were estimated with {escape(label)} ({_tt(method)})'
@@ -352,7 +352,7 @@ def results_text(result, symbols):
     lines = [r'\begin{center}', r'\small', r'\begin{tabular}{ll}', r'\toprule',
              f'Parameter & Calibrated value ({estimate}) \\\\', r'\midrule']
     for record in result.get('calibrated', []):
-        lines.append(f'{symbols.parameter(record["vessel"], record["param"])} & '
+        lines.append(f'{symbols.parameter(record["module"], record["param"])} & '
                      f'{_number(record["value"])} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}', r'\end{center}']
     cost = result.get('best_cost')
@@ -447,7 +447,11 @@ KIND_NAMES = {'calibration': ('calibration', 'calibrations'),
               'emulation': ('emulator training', 'emulator trainings'),
               'identifiability': ('identifiability analysis', 'identifiability analyses'),
               'set': ('step of values set by hand', 'steps of values set by hand'),
-              'sweep': ('parameter sweep', 'parameter sweeps')}
+              'combine': ('combination of steps', 'combinations of steps'),
+              'sweep': ('parameter sweep', 'parameter sweeps'),
+              'uq': ('uncertainty quantification', 'uncertainty quantifications'),
+              'simulate': ('simulation', 'simulations'),
+              'figure': ('figure step', 'figure steps')}
 _INDEX_NAMES = {'ST': 'total', 'S1': 'first-order'}
 
 
@@ -464,18 +468,33 @@ def _kind(step):
     return step.get('kind', 'calibration')
 
 
+def _figure_declaration(step):
+    '''A figure step's ``{function, inputs}`` as the flow chart takes it; None for another
+    kind.'''
+    if step.kind != 'figure':
+        return None
+    from libcuflynx.calibration_workflow.figures import declaration
+    return declaration(step)
+
+
 def _step_section(step, symbols, entries=()):
     out = [f'\\subsection{{Step {escape(step["id"])}}}', r'\label{sec:step:'
            + step['id'].replace('_', '-') + '}']
     out.append(step.get('intro') or _step_intro(step))
     if step.get('description'):
         out.append(_sentence(step['description']))
-    if _kind(step) in ('reduction', 'set'):
+    if _kind(step) in ('reduction', 'set', 'combine', 'figure'):
         return '\n\n'.join(out)
     if step.get('emulator_from'):
         out.append(f'It runs on the emulator trained in step {escape(step["emulator_from"])} '
                    f'(Section~\\ref{{sec:step:{step["emulator_from"].replace("_", "-")}}}), '
                    'not on the model.')
+    if step.get('emulator_dir'):
+        out.append(f'It runs on the emulator in {_tt(os.path.basename(step["emulator_dir"]))}, '
+                   'trained outside the workflow, not on the model.')
+    if step.get('start_from'):
+        out.append(f'Its fit starts at the values of its parameters in step '
+                   f'{escape(step["start_from"])}.')
     if step.get('params_for_id_from'):
         out.append(f'It calibrates the parameters kept by step '
                    f'{escape(step["params_for_id_from"])}.')
@@ -497,7 +516,7 @@ def _step_section(step, symbols, entries=()):
             out.append(f'The values {word} step' + ('s ' if len(given) > 1 else ' ')
                        + ', '.join(escape(s) for s in given)
                        + ' were fixed in this step\'s model.')
-    if _kind(step) == 'sweep':
+    if _kind(step) in flowchart.SWEEP_KINDS:
         out.append(r'\paragraph{Method.} ' + _analysis_method(step))
         return '\n\n'.join(out)
     for prior in step['priors_from']:
@@ -524,7 +543,7 @@ def _step_section(step, symbols, entries=()):
         out.append(r'\paragraph{Uncertainty.} ' + uq_text(step['settings']))
     if step.get('result') and _kind(step) == 'calibration':
         out.append(r'\paragraph{Result.} ' + results_text(step['result'], symbols['step']))
-    elif _kind(step) == 'identifiability' and (step.get('result') or {}).get('laplace'):
+    elif _kind(step) in ('identifiability', 'uq') and (step.get('result') or {}).get('laplace'):
         result = step['result']
         stds = ', '.join(f'{escape(name)}: {_number(value)}' for name, value in
                          zip(result['parameters'], result['laplace']['std']))
@@ -536,12 +555,13 @@ def _step_section(step, symbols, entries=()):
 #: what the Parameters paragraph says a non-calibration step does with its parameters
 ANALYSED = {'sensitivity': 'whose influence was analysed',
             'emulation': 'the emulator was trained over',
-            'identifiability': 'whose identifiability was analysed'}
+            'identifiability': 'whose identifiability was analysed',
+            'uq': 'whose uncertainty was quantified'}
 
 
 def _analysis_method(step):
     settings, kind = step['settings'], _kind(step)
-    if kind == 'sweep':
+    if kind in flowchart.SWEEP_KINDS:
         sweep = step['sweep']
         model = ('The merged target, with every calibrated and hand-set value,'
                  if step.get('on_target') else 'The model')
@@ -566,6 +586,16 @@ def _analysis_method(step):
         return (f'An emulator of the observables was trained on '
                 f'{em.get("num_train_samples", 128)} model runs '
                 f'({escape(str(em.get("sample_type", "sobol")))} sampling).')
+    if kind == 'uq':
+        from libcuflynx.calibration_workflow.spec import uq_method
+        point = ('the values of step ' + escape(step['result_from'])
+                 if step.get('result_from') else 'the model\'s values')
+        if uq_method(settings) == 'laplace':
+            ia = settings.get('ia_options') or {}
+            return (f'The Laplace approximation of the posterior at {point}, with gradients by '
+                    f'{escape(str(ia.get("gradient_source", "FD")))}; its samples are stored.')
+        return uq_text(settings).replace('After the fit, the', 'The').replace(
+            'starting from the best fit', f'starting from {point}')
     ia = settings.get('ia_options') or {}
     return (f'The {escape(str(ia.get("method", "Laplace")))} approximation of the posterior '
             f'at the calibrated values, with gradients by '
@@ -576,6 +606,10 @@ def _step_intro(step):
     '''What the step does, on which model, against which observations.'''
     if _kind(step) == 'reduction':
         options = step['reduction']
+        if options.get('method') == 'manual':
+            return ('This step keeps parameters chosen by hand: '
+                    + _join([_tt(name) for name in options['parameters']])
+                    + f'. Reason: {escape(options["reason"].rstrip("."))}.')
         index_name = _INDEX_NAMES[options.get('index_type', 'ST')]
         source = escape(step['sensitivity_from'])
         if options.get('method', 'pca') == 'pca':
@@ -600,12 +634,36 @@ def _step_intro(step):
                 + (f'component {s["mode"]}, ' if s.get('mode') else '')
                 + f'{_number(s["score"])})' for s in selected]) + '.'
         return text
+    if _kind(step) == 'figure':
+        figure = step['figure']
+        reads = _join([f'{escape(source["kind"].replace("_", " "))} of step '
+                       f'{escape(source["step"])}' for source in figure['inputs'].values()])
+        return (f'This step draws figures with {_tt(figure["function"])} from the {reads}. '
+                f'It runs no simulation.')
     if _kind(step) == 'set':
         lines = [flowchart.latex(flowchart.set_line(entry)) for entry in step['set']]
         return 'This step sets values by hand: ' + '; '.join(lines) + '.'
+    if _kind(step) == 'combine':
+        inputs = _join([escape(s) for s in step['combine_from']])
+        result = step.get('result') or {}
+        if step['combine'].get('method') == 'mean':
+            return (f'This step gives each parameter the mean of its values in steps {inputs}; '
+                    'its values replace theirs in later steps and in the target.')
+        text = (f'This step takes the values of the calibration with the lowest cost among '
+                f'steps {inputs}; its values replace theirs in later steps and in the target.')
+        if result.get('chosen_from'):
+            text += (f' It took those of step {escape(result["chosen_from"])} '
+                     f'(cost {_number(result["best_cost"])}).')
+        return text
     m = step['model']
     if 'module_array' in m:
         what = f'the model {_tt(_array_label(m))} ({_tt(os.path.basename(m["module_array"]))})'
+        where = ''
+    elif 'external_model_path' in m:
+        what = f'the external Python model {_tt(os.path.basename(m["external_model_path"]))}'
+        where = ''
+    elif 'cellml_model_path' in m:
+        what = f'the CellML model {_tt(os.path.basename(m["cellml_model_path"]))}'
         where = ''
     else:
         what = (f'parameterisation {_tt(m["parameterisation"])} of module '
@@ -614,7 +672,8 @@ def _step_intro(step):
     verb = {'calibration': 'calibrates', 'sensitivity': 'analyses the sensitivity of',
             'emulation': 'trains an emulator of',
             'identifiability': 'analyses the identifiability of',
-            'sweep': 'sweeps parameters of'}[_kind(step)]
+            'sweep': 'sweeps parameters of', 'simulate': 'simulates',
+            'uq': 'quantifies the uncertainty of the parameters of'}[_kind(step)]
     at = (f', at the values calibrated in step {escape(step["result_from"])}'
           if step.get('result_from') else '')
     against = (f', against the observations in {_tt(os.path.basename(step["obs_path"]))}'
@@ -634,7 +693,7 @@ def _target_name(fixed_record, step):
     if to_target is None:
         return fixed_record['model_name']
     try:
-        return model_name(to_target(fixed_record['vessel']), fixed_record['param'])
+        return model_name(to_target(fixed_record['module']), fixed_record['param'])
     except ValueError:
         return fixed_record['model_name']
 
@@ -655,8 +714,13 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     ``bib_out`` is a .bib file to write the cited entries to, for ``\\bibliography``.
     '''
     from libcuflynx.calibration_workflow import load_workflow, resolve_workflow, workflow_model
+    from libcuflynx.calibration_workflow.runner import read_step_result
 
     workflow = load_workflow(workflow_path, module_library_dirs)
+    if workflow.target.kind == 'external':
+        raise ValueError(f'workflow "{workflow.name}": the methods are written from the target\'s '
+                         f'CellML, and its target is the external Python model '
+                         f'{workflow.target.path}.')
     resolved = resolve_workflow(workflow)
     with tempfile.TemporaryDirectory(prefix='cuflynx-methods-') as work:
         view = workflow_model(workflow, 'target', output_dir=run_dir or os.path.join(work, 'run'),
@@ -676,7 +740,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
         if run_dir:
             path = os.path.join(run_dir, step.id, 'step_result.json')
             if os.path.isfile(path):
-                result = _load_json(path)
+                result = read_step_result(path)
                 if result.get('status') != 'done':
                     result = None
         results[step.id] = result
@@ -687,21 +751,27 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'priors_from': [p.as_dict() for p in step.priors_from],
             'store_distribution': step.store_distribution, 'result': result,
             'emulator_from': step.emulator_from, 'result_from': step.result_from,
+            'emulator_dir': step.emulator_dir, 'start_from': step.start_from,
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
-            'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
+            'set': step.set_values + step.set_thetas, 'sweep': step.sweep,
+            'on_target': step.on_target,
+            'combine': step.combine, 'combine_from': list(step.combine_from),
+            'figure': _figure_declaration(step),
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
-        if step.kind == 'sweep':
+        if step.kind in flowchart.SWEEP_KINDS:
             entry.update({'model': step.model.as_dict(), 'place': rs.place,
                           'to_target': rs.to_target, 'obs_path': rs.obs_data_path,
                           'obs': {}, 'params': []})
         elif step.model is not None:
             # a calibration of a reduction's choice: what it kept, once it has run; until
             # then every parameter it chooses from
-            params_path = ((result or {}).get('params_for_id_used') or step.params_for_id
-                           or workflow.step(workflow.step(step.params_for_id_from)
-                                            .sensitivity_from).params_for_id)
+            params_path = (result or {}).get('params_for_id_used') or step.params_for_id
+            if not params_path:
+                reduction = workflow.step(step.params_for_id_from)
+                params_path = reduction.params_for_id or \
+                    workflow.step(reduction.sensitivity_from).params_for_id
             entry.update({
                 'model': step.model.as_dict(), 'place': rs.place, 'to_target': rs.to_target,
                 'obs_path': rs.obs_data_path, 'obs': _load_obs_data(rs.obs_data_path),
@@ -716,7 +786,9 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     calibrations = [s for s in steps if s['kind'] == 'calibration']
     n_merged = sum(len(results[s['id']]['calibrated']) for s in calibrations
                    if results[s['id']]) or sum(len(s['params']) for s in calibrations)
-    latest = {record['target_model_name']: s['id'] for s in calibrations
+    # a combine step's records are calibrated values too, and it runs after its inputs
+    latest = {record['target_model_name']: s['id'] for s in steps
+              if s['kind'] in ('calibration', 'combine')
               for record in (results[s['id']] or {}).get('calibrated', [])}
     nodes, edges = flowchart.workflow_graph(
         graph_steps + [{'id': None, 'model': workflow.target.as_dict(), 'n_merged': n_merged,
@@ -739,7 +811,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                 name = rs.target_model_name(parameter)
                 set_by_hand[name] = (step.id, entry['reason'])
                 calibrated.pop(name, None)
-        if step.kind != 'calibration':
+        if step.kind not in ('calibration', 'combine'):
             continue
         result = results.get(step.id)
         if result:
@@ -906,7 +978,7 @@ def _param_id_result(run_dir, params):
     calibrated = []
     for entry, value in zip(params, best):
         for vessel, param in entry['targets']:
-            calibrated.append({'vessel': vessel, 'param': param, 'value': float(value)})
+            calibrated.append({'module': vessel, 'param': param, 'value': float(value)})
     cost_path = os.path.join(run_dir, 'best_cost.npy')
     cost = float(np.load(cost_path)) if os.path.isfile(cost_path) else None
     return {'calibrated': calibrated, 'best_cost': cost, 'point_estimate': 'best_fit'}

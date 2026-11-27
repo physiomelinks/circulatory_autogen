@@ -34,6 +34,7 @@ The keys of an entry:
 
 - **targets**: the model parameters this calibrated value sets, all to the same value, named as in the `[file_prefix]_parameters.json` file: `<vessel>/<variable>` (`aortic_root/C`), a nested vessel by its path (`heart/lv/E_A`, a supermodule instance's submodule) and a global constant as `global/<variable>`.
 - **modifies**, **modifier**, **inputs** (instead of **targets**): a modifier entry, whose calibrated value acts on the parameters it lists through a modifier function (`scale`, `remainder`, or your own, see `modifier_funcs_external_path`).
+- **theta** (a modifier entry only): the value the entry starts at in a calibration and is analysed about in a local sensitivity analysis. By default it is the one that leaves the modified parameters at their values in the model (1 for `scale`).
 - **name**: the entry's name, unique in the file; by default its first target.
 - **min**, **max**: the range of possible values (the uniform prior's bounds, the optimiser's search box).
 - **param_type**: **"state"** or **"const"**; whether the parameter is the initial value of a state or a const.
@@ -112,6 +113,9 @@ is mainly used to simulate for an amout of time to reach steady state or periodi
 - **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Calibration runs it once, before the first evaluation, and every evaluation starts from its end state. Supported by the `CVODE_myokit`, `CVODE_libopencor`, `casadi_python`, `python` (`solve_ivp`) and `aadc_python` backends; an emulator ignores it (its training already covered the warmup) and an `external_python` model raises, because its `run()` always starts from the initial condition. A traced input (`protocol_traces` / `protocol_shapes`) is held at its value at the start of experiment 0 during this warmup. It cannot be combined with a calibration parameter that sets a state's initial value: the frozen state would not move with that parameter, so the run stops with `OFFLINE_PRE_TIME_INIT_STATE_ERROR` (reformulate in terms of a constant parameter, e.g. total volume rather than initial LV volume). Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
 - **sim_times**: The length in time of each subexperiment. shape=(number of experiments, number of subexperiments) -- Note: the shape isn't completely correct here, the number of subexperiments can be different for each experiment
 - **params_to_change**: A dictionary where the key is a parameter name and the entry is the assigned value of that parameter in each (experiment_idx, subexperiment_idx).
+- **params_to_change_factors** (optional, calibration workflow steps only): The same shape as
+`params_to_change`, each entry a number that multiplies the value the step's model gives that
+parameter -- see [Protocol factors](#protocol-factors).
 - **experiment_colors**: The line color for the plots of each experiment. 
 - **experiment_labels**: The label for each experiment, which is used for plotting and naming plots.
 - **protocol_traces** (optional): Named `{"t": [...], "values": [...]}` waveforms. A `params_to_change`
@@ -719,7 +723,7 @@ An example for the maximum likelihood estimator for gaussian noise (equivalent t
 
 Note:
 
-- Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/FinbarArgus/circulatory_autogen/issues/84)
+- Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/physiomelinks/circulatory_autogen/issues/84)
 
 ## Solver
 
@@ -733,8 +737,10 @@ Before doing calibration, a solver for the model needs to be chosen
     - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes` (the default), `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`. `cvodes` and `idas` integrate each run as one solve over the output times, pass the model the true time, and can drive a constant from a `protocol_traces` trace as `CVODE_myokit` does. `jit` (on by default) compiles the model to C (see below).
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
 - **solver_info** defines settings for the chosen solver:
-    - **dt_solver**: solver time step: sets `MaximumStep` for CVODE and `max_step_size` for
-      `casadi_integrator` when those are not given
+    - **dt_solver**: the step of the fixed-step and C++ solvers; sets `max_step_size` for
+      `casadi_integrator` and `max_step` for `solve_ivp` when those are not given. The CellML
+      (variable-step) solvers do not read it: giving it with a different `MaximumStep` is an
+      error, and giving it without `MaximumStep` warns that the step is unbounded
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_libopencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
@@ -898,16 +904,17 @@ Before doing calibration, a solver for the model needs to be chosen
 To run the parameter identification we need to set a few entries in the `[CA_dir]/user_run_files/user_inputs.yaml file`:
 
 - **param_id_method**: this defines the optimisation method we use. Currently supported methods are:
-    - **genetic_algorithm**: Genetic algorithm optimizer (default, well-tested)
-    - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (supports parallel execution)
+    - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (the default when `param_id_method` is not set; supports parallel execution)
+    - **genetic_algorithm**: Genetic algorithm optimizer (well-tested; its default population is 744 per generation, so it needs a budget of at least that many evaluations)
     - **bayesian**: Bayesian optimization using scikit-optimize (deprecated, untested)
     - **sp_minimize**: Gradient-based optimizer (L-BFGS-B, local only)
     - **multi_start_sp_minimize**: Multi-start L-BFGS-B — a gradient-based descent from many scattered starting points, so it exploits the gradient but still escapes local minima
 - **pre_time**: the unlogged time a plain simulation (no obs_data) runs to reach steady state. A calibration is timed by the `pre_times` and `sim_times` in the obs_data's `protocol_info`, which every obs_data must have (see the next section).
 - **sim_time**: the logged duration of a plain simulation (no obs_data). A calibration takes its durations from the obs_data's `sim_times`. 
 - **dt**: The output (sample) time step for model outputs
-- **solver_info.dt_solver**: The solver time step for CVODE (sets MaximumStep when provided)
-- **solver_info.MaximumStep**: The CVODE maximum step size if dt_solver is not provided
+- **solver_info.MaximumStep**: The CVODE maximum step size (`CVODE_myokit`, `CVODE_libopencor`)
+- **solver_info.dt_solver**: The step of the fixed-step and C++ solvers. A CellML solver does not
+  read it, and refuses a `dt_solver` that differs from `MaximumStep`
 - **param_id_obs_path**: the path to the `obs_data.json` file described above (absolute or relative to your `user_inputs.yaml`).
 - **optimiser_options**: Dictionary for optimizer-specific options. Common options shared across optimisers:
     - **num_calls_to_function**: Maximum number of function evaluations (default: 10000)
@@ -917,10 +924,11 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
   
     CMA-ES specific options:
 
-    - **sigma0**: not applied: Nevergrad's CMA-ES picks the initial step itself, in a space scaled per parameter to (max - min) / 6, and a run given `sigma0` says so
+    - The initial step is not an option: Nevergrad's CMA-ES picks it itself, in a space scaled per parameter to (max - min) / 6. `sigma0` was removed; a config that names it is refused
     - Note: 
         - The number of parallel workers is automatically determined from the number of MPI processes
         - Initial parameter values are automatically loaded from `{file_prefix}_parameters.json`
+        - The start value is evaluated first, as one of `num_calls_to_function`, so a run never ends with a worse cost than its start (a warm start or a profile likelihood point stays at least as good)
     
     sp_minimize specific options:
 
@@ -965,6 +973,10 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 - **Pros**: Efficient gradient-free optimization, supports parallel execution, good convergence properties
 - **Cons**: Requires Nevergrad package (`pip install nevergrad`)
 - **Best for**: Smooth optimization landscapes, when you want faster convergence with parallel execution
+- **One parameter**: Nevergrad runs a different search (OnePlusOne) in one dimension, which can stall on a
+  parameter's bounds, so a one-parameter calibration searches a second, unused variable beside it and runs
+  CMA-ES (`benchmarks/cmaes_one_parameter.py`). For a single parameter of a smooth cost, `sp_minimize` is
+  usually faster.
 
 Example configuration for CMA-ES:
 ```yaml
@@ -1027,67 +1039,55 @@ is a standard hard case for parameter estimation: its least-squares surface has 
 `sp_minimize` never leaves the basin it starts in. The genetic algorithm escapes it but, being gradient-free, converges slowly. The multi-start finds the global basin *and* refines it with the gradient — whatever gradient backend drives it (finite differences, CasADi AD, or Myokit CVODES FSA). The table below is regenerated by the benchmark runner (`python benchmarks/run_benchmarks.py --update-docs`) and by the **Benchmarks** GitHub Actions workflow, so the published numbers stay current; they depend on the hardware and MPI rank count used.
 
 <!-- BENCHMARK_RESULTS_START -->
-*Generated by `benchmarks/run_benchmarks.py --scaling`; wall-clock times depend on the hardware.*
+*Generated by `benchmarks/run_benchmarks.py`; numbers depend on the hardware and MPI rank count used.*
 
 ### FitzHugh-Nagumo (non-stiff, multi-modal)
 
 Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-B driven by four gradient sources. Holding the optimiser fixed and varying only the gradient isolates what the gradient buys.
 
-*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+*1 MPI rank(s); 30000 cost evaluations for the population methods; 16 starts for multi-start.*
 
-| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
-|---|---|---|---|---|---|---|
-| `genetic_algorithm` | 1.6932e-03 | 0.0036 | 651.7 | 363.7 | 252.5 | 360.8 |
-| `CMA-ES` | 1.4413e+02 | 0.9265 | 19.3 | 14.3 | 8.5 | 15.3 |
-| `multi_start (FD)` | 2.5232e-03 | 0.0086 | 86.8 | 46.8 | 51.7 | 55.0 |
-| `multi_start (CasADi AD)` | 3.9704e-06 | 0.0006 | 80.9 | 45.5 | 52.8 | 54.6 |
-| `multi_start (Myokit FSA)` | 3.8261e-06 | 0.0006 | 12.5 | 6.6 | 8.1 | 7.3 |
-| `multi_start (AADC AD)` | 1.3751e-06 | 0.0002 | 3.9 | 2.2 | 3.4 | 3.8 |
+| method | best cost | time (s) | max param err |
+|---|---|---|---|
+| `genetic_algorithm` | 1.9049e-03 | 257.9 | 0.0125 |
+| `CMA-ES` | 1.4413e+02 | 286.2 | 4.0000 |
+| `multi_start (FD)` | 2.4545e-03 | 40.0 | 0.0359 |
+| `multi_start (CasADi AD)` | 9.6440e-06 | 66.0 | 0.0019 |
+| `multi_start (Myokit FSA)` | 2.0599e-06 | 86.8 | 0.0021 |
+| `multi_start (AADC AD)` | _skipped — no Matlogica licence in this environment_ |  |  |
 
 True parameters: a=0.2, b=0.2, c=3.
-
-### 3compartment cardiovascular (stiff, 20 s warmup)
-
-Gradient-free global searches vs multi-start L-BFGS-B with the two stiff-capable gradient backends. AADC is not run on this stiff model.
-
-*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
-
-| method | best cost | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
-|---|---|---|---|---|---|
-| `genetic_algorithm` | 2.4738e-02 | 841.0 | 428.7 | 261.3 | 237.9 |
-| `CMA-ES` | 3.2210e-02 | 38.1 | 88.9 | 12.2 | 11.3 |
-| `multi_start (Myokit FSA)` | 2.2553e-02 | 1946.6 | 1072.9 | 726.3 | 478.8 |
-| `multi_start (CasADi bdf)` | 2.2753e-02 | 858.4 | 476.2 | 332.8 | 339.0 |
-| `multi_start (AADC AD)` | _skipped — AADC's tape cost covers only state-operand observables with a reimplemented op (max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full one -- excluded until it can replicate the same cost (upstream issue #258)_ |  |  |  |  |
 
 ### Goodwin oscillator (external PMR CellML, non-stiff, multimodal)
 
 Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-B (finite differences and Myokit CVODES FSA) recovering rate constants of the Goodwin 1965 oscillator, taken directly from the Physiome Model Repository as external CellML. Oscillatory dynamics make the least-squares surface multimodal.
 
-*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+*1 MPI rank(s); 30000 cost evaluations for the population methods; 16 starts for multi-start.*
 
-| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
-|---|---|---|---|---|---|---|
-| `genetic_algorithm` | 8.5746e-04 | 0.8738 | 43.7 | 23.4 | 16.2 | 17.3 |
-| `CMA-ES` | 6.5308e-05 | 0.6075 | 32.9 | 1.8 | 44.4 | 25.1 |
-| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.0 | 7.2 | 4.7 | 4.5 |
-| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.3 | 7.0 | 6.1 | 6.5 |
-| `multi_start (CasADi AD)` | 1.3147e-12 | 0.0000 | 57.6 | 34.0 | 29.2 | 31.9 |
+| method | best cost | time (s) | max param err |
+|---|---|---|---|
+| `genetic_algorithm` | 2.0251e-04 | 83.6 | 0.0046 |
+| `CMA-ES` | 2.7517e-06 | 112.0 | 0.0017 |
+| `multi_start (FD)` | 9.1452e-15 | 26.7 | 0.0000 |
+| `multi_start (Myokit FSA)` | 1.3269e-13 | 117.6 | 0.0000 |
+| `multi_start (CasADi AD)` | 1.3147e-12 | 69.7 | 0.0000 |
 
 True parameters: a_i=72, b_i=2, A_i=36.
 
 ### Teusink 2000 yeast glycolysis (external PMR CellML, 14 states, stiff regions)
 
-The realistic, many-parameter case: recover four enzyme v_max values from metabolite time courses of the Teusink 2000 glycolysis model, taken from the Physiome Model Repository as external CellML (originally a BioModels SBML export). 14 coupled metabolite states and 90 constants, with stiff regions in the search box -- a much harder calibration than the small oscillator benchmarks.
+The realistic, many-parameter case: recover four enzyme v_max values from metabolite time courses of the Teusink 2000 glycolysis model, taken from the Physiome Model Repository as external CellML (originally a BioModels SBML export). 14 coupled metabolite states and 90 constants, with stiff regions in the search box -- a much harder calibration than the small oscillator benchmarks. Multi-start finite differences also run on the batched C solvers (CVODES_batched_c, BE_batched_c).
 
-*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+*1 MPI rank(s); 5000 cost evaluations for the population methods; 16 starts for multi-start.*
 
-| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
-|---|---|---|---|---|---|---|
-| `genetic_algorithm` | 1.8364e-03 | 0.1604 | 17.6 | 13.3 | 10.8 | 14.9 |
-| `CMA-ES` | 6.9858e-09 | 0.0001 | 2.2 | 2.5 | 2.8 | 5.3 |
-| `multi_start (FD)` | 2.5485e-15 | 0.0000 | 20.7 | 10.5 | 8.4 | 13.2 |
-| `multi_start (Myokit FSA)` | 4.0186e-15 | 0.0000 | 400.1 | 191.8 | 150.1 | 133.3 |
+| method | best cost | time (s) | max param err |
+|---|---|---|---|
+| `genetic_algorithm` | 8.9298e-04 | 29.0 | 0.0799 |
+| `CMA-ES` | 7.1010e-09 | 3.6 | 0.0003 |
+| `multi_start (FD)` | 3.2838e-15 | 35.2 | 0.0000 |
+| `multi_start (Myokit FSA)` | 3.8772e-15 | 2500.2 | 0.0000 |
+| `multi_start (FD, CVODES_batched_c)` | 3.9399e-15 | 23.5 | 0.0000 |
+| `multi_start (FD, BE_batched_c)` | 8.5629e-07 | 24.2 | 0.0001 |
 
 True parameters: Vmax_GLK=226.452, Vmax_PGI=339.677, Vmax_PYK=1088.71, Vmax_GAPDH_f=1184.52.
 <!-- BENCHMARK_RESULTS_END -->
@@ -1122,12 +1122,6 @@ Following a successful parameter id process, the model with updated parameters c
     - `all_outputs_with_best_param_vals_exp_{i}.npz` — written when calibration completes successfully.
     - `all_outputs_with_best_param_vals_exp_{i}_plot.npz` — written at the start of every `plot_outputs()` call. Use these to recover trajectories after an interrupted run as long as `best_param_vals.npy` exists in the same output folder.
 
-If you already have a model and do not want to run autogeneration, use:
-
-```
-./run_param_id_without_autogen.sh <NUM_CORES>
-```
-
 ### The study working dir
 
 `param_id_output_dir` is the study's **working dir**: every calibration, MCMC, sensitivity
@@ -1154,10 +1148,25 @@ anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
           emulator/                   an emulator trained elsewhere
           workflows/<workflow_name>/  a calibration workflow, packed (see Calibration workflows)
         user_inputs/user_inputs_<yymmdd>.yaml  each day's resolved config
-    <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
+    <prefix>_calibrated.cellml        the model with the best fit written in, from
+                                      CVS0DParamID.write_calibrated_model (a pipeline bundle's
+                                      run_pipeline.py writes it after its calibration)
+    <method>_<prefix>_<obs_data>/     each calibration, <method> its param_id_method
+    mcmc_<prefix>_<obs_data>/         the MCMC run (mcmc_chain.npy, its statistics and plots),
+                                      a directory of its own beside the calibration it follows
     sensitivity/                      Sobol and local sensitivity output
     emulators/                        trained emulators
 ```
+
+A calibration and the MCMC run that follows it each have a directory and an entry in the
+manifest's `runs`. The obs_data and params_for_id a run used are the copies in `inputs/` that
+its manifest entry names; a run with no working dir (`write_cuflynx_study: false` or
+`cuflynx_study_copy_inputs: false`) copies them into its run directory instead, with a
+`_<yymmdd>_<HHMMSS>` suffix.
+
+A pipeline bundle written by `cuflynx-generate-pipeline` is a working dir too: its
+`run_pipeline.py` writes the manifest, the run directories, `sensitivity/` and `inputs/` into
+the bundle folder.
 
 An input is copied when the manifest is written, once per content, into a folder named for the
 date-time (local time) it was first used, for example `inputs/obs_data/2026-10-31_091502/obs.json`.
@@ -1238,6 +1247,41 @@ generate_with_new_architecture(False, dict(inp, model_type='cellml',
 | `write_cuflynx_study` | `true` | `false` writes no manifest and copies nothing; sensitivity output and the dated user_inputs go where `cuflynx_study_copy_inputs: false` puts them |
 | `cuflynx_study_copy_inputs` | `true` | `false` copies nothing: the manifest names each input outside the working dir by its absolute path and records the working dir as `study_dir`; sensitivity output defaults to `sensitivity_outputs/<file_prefix>_SA_results` and the dated `user_inputs_<yymmdd>.yaml` goes in `resources_dir` |
 
+### The calibrated model
+
+`libcuflynx.param_id.calibrated_model` writes values into a CellML file. It is the one writer of
+a calibrated CellML: `CVS0DParamID.write_calibrated_model`, a calibration workflow's CellML
+steps and CUFLynx all use it, so one best fit gives one file.
+
+```python
+from libcuflynx.param_id.calibrated_model import (substitute_parameter_values,
+                                                  write_calibrated_model, write_cellml_values)
+
+report = write_cellml_values('model.cellml', {'aortic_root/C': 2e-8, 'global/E_lv_A': 4e8},
+                             'model_calibrated.cellml', flatten=None)
+# {'updated': ['aortic_root/C', 'global/E_lv_A'], 'unresolved': [],
+#  'resolved': {'aortic_root/C': 'parameters/C_aortic_root',
+#               'global/E_lv_A': 'parameters_global/E_lv_A'},
+#  'path': 'model_calibrated.cellml', 'flattened': True}
+new_text, report = substitute_parameter_values(cellml_text, values)   # the same, on text
+write_calibrated_model(cellml_path, param_id_info, best_param_vals, output_path,
+                       flatten=None, return_report=True)               # from a best fit
+```
+
+A value is named `vessel/param` (resolved by `model_qname_candidates`, so `aortic_root/C` is
+`parameters/C_aortic_root` and `global/E_lv_A` is `parameters_global/E_lv_A` in a generated
+model) or `component/variable`. Only a variable with a numeric initial value in a component
+the file defines is written. The report lists the names written (`updated`), those with no such
+variable (`unresolved`, which `write_calibrated_model` also names in a warning) and where each
+went (`resolved`, `component/variable`; PhLynx reads back only the values in `parameters` and
+`parameters_global`).
+
+`flatten=None` (the default) flattens a file that has imports: a generated model imports its
+parameters from `<prefix>_parameters.cellml`, so the calibrated model is one flattened file
+that runs by itself. A file with no imports is written as it is, with only the
+initial values changed. `flatten=False` writes the file itself whatever it imports (its
+imported constants are then `unresolved`); `flatten=True` always flattens.
+
 ## Calibration workflows
 
 Some parameters can only be calibrated in a larger model, after its parts have been calibrated
@@ -1287,6 +1331,232 @@ a layout to copy. The same chain written with library modules is
 `.../screened/calibration_workflow.json` adds a Sobol screen, a reduction and an
 identifiability analysis to it (see [Step kinds](#step-kinds)).
 
+### Building a workflow in Python
+
+`WorkflowBuilder` makes the same file with API calls, so a script or a notebook needs no
+hand-written JSON. The obs_data and params_for_id can be dicts, as `CVS0DParamID` takes them
+(or an `ObsDataCreator`). Every method is in the
+[API reference](api/calibration-workflow.md).
+
+#### One calibration
+
+With the example models of [Try it](#try-it) in `wf_example`, fit `p` of the vessel `A`
+(`y = 2 p^2`) to `y = 8`:
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder
+
+settings = {'param_id_method': 'CMA-ES', 'dt': 0.1,
+            'optimiser_options': {'num_calls_to_function': 400, 'cost_convergence': 1e-14,
+                                  'max_patience': 60, 'seed': 1, 'cost_type': 'gaussian_MLE'}}
+wf = WorkflowBuilder('one_fit', target='wf_example/arrays/a_only_module_array.json',
+                     directory='wf_one', module_library_dirs=['wf_example/modules'],
+                     settings=settings)
+wf.add_calibration(
+    'fit',
+    obs_data={'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]],
+                                'params_to_change': {}},
+              'data_items': [{'data_item_name': 'y_a', 'data_type': 'constant',
+                              'unit': 'dimensionless', 'operands': ['A/y'],
+                              'operation': 'mean', 'value': 8.0, 'std': 0.08}]},
+    params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.run()
+wf.result('fit')['values']      # {'A/p': 2.0}
+```
+
+- `target` is the model the calibrated values are merged into, and the model of every step
+  that names none: a module array path (or `module_array(path, parameters=...)`), or
+  `library_module(type, version, parameterisation)`.
+- `directory` is where the workflow file and its data are written; the run goes to
+  `<directory>/workflow_output/<name>` (`wf.output_dir`).
+- `module_library_dirs` is needed whenever a model names modules of a module library, as these
+  arrays do (`"parameterisation": "default"` of `lin_a`).
+- `settings` are `user_inputs.yaml` keys. A calibration needs its `param_id_method` and that
+  method's `optimiser_options` (`genetic_algorithm`, the method when none is named, requires
+  `num_calls_to_function`). `wf.check()` names what is missing, without running anything;
+  `wf.update_settings(...)` changes settings later.
+
+`wf.run()` checks the workflow, writes it and runs it. It prints one `[workflow]` line per
+step; everything else a step writes (the optimiser's iterations, compiler output, warnings)
+goes to `<output_dir>/<step>/log.txt`, and what is written outside the steps to
+`<output_dir>/workflow_log.txt`. `wf.run(verbose=True)` prints all of it as well.
+
+`print(wf)` lists the steps and whether each has run. `wf.show_status()` prints a table with
+each step's state (`done`, `stale`, `not run`), best cost and finish time, and
+`wf.show_plan()` one with each step's model, the steps it takes from and the parameters it
+gives; `wf.status()` and `wf.plan()` return the same as dicts.
+
+#### A chain of steps
+
+The chain of [Try it](#try-it): `a-alone` calibrates `p` on a model of `A` alone, then `chain`
+calibrates `q` in the whole chain (`z = y + q^2`) with `p` fixed.
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder, module_array
+
+def obs(item, operand, value, std, operation='mean'):
+    return {'protocol_info': {'pre_times': [0.0], 'sim_times': [[1.0]], 'params_to_change': {}},
+            'data_items': [{'data_item_name': item, 'data_type': 'constant',
+                            'unit': 'dimensionless', 'operands': [operand],
+                            'operation': operation, 'value': value, 'std': std}]}
+
+arrays = 'wf_example/arrays'
+wf = WorkflowBuilder('chain_from_python', target=module_array(f'{arrays}/chain_module_array.json'),
+                     directory='wf_python', module_library_dirs=['wf_example/modules'],
+                     settings=settings)
+wf.add_calibration('a-alone', model=module_array(f'{arrays}/a_only_module_array.json'),
+                   obs_data=obs('y_a', 'A/y', 8.0, 0.08),
+                   params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.add_calibration('chain', obs_data=obs('z_c', 'C/z', 17.0, 0.17),
+                   params_for_id=[{'vessel_name': 'C', 'param_name': 'q', 'min': 0.1, 'max': 10}],
+                   fixed_from=['a-alone'])
+wf.plan()                       # the order, and where each parameter lands; runs nothing
+wf.run()                        # A/p = 2, then C/q = 3
+wf.result('chain')['values']    # {'C/q': 3.0}
+```
+
+`add_calibration`, `add_sensitivity`, `add_reduction`, `add_emulation`, `add_identifiability`,
+`add_uq`, `add_set`, `add_combine` and `add_sweep` make the [step kinds](#step-kinds). Their keyword arguments are the
+step's keys from [The file](#the-file); the options a kind takes in its `settings` are an
+argument of their own (`sa_options=`, `ia_options=`, `uq_options=`, `emulator_settings=`, and for a reduction
+`method=`, `n_params=`, ...). `add_step(id, kind=..., **keys)` takes any step as its raw keys.
+In all of them `model` defaults to the target. `library_module(type, version,
+parameterisation)`, `module_array(path, parameters=None)`, `external_model(path)`, `cellml_model(path,
+parameters=None)`, `selection(*instances)`,
+`fixed(step, parameters=)`, `prior(step, kind=, inflate=, parameters=)`,
+`set_value(parameter, value, reason=)`, `scale_value(parameter, scale, of=, reason=)`
+and `set_theta(entry, theta, reason=)` give a step's model, fixed values, priors and
+set entries. A
+step is checked against the schema when it is added.
+
+Values set by hand go in a `set` step (`add_set`), not in a parameters dict: each carries its
+reason into the provenance.
+
+#### Your own operations
+
+An obs_data item's `operation` can be a function defined in the script or in a notebook cell:
+
+```python
+import numpy as np
+from libcuflynx.param_id.operation_funcs import series_to_constant
+
+@series_to_constant
+def double_mean(x, series_output=False):
+    if series_output:
+        return 2 * x
+    return 2 * np.mean(x)
+
+wf.add_operation(double_mean)
+wf.add_calibration('a-alone', model=module_array(f'{arrays}/a_only_module_array.json'),
+                   obs_data=obs('y_a', 'A/y', 16.0, 0.16, operation='double_mean'),
+                   params_for_id=[{'vessel_name': 'A', 'param_name': 'p', 'min': 0.1, 'max': 5}])
+wf.run()                        # A/p = 2 still (2 * mean(2 p^2) = 16), and chain again after it
+```
+
+`add_operation` (and `add_cost_func`, `add_modifier_func`) copies the function's source into
+`<name>_operation_funcs.py` beside the workflow, with an import for each module it uses and a
+marker set on it after its `def` (`f.series_to_constant = True`) as its decorator. The
+workflow's `operation_funcs_external_path` names the file, so every rank, the command line and
+CUFLynx load it; it has the layout of CUFLynx's "Custom funcs" dialog
+(`libcuflynx.utilities.user_funcs_file`). `wf.functions()` lists what was added and
+`wf.remove_operation(name)` takes one out.
+
+- The file is imported on its own, so a function must carry what it needs. A lambda, a
+  function using a variable of the function it is defined in, and one using a value or a
+  function defined only in the session (in its body, a default value or an annotation) are
+  refused: pass helper functions to `add_operation` too (a name starting with `_` is not
+  registered as an operation), and put values into the function.
+- **The file is generated; edit the function where it is defined and add it again.** Its
+  header records a checksum, so the builder regenerates a file nobody edited, in this session
+  or a later one. A file that was edited by hand (or that no builder wrote), or that holds
+  functions this builder does not have (another writer added them), is refused, so they are
+  not lost without a word: `wf.add_operation(f, overwrite=True)` or
+  `wf.write(overwrite=True)` replaces it. `WorkflowBuilder.load` reads a hand-edited file's
+  functions and keeps the file as it is until its functions change; a file holding other
+  top-level statements (a constant, a class) is then refused with their names, since a
+  generated file holds imports and functions only.
+- A workflow that already names another operation funcs file takes no `add_operation`: add
+  the functions to that file.
+
+#### Running again, and changing a step
+
+Run the script, or the notebook from the top, as often as you like. A file is rewritten only
+when its content changes, and `wf.run()` runs only the steps that have not run or are
+**stale**. Its first line names the steps it runs and those it keeps, and each kept step gets
+a line of its own:
+
+```
+[workflow] running 1 of 2 steps: chain; keeping a-alone
+[workflow] step a-alone: done and current, not run again
+```
+
+When every step is done and current it says so and runs nothing. To run every step again,
+current or not, use `wf.run(force=True)` (on the command line, leave out `--stale-only`);
+`wf.run(from_step='<id>')` runs one step and every step after it.
+
+A step is stale when something it ran with has changed: its obs_data, its params_for_id, its
+model's parameters file, its settings, or the workflow's functions file (any function in it,
+whether or not the step uses it), or when a step it takes values from is stale or ran again.
+`wf.status()` shows which.
+
+- **To change a step, change what you pass and add it again with the same id.** A dict is
+  copied when it is added, so editing the dict afterwards changes nothing until
+  `wf.add_calibration('chain', obs_data=edited, ...)` is called again. The step keeps its
+  place.
+- `wf.run(force=True)` runs every step again. `wf.run(from_step='chain')` runs that step and
+  those after it, and `wf.run(only='chain')` just that step; both reuse the earlier results,
+  which must be current.
+- `wf.run(ranks=4)` runs `mpiexec -n 4` on the written file.
+- `wf.remove_step(id)` takes a step out. `WorkflowBuilder.load(path_or_directory)` makes a
+  builder from an existing workflow file.
+
+What the builder writes, in `wf.directory`, when `wf.write()` is called (`run`, `plan`,
+`status`, `model` and `plot_step` call it first):
+
+```
+calibration_workflow.json          the workflow; its paths are relative to this directory
+data/<step>_obs_data.json          an obs_data given as a dict
+data/<step>_params_for_id.json     a params_for_id given as entries
+<name>_operation_funcs.py          the functions given to add_operation, with their imports
+.workflow_builder_files.json       which of these files a builder wrote, for wf.clean()
+workflow_output/<name>/            the run (wf.output_dir), see Outputs below
+```
+
+Two steps given the same dict share one file, named after the first. Keep files of your own
+out of `data/`.
+
+Removing or renaming a step leaves its data files behind. `wf.clean()` lists the files the
+builder wrote for this workflow that no workflow in the directory names any more, and
+`wf.clean(delete=True)` moves them to `data/removed/`; it deletes nothing. A file is only ever
+listed when a builder wrote it, its content is still what was written, and no JSON file at the
+top of the directory names it. Nothing under `workflow_output/` is touched.
+
+After a run, `wf.result(id)` is what the step recorded (a calibration's `values` and
+`best_cost`, a reduction's chosen `parameters`, each kind's files as paths), `wf.step_dir(id)`
+its output directory, `wf.plot_step(id)` plots a calibration's fit (as png;
+`formats=('png', 'pdf')` for more), and `wf.model(id)` (or `wf.model('target')`) generates the
+model with the values found so far, under the run's `models/<id>/`. Every path the builder
+returns (`wf.directory`, `wf.path`, `wf.output_dir`, `wf.write()`, `wf.step_dir(id)`, the files
+in `wf.result(id)`) is a `pathlib.Path`.
+
+A step's options are dicts under the names the schema gives them: `sa_options`,
+`ia_options`, `emulator_settings`, and for a reduction
+`wf.add_reduction(id, sensitivity_from=..., param_reduction_options={'method': 'pca', ...})`.
+
+#### From the command line
+
+The written file is an ordinary workflow: CUFLynx opens it, `pack_workflow` carries its data
+and functions file, and the command runs it. The command's default output directory is
+`workflow_output/<name>` beside the workflow file, which is the builder's `wf.output_dir`, so
+the command continues the same run from any directory:
+
+```
+cuflynx-calibration-workflow wf_python/calibration_workflow.json --stale-only
+```
+
+`--stale-only` runs what `wf.run()` would; without it the command runs every step, and
+`--only` and `--from-step` are as in Python.
+
 ### The file
 
 ```json
@@ -1322,6 +1592,48 @@ Paths are relative to the workflow file. A **model** is one of:
 - (a step's, with a module-array target) **a selection** of the target's instances, as
   `{"select": ["C"]}` or `{"select": ["heart/lv"]}` (see
   [Calibrating a selection](#calibrating-a-selection)).
+- **an external Python model**, as `{"external_model_path": "heat1d_model.py"}`. It is never
+  generated, so it is the target and every step's model, and its parameters keep their
+  `component/variable` names. See
+  [Calibration workflows](external-python-solvers.md#calibration-workflows) in the external
+  solvers guide.
+- **a CellML model**, as `{"cellml_model_path": "model.cellml"}`, or
+  `{"cellml_model_path": "model.cellml", "parameters": "values.json"}` with a parameters file
+  (`{"<component>": {"<variable>": {"value": ..., "units": ...}}}`) whose values replace the
+  CellML's. Its parameters are its constants, named `component/variable` (states and computed
+  variables are not), and every component is a vessel. A params_for_id, set entry or sweep
+  may also name a constant as a calibration of the same file reads it (`global/q_lv_init`
+  for `parameters_global/q_lv_init`, `aortic_root/C` for `parameters/C_aortic_root`): the
+  step resolves the name to the constant, and its results, the merged target and the
+  calibrated files name the constant. It is never generated: a step runs a
+  flattened copy, `<step_id>/model/generated_models/<step_id>/<step_id>.cellml`, with the
+  step's values written in, and `<step_id>_parameters.json` beside it lists every constant's
+  value. As for an external model, it is the target and every step's model. It runs as
+  `model_type: cellml` (default solver `CVODE_myokit`), or, with `model_type` `python`,
+  `casadi_python` or `aadc_python` in the settings (the workflow's or a step's, with `solver`
+  and `solver_info` as for any model), as the Python generated from that copy,
+  `<step_id>.py` beside it; the values still go into the CellML. `cpp` and
+  `external_python` are refused.
+  `write_calibrated` writes `<stem>_calibrated_parameters.json` and `<stem>_calibrated.cellml`
+  beside it, and a pack copies it with the files it imports, at their paths relative to it.
+
+Your own CellML as the target, fitted and then its uncertainty quantified at the fit, from
+Python (the files are `tests/data/workflow_parity/`'s; the paths are relative to the working
+directory):
+
+```python
+from libcuflynx.calibration_workflow import WorkflowBuilder, cellml_model
+
+wf = WorkflowBuilder('lv', target=cellml_model('lotka_volterra.cellml'), directory='lv_workflow',
+                     settings={'solver': 'CVODE_myokit', 'dt': 0.01,
+                               'param_id_method': 'CMA-ES',
+                               'optimiser_options': {'num_calls_to_function': 300}})
+wf.add_calibration('fit', obs_data='lv_obs_data.json', params_for_id='lv_params_for_id.json')
+wf.add_uq('posterior', obs_data='lv_obs_data.json', params_for_id='lv_params_for_id.json',
+          uq_options={'num_steps': 200}, result_from='fit')
+wf.run(write_calibrated=True)       # also lotka_volterra_calibrated.cellml beside the source
+print(wf.result('fit')['best_fit'], wf.result('posterior')['distribution_dir'])
+```
 
 | Key | Meaning |
 |---|---|
@@ -1330,11 +1642,13 @@ Paths are relative to the workflow file. A **model** is one of:
 | `settings` | user_inputs settings for every step: `param_id_method`, `optimiser_options`, `solver`, `solver_info`, `dt`, `pre_time`, `sim_time`, `UQ_options`, `DEBUG`, ... (the model, obs_data, params_for_id and output paths are the workflow's, and cannot be set) |
 | step `id` | a label for the step, unique in the file: other steps refer to it, and it names the step's output directory. It is not a module or parameter name. |
 | step `model`, `obs_data`, `params_for_id` | what the step calibrates, and against what |
-| step `vessel_map` | a module array whose vessels are named differently in the target: `{"aorta": "aortic_root"}` |
-| step `submodule` / `vessel` | where a library module sits in the target: a submodule of a library supermodule target (`i_M`, or `soma/i_M` when nested), or a vessel of a module-array target; inferred when the module occurs once |
-| step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself |
+| step `module_map` | a module array whose modules are named differently in the target: `{"aorta": "aortic_root"}` |
+| step `submodule` / `module` | where a library module sits in the target: a submodule of a library supermodule target (`i_M`, or `soma/i_M` when nested), or a module of a module-array target; inferred when the module occurs once |
+| step `fixed_from` | steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model, except those it calibrates itself. An entry `{"step": "fit_a", "parameters": ["p_A"]}` fixes only those of the step's own calibrated or set values (model names in that step), and none it was given |
 | step `priors_from` | steps whose stored posterior becomes this step's prior (below) |
 | step `store_distribution` | sample the posterior by MCMC after the fit and store it |
+| step `start_from` | (calibration) a calibration or set step whose values of this step's own parameters are where its fit starts (below) |
+| step `emulator_dir` | (calibration, sensitivity, identifiability, uq) an emulator trained outside the workflow, which the step runs on (below) |
 | step `settings` | merged over the workflow's (one level deep, so `optimiser_options` add up) |
 
 A step runs after every step it takes something from (`fixed_from`, `priors_from` and the keys
@@ -1356,7 +1670,7 @@ A selection runs as one of the other models:
 
 - **one instance** -- a record, or `heart/lv` inside a super instance -- is its library module,
   the record's version and parameterisation (a submodule's: its version's default), placed at that
-  instance as `"vessel"` would place it. A selected supermodule instance is generated with the
+  instance as `"module"` would place it. A selected supermodule instance is generated with the
   model's values for it;
 - **several records** are the module array they form, cut from the target. A link to a record
   outside the selection is dropped, which leaves that port open.
@@ -1395,28 +1709,136 @@ libcuflynx wrote one) is refused: run the workflow again.
 A step's `kind` is `calibration` unless it says otherwise. `sensitivity`, `emulation` and
 `identifiability` run the analyses `cuflynx-sensitivity`, `cuflynx-train-emulator` and
 `cuflynx-identifiability` run, on the step's model, obs_data and params_for_id. Only the values
-of calibrations and `set` steps are merged into the target.
+of calibrations, `set` steps and `combine` steps are merged into the target.
+
+A step can run on a [surrogate](surrogates.md) in place of the model: on an emulator, named by
+the step's `emulator_from` or `emulator_dir` (below), or on a reduced-order model, which is the
+step's `model` (an external Python model).
 
 | `kind` | What it does | Needs | Takes from |
 |---|---|---|---|
-| `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `emulator_from`, `params_for_id_from` |
+| `calibration` | a param_id run; MCMC with `store_distribution` | | `fixed_from`, `priors_from`, `start_from`, `emulator_from`, `params_for_id_from` |
 | `sensitivity` | Sobol or local sensitivity analysis | `sa_options` in its settings | `fixed_from`, `emulator_from`, `result_from` |
-| `reduction` | keeps the parameters a Sobol step found most influential | `sensitivity_from`, `reduction`; no model or files | |
+| `reduction` | keeps the parameters a Sobol step found most influential, or those chosen by hand (`"method": "manual"`) | `sensitivity_from`, `param_reduction_options` in its settings; no model or files (chosen by hand: `params_for_id`, and no `sensitivity_from`) | |
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
-| `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
-| `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
+| `identifiability` | Identifiability analysis (Laplace or a profile likelihood) at a step's values, or at the model's own | `ia_options` | `fixed_from`, `result_from` |
+| `uq` | MCMC or a Laplace approximation at a step's values, or at the model's own, with no fit of its own; stores the distribution | `UQ_options` with `method` `mcmc` (default) or `laplace` | `fixed_from`, `result_from`, `emulator_from` |
+| `set` | declares values or scales by hand, each with a reason; with `"point": true` they are only a point for other steps and never reach the target | `set`; no model or files | the calibration or set steps it scales |
+| `combine` | gives one value per parameter from several steps: the values of the calibration with the lowest cost (`best_fit`), or each parameter's mean (`mean`). Its values are used in place of theirs, in later steps and in the target ([below](#one-value-per-parameter)) | `combine_from`, `combine`; no model or files | the calibration, set or combine steps it combines |
 | `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
+| `simulate` | runs a model once through its protocol; a sweep of no parameters | `model` (or `"on_target": true`), `dt`, and `sim_time` or an `obs_data`; `simulate.outputs` or prediction items | `fixed_from`, `result_from` |
+| `figure` | calls a Python function that draws figures from other steps' results | `function`, `inputs`; no model or files of data | the steps its `inputs` name |
 
 The keys that pass something on, each naming one step of the kind shown:
 
 | Key | Names a | What this step gets |
 |---|---|---|
-| `fixed_from` | calibration or set | its values, fixed in this step's model (above) |
-| `priors_from` | calibration with `store_distribution` | its posterior, as a prior (below) |
-| `result_from` | calibration | its values, including those of the parameters this step analyses: a local sensitivity or identifiability analysis is then at that fit |
-| `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given |
+| `fixed_from` | calibration, set or combine | its values, fixed in this step's model (above) |
+| `priors_from` | calibration with `store_distribution`, or uq | its posterior, as a prior (below) |
+| `result_from` | calibration, set or combine | its values, including those of the parameters this step analyses: a local sensitivity, identifiability analysis or uq step is then at that point. Without it, they are at the model's own values |
+| `start_from` | calibration, set or combine | its values of the parameters this calibration fits, as the point the fit starts from |
+| `combine_from` | calibration, set or combine (two or more) | a combine step's inputs: the values it gives one of per parameter |
+| `emulator_from` | emulation | its emulator, which this step (a calibration or sensitivity) runs on instead of the model. The step names the same model, obs_data and params_for_id as the emulation step (an emulator answers only for what it was trained on) and has no `fixed_from` or `result_from`: it runs on a copy of that step's model, with the values that step was given. One exception: a calibration may take a reduction's parameters (`params_for_id_from`) on the emulator of the params_for_id they were reduced from. It calibrates the parameters the reduction kept and holds the emulator's other parameters at their values in the emulation step's model, so the emulator is always evaluated at every parameter it was trained on and no second emulator is trained. Its result lists the held parameters and their values under `held`, and the run directory has `held_entries.json`. A held value must be inside its params_for_id bounds. Such a step has no `store_distribution` or `priors_from` |
 | `sensitivity_from` | sensitivity (Sobol) | a reduction's indices |
-| `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step; a step on that emulator names the same reduction) |
+| `emulator_dir` | (a path, not a step) | an emulator trained outside the workflow, as `emulator_from` gives one: a directory holding `emulator_metadata.json` (`cuflynx-train-emulator`'s, or an emulation step's of another run), relative to the workflow file. Not with `emulator_from`. Its files are hashed into the step's inputs, so a retrained emulator makes the step stale, and a pack copies it to `inputs/<step_id>/`. It must have been trained on the step's model, obs_data and params_for_id. The step's `result_from` point is only where the emulator is evaluated: it is not written into the step's model, which stays the one the emulator was trained on |
+| `params_for_id_from` | reduction | the params_for_id the reduction wrote, in place of the step's own (a calibration or emulation of the same model as the sensitivity step, or of a model with the parameters chosen by hand; a step on that emulator names the same reduction) |
+
+A calibration with **`start_from`** starts its fit at the values that step calibrated or set
+for its own parameters: its model is generated with them, so they are the optimiser's initial
+point (`CMA-ES` and the gradient methods start there; the genetic algorithm draws its first
+population at random). They are not fixed, and only the values the step fits reach the target.
+`step_result.json` records them under `start_from`.
+
+```json
+{"id": "sliders", "kind": "set", "set": [
+  {"parameter": "Lotka_Volterra_module/alpha", "value": 4.2, "reason": "slider position"}]},
+{"id": "fit", "model": {"cellml_model_path": "lotka_volterra.cellml"},
+ "obs_data": "lv_obs_data.json", "params_for_id": "lv_params_for_id.json",
+ "start_from": "sliders"}
+```
+
+A **uq step** quantifies the uncertainty of its parameters at one point, without fitting:
+`result_from` a calibration's fit or a set step's values, else the model's own. Its
+`UQ_options.method` is `mcmc` (the walkers start in a ball about the point, as after a fit) or
+`laplace` (a Gaussian there, its covariance from the Hessian of the cost, with the step's
+`ia_options` choosing the gradient). Either way the distribution is stored in
+`<step_id>/distribution/`, as `store_distribution` stores a calibration's: an MCMC's chain after
+burn-in, or `UQ_options.num_samples` (default 2000) draws of the Gaussian, those outside the
+params_for_id bounds dropped (`step_result.json` counts them). A later calibration takes it with
+`priors_from`. The run itself is in `<step_id>/uq/`. `run_uq(inp_data_dict, best_param_vals,
+method)` in `libcuflynx.scripts.param_id_run_script` runs the same outside a workflow, and
+`do_uq` with `UQ_options.method: laplace` runs the Laplace approximation after a calibration.
+An empty `UQ_options` (`{}`, what the builder's `add_uq()` writes when given no `uq_options`)
+is MCMC with the defaults below, or the workflow's `UQ_options` when it has some.
+
+| `UQ_options` key | Default | Used by |
+|---|---|---|
+| `method` | `mcmc` (or `laplace`) | every uq step |
+| `library` | `emcee` (also `zeus`, `pymc`) | mcmc |
+| `num_steps` | 5000 | mcmc |
+| `num_walkers` | 2 × the number of parameters | mcmc |
+| `burn_in` | 0.5 (below 1 a fraction of `num_steps`, else a number of steps) | mcmc, and the posterior predictive check's draws from its chain |
+| `num_samples` | 2000 draws of the Gaussian, before those outside the bounds are dropped | laplace |
+| `posterior_predictive` | `true` | every uq step |
+| `posterior_predictive_samples` | 100 | the posterior predictive check |
+
+A uq step then runs the posterior predictive check (`libcuflynx.param_id.posterior_predictive`):
+the model at `UQ_options.posterior_predictive_samples` (default 100) posterior draws, from the
+MCMC chain after `burn_in` or from the Laplace approximation's stored samples, and how often
+the data lies inside the model's intervals. It is written to `<step_id>/posterior_predictive/`
+(`posterior_predictive.npz` with the draws and predictions, `posterior_predictive_coverage.json`,
+and `posterior_predictive_series.npz` with the traces of the first draws), and
+`step_result.json` names them (`posterior_predictive_dir`, `posterior_predictive_draws`,
+`posterior_predictive_coverage`, `posterior_predictive_series`) with a summary under
+`posterior_predictive_summary` (`num_samples`, `samples_that_failed_to_simulate`,
+`drawn_from`: `chain` or `samples`, and each level's `predictive_coverage` and
+`sample_interval_coverage`). `UQ_options.posterior_predictive: false` skips it. A check that
+fails is a warning, with its message in `posterior_predictive_summary.error`: the step's
+distribution stands.
+
+```json
+{"id": "posterior", "kind": "uq", "model": {...}, "obs_data": "...", "params_for_id": "...",
+ "result_from": "fit", "settings": {"UQ_options": {"method": "laplace", "num_samples": 2000},
+                                    "ia_options": {"gradient_source": "FSA"}}}
+```
+
+After its fit, a calibration step writes what `cuflynx-plot` writes for a calibration: the
+observables at the best fit, with the error vectors `percent_error_vec.npy` and
+`error_vec_names.npy` (CA#341), in its run directory; and, when its model is a CellML,
+`<step_id>/<step_id>_calibrated.cellml`, the step's model with the best fit written in.
+`step_result.json` names them (`percent_error_vec`, `error_vec_names`, `calibrated_model`); a failure to write them is
+a warning, and the fit stands. When the obs_data has held-out data (prediction items with a
+`value`), the step also checks the best fit against it, as `cuflynx-plot` does: it writes
+`validation_results.json` in its run directory (`validation_results` in the result) and
+records each item's statistics under `validation` (`data_item_name`, `n_points`, `rmse`,
+`nrmse`, `mean_abs_z`, `within_2std`, ...; the series are in the file).
+A params_for_id modifier entry is calibrated as its theta
+(`best_fit`), and the parameters it modifies take `modifier(theta, baseline)`: those values
+are what `calibrated`, the merged target and the calibrated CellML hold, and `modifiers` in
+the result records each entry's `theta`, `targets`, `baselines` and `values`. A local sensitivity step records the point it linearised about
+under `nominal` (`source`: its `result_from` step or `model`; the parameters and their values)
+and its signed coefficients under `local_sensitivity_signed` (see
+[Local sensitivity files](sensitivity-analysis.md#local-sensitivity-files-method-local)), and an
+identifiability or uq step its point under `at` and `at_source`. An identifiability step runs
+the method its `ia_options.method` names: `Laplace`, recorded under `laplace`, or
+`profile_likelihood` (with `num_points`, `range_factor` and `optimiser_options`), which
+profiles each parameter about that point. Its files are in `profile_likelihood/` in the
+step's `param_id/` directory (`profile_likelihood_dir`), and `profile_likelihood` in the result lists
+each parameter's file, the value profiled about (`best_val`), its cost and its 95% interval
+(`ci_95`).
+
+```json
+{"id": "profiles", "kind": "identifiability", "model": {...}, "obs_data": "...",
+ "params_for_id": "...", "result_from": "fit",
+ "settings": {"ia_options": {"method": "profile_likelihood", "num_points": 21,
+                             "range_factor": 0.2}}}
+```
+
+Every calibrated CellML (a step's, the target's `<stem>_calibrated.cellml`, a CellML step's
+generated model, and a calibration's `<prefix>_calibrated.cellml`) is written by one writer,
+`libcuflynx.param_id.calibrated_model`: a model with imports, as a generated one has, is
+flattened into one file; a single-file model keeps its form, with only the values changed. See
+[The calibrated model](#the-calibrated-model).
 
 A **set step** declares values nothing fitted, so they are visible to everything downstream. Each
 entry names a parameter as the target does, and gives a `reason`:
@@ -1437,6 +1859,42 @@ values, in run order, so a later step's value wins a parameter both give. They a
 `set_by_hand`, with their reason, in the provenance diagram, the target's parameters and the
 calibrated parameters file, and are never reported as calibrated.
 
+A set step with **`"point": true`** declares a point only: a place to start a fit
+(`start_from`) or to analyse at (`result_from`, or `fixed_from`). Its values are not merged into
+the target, so it gives the target no value of a parameter it shares with a calibration. The
+provenance diagram marks it set by hand, labelled "point only, not in the target".
+CUFLynx writes its slider positions, nominal points and best-fit points this way. The key is
+explicit, rather than inferred from how other steps use the step, so a workflow's meaning does
+not change when a step is added. The builder's `add_set(..., point=True)`.
+
+```json
+{"id": "sliders-1", "kind": "set", "point": true, "set": [
+  {"parameter": "Lotka_Volterra_module/alpha", "value": 4.2, "reason": "slider position"}]}
+```
+
+A params_for_id **modifier entry** is calibrated as its theta, which acts on the parameters it
+modifies (`scale`: theta times each one's value in the model). Its point is therefore a theta,
+not a value of those parameters, and a point set step gives it with an `entry` and a `theta`
+(the builder's `set_theta(entry, theta, reason=)`), naming the modifier entry in the
+params_for_id of the steps that take it:
+
+```json
+{"id": "sliders-2", "kind": "set", "point": true, "set": [
+  {"entry": "alpha_scale", "theta": 0.9, "reason": "slider position"},
+  {"parameter": "Lotka_Volterra_module/gamma", "value": 2.8, "reason": "slider position"}]}
+```
+
+A step with `start_from` or `result_from` that step starts or is analysed at theta 0.9, and
+`alpha` keeps its value in the step's model, so theta, its `min` and `max` and its prior mean
+what the params_for_id says. A calibration gives the thetas it fitted the same way: a step
+with `result_from` (or `start_from`) a calibration that has the same modifier entry is at its
+fitted theta, about the model's values, rather than at theta 1 about the fitted parameters.
+The step runs with a copy of its params_for_id that has `theta` on those entries
+(`<step_id>/<step_id>_params_for_id.json`). A theta entry is refused in a set step without
+`"point": true` (a theta is not a value of the target) and in a step whose params_for_id has
+no modifier entry of that name. With no theta given, an analysis of a modifier entry is at the
+theta that leaves its parameters at the model's values.
+
 A **sweep** runs its model at each point and keeps every run. It feeds nothing forward: no step
 can take from it, and its values do not reach the target. It can start from values with
 `fixed_from` or at a calibration's result with `result_from`:
@@ -1451,7 +1909,8 @@ can take from it, and its values do not reach the target. It can start from valu
 
 A parameter is named as in a params_for_id and takes `[min, max]`, `{"min", "max", "points",
 "scale"}` (5 points by default; `"scale": "log"` spaces them by ratio), `{"values": [...]}`, or
-`{"factors": [...]}`, multiples of the value the step's model gives it. `design` is `grid`, every
+`{"factors": [...]}`, multiples of the value the step's model gives it, or both: `{"values": [1, 10,
+100], "factors": [1]}` is 1, 10, 100 and the model's value. `design` is `grid`, every
 combination, or `one_at_a_time`, each parameter's values with the others at the model's values.
 `outputs` are variables recorded over time. An `obs_data` gives the protocol in place of
 `sim_time` and `pre_time`, and its `prediction_items` with an operation give one feature per point.
@@ -1476,11 +1935,49 @@ point runs all its experiments and sub-experiments.
                           "GLUT2_bas/Scale_GLUT2": {"values": [1, 1, 10, 100]}}}}
 ```
 
+#### Protocol factors
+
+A step's protocol can give a parameter as factors on the value the step's model gives it, rather
+than as values: `protocol_info.params_to_change_factors`, in the shape of `params_to_change`. The
+workflow resolves them once per step (calibration, analysis or sweep), against the step model's
+values after `fixed_from` / `result_from` (on the target, the merged values), into
+`params_to_change` in a copy of the obs_data the step reads, `<step_id>/inputs/<step_id>_obs_data.json`.
+So x1 to x10 of the Kir density another step calibrated need no copy of its value:
+
+```json
+"protocol_info": {"pre_times": [0, 0, 0], "sim_times": [[60], [60], [60]],
+                  "params_to_change_factors": {"Kir/Scale_Kir": [[1], [2], [10]]}}
+```
+
+The step's `step_result.json` lists each value the factors multiplied under `protocol_factors`
+(`parameter`, `base`, `units` and, for a value an earlier step gave, `from_step`), and the
+diagram names them in the step's box. A parameter is refused in both `params_to_change` and
+`params_to_change_factors`, or when the step calibrates or sweeps it. Outside a workflow there is
+no step model to take values from, so `parse_obs_data_json` refuses the key.
+
 The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, `parameters`,
 `outputs`, `features` and `feature_values`, and for each experiment `time_<e>` and `trace_<e>`
 (points, outputs, times); `sweep_manifest.json` has the design, each parameter's values and the
 errors. Under MPI the points are spread across the ranks. A failed point stays as a NaN row, and
 the step fails only when every point fails.
+
+A **simulate** step is one run of a model through its protocol: the simulation behind a figure,
+with the values a calibration found (`result_from`), values fixed by earlier steps (`fixed_from`)
+or the merged target (`"on_target": true`). It is a sweep of no parameters and writes the same
+files, so whatever reads a sweep reads it. `simulate.outputs` names the variables recorded over
+time; with an `obs_data` its protocol is run and its `prediction_items` give features. The
+prediction items that carry a value (held-out data) are compared with the model in
+`<step_id>/sweep/validation_results.json`, as `cuflynx-run-predictions` compares them; a sweep
+of more than one point writes no validation.
+
+```json
+{"id": "paper_run", "kind": "simulate", "on_target": true,
+ "obs_data": "protocols/glucose_step_obs_data.json", "settings": {"dt": 1.0},
+ "simulate": {"outputs": ["enterocyte/c_Na", "enterocyte/v_NKA"]}}
+```
+
+A **figure** step calls a Python function that draws from the results of other steps; see
+[Figure steps](#figure-steps).
 
 A **reduction** chooses the parameters a calibration fits from a Sobol `sensitivity` step, and
 writes those entries of the sensitivity step's params_for_id -- bounds and all -- as
@@ -1508,6 +2005,26 @@ params_for_id: it is a global, prior-wide measure, not local to the fitted value
 
 Rerunning `screen` reruns `keep`, and so `fit` and `ia`, since each takes from the one before.
 
+A reduction may instead record a **choice made by hand**: `"method": "manual"` keeps the
+`parameters` named, for the `reason` given. It reads no sensitivity step (it has no
+`sensitivity_from`) and names the `params_for_id` whose entries, with their bounds, it keeps.
+A parameter is named as its params_for_id entry is labelled: `vessel/variable`, a grouped
+entry's names joined by `+`, or a modifier's name.
+
+```json
+{"id": "keep", "kind": "reduction", "params_for_id": "candidates_params_for_id.json",
+ "settings": {"param_reduction_options": {
+     "method": "manual", "parameters": ["heart/E_lv_A", "aortic_root/C"],
+     "reason": "the two the pressure data resolve; the rest are from the literature"}}},
+{"id": "fit", "model": {...}, "obs_data": "...", "params_for_id_from": "keep"}
+```
+
+The names are checked against the params_for_id, and the step that fits them against its
+model, before anything runs. The provenance graph marks the step's box `set_by_hand`, with the
+names and the reason: no value is set by hand, but what is calibrated is. Editing the
+params_for_id or the choice reruns `keep` and what takes from it. The builder's
+`add_reduction(id, method='manual', parameters=, reason=, params_for_id=)`.
+
 A reduction is a `libcuflynx.sensitivity_analysis.parameter_reduction.ParamReduction`, which
 can also be used on its own:
 
@@ -1523,52 +2040,105 @@ step with `"params_for_id_from": "keep"`, then a calibration with the same
 
 ### How values move between models
 
-A value is named by its vessel and parameter (`aortic_root/C`, which is `C_aortic_root` in the
+A value is named by its module and parameter (`aortic_root/C`, which is `C_aortic_root` in the
 generated model), and moves through the target's names:
 
-- **A module array** keeps its vessel names. A value calibrated on `aortic_root` in one model
+- **A module array** keeps its module names. A value calibrated on `aortic_root` in one model
   fixes `aortic_root` in another, and lands on `aortic_root` in the target. When the names
-  differ, `vessel_map` renames the step's vessels into the target's.
-- **A library module** is generated alone as one vessel named `mod`, so its params_for_id targets
+  differ, `module_map` renames the step's modules into the target's.
+- **A library module** is generated alone as one module named `mod`, so its params_for_id targets
   are `mod/<param>` (`mod/<submodule>/<param>` for a supermodule) and its obs_data operands
   `mod/<variable>`. In the target it is renamed to where it sits: the submodule `i_M` of a
   supermodule target (`rho_M_mod__i_M` in the model, `i_M/rho_M` in its parameterisation),
-  or the vessel of a module-array target that it is.
+  or the module of a module-array target that it is.
 
-`--dry-run` checks that every calibrated parameter lands on a vessel the target has, and prints
+Each value a step calibrates or sets is recorded in its `step_result.json` with its `module`,
+`param` and `model_name`.
+
+`--dry-run` checks that every calibrated parameter lands on a module the target has, and prints
 where each one lands and what each step is given. After the run, a value with no parameter of
-its name in the target is an error. A value passed to a model that lacks its vessel (an aorta
-value into a model without that vessel) is left out of that model with a warning.
+its name in the target is an error. A value passed to a model that lacks its module (an aorta
+value into a model without that module) is left out of that model with a warning.
+
+A workflow file whose steps name `vessel` or `vessel_map`, or a run whose `step_result.json`
+records name `vessel`, is refused. Convert it once with
+`cuflynx-upgrade workflow <workflow file or directory>`: given a directory (a study, or a
+workflow's output directory), it converts every workflow file and `step_result.json` below it.
 
 The other checks: a step's files exist; a library module exists in the library, and is in the
 target; a target written as a library module names its parameter set with `parameterisation`
 (`instance` is an error). The schema is `libcuflynx/schemas/calibration_workflow.schema.json`.
 
-A parameter may be calibrated by more than one step. The later step (in run order) wins: its
-value is the one merged into the target, and a step calibrates a parameter itself even when
-`fixed_from` would give it a value. A warning lists each such parameter, because the later
-calibration replaces the earlier one rather than building on it. To update an earlier
-calibration with new data instead, take the parameter out of the later step's params_for_id
-and list the earlier step in its `priors_from` (below), so the earlier posterior becomes the
-prior.
+#### One value per parameter
+
+The target, and every step, is given one value of a parameter. When two steps give the same
+parameter:
+
+- **One takes from the other**, directly or through other steps (`fixed_from`, `start_from`,
+  `priors_from`, ...): the later one's value replaces the earlier one's, with no warning. A
+  step calibrates a parameter itself even when `fixed_from` would give it a value. So `nka`,
+  then `whole_cell` with `"fixed_from": ["nka"]`, may both fit the same scale: `whole_cell`'s
+  is used. To update an earlier calibration with new data rather than replace it, take the
+  parameter out of the later step's params_for_id and list the earlier step in its
+  `priors_from` (below), so the earlier posterior becomes the prior.
+- **One is a `set` step**: a value set by hand replaces a calibrated one with no warning, and
+  the provenance marks it set by hand. Between a set step and a step it does not take from,
+  the later in run order is used. Two set steps that do not take from each other (one does
+  not scale the other's value) setting one parameter give a warning, which names the one used.
+- **Neither takes from the other** (two calibrations, or combine steps): an error, which
+  names the parameter, the steps and what they give it to (the target, or a step through its
+  `fixed_from` or `result_from`). Add a `combine` step, which is its own box in the diagram:
+
+```json
+{"id": "best", "kind": "combine", "combine_from": ["from_low", "from_high"],
+ "combine": {"method": "best_fit"}}
+```
+
+A combine step gives one value for every parameter its inputs give. Later steps take from it
+(`fixed_from`, `start_from`, `result_from`, a set step's scale), and the target takes its
+values in place of its inputs'. It runs no model. Its `step_result.json` lists the values
+under `calibrated`, each with `combined_from` (the inputs that gave it).
+
+- **`best_fit`** takes every value from the calibration with the lowest cost (`chosen_from`;
+  `costs` has each input's). Costs are comparable only between calibrations of the same
+  obs_data with the same `cost_type`, so anything else is refused; the inputs calibrate the
+  same parameters. Use it for fits of one problem from several starting points.
+- **`mean`** gives each parameter the mean over the inputs that give it. The inputs may be
+  set steps, and need not give the same parameters.
+
+For the target, the error comes where the target is merged for use: a run of more than one
+step, a sweep `on_target`, and writing the calibrated parameters. Reading the file, `--dry-run`
+(the plan's `target_overlap` holds the message) and a run of one step (`--only`) warn instead
+and use the later step's value, so a second calibration can be run before the combine step
+that settles it is added. A step given two values is always an error.
+
+A step fitting a reduction's choice (`params_for_id_from`) is checked once the reduction has
+run, against what it kept, not against every candidate: the error then comes at the merge,
+with every step's result kept, so a run with `--stale-only` after adding the combine step
+runs only that step. A choice made by hand (`"method": "manual"`) is known from the file, so
+a step fitting it is checked before anything runs, like any other calibration. The builder's `add_combine(id, combine_from, method=)`.
 
 ### Outputs
 
 ```
-<output_dir>/                         --output-dir; default ./workflow_output/<workflow_name>
+<output_dir>/                         --output-dir; default workflow_output/<workflow_name> beside the workflow file
     calibration_workflow.json         the workflow as run
     workflow_result.json              order, provenance (input hashes, times, commits, libCellML version), merged parameters
     provenance_graph.json             how every value was set, for reports and CUFLynx (below)
     provenance.svg                    that graph as a diagram to place in a report
-    <step_id>/step_result.json        its kind; calibrated values, the fixed values and priors it was given, input hashes; an analysis's outputs
+    <step_id>/step_result.json        its kind; calibrated values, the fixed values and priors it was given, input hashes; an analysis's outputs and the point it analysed (at or nominal; not in fixed)
     <step_id>/model/                  the generated step model
     <step_id>/param_id/               the usual param_id outputs
     <step_id>/distribution/           with store_distribution
     <step_id>/sensitivity/            a sensitivity step's indices and plots
     <step_id>/emulator/               an emulation step's emulator
     <step_id>/<step_id>_laplace_*.npy an identifiability step's Laplace mean and covariance (also in step_result.json)
+    <step_id>/<step_id>_calibrated.cellml  a calibration's model with its best fit (a CellML model)
+    <step_id>/uq/                     a uq step's run: its MCMC run directory, or its Laplace mean and covariance
+    <step_id>/posterior_predictive/   a uq step's posterior predictive check
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
+    models/<view>/                    a model generated for viewing (WorkflowBuilder.model); no step is named models
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
     inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```
@@ -1591,7 +2161,9 @@ false` in the settings packs nothing and names the inputs where they are.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere
-and gives the same results. It holds each step's files under `inputs/<step_id>/`, the module
+and gives the same results. `--pack DIR --overwrite` (`pack_workflow(..., overwrite=True)`)
+replaces an earlier pack in `DIR`; a directory holding anything a pack does not write is
+refused. It holds each step's files under `inputs/<step_id>/`, the module
 versions the workflow uses under `modules/` (built-in modules come with libcuflynx), and the
 files its settings name under `settings/`. Paths in `settings` (`external_modules_dir`,
 `*_funcs_external_path`) are relative to the workflow file, like its other paths.
@@ -1632,6 +2204,20 @@ the target uses is marked with what set it:
 | set by hand | us, with a reason | `"origin": "set_by_hand"` and a required `"reason"` |
 | unclassified | nothing says | no `origin` |
 
+A "Model source" box stands for the target's model, with an arrow to every step generated from
+it; a step whose model is another module array or library module has a source box of its own. A
+step's box names, by `vessel/param` and value, its priors (which step's posterior, and the fitted
+kind), the values it calibrated (its parameter count includes those `priors_from` adds) and the
+values earlier steps fixed, each with what set it: calibrated by which step on which obs_data, or
+set by hand in which step and why. The target's box names its merged values the same way. A box
+shows the first four of each list (six for the target and the model source) and says how many
+more the graph file has.
+
+The boxes of values given in the parameters files (measured, derived, set by hand, calibrated
+before the run) point to the target's model source: those values are in the model of every step
+generated from it, so each calibration ran with them. When no step comes from that model source,
+they point to the target.
+
 When a derived value's derivation has `fixed_constants`, a "Fixed constants of derivations" box
 with an arrow to the derived values lists each as `<derivation>/<constant>` with its value, units
 and origin (measured with its source, set by hand with its reason, inherited, or unclassified when
@@ -1650,26 +2236,159 @@ again after it, and a later step refuses to reuse it (`Run the workflow from ...
 module library is shown and warned about but does not make a step stale, because a library holds
 far more than one model uses. A build before the workflow is not tracked.
 
-Figure scripts that run after the workflow and read its results are declared, never run, in the
-optional top-level `external_figures`:
+A figure step is a box like any other step, with a dotted arrow from each step it reads, labelled
+with what it reads, and one box under it naming the files it wrote. Its inputs in the graph are
+its declaration (`settings`), its script and each file it lists, each `current`, `stale` or
+`missing`.
+
+### Figure steps
+
+A figure of a workflow is a step: a Python function in a script file, given the results of the
+steps it names. libcuflynx loads the results and calls the function, so the figure is drawn by
+the run, is out of date when anything it reads changes, and is in the provenance diagram and
+the packed workflow.
 
 ```json
-"external_figures": [
-  {"id": "paper_plots", "command": "make paper-plots WF_OUT=<run>", "from": "target",
-   "description": "the authors' figure scripts on the calibrated model",
-   "reads": ["paper_plots/calibrated_parameters.json"],
-   "writes": ["paper_plots/calibrated/Fig9/fig9.png", "~/papers/enterocyte/fig15.png"]}
-]
+{"id": "dose_response", "kind": "figure",
+ "function": "figures/dose_response.py:draw",
+ "inputs": {"curves": {"sweep": "sglt1_dose"},
+            "fit": {"values": "whole_cell"},
+            "data": {"obs_data": "whole_cell"}},
+ "files": ["figures/paper_style.py"]}
 ```
 
-`from` is the step whose results the script reads, or `"target"` for the merged model. A path in
-`reads` or `writes` is absolute (`~` allowed) or relative to the run's output directory. Each
-script is a dashed box, outside the workflow, with an arrow from `from` and one box under it naming
-the files it writes (their folder once, then each file). It is `stale` when a file it reads, or the
-result of `from`, is newer than the oldest file it writes, or when `from` is stale; it is not run
-while a file it writes is missing. The files and their status are in the box's `inputs` in the
-graph. `external_figures` can be added after a run: the graph reads them from the workflow file
-as it is now, and adding them does not make the run stale.
+`function` is `<script>.py:<function>`, the script's path relative to the workflow file. Each
+entry of `inputs` is one parameter of the function, by name, and what it is given:
+`{"<kind>": "<step>"}`. The function's parameters are exactly those names and `out_dir`; this is
+checked when the workflow is read, without running the script. `files` lists other files the
+script reads or imports (helpers, a style module beside it).
+
+| Input kind | Read from a | The function gets |
+|---|---|---|
+| `sweep` | sweep or simulate step | the arrays of `sweep_results.npz` as a dict: `points`, `failed`, `parameters`, `outputs`, `features`, `feature_values`, and `time_<e>`, `trace_<e>` (points, outputs, times) per experiment; and `manifest`, `sweep_manifest.json` as its JSON document |
+| `validation` | simulate step (a sweep of one point) | `validation_results.json` as its JSON document: `items`, per prediction item that carries a value its `data_item_name`, `operation`, `unit`, `data_type`, `n_points`, `rmse`, `nrmse`, `mean_abs_z`, `within_2std`, and `t`, `data`, `std`, `model` at the observation times |
+| `values` | calibration, set or combine step | `{"<module>/<parameter>": value}`: what it calibrated, set by hand or combined, named as a params_for_id names them (a nested module by its path, `heart/lv/E`; a global as `global/R`; a combine step: as the target names them) |
+| `obs_data` | step with an obs_data | the obs_data file as its JSON document |
+| `params_for_id` | step with a params_for_id, or a reduction | the params_for_id it ran with (a reduction: the one it wrote) as its JSON document |
+| `sensitivity` | sensitivity step | Sobol indices, `{"S1": {output: {parameter: value}}, "ST": {...}}` (empty for a local analysis); and `local`, `{"relative": {output: {parameter: value}}, "absolute": {...}}` from a local analysis (`sa_options.method: "local"`), else None |
+| `progress` | calibration step | the optimiser's history (`param_id.run_history.read_run_history`): `param_labels`, `cost_history` (per generation, best first), `param_history_norm` (0-1), `grad_history`, `starts` (per multi-start: `cost`, `params` in actual values), `best_cost`; and `param_mins`, `param_maxs`, the params_for_id bounds |
+| `fit_errors` | calibration step | the best fit's error per data_item, which a calibration writes when it ends: `names`, `percent_error` (100 (model - data) / data), `std_error` ((model - data) / std; a series: averaged over its points) and `data_references`, in obs_data order |
+| `best_fit` | calibration step | the best fit against its data, from the outputs a calibration saves per experiment it fits (`all_outputs_with_best_param_vals_exp_<e>.npz`) and its obs_data: `items`, per data_item its `data_item_name`, `trace_name`, `data_type`, `operation`, `operation_kwargs`, `plot_type` (a constant without one: `horizontal`), `unit`, `experiment_idx`, `subexperiment_idx`, `window` (its subexperiment's start and end), `value`, `std`, `data_reference`, `t` and `model` (its first operand over its subexperiment; None when the solver did not log it, as Myokit does not log a constant), `obs_t` (a series: the times of its values) and `fit` (a constant: the calibrated model's value, from the best fit's std error); and `experiment_labels` |
+| `mcmc_chain` | calibration with `store_distribution` | its MCMC chain: `chain`, an array (steps, walkers, parameters) cut to the draws every walker reached; `param_labels`; `burn_in_index`, the first step after the burn-in its UQ options give |
+| `emulator_validation` | emulation step | the held-out points of `emulator_validation.npz` in real units: `theta` (points, parameters), `y_true` and `y_pred` (points, features), `feature_labels`, `param_entry_labels`; and `feature_r2`, `feature_rmse`, `feature_nrmse` from `emulator_metadata.json` (None where not recorded) |
+| `distribution` | calibration with `store_distribution`, or uq step | `{"names": [...], "samples": array (samples, parameters)}`, named by the model's names |
+| `laplace` | identifiability step, or uq step with method `laplace` | `{"parameters": [...], "mean", "covariance", "std"}` as arrays |
+| `posterior_predictive` | uq step (with `posterior_predictive`, the default) | its posterior predictive check: `labels` (one per scalar observable), `predictions` (draws, observables), `ground_truth`, `std` and `thetas` as arrays; `coverage`, `posterior_predictive_coverage.json` as its JSON document; and `series`, when it kept traces, `{"meta": {time, observables, segments, experiment_labels}, "traces": {"<segment>|<variable>": array (draws, points)}, "time": {"<segment>": array}}`, else None |
+| `profile_likelihood` | identifiability step with method `profile_likelihood` | `{"nll_threshold_95", "profiles": [{"parameter", "param_values", "costs", "best_val", "best_cost", "ci_95"}]}`, the sweeps as arrays |
+| `reduction` | reduction step | its report (`param_reduction.json`: `reduction`, `selected`, ...); for a PCA reduction also `modes`, `[{mode, variance, variance_share, informative, loadings: {feature: value}}]`, and `mode_indices`, `{"S1": {"mode_<k>": {parameter: value}}, "ST": {...}}` (both None for a Sobol reduction) |
+
+The function writes its files into `out_dir` and returns their paths:
+
+```python
+"""Na against the SGLT1 scale, with the fitted value marked."""
+import os
+
+import matplotlib.pyplot as plt
+
+
+def draw(curves, fit, data, out_dir):
+    scale = curves['points'][:, 0]
+    sodium = curves['trace_0'][:, 0, -1]
+    with plt.style.context('seaborn-v0_8-paper'):
+        figure, axes = plt.subplots()
+        axes.semilogx(scale, sodium)
+        axes.axvline(fit['SGLT1/Scale_SGLT1'], linestyle=':')
+        path = os.path.join(out_dir, 'dose_response.png')
+        figure.savefig(path, dpi=200)
+        plt.close(figure)
+    return [path]
+
+
+def main(argv=None):
+    from libcuflynx.calibration_workflow.figures import figure_main
+    return figure_main(draw, argv)
+
+
+if __name__ == '__main__':
+    main()
+```
+
+Rules a figure function follows:
+
+- **It runs no simulation.** Every simulation is a step with its own protocol (a `sweep`, or a
+  `simulate` step for one run), so each run is recorded and the figure only reads results. A
+  figure that needs a curve at the calibrated values reads a `simulate` step with
+  `"on_target": true` or `result_from`.
+- **It sets its style inside the function.** The function is called with Matplotlib's settings as
+  the rc file gives them, whatever was drawn or imported before, so the figure does not depend on
+  what ran before it. Settings changed at the top of the script do not reach the call.
+- **It has a `main`**, as above, so the script also runs on its own on a finished run, through
+  the same loaders and so with the same objects:
+
+  ```
+  python figures/dose_response.py <run directory> [--step dose_response] [--out-dir DIR]
+  python figures/dose_response.py <run directory> --input curves=sweep:sglt1_dose \
+      --input fit=values:whole_cell --input data=obs_data:whole_cell
+  ```
+
+  The first form draws the run's figure step that names this script (`--step` picks one of
+  several); the second gives the inputs directly. Both give the files the workflow gives: the
+  same file names, images equal pixel by pixel and other files byte for byte
+  (`libcuflynx.calibration_workflow.figures.output_differences(dir_a, dir_b)` lists any
+  difference, for a test of your own scripts). `figure_main` takes one function or a list of the
+  script's figure functions.
+
+The files are in `<step_id>/figure/`, listed under `figures` in the step's `step_result.json`. A
+figure step is out of date when its script, a file in `files` or its declaration changed, or a
+step it reads ran again after it. **Every run draws the figure steps that are out of date and
+whose inputs are current**, after its other steps, whatever `--from-step` or `--only` say;
+`--only <figure step>` draws that one regardless. A figure whose inputs are out of date waits.
+A figure that fails does not stop the other figures or the merge: its error is raised once the
+run's results are written. Figure steps pass nothing on, so the calibrated parameters file does
+not wait for them, and adding or changing a figure step after a run leaves the other steps
+current. `pack_workflow` copies each script with its `files` into `figures/<step_id>/`.
+
+#### Standard figures
+
+libcuflynx ships a script of standard figures, one function per figure. Copy it beside the
+workflow and name its functions in figure steps; the copy is the workflow's own script, hashed
+and packed like any other, so a later libcuflynx does not change a finished run's figures:
+
+```python
+from libcuflynx.calibration_workflow.figures import write_standard_figures
+write_standard_figures('figures')   # figures/standard_figures.py; an existing copy is kept
+```
+
+```json
+{"id": "z_traces", "kind": "figure",
+ "function": "figures/standard_figures.py:sweep_traces",
+ "inputs": {"sweep": {"sweep": "scan"}}}
+```
+
+The input names are the function's parameters:
+
+| Function | Draws | Inputs |
+|---|---|---|
+| `sweep_traces` | per experiment, every output over time, a line per point (`traces_exp_<e>.png`) | `sweep`: `sweep` |
+| `sweep_features` | each feature against the swept parameters, as the sweep step draws them | `sweep`: `sweep` |
+| `prediction_plots` | the obs_data's `prediction_plots`, from a simulate step run on that obs_data; a time-course plot's output must be among the step's `outputs` | `simulation`: `sweep`, `obs_data`: `obs_data` |
+| `validation` | the held-out prediction items against the model: `validation_scores.csv` (per item `n_points`, `rmse`, `nrmse`, `mean_abs_z`, `within_2std`), the scalar items' data ± std against the model with y = x (`validation_parity.png`), and per series item the data ± std and the model from the start of its sub-experiment (`validation_<item>.png`) | `validation`: `validation` |
+| `protocol_inputs` | per experiment each `params_to_change` entry over the logged time: a number held over its sub-experiment, a trace or shape from the sub-experiment's start (`inputs_exp_<e>.png`) | `obs_data`: `obs_data` |
+| `sobol_indices` | S1 and ST per output (`sobol_<output>.png`) and an ST heatmap | `sensitivity`: `sensitivity` |
+| `local_sensitivity` | a heatmap of a local analysis's relative sensitivities, parameters by outputs (`local_sensitivity_heatmap.png`) | `sensitivity`: `sensitivity` |
+| `pca_modes` | per PCA mode its loading on each feature and the ST of each parameter (`pca_mode_<k>.png`), and ST per mode (`pca_mode_ST_heatmap.png`) | `reduction`: `reduction` |
+| `calibration_progress` | the best cost per generation on a log axis, with the band up to the worst recorded best cost (a genetic algorithm's top 10), or a line per start (`cost_history.png`); each parameter normalised by its bounds per generation (`param_history.png`) | `progress`: `progress` |
+| `best_fit` | per trace a data_item is measured on and experiment, as the calibration draws it (`best_fit_<trace>_exp_<e>.png`): the model's trace over the subexperiments its items read; a constant as a dashed line at its data over a ±1 std band and a solid line at the model's value (`horizontal`; `horizontal_from_min` from the trace's minimum; `vertical` a time); a series as its values with ±1 std bars. Units in m3, m3_per_s and J_per_m3 are drawn in cm^3, cm^3/s and kPa | `fit`: `best_fit` |
+| `mcmc_diagnostics` | per parameter each walker's trace (`mcmc_chain.png`), its running mean from step 0 and from the burn-in (`mcmc_cumulative_mean.png`), and its autocorrelation against lag with guides at ±0.1, titled "within" or "still correlated" over the last 20% of lags (`mcmc_autocorrelation.png`); at most 12 walkers and 400 steps drawn | `chain`: `mcmc_chain` |
+| `emulator_validation` | per feature the emulator against the simulator at the held-out points, with y = x, R2 and NRMSE (`emulator_parity.png`); per feature the normalised residual against each parameter (`emulator_residuals_<feature>.png`) | `emulator`: `emulator_validation` |
+| `posterior` | per parameter a histogram, its mean and 5-95% band (`posterior.png`) | `distribution`: `distribution` |
+| `laplace` | per parameter the normal density over ±4 std (`laplace.png`) | `laplace`: `laplace` |
+
+The calibration fit plot and the error bars per observable are not among them yet: a
+calibration step does not save its best-fit outputs or error vectors.
+
+A workflow's older `external_figures` key (commands that libcuflynx recorded but never ran) is
+refused: write each as a figure step. A script may call other software itself if it must.
 
 ### Distributions and priors
 

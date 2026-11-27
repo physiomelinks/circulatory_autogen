@@ -1,0 +1,23 @@
+{
+ "version": 1,
+ "params": [
+  {
+   "targets": [
+    "Lotka_Volterra_module/alpha"
+   ],
+   "min": 1.0,
+   "max": 7.0,
+   "param_type": "const",
+   "name_for_plotting": "alpha"
+  },
+  {
+   "targets": [
+    "Lotka_Volterra_module/gamma"
+   ],
+   "min": 1.0,
+   "max": 5.0,
+   "param_type": "const",
+   "name_for_plotting": "gamma"
+  }
+ ]
+}

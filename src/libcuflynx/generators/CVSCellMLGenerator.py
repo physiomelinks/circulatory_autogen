@@ -10,13 +10,13 @@ import pandas as pd
 import os
 import tempfile
 import warnings
-from sys import exit
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.parameters_file import CALIBRATED
 from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
                                                  CELLML_1_1_NS)
 from libcuflynx.generators.port_order import neighbour_port_index
 from libcuflynx.generators.vessel_nodes import check_vessel_nodes
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
@@ -84,6 +84,25 @@ def check_tissue_gas_mixing(module_df):
                     f'an entrance port of "{downstream.name}", so nothing would pass between them. '
                     f'A venous_gas_mixing takes each region through a gas_flux_port: use a '
                     f'tissue_GE_simple version that has one.')
+
+def myokit_compile_hint(error_text):
+    """What to install when Myokit could not compile the model because a header is missing
+    (``Python.h`` or SUNDIALS' ``cvode/cvode.h``), in place of the compiler traceback; None for
+    any other error. ``CVODE_myokit`` compiles each model with the system C compiler."""
+    text = str(error_text)
+    if 'Python.h' in text:
+        return ('Myokit could not compile the model: the Python development headers (Python.h) '
+                'are not installed for this interpreter, so the CVODE_myokit solver cannot run. '
+                'Install them (Debian/Ubuntu: sudo apt install python3-dev, or pythonX.Y-dev for '
+                'the Python in use; Fedora: python3-devel) and run again.')
+    if 'cvode/cvode.h' in text or 'sundials/sundials' in text:
+        return ('Myokit could not compile the model: the SUNDIALS headers (cvode/cvode.h) were '
+                'not found, so the CVODE_myokit solver cannot run. Install SUNDIALS '
+                '(Debian/Ubuntu: sudo apt install build-essential libsundials-dev; macOS: brew '
+                'install sundials), or name its location under [sundials] in '
+                '~/.config/myokit/myokit.ini, and run again.')
+    return None
+
 
 class CVS0DCellMLGenerator(object):
     '''
@@ -269,7 +288,7 @@ class CVS0DCellMLGenerator(object):
 
         print('Myokit validation failed for the generated model.')
         if myokit_error:
-            print(f'Myokit error: {myokit_error}')
+            print(f'Myokit error: {myokit_compile_hint(myokit_error) or myokit_error}')
 
         python_success, python_error = self._validate_with_python(cellml_path)
         if python_success:
@@ -617,8 +636,7 @@ class CVS0DCellMLGenerator(object):
                         else:
                             count += 1
                             if count > 50:
-                                print(f'Error in {module_file_path}, no component found')
-                                exit()
+                                raise CAInputError(f'Error in {module_file_path}, no component found')
 
                     # skip last line so enddef; doesn't get written till the end.
                     # skip first non-component lines
@@ -804,8 +822,7 @@ class CVS0DCellMLGenerator(object):
         # check inp vessels are all connected # TODO this should be done in the model parsing stage
         for inp_module_idx, inp_module in enumerate(module_row["inp_instances"]):
             if not (module_df["name"] == inp_module).any():
-                print(f'the input module of {inp_module} is not defined')
-                exit()
+                raise CAInputError(f'the input module of {inp_module} is not defined')
             inp_module_row = module_df.loc[module_df["name"] == inp_module].squeeze()
             inp_module_subtype = inp_module_row["module_subtype"]
             inp_component_type = inp_module_row["component_type"]
@@ -816,8 +833,7 @@ class CVS0DCellMLGenerator(object):
 
         for out_module_idx, out_module in enumerate(module_row["out_instances"]):
             if not (module_df["name"] == out_module).any():
-                print(f'the output module of {out_module} is not defined')
-                exit()
+                raise CAInputError(f'the output module of {out_module} is not defined')
             out_module_row = module_df.loc[module_df["name"] == out_module].squeeze()
             out_module_subtype = out_module_row["module_subtype"]
             out_component_type = out_module_row["component_type"]
@@ -901,10 +917,10 @@ class CVS0DCellMLGenerator(object):
                     continue
                 
                 if entrance_port_idx == -1:
-                    print(f"module {out_module} has a single port {port_types[port_type_idx]['port_type']}, connected",
-                          f"to multiple ports. Should it have a multiport:True entry in the",
-                          f"module_config.json file??")
-                    exit()
+                    raise CAInputError(
+                        f"module {out_module} has a single port "
+                        f"{port_types[port_type_idx]['port_type']}, connected to multiple ports. "
+                        f"Should it have a multiport:True entry in the module_config.json file?")
 
                 out_port_idx = None
                 this_type_port_idx = None
@@ -1560,10 +1576,9 @@ class CVS0DCellMLGenerator(object):
                     for II in range(len(vessel_tup.out_instances)):
                         if vessel_tup.out_instances[II] == venous_name:
                             if vessel_name not in vessel_df.loc[vessel_df["name"] == venous_name].squeeze()["inp_instances"]:
-                                print(f'venous input of {venous_name} does not include the terminal vessel '
-                                      f'{vessel_name} as an inp_vessel in {self.file_prefix}_module_array. '
-                                      f'not including terminal names as input has been deprecated')
-                                exit()
+                                raise CAInputError(f'venous input of {venous_name} does not include the terminal vessel '
+                                                   f'{vessel_name} as an inp_vessel in {self.file_prefix}_module_array. '
+                                                   f'not including terminal names as input has been deprecated')
                             terminal_names_for_first_venous[idx].append(vessel_name)
                 terminal_names.append(vessel_name)
 
@@ -1665,9 +1680,8 @@ class CVS0DCellMLGenerator(object):
         neighbours = self.__junction_node_neighbours(vessel_df, vessel_tup, side)
         node = 'inlet' if side == 'Min' else 'outlet'
         if len(neighbours) == 0:
-            print(f'ERROR :: {junction_label} {vess_name} has NO other vessels connected to its {node} node, '
-                  f'even if it is a junction node. Exiting')
-            exit()
+            raise CAInputError(f'{junction_label} {vess_name} has NO other vessels connected to its {node} node, '
+                               f'even if it is a junction node')
 
         names = []
         for name, sign, flow_variable, pressure_variable in neighbours:
@@ -1700,18 +1714,14 @@ class CVS0DCellMLGenerator(object):
 
             if 'Min_junction' in vessel_tup.module_type:
                 if not vessel_tup.module_subtype.startswith(('vv', 'vp')):
-                    print(f'ERROR :: Min_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
-                          f'Exiting')
-                    exit()
+                    raise CAInputError(f'Min_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}')
                 self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'Min_junction', 'Min', 'u',
                                                     vess_names_per_junc, vess_signs_per_junc)
 
             elif 'Nout_junction' in vessel_tup.module_type:
                 if 'MinNout_junction' in vessel_tup.module_type:
                     if not vessel_tup.module_subtype.startswith('vv'):
-                        print(f'ERROR :: MinNout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
-                              f'Exiting')
-                        exit()
+                        raise CAInputError(f'MinNout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}')
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'MinNout_junction', 'Min', 'u',
                                                         vess_names_per_junc, vess_signs_per_junc)
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'MinNout_junction', 'Nout', 'u_d',
@@ -1722,9 +1732,7 @@ class CVS0DCellMLGenerator(object):
                     elif vessel_tup.module_subtype.startswith('pv'):
                         u_1 = 'u'
                     else:
-                        print(f'ERROR :: Nout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
-                              f'Exiting')
-                        exit()
+                        raise CAInputError(f'Nout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}')
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'Nout_junction', 'Nout', u_1,
                                                         vess_names_per_junc, vess_signs_per_junc)
 
@@ -1861,8 +1869,7 @@ class CVS0DCellMLGenerator(object):
             # print("junction", idxV, flow_vess_name, " || sum_case", sum_case)
             
             if sum_case==-1:
-                print("ERROR :: sum_case is -1 for "+str(idxV)+" "+flow_vess_name+" . Exiting")
-                exit()
+                raise CAInputError("sum_case is -1 for "+str(idxV)+" "+flow_vess_name)
             else:
                 if sum_case==0:
                     rhs_variables = []
@@ -2067,11 +2074,8 @@ class CVS0DCellMLGenerator(object):
         if params_array is not None:
             for variable_name in module_vars:
                 if variable_name not in params_array["variable_name"]:
-                    print(f'________________ERROR_________________')
-                    print(f'variable {variable_name} is not in the parameter '
-                          f'dataframe/csv file. It needs to be added!!!')
-                    print(f'______________________________________')
-                    exit()
+                    raise CAInputError(f'variable {variable_name} of {vessel_name} is not in the '
+                                       f'parameters file. It needs to be added.')
         self.__write_mapping(wf, params_with_addon_heading, vessel_name + module_addon,
                              module_vars, vars)
 
@@ -2113,18 +2117,15 @@ class CVS0DCellMLGenerator(object):
                                      main_vessel_module_subtype, out_vessel_module_subtype,
                                      main_module_type, out_module_type):
         if not out_vessel:
-            print(f'connection modules incorrectly defined for {main_vessel}')
-            exit()
+            raise CAInputError(f'connection modules incorrectly defined for {main_vessel}')
         if main_module_type.endswith('terminal'):
             pass
         elif main_vessel not in vessel_df.loc[vessel_df["name"] == out_vessel].inp_instances.values[0]:
-            print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
-                  f'check that they have eachother as output/input')
-            exit()
+            raise CAInputError(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
+                               f'check that they have eachother as output/input')
         elif out_vessel not in vessel_df.loc[vessel_df["name"] == main_vessel].out_instances.values[0]:
-            print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
-                  f'check that they have eachother as output/input')
-            exit()
+            raise CAInputError(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
+                               f'check that they have eachother as output/input')
         # The BC letters are only checked between two vessels. A module that is not a
         # vessel (a cell, controller, heart part, an ``nn`` BC module, ...) may have any
         # module_subtype, e.g. ``lv_test`` or ``SN_soma``, without it being read as a BC pair.
@@ -2140,14 +2141,12 @@ class CVS0DCellMLGenerator(object):
 
         if temp_main_vessel_module_subtype.endswith('v'):
             if not out_vessel_module_subtype.startswith('p'):
-                print(f'"{main_vessel}" output BC is v, the input BC of "{out_vessel}"',
-                    ' should be p')
-                exit()
+                raise CAInputError(f'"{main_vessel}" output BC is v, the input BC of '
+                                   f'"{out_vessel}" should be p')
         if temp_main_vessel_module_subtype.endswith('p'):
             if not out_vessel_module_subtype.startswith('v'):
-                print(f'"{main_vessel}" output BC is p, the input BC of "{out_vessel}"',
-                    ' should be v')
-                exit()
+                raise CAInputError(f'"{main_vessel}" output BC is p, the input BC of '
+                                   f'"{out_vessel}" should be v')
 
     def __check_input_output_ports(self, exit_ports, output_general_ports, entrance_ports, input_general_ports, upstream_module, downstream_module):
         # check that input and output modules have a matching port
@@ -2166,13 +2165,13 @@ class CVS0DCellMLGenerator(object):
         if len(output_general_ports) == 0:
             shared_general_port = True
         if shared_exit_port == False and shared_general_port == False:
-            print(f'upstream module {upstream_module} and downstream module {downstream_module} do not have a matching port,'
-                  f'check the module configuration file')
-            print(f'upstream module exit ports: {[exit_port["port_type"] for exit_port in exit_ports]}')
-            print(f'upstream module general ports: {[general_port["port_type"] for general_port in output_general_ports]}')
-            print(f'downstream module entrance ports: {[entrance_port["port_type"] for entrance_port in entrance_ports]}')
-            print(f'downstream module general ports: {[general_port["port_type"] for general_port in input_general_ports]}')
-            exit()
+            raise CAInputError(
+                f'upstream module {upstream_module} and downstream module {downstream_module} do '
+                f'not have a matching port, check the module configuration file\n'
+                f'upstream module exit ports: {[p["port_type"] for p in exit_ports]}\n'
+                f'upstream module general ports: {[p["port_type"] for p in output_general_ports]}\n'
+                f'downstream module entrance ports: {[p["port_type"] for p in entrance_ports]}\n'
+                f'downstream module general ports: {[p["port_type"] for p in input_general_ports]}')
 
     def _reset_connections(self):
         """Start a fresh connection accumulator for one CellML file."""

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from libcuflynx.calibration_workflow import (WorkflowError, load_workflow_run, plan_workflow,
+                                             workflow_status,
                                              run_calibration_workflow)
 from libcuflynx.calibration_workflow import sweep as sweep_module
 from libcuflynx.calibration_workflow.pack import pack_workflow
@@ -138,7 +139,7 @@ def test_a_sweep_on_the_target_takes_every_calibration_and_set_step(library):
 def test_on_target_is_for_a_sweep(library):
     raw = _raw(library)
     raw['steps'][1]['on_target'] = True
-    with pytest.raises(WorkflowError, match='"on_target" is for a sweep step'):
+    with pytest.raises(WorkflowError, match='"on_target" is for a sweep or simulate step'):
         _parse(library, raw)
 
 
@@ -149,6 +150,30 @@ def test_the_range_forms_match_cams():
         parameter_values({'min': 1.0, 'max': 100.0, 'points': 3, 'scale': 'log'}), [1, 10, 100])
     assert parameter_values({'factors': [2.0]}) is None
     assert parameter_values({'factors': [2.0]}, 3.0).tolist() == [6.0]
+
+
+@pytest.mark.unit
+def test_values_and_factors_together_give_both():
+    """The given values, then the factors x the model's value: k_o at 1, 10 and 100 and the
+    cell's own."""
+    spec = {'values': [1.0, 10.0, 100.0], 'factors': [1.0]}
+    assert parameter_values(spec) is None
+    assert parameter_values(spec, 5.4).tolist() == [1.0, 10.0, 100.0, 5.4]
+    with pytest.raises(WorkflowError, match='which is 0'):
+        parameter_values(spec, 0.0, 'here')
+    names, points = sweep_points({'design': 'grid', 'parameters': {'k_o': spec}}, {'k_o': 5.4})
+    assert names == ['k_o'] and points.ravel().tolist() == [1.0, 10.0, 100.0, 5.4]
+
+
+@pytest.mark.unit
+def test_a_sweep_range_takes_values_and_factors_and_refuses_other_keys(library):
+    raw = _raw(library)
+    raw['steps'].append(_sweep_step(raw, parameters={
+        'mod__C/q': {'values': [1.0, 2.0], 'factors': [1.0]}}))
+    _parse(library, raw)
+    raw['steps'][-1]['sweep']['parameters']['mod__C/q']['value'] = 3.0
+    with pytest.raises(WorkflowError):
+        _parse(library, raw)
 
 
 @pytest.mark.unit
@@ -212,11 +237,49 @@ def test_invalid_set_steps_say_why(library, edit, message):
 
 
 @pytest.mark.unit
+def test_point_is_a_boolean_of_a_set_step(library):
+    raw = _raw(library)
+    raw['steps'].append(dict(_set_step(), point=True))
+    workflow = _parse(library, raw)
+    assert workflow.step('hand').point and not workflow.step('fit_a').point
+    raw['steps'][-1]['point'] = 'yes'
+    with pytest.raises(WorkflowError, match="'yes' is not of type 'boolean'"):
+        _parse(library, raw)
+    raw['steps'][-1]['point'] = True
+    raw['steps'][1]['point'] = False
+    with pytest.raises(WorkflowError, match='"point" is for a set step, not a calibration'):
+        _parse(library, raw)
+    raw['steps'][1]['kind'] = 'calibration'
+    with pytest.raises(WorkflowError, match="'set' was expected"):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
+def test_a_point_step_is_neither_merged_nor_a_second_calibration(library):
+    import warnings
+    raw = _raw(library)
+    raw['steps'] = [{'id': 'scan', 'kind': 'sweep', 'on_target': True,
+                     'settings': {'sim_time': 1.0},
+                     'sweep': {'outputs': ['mod__C/z'], 'parameters': {}}}] + raw['steps'] + \
+        [dict(_set_step(), point=True)]
+    workflow = _parse(library, raw)
+    # an on_target sweep is given the target's values, which a point step is not part of
+    assert workflow.step('scan').fixed_from == ['fit_a', 'rest']
+    from libcuflynx.calibration_workflow.resolve import resolve_workflow
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        resolve_workflow(workflow)      # A/p is fit_a's and the point's: no warning
+        # a set step replaces a calibrated value with no warning either
+        raw['steps'][-1].pop('point')
+        resolve_workflow(_parse(library, raw))
+
+
+@pytest.mark.unit
 def test_a_scale_of_a_sweep_or_an_unknown_step_is_refused(library):
     raw = _raw(library)
     raw['steps'] += [_sweep_step(raw), _set_step(entries=[
         {'parameter': 'mod__A/p', 'scale': 2.0, 'of': 'scan', 'reason': REASON}])]
-    with pytest.raises(WorkflowError, match='takes a calibration or set step'):
+    with pytest.raises(WorkflowError, match='takes a calibration or set or combine step'):
         _parse(library, raw)
     raw['steps'][-1]['set'][0]['of'] = 'nope'
     with pytest.raises(WorkflowError, match='unknown step "nope"'):
@@ -228,7 +291,7 @@ def test_a_sweep_cannot_pass_values_on(library):
     raw = _raw(library)
     raw['steps'].append(_sweep_step(raw))
     raw['steps'][1]['fixed_from'] = ['scan']
-    with pytest.raises(WorkflowError, match='a sweep step; it takes a calibration or set step'):
+    with pytest.raises(WorkflowError, match='a sweep step; it takes a calibration or set or combine step'):
         _parse(library, raw)
 
 
@@ -320,8 +383,7 @@ def test_a_scale_multiplies_a_steps_value_or_the_inherited_one(library, tmp_path
         {'parameter': 'mod__C/k', 'scale': 3.0, 'of': 'inherited', 'reason': REASON},
         {'parameter': 'mod__C/q', 'value': 4.0, 'reason': REASON}])]
     raw['steps'][1]['fixed_from'] = ['fit_a']
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=str(tmp_path / 'out'))
+    result = run_calibration_workflow(_write(library, raw), output_dir=str(tmp_path / 'out'))
     merged = _merged(result)
     assert merged['A/p']['value'] == pytest.approx(2.0 * np.sqrt(Y_A / 2), rel=1e-4)
     assert merged['C/k']['value'] == 3.0
@@ -385,6 +447,44 @@ def test_the_diagram_shows_a_set_value_with_its_reason_and_never_as_calibrated(l
     assert 'SET BY HAND' in provenance_svg(graph)
 
 
+@pytest.mark.integration
+def test_a_point_step_is_used_by_later_steps_but_never_reaches_the_target(library, tmp_path):
+    import warnings
+    raw = _raw(library)
+    fit_a, rest = raw['steps']
+    raw['steps'] = [fit_a, dict(_set_step('hand'), point=True),
+                    _set_step('kept', [{'parameter': 'mod__C/k', 'value': 3.0,
+                                        'reason': REASON}]),
+                    dict(rest, fixed_from=['hand'])]
+    out = str(tmp_path / 'out')
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    assert not [w for w in caught if 'more than one step' in str(w.message)]
+    merged = _merged(result)
+    # the target has fit_a's calibrated A/p, not the point's, and the normal set step's C/k
+    assert merged['A/p']['value'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
+    assert merged['A/p']['from_step'] == 'fit_a' and 'origin' not in merged['A/p']
+    assert (merged['C/k']['value'], merged['C/k']['origin']) == (3.0, 'set_by_hand')
+    assert 'hand' not in {r['from_step'] for r in result['merged_parameters']}
+    # the step that takes the point is given its value
+    assert merged['C/q']['value'] == pytest.approx(np.sqrt(Z_C - 2 * 1.5 ** 2), rel=1e-4)
+    fixed = _read_json(os.path.join(out, 'rest', 'step_result.json'))['fixed']
+    assert [(f['model_name'], f['value'], f['from_step']) for f in fixed] == [
+        ('p_mod__A', 1.5, 'hand')]
+
+    graph = provenance_graph(out)
+    nodes = {n['id']: n for n in graph['nodes']}
+    assert nodes['hand']['mark'] == 'set_by_hand'
+    assert nodes['hand']['lines'][-1] == 'point only, not in the target'
+    assert 'point only, not in the target' not in nodes['kept']['lines']
+    edges = {(e['from'], e['to']) for e in graph['edges']}
+    assert ('hand', '__target__') not in edges and ('kept', '__target__') in edges
+    assert ('hand', 'rest') in edges
+    svg = provenance_svg(graph)
+    assert 'point only, not in the target' in svg and 'SET BY HAND' in svg
+
+
 # --------------------------------------------------------------------------------------------
 # running a sweep
 # --------------------------------------------------------------------------------------------
@@ -400,6 +500,7 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
 
     step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
     assert (step['n_points'], step['n_failed'], step['calibrated']) == (3, 0, [])
+    assert step['solver_info']['solver'] == 'CVODE_myokit'  # what the points ran with
     assert [f['from_step'] for f in step['fixed']] == ['fit_a']
     with np.load(step['sweep_results']) as results:
         assert results['points'].ravel().tolist() == [1.0, 2.0, 3.0]
@@ -411,6 +512,7 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     np.testing.assert_allclose(z, Y_A + np.array([1.0, 2.0, 3.0]) ** 2, rtol=1e-6)
     manifest = _read_json(step['sweep_manifest'])
     assert manifest['parameters'][0]['nominal'] == 1.0
+    assert manifest['plot_groups'] == [{'x': 'mod__C/q', 'series': None, 'points': [0, 1, 2]}]
     assert manifest['failures'] == []
 
     graph = provenance_graph(out)
@@ -424,7 +526,9 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     figure = next(n for n in graph['nodes'] if n['id'] == 'scan/files')
     assert (figure['kind'], figure['status'], figure['title']) == ('figure', 'done', '1 file written')
     assert figure['lines'] == ['`scan/sweep/sweep_results.npz`']
-    assert [e['label'] for e in graph['edges'] if e['to'] == 'scan'] == ['fixed']
+    # its model comes from a model source, its fixed value from fit_a
+    assert sorted(e['label'] for e in graph['edges'] if e['to'] == 'scan') == [
+        'fixed', 'generates']
 
 
 @pytest.mark.integration
@@ -436,8 +540,7 @@ def test_a_sweep_on_the_target_runs_with_the_merged_values(library, tmp_path):
         'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
         'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
     out = str(tmp_path / 'out')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    result = run_calibration_workflow(_write(library, raw), output_dir=out)
     assert _merged(result)['A/p']['value'] == 1.5
 
     step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
@@ -468,8 +571,7 @@ def test_a_sweep_on_the_target_ignores_values_a_step_was_only_given(library, tmp
         'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
         'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
     out = str(tmp_path / 'out')
-    with pytest.warns(UserWarning, match='calibrated by more than one step'):
-        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    result = run_calibration_workflow(_write(library, raw), output_dir=out)
     assert result['order'] == ['fit_a', 'hand', 'rest', 'scan']
     assert _merged(result)['A/p']['value'] == 1.5
 
@@ -479,6 +581,25 @@ def test_a_sweep_on_the_target_ignores_values_a_step_was_only_given(library, tmp
     with np.load(step['sweep_results']) as results:
         np.testing.assert_allclose(results['trace_0'][:, 0, -1], 2 * 1.5 ** 2 + np.array([1.0, 4.0]),
                                    rtol=1e-6)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('edit', [
+    lambda sweep: sweep['parameters'].update({'mod__C/k': {'values': [1.0]}}),
+    lambda sweep: sweep['parameters']['mod__C/q'].update(values=[1.0, 2.0, 4.0]),
+    lambda sweep: sweep.update(outputs=['mod__C/z', 'mod__A/y']),
+    lambda sweep: sweep.update(design='one_at_a_time'),
+])
+def test_a_sweep_is_stale_when_its_sweep_block_changes(library, tmp_path, edit):
+    raw = _raw(library)
+    raw['steps'].append(dict(_sweep_step(raw), fixed_from=['fit_a']))
+    path, out = _write(library, raw), str(tmp_path / 'out')
+    run_calibration_workflow(path, output_dir=out)
+    assert not workflow_status(path, out)['steps']['scan']['stale']
+    edit(raw['steps'][-1]['sweep'])
+    _write(library, raw)
+    assert workflow_status(path, out)['steps']['scan']['stale']
+    assert not workflow_status(path, out)['steps']['rest']['stale']
 
 
 @pytest.mark.integration
@@ -653,99 +774,14 @@ def test_a_sweep_spreads_over_ranks_and_keeps_its_order(library, tmp_path):
 # figure scripts outside the workflow
 # --------------------------------------------------------------------------------------------
 
-def _external(**entry):
-    return dict({'id': 'paper_plots', 'command': 'python tools/paper_plots.py {run}',
-                 'from': 'target', 'writes': ['plots/fig1.png']}, **entry)
-
-
 @pytest.mark.unit
-@pytest.mark.parametrize('entry, message', [
-    (_external(id='rest'), 'has the id of a step'),
-    (_external(**{'from': 'nowhere'}), 'neither a step nor "target"'),
-    (_external(writes=[]), 'writes'),
-    (_external(command=''), 'command'),
-])
-def test_invalid_external_figures_say_why(library, entry, message):
+def test_external_figures_are_refused_naming_the_figure_step(library):
     raw = _raw(library)
-    raw['external_figures'] = [entry]
-    with pytest.raises(WorkflowError, match=message):
+    raw['external_figures'] = [{'id': 'paper_plots', 'command': 'make paper-plots',
+                                'from': 'target', 'writes': ['plots/fig1.png']}]
+    with pytest.raises(WorkflowError, match=r'"external_figures" \[\'paper_plots\'\] are not '
+                                            r'read: a figure is a step.*"kind": "figure"'):
         _parse(library, raw)
-
-
-@pytest.mark.unit
-def test_two_external_figures_need_their_own_ids(library):
-    raw = _raw(library)
-    raw['external_figures'] = [_external(), _external()]
-    with pytest.raises(WorkflowError, match='another external figure'):
-        _parse(library, raw)
-
-
-@pytest.mark.unit
-def test_an_external_path_is_absolute_or_in_the_output_directory(tmp_path):
-    from libcuflynx.calibration_workflow.spec import external_path
-    assert external_path('plots/a.png', '/runs/w') == '/runs/w/plots/a.png'
-    assert external_path(str(tmp_path / 'a.png'), '/runs/w') == str(tmp_path / 'a.png')
-    assert external_path('~/a.png', '/runs/w') == os.path.expanduser('~/a.png')
-
-
-@pytest.mark.integration
-def test_a_declared_figure_script_is_current_then_stale_then_missing(library, tmp_path):
-    """Declared after the run, the script leaves the run current; touching a file it reads makes
-    it stale, and deleting a file it writes leaves it not run."""
-    from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
-    from libcuflynx.schemas.validation import validate
-    out = str(tmp_path / 'out')
-    path = _write(library, _raw(library))
-    run_calibration_workflow(path, output_dir=out)
-
-    data = os.path.join(out, 'plots', 'data.csv')
-    figure = os.path.join(out, 'plots', 'Fig1', 'a.png')
-    elsewhere = tmp_path / 'paper' / 'Fig2' / 'a.png'
-    for file in (data, figure, str(elsewhere)):
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        with open(file, 'w') as f:
-            f.write('x')
-    now = os.path.getmtime(os.path.join(out, 'workflow_result.json'))
-    os.utime(data, (now + 10, now + 10))
-    os.utime(figure, (now + 20, now + 20))
-    os.utime(elsewhere, (now + 20, now + 20))
-    raw = _raw(library)
-    raw['external_figures'] = [_external(reads=['plots/data.csv'],
-                                         writes=['plots/Fig1/a.png', str(elsewhere)],
-                                         description='the paper figures')]
-    _write(library, raw)
-
-    graph = provenance_graph(out)
-    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
-    assert graph['workflow']['file_status'] == 'current' and not graph['workflow']['stale']
-    script = next(n for n in graph['nodes'] if n['id'] == 'paper_plots')
-    assert (script['kind'], script['status'], script['stale']) == ('external', 'done', False)
-    assert script['lines'] == ['`python tools/paper_plots.py {run}`', 'the paper figures']
-    assert [(e['key'], e['status']) for e in script['inputs']] == [
-        ('reads', 'current'), ('writes', 'current'), ('writes', 'current')]
-    edges = {(e['from'], e['to'], e['style']) for e in graph['edges']}
-    assert ('__target__', 'paper_plots', 'reads') in edges
-    # one box names both files, which share the name a.png in different folders
-    assert [e['to'] for e in graph['edges'] if e['from'] == 'paper_plots'] == ['paper_plots/files']
-    files = next(n for n in graph['nodes'] if n['id'] == 'paper_plots/files')
-    assert files['title'] == '2 files written' and files['status'] == 'done'
-    shown = ' '.join(files['lines'])
-    assert 'Fig1/a.png' in shown and 'Fig2/a.png' in shown
-    assert 'OUTSIDE THE WORKFLOW' in provenance_svg(graph)
-
-    os.utime(data, (now + 30, now + 30))
-    script = next(n for n in provenance_graph(out)['nodes'] if n['id'] == 'paper_plots')
-    assert script['stale'] and script['inputs'][0]['status'] == 'stale'
-
-    os.remove(figure)
-    graph = provenance_graph(out)
-    script = next(n for n in graph['nodes'] if n['id'] == 'paper_plots')
-    assert (script['status'], script['stale']) == ('not_run', False)
-    assert script['inputs'][1]['status'] == 'missing'
-    assert '1 of 2 files not written' in script['lines']
-    assert 'FILES MISSING' in provenance_svg(graph)
-    files = next(n for n in graph['nodes'] if n['id'] == 'paper_plots/files')
-    assert files['status'] == 'not_run' and any('a.png` (missing)' in line for line in files['lines'])
 
 
 def test_a_producer_s_files_are_named_in_one_box(tmp_path):
@@ -824,7 +860,7 @@ def test_a_sweep_point_runs_as_fast_as_a_calibration_evaluation(tmp_path):
     one_evaluation = time.perf_counter() - start
 
     start = time.perf_counter()
-    _, _, features = runner(['mod/k'], [0.001])
+    _, _, features, _ = runner(['mod/k'], [0.001])
     one_point = time.perf_counter() - start
     np.testing.assert_allclose(features['x_max'], np.exp(-5.0), rtol=1e-5)
     assert one_point < 10 * one_evaluation + 0.5, (one_point, one_evaluation)

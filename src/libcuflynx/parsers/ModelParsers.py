@@ -24,6 +24,7 @@ import os
 
 from libcuflynx.utilities.module_library import ModuleSources
 from libcuflynx.utilities.parameterisations import SOURCE_ROW_KEY, reissue_warnings
+from libcuflynx.errors import CAInputError
 from libcuflynx.utilities.vessel_bc import is_vessel_bc
 
 # The keys every parameter row has. They are looked up by name, so a parameter may carry other
@@ -288,11 +289,9 @@ class CSV0DModelParser(object):
                                 found_K_mod = True
                                 break
                             else:
-                                print(f"ERROR: wrong module_subtype for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your module array file.")
-                                exit()
+                                raise CAInputError(f"wrong module_subtype for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your module array file.")
                     if not found_K_mod:
-                        print(f"ERROR: entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your module array file.")
-                        exit()
+                        raise CAInputError(f"entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your module array file.")
 
 
         self.conn_1d_0d_info = {}
@@ -370,17 +369,13 @@ class CSV0DModelParser(object):
 
                                     N1d0d += 1
                                 else:
-                                    print(f"ERROR :: {inp_vess} found in inp_instances of 1D vessel {vess1d}, but {vess1d} not found in out_instances_0d of 0D vessel {inp_vess}")
-                                    exit()
+                                    raise CAInputError(f"{inp_vess} found in inp_instances of 1D vessel {vess1d}, but {vess1d} not found in out_instances_0d of 0D vessel {inp_vess}")
                         elif len(idx0d)==0:
-                            print(f"ERROR :: no index found for {inp_vess} in 1D or 0D module array")
-                            exit()
+                            raise CAInputError(f"no index found for {inp_vess} in 1D or 0D module array")
                         elif len(idx0d)>1:
-                            print(f"ERROR :: more than one index found for {inp_vess} in 0D module array")
-                            exit()
+                            raise CAInputError(f"more than one index found for {inp_vess} in 0D module array")
                     else: # TODO
-                        print(f"ERROR :: more than one index found for {inp_vess} in 1D module array")
-                        exit()
+                        raise CAInputError(f"more than one index found for {inp_vess} in 1D module array")
 
             if len(out_instances)>0:
                 for out_vess in out_instances:
@@ -447,17 +442,13 @@ class CSV0DModelParser(object):
                                     
                                     N1d0d += 1
                                 else: 
-                                    print(f"ERROR :: {out_vess} found in out_instances of 1D vessel {vess1d}, but {vess1d} not found in inp_instances_0d of 0D vessel {out_vess}")
-                                    exit()
+                                    raise CAInputError(f"{out_vess} found in out_instances of 1D vessel {vess1d}, but {vess1d} not found in inp_instances_0d of 0D vessel {out_vess}")
                         elif len(idx0d)==0:
-                            print(f"ERROR :: no index found for {out_vess} in 1D or 0D module array")
-                            exit()
+                            raise CAInputError(f"no index found for {out_vess} in 1D or 0D module array")
                         elif len(idx0d)>1:
-                            print(f"ERROR :: more than one index found for {out_vess} in 0D module array")
-                            exit()
+                            raise CAInputError(f"more than one index found for {out_vess} in 0D module array")
                     else:
-                        print(f"ERROR :: more than one index found for {out_vess} in 1D module array")
-                        exit()
+                        raise CAInputError(f"more than one index found for {out_vess} in 1D module array")
 
         print(f"Number of one-to-one 1D-0D connections: {N1d0d}")
         
@@ -669,15 +660,12 @@ class CSV0DModelParser(object):
         missing_columns = [name for name in _REQUIRED_PARAMETER_COLUMNS
                            if name not in (parameters_array_orig.dtype.names or ())]
         if missing_columns:
-            print('')
-            print(f'ERROR: {self.parameter_filename} is missing the required column(s) '
-                  f'{missing_columns}. \n'
-                  f'Required columns are {list(_REQUIRED_PARAMETER_COLUMNS)}; the file has '
-                  f'{list(parameters_array_orig.dtype.names or ())}. \n'
-                  f'Columns are matched by header name, so any additional columns are ignored '
-                  f'and their order does not matter, exiting \n')
-            print('')
-            exit()
+            raise CAInputError(f'{self.parameter_filename} is missing the required column(s) '
+                               f'{missing_columns}. '
+                               f'Required columns are {list(_REQUIRED_PARAMETER_COLUMNS)}; the file has '
+                               f'{list(parameters_array_orig.dtype.names or ())}. '
+                               f'Columns are matched by header name, so any additional columns are ignored '
+                               f'and their order does not matter')
 
         parameters_list = []
 
@@ -693,12 +681,9 @@ class CSV0DModelParser(object):
 
             row = matches[0]
             if row['units'] != param_tuple[1]:
-                print('')
-                print(f'ERROR: units of {row["units"]} in the parameters file does not \n'
-                      f'match with units of {param_tuple[1]} in module_config.json file \n'
-                      f'for param {row["variable_name"]}, exiting \n')
-                print('')
-                exit()
+                raise CAInputError(f'units of {row["units"]} in the parameters file does not '
+                                   f'match with units of {param_tuple[1]} in module_config.json file '
+                                   f'for param {row["variable_name"]}')
 
             # const_type comes from the module config (local or global), not from the CSV.
             parameters_list.append([row['variable_name'], row['units'], param_tuple[2],
@@ -714,8 +699,7 @@ class CSV0DModelParser(object):
         if len(parameters_list) == 0:
             return np.empty((len(parameters_list)), dtype=dtype)
         elif len(set([len(a) for a in parameters_list])) != 1:
-            print('parameters rows are of non consistent length, exiting')
-            exit()
+            raise CAInputError('parameters rows are of non consistent length')
         parameters_array = np.empty((len(parameters_list)), dtype=dtype)
         parameters_array['variable_name'] = np.array(parameters_list)[:,0]
         parameters_array['units'] = np.array(parameters_list)[:,1]

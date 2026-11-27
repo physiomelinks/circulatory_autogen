@@ -46,6 +46,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-run-predictions",
     "cuflynx-couple",
     "cuflynx-derive",
+    "cuflynx-init",
 }
 
 
@@ -340,6 +341,48 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
     assert "mpiexec" not in result.stdout, "the launcher got as far as MPI before complaining"
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("generated,exit_code", [(False, 1), (True, 0)])
+def test_cuflynx_generate_exits_non_zero_when_generation_fails(monkeypatch, generated,
+                                                                exit_code):
+    """A failed generation or validation (generate_with_new_architecture returns False) is
+    exit status 1, which is what run_param_id.sh tests before calibrating."""
+    from libcuflynx.scripts import script_generate_with_new_architecture as gen_script
+
+    monkeypatch.setattr(gen_script, "generate_with_new_architecture",
+                        lambda with_fit, inp: generated)
+    monkeypatch.setattr(gen_script._cli, "load_user_inputs", lambda args: None)
+    assert gen_script.main(["False"]) == exit_code
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("generate_status", [1, 0])
+def test_run_param_id_calibrates_only_when_generation_succeeds(tmp_path, generate_status):
+    """Stub commands stand in for the installed ones: run_param_id.sh must stop at a failed
+    cuflynx-generate, and reach mpiexec after a successful one."""
+    bash = shutil.which("bash")
+    assert bash, "bash is needed to run the launchers at all"
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    for name, body in [("cuflynx-generate", f"exit {generate_status}"),
+                       ("cuflynx-param-id", "exit 0"),
+                       ("mpiexec", 'echo "MPIEXEC $*"')]:
+        stub = stubs / name
+        stub.write_text(f"#!/bin/bash\n{body}\n")
+        stub.chmod(0o755)
+    env = {"PATH": f"{stubs}:/usr/bin:/bin", "HOME": os.environ.get("HOME", "/tmp")}
+    result = subprocess.run(
+        [bash, "run_param_id.sh", "2"], cwd=str(_LAUNCHER_DIR), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=60)
+    if generate_status:
+        assert result.returncode == 1, result.stdout
+        assert "Not calibrating" in result.stdout
+        assert "MPIEXEC" not in result.stdout
+    else:
+        assert result.returncode == 0, result.stdout
+        assert "MPIEXEC -n 2 cuflynx-param-id" in result.stdout
+
+
 # --- --user-inputs -------------------------------------------------------------------
 
 #: Console commands that are **not** pipeline stages, and so have no user_inputs.yaml to be
@@ -368,6 +411,8 @@ NON_STAGE_COMMANDS = {
     # user_inputs.yaml by cuflynx-generate
     "cuflynx-couple",
     "cuflynx-derive",
+    # writes the starter user_inputs.yaml itself
+    "cuflynx-init",
 }
 
 

@@ -93,7 +93,10 @@ def plot_param_id(inp_data_dict=None, generate=True):
                             param_id_obs_path=param_id_obs_path,
                             sim_time=sim_time, pre_time=pre_time,
                             solver_info=solver_info, optimiser_options=optimiser_options, dt=dt,
-                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir, one_rank=True)
+                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir, one_rank=True,
+                            operation_funcs_external_path=inp_data_dict.get('operation_funcs_external_path'),
+                            cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path'),
+                            modifier_funcs_external_path=inp_data_dict.get('modifier_funcs_external_path'))
 
     if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):
         with open(os.path.join(param_id.output_dir, 'param_names_to_remove.csv'), 'r') as r:
@@ -109,19 +112,17 @@ def plot_param_id(inp_data_dict=None, generate=True):
     param_id.simulate_with_best_param_vals()
     param_id.plot_outputs()
     if do_uq:
-        if os.path.exists(os.path.join(param_id.output_dir, 'mcmc_chain.npy')):
+        if os.path.exists(param_id.mcmc_chain_path()):
             if not plot_predictions:
                 param_id.plot_mcmc()
         else:
             print('no mcmc chain has been created at ' + 
-                    os.path.join(param_id.output_dir, 'mcmc_chain.npy'))
+                    param_id.mcmc_chain_path())
     param_id.save_prediction_data()
     if do_sensitivity:
         param_id.run_sensitivity(None)
     # param_id.close_simulation() # remove this for identifiability analysis
 
-    print(f'doing ia for rank {rank}')
-    
     if do_identify:
         id_analysis = IdentifiabilityAnalysis(model_path, model_type, file_prefix, param_id_output_dir=param_id_output_dir,
                                               resources_dir=resources_dir, param_id=param_id.param_id)  # pass in param_id object so we can use its cost functions
@@ -143,7 +144,10 @@ def plot_param_id(inp_data_dict=None, generate=True):
                                             sim_time=sim_time, pre_time=pre_time,
                                             solver_info=solver_info, dt=dt, 
                                             UQ_options=UQ_options, DEBUG=DEBUG,
-                                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                                            operation_funcs_external_path=inp_data_dict.get('operation_funcs_external_path'),
+                                            cost_funcs_external_path=inp_data_dict.get('cost_funcs_external_path'),
+                                            modifier_funcs_external_path=inp_data_dict.get('modifier_funcs_external_path'))
     
         if do_uq:
             mcmc_plotter.plot_mcmc_and_predictions()

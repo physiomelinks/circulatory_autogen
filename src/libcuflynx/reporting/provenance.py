@@ -2,17 +2,22 @@
 How a calibration workflow run's values were set: a graph of the run, and that graph as SVG.
 
 :func:`provenance_graph` reads a run's output directory alone, so it needs no module library.
-Its nodes are the model source, one node for each step, a node each for the measured values, the
-derived values, the fixed constants of the derivations (when a derived value has any), the values
-set by hand in the parameters files and the values calibrated before
-the run (when there are any), and the merged target the simulation runs. A sweep's node has no
-arrow onward: nothing takes its values. Each value the target uses is marked with what set it:
+Its nodes are the model source (the target's model, and one more for each other model a step is
+generated from, each with an arrow to every step it generates), one node for each step (naming
+the values it calibrated, its priors and the values it was given, with what set them), a node
+each for the measured values, the derived values, the fixed constants of the derivations (when a
+derived value has any), the values set by hand in the parameters files and the values calibrated
+before the run (when there are any), and the merged target the simulation runs. A sweep's node has no
+arrow onward: nothing takes its values. The nodes of values given in the parameters files point
+to the target's model source, whose generated step models hold them (to the target when no step
+comes from that source). Each value the target uses is marked with what set it:
 
 * **calibrated**: a step fitted it (the step's results and the run's merged parameters say so),
   or its entry in the parameters has origin ``calibrated`` (fitted before this run; its
   data_reference says by what).
 * **set_by_hand**: a set step declared it, with its reason, or the ``origin`` of its entry in the
-  parameters says so.
+  parameters says so. The box of a reduction chosen by hand (``"method": "manual"``) has this
+  mark too: the choice of what to calibrate was made by hand, though it sets no value.
 * **measured**, **derived**, **inherited**: the ``origin`` of its entry in the parameters
   (``derived``: a parameter derivation calculated it from data).
 * **unclassified**: nothing says. A value is never counted as inherited by default.
@@ -27,7 +32,7 @@ import os
 import textwrap
 from xml.sax.saxutils import escape, quoteattr
 
-from libcuflynx.calibration_workflow.spec import INHERITED_BASE, scale_sources
+from libcuflynx.calibration_workflow.spec import INHERITED_BASE, raw_sweep, scale_sources
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
 from libcuflynx.utilities.parameters_file import (CALIBRATED, DERIVED, INHERITED, MEASURED,
@@ -50,19 +55,23 @@ DERIVED_NODE = '__derived__'
 FIXED_NODE = '__fixed_constants__'
 EARLIER_NODE = '__calibrated_earlier__'
 TARGET_NODE = '__target__'
-#: the kind of the one box naming the files a sweep step or a figure script wrote
+#: the kind of the one box naming the files a sweep, simulate or figure step wrote
 FIGURE = 'figure'
-#: a script outside the workflow that reads its results (``external_figures``)
+#: a script outside the workflow, in a graph written before figures were steps; drawn, never
+#: produced
 EXTERNAL = 'external'
 UNCLASSIFIED = 'unclassified'
 MIXED = 'mixed'
 MARKS = (CALIBRATED, MEASURED, DERIVED, INHERITED, SET_BY_HAND, UNCLASSIFIED)
 CURRENT, STALE, MISSING = 'current', 'stale', 'missing'
-#: how many values the drawn box of hand-set or measured values lists; the graph has them all
+#: how many values the drawn box of hand-set or measured values, the model source or the target
+#: lists; the graph has them all
 DRAWN_VALUES = 6
+#: how many values a step's box names of those it calibrated, and of those it was given
+DRAWN_STEP_VALUES = 4
 
 _SOURCE_KEYS = ('fixed_from', 'priors_from', 'emulator_from', 'result_from', 'sensitivity_from',
-                'params_for_id_from')
+                'params_for_id_from', 'start_from', 'combine_from')
 _MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', DERIVED: 'derived',
                 INHERITED: 'inherited', SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified',
                 MIXED: 'mixed'}
@@ -86,7 +95,20 @@ def _sources(raw_step):
     scaled = scale_sources(raw_step.get('set') or [])
     if scaled:
         out['scale_from'] = scaled
+    if raw_step.get('kind') == 'figure':
+        out['inputs_from'] = list(dict.fromkeys(
+            source['step'] for source in _figure(raw_step)['inputs'].values()))
     return out
+
+
+def _figure(raw_step):
+    '''A figure step of the workflow file as the flow chart takes it.'''
+    inputs = {}
+    for name, source in (raw_step.get('inputs') or {}).items():
+        (kind, step_id), = source.items()
+        inputs[name] = {'kind': kind, 'step': step_id}
+    script, _, function = (raw_step.get('function') or '').rpartition(':')
+    return {'function': f'{os.path.basename(script)}:{function}', 'inputs': inputs}
 
 
 def _is_helper_item(item):
@@ -109,7 +131,10 @@ def _data_item_counts(result):
 
 
 def _n_parameters(result):
-    path = ((result or {}).get('inputs', {}).get('params_for_id') or {}).get('path')
+    '''The parameters a step calibrates: the entries of the params_for_id it ran with
+    (``params_for_id_used``, which holds those ``priors_from`` adds), else of its own.'''
+    path = (result or {}).get('params_for_id_used') or \
+        ((result or {}).get('inputs', {}).get('params_for_id') or {}).get('path')
     if path and os.path.isfile(path):
         from libcuflynx.utilities.params_for_id_file import read_params_for_id
         document = read_params_for_id(path)
@@ -121,6 +146,12 @@ def _done(result):
     return bool(result) and result.get('status') == 'done'
 
 
+def _chosen_by_hand(raw_step):
+    '''Whether a step is a reduction whose parameters were chosen by hand.'''
+    options = (raw_step.get('settings') or {}).get('param_reduction_options') or {}
+    return raw_step.get('kind') == 'reduction' and options.get('method') == 'manual'
+
+
 def _graph_steps(run):
     '''The steps of a run as :func:`flowchart.workflow_graph` takes them.'''
     workflow = run['workflow']
@@ -129,15 +160,19 @@ def _graph_steps(run):
         result = run['steps'].get(raw.get('id'))
         sources = _sources(raw)
         if raw.get('on_target'):
-            # given every calibration's and set step's values, as the target is
+            # given every calibration's, set step's and combine step's values, as the target is
             sources['fixed_from'] = [s['id'] for s in workflow.get('steps', [])
-                                     if s.get('kind', 'calibration') in flowchart.MERGED_KINDS]
+                                     if s.get('kind', 'calibration') in flowchart.MERGED_KINDS
+                                     and not s.get('point')]
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
-            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from') else ids[0])
+            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from', 'combine_from',
+                                    'inputs_from')
+                     else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
+            'emulator_dir': raw.get('emulator_dir'),
             'model': result.get('model') if _done(result) else None,
             'n_parameters': _n_parameters(result) if _done(result) else 0,
             'n_data_items': observables, 'n_helper_items': helpers,
@@ -146,8 +181,11 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': (raw.get('settings') or {}).get('param_reduction_options'),
-            'set': raw.get('set'), 'sweep': raw.get('sweep'),
-            'on_target': bool(raw.get('on_target'))})
+            'by_hand': _chosen_by_hand(raw),
+            'set': raw.get('set'), 'sweep': raw_sweep(raw), 'combine': raw.get('combine'),
+            'figure': _figure(raw) if raw.get('kind') == 'figure' else None,
+            'on_target': bool(raw.get('on_target')), 'point': bool(raw.get('point')),
+            'protocol_factors': (result or {}).get('protocol_factors') or []})
     return steps
 
 
@@ -155,7 +193,7 @@ FILES_SUFFIX = '/files'
 
 
 def _figure_node(parent_id, paths, output_dir, stale):
-    '''The files a sweep step or a figure script wrote, named in one box below it: their common
+    '''The files a sweep, simulate or figure step wrote, named in one box below it: their common
     folder once, then each file. Done when every file exists; a missing one is marked.'''
     shown = [os.path.relpath(p, output_dir) if os.path.isabs(p) else p for p in paths]
     folder = os.path.commonpath(shown) if len(shown) > 1 else ''
@@ -175,6 +213,16 @@ def _figure_node(parent_id, paths, output_dir, stale):
 def _target_model(run):
     target = (run['result'] or {}).get('target') or run['workflow'].get('target')
     return {'module_array': target} if isinstance(target, str) else target
+
+
+def _generated_model(raw_step, result):
+    '''The model a step generates from a model source, as its result records it or else as the
+    workflow names it. None for a step with no model of its own: a set or reduction step, a
+    sweep on the target, or a step on an emulator (it runs the emulation step's model).'''
+    if raw_step.get('on_target') or raw_step.get('emulator_from') or not raw_step.get('model'):
+        return None
+    model = ((result or {}).get('model') if _done(result) else None) or raw_step['model']
+    return {'module_array': model} if isinstance(model, str) else model
 
 
 def _number(text):
@@ -249,19 +297,16 @@ def _settings_status(step_id, path, recorded, workflows):
 
 def _input_entries(step_id, result, workflows):
     from libcuflynx.calibration_workflow.runner import (LIBRARY_INPUT, SETTINGS_INPUT,
-                                                        module_library_digest, sha256)
+                                                        input_digest)
     entries = []
     for key, info in (result or {}).get('inputs', {}).items():
         path, recorded = info.get('path'), info.get('sha256')
         if key == SETTINGS_INPUT:
             status = _settings_status(step_id, path, recorded, workflows)
-        elif key == LIBRARY_INPUT:
-            status = CURRENT if module_library_digest(path.split(os.pathsep)) == recorded \
-                else STALE
-        elif not path or not os.path.isfile(path):
+        elif key != LIBRARY_INPUT and (not path or not os.path.exists(path)):
             status = MISSING
         else:
-            status = CURRENT if sha256(path) == recorded else STALE
+            status = CURRENT if input_digest(key, path) == recorded else STALE
         entries.append({'key': key, 'path': path, 'sha256': recorded, 'status': status})
     return entries
 
@@ -274,69 +319,12 @@ def _workflow_file_status(result):
     if not os.path.isfile(path):
         return MISSING
     recorded = result.get('workflow_sha256')
-    # a run recorded either the digest that ignores external_figures or the file's own sha256
+    # a run recorded either the digest that leaves figure steps out or the file's own sha256
     try:
         same = recorded in (workflow_digest(path), sha256(path))
     except (OSError, ValueError):
         same = recorded == sha256(path)
     return CURRENT if same else STALE
-
-
-def _external_figures(run, result):
-    '''The ``external_figures`` the workflow declares: from its file as it is now, so they can
-    be declared after a run, or else from the run's copy.'''
-    path = (result or {}).get('workflow_file')
-    if path and os.path.isfile(path):
-        try:
-            with open(path, encoding='utf-8-sig') as f:
-                return json.load(f).get('external_figures') or []
-        except ValueError:
-            pass
-    return run['workflow'].get('external_figures') or []
-
-
-def _external_node(entry, run, from_node, from_stale):
-    '''A declared figure script: its box, its files as ``inputs``, and the one figure box naming
-    the files it writes.
-
-    It is ``stale`` when a file it reads, or the result of the step it reads from, is newer than
-    the oldest file it writes, or that step is stale; a written file that is absent leaves it
-    not run.'''
-    from libcuflynx.calibration_workflow.spec import external_path
-    output_dir = run['output_dir']
-    writes = [external_path(p, output_dir) for p in entry['writes']]
-    reads = [external_path(p, output_dir) for p in entry.get('reads') or []]
-    present = [p for p in writes if os.path.isfile(p)]
-    oldest = min((os.path.getmtime(p) for p in present), default=None)
-    from_file = os.path.join(output_dir, entry['from'], 'step_result.json') \
-        if from_node != TARGET_NODE else os.path.join(output_dir, 'workflow_result.json')
-
-    def read_status(path):
-        if not os.path.isfile(path):
-            return MISSING
-        return STALE if oldest is not None and os.path.getmtime(path) > oldest else CURRENT
-
-    files = [{'key': 'reads', 'path': p, 'sha256': None, 'status': read_status(p)}
-             for p in reads]
-    files += [{'key': 'writes', 'path': p, 'sha256': None,
-               'status': CURRENT if os.path.isfile(p) else MISSING} for p in writes]
-    complete = len(present) == len(writes)
-    stale = complete and (from_stale or any(f['status'] == STALE for f in files)
-                          or read_status(from_file) == STALE)
-    lines = [f'`{entry["command"]}`']
-    if entry.get('description'):
-        lines.append(entry['description'])
-    missing = len(writes) - len(present)
-    if missing:
-        lines.append(f'{missing} of {len(writes)} files not written')
-    node = {'id': entry['id'], 'kind': EXTERNAL, 'title': entry['id'], 'lines': lines,
-            'mark': None, 'status': 'done' if complete else 'not_run', 'stale': stale,
-            'counts': {}, 'parameters': [], 'inputs': files}
-    figures = [_figure_node(entry['id'], writes, output_dir, stale)] if writes else []
-    edges = [{'from': from_node, 'to': entry['id'], 'label': 'reads', 'style': 'reads'}]
-    edges += [{'from': entry['id'], 'to': f['id'], 'label': 'writes', 'style': 'writes'}
-              for f in figures]
-    return node, figures, edges
 
 
 def _stale_steps(steps, inputs, results):
@@ -379,6 +367,10 @@ def _step_values(step_id, result):
     result = result or {}
     return ([_record_value(r, step_id) for r in result.get('calibrated', [])]
             + [_record_value(r, step_id) for r in result.get('set', [])]
+            # a set step's modifier thetas: not model values, named by their modifier entry
+            + [_value({'variable_name': flowchart.theta_name(t), 'value': t['theta'],
+                       'reason': t.get('reason', '')}, SET_BY_HAND, step_id)
+               for t in result.get('thetas', [])]
             + [_record_value(r, r.get('from_step')) for r in result.get('fixed', [])])
 
 
@@ -391,7 +383,8 @@ def _step_counts(result):
     others = [_value(r, _classified(r)) for r in rows
               if r['variable_name'] not in calibrated | fixed]
     counts = dict(_counts(others), calibrated=len(calibrated), fixed=len(fixed))
-    counts[SET_BY_HAND] += len((result or {}).get('set', []))
+    counts[SET_BY_HAND] += len((result or {}).get('set', [])) + \
+        len((result or {}).get('thetas', []))
     return counts
 
 
@@ -434,6 +427,68 @@ def _fixed_line(value):
             + (f': {note}' if note else ''))
 
 
+def _quantity(value, units=''):
+    text = f'{value:.4g}' if isinstance(value, (int, float)) else str(value)
+    return f'{text} {units}' if units else text
+
+
+def _record_name(record):
+    '''A step result's record named as a params_for_id names it: ``module/param``.'''
+    if record.get('module') and record.get('param'):
+        return f'{record["module"]}/{record["param"]}'
+    return record.get('model_name')
+
+
+def _first(lines, limit, what):
+    '''The first ``limit`` of ``lines``, then how many more ``what`` the graph file has.'''
+    if len(lines) <= limit:
+        return lines
+    return lines[:limit] + [f'and {len(lines) - limit} more {what} in {GRAPH_FILE}']
+
+
+def _set_by(origin, from_step, reason, data):
+    '''What set a value a step passed on: by hand, with the reason, or a calibration on its
+    data.'''
+    if origin == SET_BY_HAND:
+        return f'set by hand in {from_step}: {reason}'
+    if origin == CALIBRATED:
+        return f'calibrated by {from_step}' + (f' on `{data}`' if data else '')
+    return f'{_MARK_LABELS.get(origin, origin)}, from {from_step}'
+
+
+def _set_record_line(record):
+    '''One value of a set step: its value, how a scaled one was made, and the reason.'''
+    how = (f' ({record["scale"]:g} × {_quantity(record["base"])} from `{record["of"]}`)'
+           if 'scale' in record else '')
+    return (f'`{_record_name(record)}` = {_quantity(record["value"], record.get("units"))}'
+            f'{how}: {record.get("reason", "")}')
+
+
+def _step_value_lines(result, data_of):
+    '''A done step's priors, the values it calibrated and those earlier steps fixed, by name,
+    value and what set them; ``data_of(step id)`` names a step's obs_data.'''
+    from libcuflynx.calibration_workflow.runner import POINT_POSTERIOR_MEDIAN
+    calibrated = result.get('calibrated') or []
+    names = {r.get('model_name'): _record_name(r) for r in calibrated}
+    lines = []
+    for prior in result.get('priors') or []:
+        shown = ', '.join(f'`{names.get(n, n)}`' for n in prior.get('parameters') or [])
+        inflated = f', widened {prior["inflate"]:g} times' if prior.get('inflate', 1) != 1 else ''
+        lines.append(f'prior of {shown}: {prior.get("kind")} fit to the posterior of '
+                     f'{prior["step"]}{inflated}')
+    point = (' (posterior median)' if result.get('point_estimate') == POINT_POSTERIOR_MEDIAN
+             else '')
+    lines += _first([f'`{_record_name(r)}` = {_quantity(r["value"], r.get("units"))}, '
+                     f'calibrated here{point}' for r in calibrated],
+                    DRAWN_STEP_VALUES, 'calibrated values')
+    lines += _first([f'`{_record_name(r)}` = {_quantity(r["value"], r.get("units"))}, fixed: '
+                     + _set_by(r.get('origin', CALIBRATED), r.get('from_step'), r.get('reason'),
+                               data_of(r.get('from_step')))
+                     for r in result.get('fixed') or []],
+                    DRAWN_STEP_VALUES, 'fixed values')
+    return lines
+
+
 def provenance_graph(output_dir):
     '''The provenance graph of the workflow run in ``output_dir``, as a JSON-ready dict:
 
@@ -473,6 +528,8 @@ def provenance_graph(output_dir):
     rows = _target_rows(run)
     values = [target_value(row) for row in rows]
     target_counts = _counts(values)
+    data_names = {sid: os.path.basename(e['path']) for sid, entries in inputs.items()
+                  for e in entries if e['key'] == 'obs_data' and e['path']}
 
     for node in nodes:
         step_id = node['id']
@@ -481,27 +538,41 @@ def provenance_graph(output_dir):
                         else 'not_run', stale=any(stale.values()), counts=target_counts,
                         parameters=[v for v in values if v['origin'] == CALIBRATED
                                     and v['from_step'] is not None], inputs=[])
+            node['lines'] += _first(
+                [f'`{by_name[v["name"]].get("parameterisation_name") or v["name"]}` = '
+                 f'{_quantity(v["value"], v["units"])}, '
+                 + _set_by(v['origin'], v['from_step'], v['reason'],
+                           data_names.get(v['from_step']))
+                 for v in values if v['from_step']], DRAWN_VALUES, 'merged values')
             continue
         step_result = run['steps'].get(step_id)
         done = _done(step_result)
         mark = {'step': CALIBRATED, 'values': SET_BY_HAND}.get(node['kind'])
+        if by_id[step_id].get('by_hand'):
+            mark = SET_BY_HAND
         node.update(mark=mark if done else None,
                     status='done' if done else 'not_run', stale=stale[step_id],
                     counts=_step_counts(step_result) if done else {},
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
         if done and node['kind'] == 'values':
-            node['lines'] = [_described(v) for v in node['parameters']]
+            node['lines'] = [_set_record_line(r) for r in step_result.get('set', [])] + \
+                [flowchart.set_line(t) for t in step_result.get('thetas', [])]
+            if by_id[step_id].get('point'):
+                node['lines'].append(flowchart.POINT_ONLY)
         if done and 'n_points' in step_result:
             points = step_result['n_points']
             node['lines'].append(f'{points} point{"" if points == 1 else "s"}, '
                                  f'{step_result["n_failed"]} failed')
+        written = []
+        if done:
             written = [p for p in [step_result.get('sweep_results')]
-                       + list(step_result.get('plots') or []) if p]
-            if written:
-                figures.append(_figure_node(step_id, written, run['output_dir'], node['stale']))
-                edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
-                              'style': 'writes'})
+                       + list(step_result.get('plots') or [])
+                       + list(step_result.get('figures') or []) if p]
+        if written:
+            figures.append(_figure_node(step_id, written, run['output_dir'], node['stale']))
+            edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
+                          'style': 'writes'})
         observables = by_id[step_id].get('n_data_items', 0)
         helpers = by_id[step_id].get('n_helper_items', 0)
         if done and observables + helpers:
@@ -509,26 +580,45 @@ def provenance_graph(output_dir):
         obs_data = next((e for e in inputs[step_id] if e['key'] == 'obs_data'), None)
         if obs_data:
             node['lines'].append(f'data `{os.path.basename(obs_data["path"])}`')
-        if node['counts'].get('fixed'):
-            node['lines'].append(f'{node["counts"]["fixed"]} fixed by earlier steps')
+        if done and node['kind'] != 'values':
+            node['lines'] += _step_value_lines(step_result, data_names.get)
         if any(e['key'] == 'module_library' and e['status'] != CURRENT for e in inputs[step_id]):
             node['lines'].append('module library changed since it ran')
 
     source_values = [v for v in values if v['origin'] in (INHERITED, UNCLASSIFIED)]
     source_counts = _counts(source_values)
+    target_line = flowchart.model_line(_target_model(run))
     source = {'id': SOURCE_NODE, 'title': 'Model source', 'kind': 'source',
               'mark': _mark(source_counts),
-              'lines': [flowchart.model_line(_target_model(run))] +
+              'lines': [target_line] +
                        [f'{source_counts[m]} {_MARK_LABELS[m]}' for m in (INHERITED, UNCLASSIFIED)
-                        if source_counts[m]],
+                        if source_counts[m]] +
+                       _first([_fixed_line(v) for v in source_values], DRAWN_VALUES,
+                              'values of the model source'),
               'status': 'done', 'stale': False, 'counts': source_counts,
               'parameters': source_values, 'inputs': []}
     extra = [source]
-    edges = [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'generates', 'style': 'order'}
-             for s in steps if not s['depends_on'] and s['kind'] != 'set'] + edges
+    generates = []
+    for raw in run['workflow'].get('steps', []):
+        model = _generated_model(raw, run['steps'].get(raw.get('id')))
+        if model is None:
+            continue
+        line = flowchart.model_line(model)
+        node_id = SOURCE_NODE if 'select' in model or line == target_line else next(
+            (n['id'] for n in extra if n['lines'][0] == line), None)
+        if node_id is None:
+            # a step model that is not the target's has a source box of its own
+            node_id = f'{SOURCE_NODE}{len(extra)}'
+            extra.append({'id': node_id, 'title': 'Model source', 'kind': 'source',
+                          'mark': None, 'lines': [line], 'status': 'done', 'stale': False,
+                          'counts': {}, 'parameters': [], 'inputs': []})
+        generates.append({'from': node_id, 'to': raw['id'], 'label': 'generates',
+                          'style': 'order'})
+    edges = generates + edges
     edges += [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'scaled from', 'style': 'order'}
               for s in steps if any(entry.get('of') == INHERITED_BASE
                                     for entry in s.get('set') or [])]
+    given_to = _given_to(edges)
     for node_id, title, origin in ((MEASURED_NODE, 'Measured values', MEASURED),
                                    (DERIVED_NODE, 'Derived values', DERIVED),
                                    (HAND_NODE, 'Values set by hand', SET_BY_HAND),
@@ -538,7 +628,7 @@ def provenance_graph(output_dir):
         given = [v for v in values if v['origin'] == origin and not v['from_step']]
         if given:
             extra.append(_values_node(node_id, title, origin, given))
-            edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
+            edges.append({'from': node_id, 'to': given_to, 'label': _MARK_LABELS[origin],
                           'style': 'given'})
     constants = _fixed_constants(rows, values)
     if constants:
@@ -551,14 +641,6 @@ def provenance_graph(output_dir):
         # a constant comes from a derived value the target uses, so the derived box exists
         edges.append({'from': FIXED_NODE, 'to': DERIVED_NODE, 'label': 'constants of',
                       'style': 'given'})
-    for entry in _external_figures(run, result):
-        from_node = TARGET_NODE if entry['from'] == 'target' else entry['from']
-        if from_node != TARGET_NODE and from_node not in stale:
-            continue                                 # names a step this run does not have
-        from_stale = any(stale.values()) if from_node == TARGET_NODE else stale[from_node]
-        node, written, external_edges = _external_node(entry, run, from_node, from_stale)
-        figures += [node] + written
-        edges += external_edges
     return {
         'schema_version': SCHEMA_VERSION,
         'workflow': {'name': run['workflow'].get('workflow_name'), 'output_dir': run['output_dir'],
@@ -574,6 +656,13 @@ def provenance_graph(output_dir):
         'code': {key: (result or {}).get(key) for key in
                  ('libcuflynx_version', 'libcuflynx_git', 'project_git', 'libcellml_version')},
         'counts': target_counts, 'nodes': extra + nodes + figures, 'edges': edges}
+
+
+def _given_to(edges):
+    '''The node the boxes of values given in the parameters files (measured, derived, set by
+    hand, calibrated before the run) point to: the model source, since those values are in the
+    model of every step generated from it; the target when no step comes from the source.'''
+    return SOURCE_NODE if any(e['from'] == SOURCE_NODE for e in edges) else TARGET_NODE
 
 
 # -- drawing -----------------------------------------------------------------------------------
@@ -610,14 +699,58 @@ def _box_height(node):
     return 2 * _PADDING + 2 * _LINE + (len(_box_lines(node)) + 1) * _LINE
 
 
+def _feeds_target(nodes, edges):
+    '''The ids of the target and of every box with a path to it.'''
+    incoming = {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    feeds, todo = set(), [TARGET_NODE] if any(n['id'] == TARGET_NODE for n in nodes) else []
+    while todo:
+        node_id = todo.pop()
+        if node_id not in feeds:
+            feeds.add(node_id)
+            todo.extend(incoming.get(node_id, []))
+    return feeds
+
+
+def _output_levels(nodes, edges, level):
+    '''``level`` with every output (a box with no path to the target: a sweep, a figure step,
+    the files they wrote) at the target's row or below, so it is drawn beside or after the
+    target rather than among the steps the target is built from.'''
+    feeds = _feeds_target(nodes, edges)
+    if not feeds:
+        return level
+    floor = level[TARGET_NODE]
+    incoming = {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    placed = {}
+    for node_id in sorted(level, key=level.get):
+        below = 1 + max((placed[p] for p in incoming.get(node_id, [])), default=-1)
+        placed[node_id] = level[node_id] if node_id in feeds else max(floor, below)
+    return placed
+
+
 def _layout(graph):
     '''``{node id: (x, y, height, row)}``, ``{(from, to): lane x}`` for the arrows that pass a
     row, and the drawing's width and height.'''
     nodes, edges = graph['nodes'], graph['edges']
-    level = flowchart.levels(nodes, edges)
+    level = _output_levels(nodes, edges, flowchart.levels(nodes, edges))
     rows = {}
     for node in nodes:
         rows.setdefault(level[node['id']], []).append(node)
+    # in a row, the boxes the target is built from first, then the outputs, right of the target
+    # and each under what it reads
+    feeds = _feeds_target(nodes, edges)
+    incoming, column = {}, {}
+    for edge in edges:
+        incoming.setdefault(edge['to'], []).append(edge['from'])
+    for depth in sorted(rows):
+        outputs = [n for n in rows[depth] if n['id'] not in feeds]
+        outputs.sort(key=lambda n: max((column[p] for p in incoming.get(n['id'], [])
+                                        if p in column), default=-1))
+        rows[depth] = [n for n in rows[depth] if n['id'] in feeds] + outputs
+        column.update({n['id']: i for i, n in enumerate(rows[depth])})
     widest = max(len(row) for row in rows.values())
     boxes_width = 2 * _MARGIN + widest * _BOX_WIDTH + (widest - 1) * _GAP_X
     long_edges = [(e['from'], e['to']) for e in edges if level[e['to']] - level[e['from']] > 1]

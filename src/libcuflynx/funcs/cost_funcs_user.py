@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import gammaln
 
+from libcuflynx.errors import CAInputError
 from libcuflynx.param_id.differentiable import differentiable
 from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
 
@@ -305,24 +306,16 @@ def multimodal_gaussian(output, prob_dist_params, weight):
     keys_list = [*prob_dist_params]
     keys_list.sort()
     if not isinstance(prob_dist_params, dict):
-        print("!!!!!!!!!!!!")
-        print("ERROR prob_dist_params in obs_data.json needs to be a dict! The entries should be:")
-        print(allowable_keys_list)
-        print("!!!!!!!!!!!!")
-        exit()
+        raise CAInputError(f"prob_dist_params in obs_data.json needs to be a dict with entries "
+                           f"{allowable_keys_list}")
 
     if keys_list != allowable_keys_list:
-        print("!!!!!!!!!!!!")
-        print("ERROR prob_dist_params in obs_data.json needs to be a dict with entries:")
-        print(allowable_keys_list)
-        print("!!!!!!!!!!!!")
-        exit()
+        raise CAInputError(f"prob_dist_params in obs_data.json needs to be a dict with entries "
+                           f"{allowable_keys_list}, got {keys_list}")
 
     if sum(prob_dist_params["scales"]) != 1:
-        print("!!!!!!!!!!!!")
-        print("ERROR scales in prob_dist_params for multimodal_gaussian in obs_data.json need to sum to 1")
-        print("!!!!!!!!!!!!")
-        exit()
+        raise CAInputError("scales in prob_dist_params for multimodal_gaussian in obs_data.json "
+                           "need to sum to 1")
 
     v_vec = np.zeros(len(prob_dist_params["means"]))
     for idx, (desired_mean, std, scale) in enumerate(
