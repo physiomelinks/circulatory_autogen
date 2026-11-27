@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed
+
+- The best-fit reconstruction pages and `percent_error_vec` give a data_item that references
+  an item in an earlier sub-experiment or experiment (for example a ratio of two
+  sub-experiments' currents) the value the cost was scored on. They recomputed the referenced
+  item from the referencing segment's own trace, so such a ratio read 1.0. The calibration
+  itself was not affected.
+
 ## 0.8.0 — 2026-11-27
 
 The first release since 0.7.3. It changes input file formats (convert yours once with

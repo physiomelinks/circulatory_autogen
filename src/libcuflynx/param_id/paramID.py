@@ -3629,6 +3629,26 @@ class ParamID():
         finally:
             self._accumulating_temp_results = previous
 
+    def obs_output_dicts_per_segment(self, operands_outputs_list, get_all_series=False):
+        """``get_obs_output_dict`` for every segment, in order, with one ``temp_results`` table.
+
+        ``operands_outputs_list`` is indexed like ``get_cost_and_obs_from_params``'s operands
+        (flat over experiments, then sub-experiments). Each item's value is right in its own
+        segment's dict, including an item that references an item in an earlier segment, as in
+        the cost. Returns a list of dicts (with ``get_all_series``, a list of
+        ``(dict, all_series)``); a segment with no operands gives ``None``
+        (``(None, None)``).
+        """
+        flat_segments = [(exp, sub) for exp, num in enumerate(self.protocol_info['num_sub_per_exp'])
+                         for sub in range(num)]
+        out = []
+        with self.accumulating_temp_results():
+            for flat, operands in enumerate(operands_outputs_list):
+                exp_idx, sub_idx = flat_segments[flat]
+                with self.evaluating_segment(exp_idx, sub_idx):
+                    out.append(self.get_obs_output_dict(operands, get_all_series=get_all_series))
+        return out
+
     @contextlib.contextmanager
     def evaluating_segment(self, exp_idx, sub_idx):
         """Mark which (experiment, sub-experiment)'s operands the next evaluations receive.
@@ -3740,7 +3760,8 @@ A caller that steps through the segments in order does so inside
         for JJ in range(len(operands_outputs)):
             if self.obs_info["data_types"][JJ] == 'frequency':
                 pass
-            elif get_all_series and not self.emulates_features:
+            elif (get_all_series and not self.emulates_features
+                  and self._item_belongs_to_segment(JJ, exp_idx, sub_idx)):
                 # An emulator has no series for this item; the None left in place
                 # is what says so. Running the operation's series branch on an
                 # already-reduced scalar would put a length-1 "trace" here, which
