@@ -138,23 +138,8 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Take the notes from CHANGELOG.md
-      id: notes
-      run: |
-        version="${GITHUB_REF_NAME#v}"
-        # The section for this version, from its heading to the next `## ` heading. Written
-        # to a file rather than an output: release notes are long and contain everything
-        # awkward for a shell variable.
-        awk -v v="$version" '
-          $0 ~ "^## "v"( |$|—)" {found=1; next}
-          found && /^## / {exit}
-          found {print}
-        ' CHANGELOG.md > notes.md
-        if [ ! -s notes.md ]; then
-          echo "::warning::no CHANGELOG.md section for $version; publishing a stub"
-          printf 'See CHANGELOG.md.\n' > notes.md
-        fi
-        printf '\n---\n\nInstall: `pip install libcuflynx==%s`\nPyPI: https://pypi.org/project/libcuflynx/%s/\n' \
-          "$version" "$version" >> notes.md
+      # The version's section, shortened to fit GitHub's release body limit when it is longer.
+      run: python3 .github/scripts/release_notes.py "${GITHUB_REF_NAME#v}" CHANGELOG.md notes.md
 
     - name: Create it
       env:
