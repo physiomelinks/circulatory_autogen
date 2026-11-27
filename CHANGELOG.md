@@ -2343,6 +2343,14 @@ point. A zero, negative or wrong-length `std` is a parse error naming the item.
 
 ### Studies, commands, provenance and reporting
 
+#### Fixed — a config with no `UQ_options` or `plot_predictions` calibrates and plots
+
+- A config that names no `UQ_options` (the `cuflynx-init` starter, which sets `do_uq: false`)
+  ran its calibration and then stopped with `KeyError: 'UQ_options'`, and `cuflynx-plot`
+  stopped the same way, and then on `plot_predictions`. The parser gives `UQ_options` the
+  defaults (`{}`) and `plot_predictions` the shipped yaml's `true`, so the starter generates,
+  calibrates and plots from a clean `pip install libcuflynx`.
+
 #### Changed — bad input to the parsers and generators raises `CAInputError` instead of exiting
 
 - The user_inputs, module array and parameters parsers (`PrimitiveParsers`, `ModelParsers`), the
